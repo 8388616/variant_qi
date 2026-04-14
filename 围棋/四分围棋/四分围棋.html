@@ -1,0 +1,1059 @@
+﻿<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=2.0, user-scalable=yes">
+    <title>四分围棋</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            user-select: none;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        html, body {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            overflow-x: hidden;
+        }
+
+        body {
+            background: #2b5e3b;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            font-family: 'Segoe UI', Roboto, sans-serif;
+            padding: 10px;
+        }
+
+        .game-wrapper {
+            background: #d9c8ac;
+            padding: 40px;
+            border-radius: 28px;
+            box-shadow: 0 20px 30px rgba(0,0,0,0.6);
+            border: 2px solid #6b4a2e;
+            width: 100%;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .top-panel {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: space-between;
+            align-items: center;
+            background: #8f6b4f;
+            padding: 12px 20px;
+            border-radius: 40px;
+            color: #f9eed7;
+            font-weight: bold;
+            margin-bottom: 20px;
+            border-bottom: 4px solid #4d2f1b;
+            gap: 10px;
+        }
+
+        .left-group {
+            display: flex;
+            gap: 30px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .side-select {
+            display: flex;
+            gap: 30px;
+            flex-wrap: wrap;
+        }
+
+            .side-select label {
+                font-size: 1.1rem;
+                cursor: pointer;
+                display: flex;
+                align-items: center;
+                gap: 5px;
+            }
+
+            .side-select input {
+                transform: scale(1.2);
+                margin: 0;
+            }
+
+        .komi-info {
+            background: #3e2e21;
+            padding: 6px 20px;
+            border-radius: 30px;
+            color: #ffd966;
+            font-size: 1rem;
+            white-space: nowrap;
+        }
+
+        .color-status {
+            background: #3e2e21;
+            padding: 6px 16px;
+            border-radius: 30px;
+            color: #ffd966;
+            white-space: nowrap;
+        }
+
+        .main-area {
+            display: flex;
+            gap: 20px;
+            align-items: flex-start;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+
+        .button-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            width: 140px;
+        }
+
+        .ctrl-btn {
+            background: #b88a4b;
+            border: none;
+            color: white;
+            font-weight: bold;
+            padding: 12px 8px;
+            border-radius: 30px;
+            font-size: 1rem;
+            border-bottom: 5px solid #5e3e1e;
+            cursor: pointer;
+            transition: 0.08s;
+            text-align: center;
+        }
+
+            .ctrl-btn:active {
+                border-bottom-width: 2px;
+                transform: translateY(3px);
+            }
+
+        .board-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            flex: 0 0 auto;
+            width: 100%;
+            max-width: 600px;
+        }
+
+        canvas {
+            display: block;
+            background: #deb887;
+            width: 100%;
+            height: auto;
+            aspect-ratio: 1 / 1;
+            border-radius: 4px;
+            box-shadow: inset 0 0 0 1px #6b4a2e, 0 10px 15px #3a2e1e;
+            max-width: 100%;
+        }
+
+        .info-panel {
+            background: #8f6b4f;
+            padding: 20px 16px;
+            border-radius: 20px;
+            color: #efdfbb;
+            width: 100%;
+            max-width: 280px;
+            border: 1px solid #c9a450;
+            margin: 0 auto;
+            min-height: 200px;
+            display: flex;
+            flex-direction: column;
+            margin-bottom: 20px;
+            border-bottom: 4px solid #4d2f1b;
+        }
+
+        .turn-box {
+            background: #3e2e21;
+            padding: 12px;
+            border-radius: 50px;
+            text-align: center;
+            color: #ffd966;
+            font-size: 1.2rem;
+            margin-bottom: 20px;
+        }
+
+        .score-box {
+            background: #3e2e21;
+            padding: 14px;
+            border-radius: 16px;
+            line-height: 1.6;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }
+
+        .score-title {
+            font-size: 1.3rem;
+            margin-bottom: 10px;
+        }
+
+        .score-content {
+            min-height: 60px;
+        }
+
+        @media (max-width: 700px) {
+            .game-wrapper {
+                padding: 12px;
+            }
+
+            .button-panel {
+                display: flex;
+                flex-direction: row;
+                flex-wrap: wrap;
+                justify-content: center;
+                width: 100%;
+                margin: 10px 0 0 0;
+                gap: 10px;
+            }
+
+            .button-panel .ctrl-btn {
+                width: calc(50% - 10px);
+                min-width: 120px;
+            }
+
+            .info-panel {
+                max-width: 100%;
+                margin-top: 10px;
+            }
+
+            .top-panel {
+                padding: 10px 12px;
+            }
+
+            .left-group {
+                gap: 15px;
+            }
+
+            .side-select label {
+                font-size: 0.95rem;
+            }
+
+            .komi-info {
+                white-space: normal;
+                font-size: 0.9rem;
+            }
+
+            .color-status {
+                white-space: normal;
+                font-size: 0.9rem;
+            }
+
+            .board-container {
+                max-width: 100%;
+            }
+        }
+
+        .touch-device .mobile-actions {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="game-wrapper">
+        <div class="top-panel">
+            <div class="left-group">
+                <div class="side-select">
+                    <label style="color: #b1d1fc;"><input type="radio" name="color" value="black" id="radioBlack"> ⚫ 黑方</label>
+                    <label style="color: #ffeeaa;"><input type="radio" name="color" value="white" id="radioWhite"> ⚪ 白方</label>
+                </div>
+                <div class="komi-info">黑贴白3.25点</div>
+            </div>
+            <div class="color-status" id="colorStatus">未选择阵营</div>
+        </div>
+
+        <div class="main-area">
+            <div class="button-panel">
+                <button class="ctrl-btn" id="newGameBtn">🔄 新局</button>
+                <button class="ctrl-btn" id="estimateBtn">📊 形势判断</button>
+                <button class="ctrl-btn" id="passBtn">🚫 虚着</button>
+                <button class="ctrl-btn" id="undoBtn">↩ 悔棋</button>
+                <button class="ctrl-btn" id="resignBtn">🏳 认输</button>
+                <button class="ctrl-btn" id="endReqBtn">⏹ 申请终局</button>
+            </div>
+
+            <div class="board-container">
+                <canvas id="goBoard" width="600" height="600"></canvas>
+            </div>
+
+            <div class="info-panel">
+                <div class="turn-box" id="turnDisplay"></div>
+                <div class="score-box">
+                    <div class="score-title" id="scoreTitle"></div>
+                    <div class="score-content">
+                        <div id="scoreBoard"></div>
+                        <div id="leadInfo" style="margin-top:12px; color: #ffb870;"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const PADDING = 25;
+        const BOARD_SIZE = 19;
+        const KOMI = 3.25;
+        const CELL_SIZE = (600 - 2 * PADDING) / (BOARD_SIZE - 1);
+
+        const isTouchDevice = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+        document.body.classList.add(isTouchDevice ? 'touch-device' : 'no-touch');
+
+        let board = Array(BOARD_SIZE).fill().map(() => Array(BOARD_SIZE).fill(0));
+        let currentPlayer = 1;
+        let myColor = null;
+        let isMyTurn = false;
+
+        let hoverRow = -1, hoverCol = -1;
+        let isHoverValid = false;
+
+        // 历史局面存储：数组（用于悔棋）和 Set（用于快速全同判断）
+        let historyBoards = [];            // 数组，每个元素是棋盘深拷贝
+        let historyBoardSet = new Set();   // 字符串形式的棋盘，用于快速劫判断
+
+        let lastMoveMarkers = [];
+        let showEstimateActive = false;
+
+        let cachedLiveBoard = null;
+        let cachedTerritory = null;
+
+        let ws;
+
+        // ---- 四分围棋新增变量 ----
+        let phase = 1; // 1: 第一阶段（四分区），2: 第二阶段（全盘）
+
+        const canvas = document.getElementById('goBoard');
+        const ctx = canvas.getContext('2d');
+        const turnDisplay = document.getElementById('turnDisplay');
+        const colorStatus = document.getElementById('colorStatus');
+        const radioBlack = document.getElementById('radioBlack');
+        const radioWhite = document.getElementById('radioWhite');
+        const scoreTitle = document.getElementById('scoreTitle');
+        const scoreBoard = document.getElementById('scoreBoard');
+        const leadInfo = document.getElementById('leadInfo');
+
+        function formatScore(num) {
+            let str = num.toFixed(2);
+            str = str.replace(/\.?0+$/, '');
+            return str;
+        }
+
+        function deepCopyBoard(src) {
+            return src.map(row => row.slice());
+        }
+
+        function boardsEqual(b1, b2) {
+            for (let i = 0; i < BOARD_SIZE; i++) {
+                for (let j = 0; j < BOARD_SIZE; j++) {
+                    if (b1[i][j] !== b2[i][j]) return false;
+                }
+            }
+            return true;
+        }
+
+        function boardToString(board) {
+            return board.map(row => row.join(',')).join(';');
+        }
+
+        function rebuildHistorySet() {
+            historyBoardSet.clear();
+            historyBoards.forEach(b => historyBoardSet.add(boardToString(b)));
+        }
+
+        function isRepeatBoard(newBoard) {
+            return historyBoardSet.has(boardToString(newBoard));
+        }
+
+        function removeGroup(board, row, col, color) {
+            let queue = [[row, col]];
+            board[row][col] = 0;
+            while (queue.length) {
+                let [r, c] = queue.shift();
+                const dirs = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+                for (let [dr, dc] of dirs) {
+                    let nr = r + dr, nc = c + dc;
+                    if (nr >= 0 && nr < BOARD_SIZE && nc >= 0 && nc < BOARD_SIZE && board[nr][nc] === color) {
+                        board[nr][nc] = 0;
+                        queue.push([nr, nc]);
+                    }
+                }
+            }
+        }
+
+        // 【修改点】在第一阶段，将行或列索引为 9 的邻居视为无气（即不提供气）
+        function hasLiberty(board, row, col) {
+            let color = board[row][col];
+            if (color === 0) return false;
+            let visited = Array(BOARD_SIZE).fill().map(() => Array(BOARD_SIZE).fill(false));
+            let queue = [[row, col]];
+            visited[row][col] = true;
+            const dirs = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+            while (queue.length) {
+                let [r, c] = queue.shift();
+                for (let [dr, dc] of dirs) {
+                    let nr = r + dr, nc = c + dc;
+                    if (nr < 0 || nr >= BOARD_SIZE || nc < 0 || nc >= BOARD_SIZE) continue;
+                    // 四分围棋第一阶段：中央十字（行9或列9）不提供气
+                    if (phase === 1 && (nr === 9 || nc === 9)) continue;
+                    if (board[nr][nc] === 0) return true;
+                    if (board[nr][nc] === color && !visited[nr][nc]) {
+                        visited[nr][nc] = true;
+                        queue.push([nr, nc]);
+                    }
+                }
+            }
+            return false;
+        }
+
+        function tryPlaceStone(boardBefore, row, col, playerVal) {
+            if (row < 0 || row >= BOARD_SIZE || col < 0 || col >= BOARD_SIZE || boardBefore[row][col] !== 0) return null;
+            let newBoard = deepCopyBoard(boardBefore);
+            newBoard[row][col] = playerVal;
+
+            for (let i = 0; i < BOARD_SIZE; i++) {
+                for (let j = 0; j < BOARD_SIZE; j++) {
+                    if (newBoard[i][j] === 3 - playerVal && !hasLiberty(newBoard, i, j)) {
+                        removeGroup(newBoard, i, j, 3 - playerVal);
+                    }
+                }
+            }
+
+            for (let i = 0; i < BOARD_SIZE; i++) {
+                for (let j = 0; j < BOARD_SIZE; j++) {
+                    if (newBoard[i][j] === playerVal && !hasLiberty(newBoard, i, j)) {
+                        removeGroup(newBoard, i, j, playerVal);
+                    }
+                }
+            }
+
+            return newBoard;
+        }
+
+        function drawBoard() {
+            ctx.clearRect(0, 0, 600, 600);
+            const cellSize = CELL_SIZE;
+
+            // 画网格
+            ctx.lineWidth = 1.5;
+            ctx.strokeStyle = '#3a281c';
+            for (let i = 0; i < BOARD_SIZE; i++) {
+                ctx.beginPath();
+                ctx.moveTo(PADDING + i * cellSize, PADDING);
+                ctx.lineTo(PADDING + i * cellSize, 600 - PADDING);
+                ctx.stroke();
+                ctx.moveTo(PADDING, PADDING + i * cellSize);
+                ctx.lineTo(600 - PADDING, PADDING + i * cellSize);
+                ctx.stroke();
+            }
+
+            // 星位
+            const stars = [3, 9, 15];
+            ctx.fillStyle = '#3a281c';
+            stars.forEach(r => stars.forEach(c => {
+                ctx.beginPath();
+                ctx.arc(PADDING + c * cellSize, PADDING + r * cellSize, cellSize * 0.12, 0, 2 * Math.PI);
+                ctx.fill();
+            }));
+
+            if (phase === 1) {
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.8)'; 
+
+                ctx.fillRect(PADDING + 8 * CELL_SIZE, PADDING, 2 * CELL_SIZE, 600 - 2 * PADDING);
+                ctx.fillRect(PADDING, PADDING + 8 * CELL_SIZE, 8 * CELL_SIZE, 2 * CELL_SIZE);
+                ctx.fillRect(PADDING + 10 * CELL_SIZE, PADDING + 8 * CELL_SIZE, 8 * CELL_SIZE, 2 * CELL_SIZE);
+            }
+
+            // 棋子
+            for (let r = 0; r < BOARD_SIZE; r++) {
+                for (let c = 0; c < BOARD_SIZE; c++) {
+                    if (board[r][c] === 0) continue;
+                    const x = PADDING + c * cellSize;
+                    const y = PADDING + r * cellSize;
+                    const radius = cellSize * 0.44;
+
+                    ctx.shadowBlur = 6;
+                    ctx.shadowColor = 'rgba(0,0,0,0.5)';
+                    ctx.shadowOffsetY = 2;
+
+                    const gradient = ctx.createRadialGradient(x - 3, y - 3, radius * 0.2, x, y, radius * 1.2);
+                    if (board[r][c] === 1) {
+                        gradient.addColorStop(0, '#444');
+                        gradient.addColorStop(0.6, '#222');
+                        gradient.addColorStop(1, '#111');
+                    } else {
+                        gradient.addColorStop(0, '#fff');
+                        gradient.addColorStop(0.5, '#eee');
+                        gradient.addColorStop(1, '#aaa');
+                    }
+                    ctx.beginPath();
+                    ctx.arc(x, y, radius, 0, 2 * Math.PI);
+                    ctx.fillStyle = gradient;
+                    ctx.fill();
+
+                    ctx.shadowBlur = 0;
+                    ctx.shadowOffsetY = 0;
+                    ctx.beginPath();
+                    ctx.arc(x - 3, y - 3, radius * 0.15, 0, 2 * Math.PI);
+                    if (board[r][c] === 1)
+                        ctx.fillStyle = '#444';
+                    else
+                        ctx.fillStyle = '#fff';
+
+                    ctx.fill();
+                }
+            }
+
+            // 前一步落子标记
+            const markLen = cellSize * 0.352;
+            lastMoveMarkers.forEach(({ row, col, color }) => {
+                const x = PADDING + col * cellSize;
+                const y = PADDING + row * cellSize;
+                ctx.beginPath();
+                ctx.moveTo(x, y);
+                ctx.lineTo(x + markLen, y);
+                ctx.lineTo(x, y + markLen);
+                ctx.closePath();
+                if (color === 1) ctx.fillStyle = '#ffffff';
+                else if (color === 2) ctx.fillStyle = '#222222';
+                else ctx.fillStyle = '#ff4444';
+                ctx.fill();
+            });
+
+            // 坐标：上方字母
+            ctx.font = 'bold 14px Arial';
+            ctx.fillStyle = '#3a281c';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            for (let c = 0; c < BOARD_SIZE; c++) {
+                let letter = String.fromCharCode(65 + c);
+                let x = PADDING + c * cellSize;
+                let y = 0.6 * PADDING;
+                ctx.fillText(letter, x, y);
+            }
+            // 左侧数字
+            for (let r = 0; r < BOARD_SIZE; r++) {
+                let number = (r + 1).toString();
+                let x = PADDING / 2;
+                let y = PADDING + r * cellSize;
+                ctx.fillText(number, x, y);
+            }
+
+            // 悬停预览（仅在合法位置显示）
+            if (isMyTurn && isHoverValid && hoverRow >= 0 && hoverCol >= 0 && board[hoverRow][hoverCol] === 0) {
+                // 额外检查第一阶段不能下在禁止区域
+                if (!(phase === 1 && (hoverRow === 9 || hoverCol === 9))) {
+                    ctx.globalAlpha = 0.45;
+                    ctx.beginPath();
+                    ctx.arc(PADDING + hoverCol * cellSize, PADDING + hoverRow * cellSize, cellSize * 0.44, 0, 2 * Math.PI);
+                    ctx.fillStyle = myColor === 'black' ? '#222' : '#ddd';
+                    ctx.fill();
+                    ctx.globalAlpha = 1.0;
+                }
+            }
+        }
+
+        function isLibertySurroundedByOpponent(board, libertyRow, libertyCol, opponentColor) {
+            // 检查一个空点（气点）是否至少被一个对方棋子邻接
+            const dirs = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+            for (let [dr, dc] of dirs) {
+                let nr = libertyRow + dr, nc = libertyCol + dc;
+                if (nr < 0 || nr >= BOARD_SIZE || nc < 0 || nc >= BOARD_SIZE) continue;
+                if (board[nr][nc] === opponentColor) return true;
+            }
+            return false;
+        }
+
+        function removeDeadAndDying(srcBoard) {
+            let boardCopy = deepCopyBoard(srcBoard);
+            let changed = true;
+            while (changed) {
+                changed = false;
+                let visited = Array(BOARD_SIZE).fill().map(() => Array(BOARD_SIZE).fill(false));
+
+                for (let r = 0; r < BOARD_SIZE; r++) {
+                    for (let c = 0; c < BOARD_SIZE; c++) {
+                        if (boardCopy[r][c] !== 0 && !visited[r][c]) {
+                            let color = boardCopy[r][c];
+                            // BFS 收集同色块
+                            let queue = [[r, c]];
+                            visited[r][c] = true;
+                            let stones = [[r, c]];
+                            let liberties = new Set(); // 气点坐标字符串
+                            let idx = 0;
+                            while (idx < queue.length) {
+                                let [rr, cc] = queue[idx++];
+                                const dirs = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+                                for (let [dr, dc] of dirs) {
+                                    let nr = rr + dr, nc = cc + dc;
+                                    if (nr < 0 || nr >= BOARD_SIZE || nc < 0 || nc >= BOARD_SIZE) continue;
+                                    if (boardCopy[nr][nc] === 0) {
+                                        liberties.add(nr + ',' + nc);
+                                    } else if (boardCopy[nr][nc] === color && !visited[nr][nc]) {
+                                        visited[nr][nc] = true;
+                                        queue.push([nr, nc]);
+                                        stones.push([nr, nc]);
+                                    }
+                                }
+                            }
+
+                            // 阶段1：无气块直接移除
+                            if (liberties.size === 0) {
+                                for (let [rr, cc] of stones) {
+                                    boardCopy[rr][cc] = 0;
+                                }
+                                changed = true;
+                                continue;
+                            }
+
+                            // 阶段2：有气但气点被对方完全包围且气数较少（<=2）的块视为死子
+                            if (liberties.size <= 2) {
+                                let allLibertiesControlled = true;
+                                for (let lib of liberties) {
+                                    let [lr, lc] = lib.split(',').map(Number);
+                                    if (!isLibertySurroundedByOpponent(boardCopy, lr, lc, 3 - color)) {
+                                        allLibertiesControlled = false;
+                                        break;
+                                    }
+                                }
+                                if (allLibertiesControlled) {
+                                    for (let [rr, cc] of stones) {
+                                        boardCopy[rr][cc] = 0;
+                                    }
+                                    changed = true;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            return boardCopy;
+        }
+
+        // ---------- 基于曼哈顿距离和范围分配领地 ----------
+        function assignTerritoryWithRange(liveBoard) {
+            // 收集所有活子的坐标
+            let blackStones = [];
+            let whiteStones = [];
+            for (let r = 0; r < BOARD_SIZE; r++) {
+                for (let c = 0; c < BOARD_SIZE; c++) {
+                    if (liveBoard[r][c] === 1) blackStones.push([r, c]);
+                    else if (liveBoard[r][c] === 2) whiteStones.push([r, c]);
+                }
+            }
+
+            let territory = Array(BOARD_SIZE).fill().map(() => Array(BOARD_SIZE).fill(0)); // 0:未分配,1:黑,2:白,3:平分
+
+            for (let r = 0; r < BOARD_SIZE; r++) {
+                for (let c = 0; c < BOARD_SIZE; c++) {
+                    if (liveBoard[r][c] !== 0) continue; // 只处理空点
+
+                    // 计算到最近黑子和白子的曼哈顿距离
+                    let minDistBlack = Infinity;
+                    let minDistWhite = Infinity;
+                    for (let [br, bc] of blackStones) {
+                        let dist = Math.abs(r - br) + Math.abs(c - bc);
+                        if (dist < minDistBlack) minDistBlack = dist;
+                    }
+                    for (let [wr, wc] of whiteStones) {
+                        let dist = Math.abs(r - wr) + Math.abs(c - wc);
+                        if (dist < minDistWhite) minDistWhite = dist;
+                    }
+
+                    // 判断是否在角上（1路或2路）
+                    let range = (r <= 1 || r >= BOARD_SIZE - 2 || c <= 1 || c >= BOARD_SIZE - 2) ? 5 : 4;
+                    let blackInRange = minDistBlack <= range;
+                    let whiteInRange = minDistWhite <= range;
+
+                    if (!blackInRange && !whiteInRange) {
+                        territory[r][c] = 3; // 平分
+                    } else if (blackInRange && !whiteInRange) {
+                        territory[r][c] = 1;
+                    } else if (!blackInRange && whiteInRange) {
+                        territory[r][c] = 2;
+                    } else { // 双方都在范围内
+                        if (minDistBlack < minDistWhite) territory[r][c] = 1;
+                        else if (minDistWhite < minDistBlack) territory[r][c] = 2;
+                        else territory[r][c] = 3;
+                    }
+                }
+            }
+            return territory;
+        }
+
+        // ---------- 计算最终分数 ----------
+        function computeScore(liveBoard, territory) {
+            let blackStones = 0, whiteStones = 0;
+            let blackTerritory = 0, whiteTerritory = 0, publicTerritory = 0;
+            for (let r = 0; r < BOARD_SIZE; r++) {
+                for (let c = 0; c < BOARD_SIZE; c++) {
+                    if (liveBoard[r][c] === 1) blackStones++;
+                    else if (liveBoard[r][c] === 2) whiteStones++;
+                    else {
+                        if (territory[r][c] === 1) blackTerritory++;
+                        else if (territory[r][c] === 2) whiteTerritory++;
+                        else if (territory[r][c] === 3) publicTerritory++;
+                    }
+                }
+            }
+            let blackTotal = blackStones + blackTerritory + publicTerritory / 2;
+            let whiteTotal = whiteStones + whiteTerritory + publicTerritory / 2;
+            return { blackTotal, whiteTotal };
+        }
+
+        // 从原始棋盘直接计算分数（用于终局）
+        function computeScoreFromBoard(srcBoard) {
+            let liveBoard = removeDeadAndDying(srcBoard);
+            let territory = assignTerritoryWithRange(liveBoard);
+            return computeScore(liveBoard, territory);
+        }
+
+        function drawEstimateOverlay(liveBoard, territory) {
+            const cellSize = CELL_SIZE;
+            const dotRadius = cellSize * 0.18; // 统一大小，方形边长 = 2 * dotRadius
+
+            // 1. 画死子标记：黑方死子白方点，白方死子黑方点，改为方形
+            for (let r = 0; r < BOARD_SIZE; r++) {
+                for (let c = 0; c < BOARD_SIZE; c++) {
+                    if (board[r][c] !== 0 && liveBoard[r][c] === 0) {
+                        let x = PADDING + c * cellSize;
+                        let y = PADDING + r * cellSize;
+                        ctx.fillStyle = board[r][c] === 1 ? '#ffffff' : '#222222';
+                        ctx.fillRect(x - dotRadius, y - dotRadius, dotRadius * 2, dotRadius * 2);
+                    }
+                }
+            }
+
+            // 2. 画领地归属点（只画在原始棋盘的空格上，且排除平分点），改为方形
+            for (let r = 0; r < BOARD_SIZE; r++) {
+                for (let c = 0; c < BOARD_SIZE; c++) {
+                    if (board[r][c] !== 0) continue;
+                    let owner = territory[r][c];
+                    if (owner === 0 || owner === 3) continue;
+                    ctx.fillStyle = owner === 1 ? '#222' : '#f0f0f0';
+                    let x = PADDING + c * cellSize;
+                    let y = PADDING + r * cellSize;
+                    ctx.fillRect(x - dotRadius, y - dotRadius, dotRadius * 2, dotRadius * 2);
+                }
+            }
+        }
+
+        function drawBoardWithOverlay() {
+            drawBoard();
+            if (showEstimateActive && cachedLiveBoard && cachedTerritory) {
+                drawEstimateOverlay(cachedLiveBoard, cachedTerritory);
+            }
+        }
+
+        // ---------- 显示形势----------
+        function showEstimate() {
+            if (!showEstimateActive) {
+                clearEstimate();
+                return;
+            }
+            cachedLiveBoard = removeDeadAndDying(board);
+            cachedTerritory = assignTerritoryWithRange(cachedLiveBoard);
+            let { blackTotal, whiteTotal } = computeScore(cachedLiveBoard, cachedTerritory);
+            let lead = blackTotal - whiteTotal - 2 * KOMI;
+            let leadStr = (lead >= 0 ? '+' : '') + formatScore(lead);
+            scoreTitle.innerText = '形势';
+            scoreBoard.innerText = `黑: ${formatScore(blackTotal)} | 白: ${formatScore(whiteTotal)}`;
+            leadInfo.innerText = `黑${leadStr}点`;
+            drawBoardWithOverlay();
+        }
+
+        function clearEstimate() {
+            cachedLiveBoard = null;
+            cachedTerritory = null;
+            scoreTitle.innerText = '';
+            scoreBoard.innerText = '';
+            leadInfo.innerText = '';
+            drawBoard();
+        }
+
+        // ---------- 更新回合显示（手数）----------
+        function updateTurn() {
+            let totalHand = historyBoards.length + 1;
+            let turnText = currentPlayer === 1 ? '⚫ 第' + totalHand + '手' : '⚪ 第' + totalHand + '手';
+            turnDisplay.innerText = turnText;
+            isMyTurn = (myColor === 'black' && currentPlayer === 1) || (myColor === 'white' && currentPlayer === 2);
+            drawBoardWithOverlay();
+        }
+
+        // ---------- WebSocket 通信 ----------
+        function connectWebSocket() {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${protocol}//${window.location.host}`;
+            ws = new WebSocket(wsUrl);
+            ws.onopen = () => console.log('已连接对弈服务器');
+            ws.onmessage = (e) => {
+                const msg = JSON.parse(e.data);
+                handleMessage(msg);
+            };
+            ws.onclose = () => {
+                colorStatus.innerText = '连接断开，重连中...';
+                setTimeout(connectWebSocket, 2000);
+            };
+        }
+
+        function handleMessage(msg) {
+            switch (msg.type) {
+                case 'init':
+                    radioBlack.disabled = msg.blackTaken;
+                    radioWhite.disabled = msg.whiteTaken;
+                    break;
+                case 'colorAssigned':
+                    myColor = msg.color;
+                    colorStatus.innerText = `已选择: ${myColor === 'black' ? '黑方' : '白方'}`;
+                    if (myColor === 'black') radioBlack.checked = true;
+                    else radioWhite.checked = true;
+                    updateTurn();
+                    break;
+                case 'colorTaken':
+                    alert('该颜色已被占用');
+                    break;
+                case 'gameState':
+                    board = msg.board;
+                    currentPlayer = msg.currentPlayer;
+                    historyBoards = msg.historyBoards || [];
+                    rebuildHistorySet(); // 从历史数组重建 Set
+                    lastMoveMarkers = msg.lastMoveMarkers || [];
+                    // 接收阶段
+                    if (msg.phase !== undefined) phase = msg.phase;
+                    if (showEstimateActive) {
+                        cachedLiveBoard = removeDeadAndDying(board);
+                        cachedTerritory = assignTerritoryWithRange(cachedLiveBoard);
+                    }
+                    drawBoardWithOverlay();
+                    updateTurn();
+                    break;
+                case 'broadcast':
+                    if (msg.action === 'move' || msg.action === 'pass') {
+                        // 对方走子：保存当前棋盘到历史，再更新
+                        historyBoards.push(deepCopyBoard(board));
+                        historyBoardSet.add(boardToString(board));
+                        board = msg.board;
+                        currentPlayer = msg.currentPlayer;
+                        lastMoveMarkers = msg.lastMoveMarkers || [];
+                        // 更新阶段
+                        if (msg.phase !== undefined) phase = msg.phase;
+                        if (showEstimateActive) {
+                            cachedLiveBoard = removeDeadAndDying(board);
+                            cachedTerritory = assignTerritoryWithRange(cachedLiveBoard);
+                        }
+                        drawBoardWithOverlay();
+                        updateTurn();
+                    } else if (msg.action === 'undoAccept') {
+                        if (historyBoards.length > 0) {
+                            let lastBoardStr = boardToString(historyBoards[historyBoards.length - 1]);
+                            historyBoardSet.delete(lastBoardStr);
+                            historyBoards.pop();
+                        }
+                        // 更新当前棋盘和玩家
+                        board = msg.board;
+                        currentPlayer = msg.currentPlayer;
+                        lastMoveMarkers = msg.lastMoveMarkers || [];
+                        // 更新阶段
+                        if (msg.phase !== undefined) phase = msg.phase;
+
+                        // 若开启形势判断，异步更新
+                        if (showEstimateActive) {
+                            scheduleEstimateUpdate();
+                        } else {
+                            drawBoardWithOverlay();
+                        }
+                        updateTurn();
+                    } else if (msg.action === 'endAgreed') {
+                        let { blackTotal, whiteTotal } = computeScoreFromBoard(board);
+                        let lead = blackTotal - whiteTotal - 2 * KOMI;
+                        let winner = lead > 0 ? '黑胜' : '白胜';
+                        alert(`对局结束！\n黑: ${formatScore(blackTotal)} 白: ${formatScore(whiteTotal)} (贴${KOMI})\n${winner}`);
+                    } else if (msg.action === 'resign') {
+                        alert(`${msg.player} 认输，对局结束`);
+                        lastMoveMarkers = [];
+                        drawBoardWithOverlay();
+                    }
+                    break;
+                case 'newGame':
+                    // 新局：重置所有状态
+                    board = msg.board; // 空棋盘
+                    currentPlayer = msg.currentPlayer; // 1
+                    lastMoveMarkers = msg.lastMoveMarkers || []; // 空
+                    historyBoards = [];
+                    historyBoardSet.clear();
+                    myColor = null;
+                    phase = 1; // 重置为第一阶段
+                    // 重置颜色选择UI
+                    radioBlack.checked = false;
+                    radioWhite.checked = false;
+                    radioBlack.disabled = msg.blackTaken; // false
+                    radioWhite.disabled = msg.whiteTaken; // false
+                    colorStatus.innerText = '未选择阵营';
+                    // 关闭形势判断
+                    showEstimateActive = false;
+                    clearEstimate(); // 清空分数显示并重绘
+                    drawBoardWithOverlay();
+                    updateTurn();
+                    break;
+                case 'undoRequest':
+                    if (confirm('对方请求悔棋，是否同意？')) {
+                        ws.send(JSON.stringify({ type: 'undoResponse', accept: true }));
+                    } else {
+                        ws.send(JSON.stringify({ type: 'undoResponse', accept: false }));
+                    }
+                    break;
+                case 'endRequest':
+                    if (confirm('对方申请终局并数点，是否同意？')) {
+                        ws.send(JSON.stringify({ type: 'endResponse', accept: true }));
+                    } else {
+                        ws.send(JSON.stringify({ type: 'endResponse', accept: false }));
+                    }
+                    break;
+            }
+        }
+
+        function commitMove(row, col) {
+            if (!isMyTurn) return false;
+            if (board[row][col] !== 0) return false;
+
+            // 第一阶段禁止下在行9或列9（索引9）
+            if (phase === 1 && (row === 9 || col === 9)) {
+                alert('第一阶段不能下在中央十字区域');
+                return false;
+            }
+
+            const playerVal = myColor === 'black' ? 1 : 2;
+            let newBoard = tryPlaceStone(board, row, col, playerVal);
+            if (!newBoard) return false;
+            if (isRepeatBoard(newBoard)) {
+                alert('禁全同：该局面已出现过');
+                return false;
+            }
+
+            historyBoards.push(deepCopyBoard(board));
+            historyBoardSet.add(boardToString(board));
+            board = newBoard;
+            currentPlayer = currentPlayer === 1 ? 2 : 1;
+            lastMoveMarkers = [{ row, col, color: playerVal }];
+            updateTurn();
+
+            // 发送给服务器
+            ws.send(JSON.stringify({
+                type: 'move',
+                board: newBoard,
+                nextPlayer: currentPlayer,
+                lastMoveMarkers: lastMoveMarkers,
+                phase: phase // 当前阶段（服务器会同步更新，但发送当前值）
+            }));
+            return true;
+        }
+
+        // ---------- 坐标转换----------
+        function getClosestIntersection(x, y) {
+            let minDist = Infinity;
+            let closestRow = -1, closestCol = -1;
+            for (let r = 0; r < BOARD_SIZE; r++) {
+                for (let c = 0; c < BOARD_SIZE; c++) {
+                    const ix = PADDING + c * CELL_SIZE;
+                    const iy = PADDING + r * CELL_SIZE;
+                    const dist = Math.hypot(x - ix, y - iy);
+                    if (dist < minDist) {
+                        minDist = dist;
+                        closestRow = r;
+                        closestCol = c;
+                    }
+                }
+            }
+            return { row: closestRow, col: closestCol };
+        }
+
+        canvas.addEventListener('mousemove', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const scale = 600 / rect.width;
+            const x = (e.clientX - rect.left) * scale;
+            const y = (e.clientY - rect.top) * scale;
+            const { row, col } = getClosestIntersection(x, y);
+            hoverRow = row;
+            hoverCol = col;
+            // 悬停有效性：空子 + (第一阶段不能是禁止点)
+            if (board[row] && board[row][col] === 0) {
+                if (phase === 1 && (row === 9 || col === 9)) {
+                    isHoverValid = false;
+                } else {
+                    isHoverValid = true;
+                }
+            } else {
+                isHoverValid = false;
+            }
+            drawBoardWithOverlay();
+        });
+        canvas.addEventListener('mouseleave', () => {
+            isHoverValid = false;
+            hoverRow = -1; hoverCol = -1;
+            drawBoardWithOverlay();
+        });
+        canvas.addEventListener('click', (e) => {
+            if (!isMyTurn) return;
+            const rect = canvas.getBoundingClientRect();
+            const scale = 600 / rect.width;
+            const x = (e.clientX - rect.left) * scale;
+            const y = (e.clientY - rect.top) * scale;
+            const { row, col } = getClosestIntersection(x, y);
+            commitMove(row, col);
+        });
+
+        // 新局按钮事件
+        document.getElementById('newGameBtn').addEventListener('click', () => {
+            if (confirm('确定开始新的一局吗？')) {
+                ws.send(JSON.stringify({ type: 'newGame' }));
+            }
+        });
+
+        document.getElementById('estimateBtn').addEventListener('click', () => {
+            showEstimateActive = !showEstimateActive;
+            if (showEstimateActive) {
+                showEstimate();
+            } else {
+                clearEstimate();
+            }
+        });
+
+        document.getElementById('passBtn').addEventListener('click', () => {
+            if (!isMyTurn)
+                return;
+            historyBoards.push(deepCopyBoard(board));
+            historyBoardSet.add(boardToString(board));
+            currentPlayer = currentPlayer === 1 ? 2 : 1;
+            lastMoveMarkers = [];
+            updateTurn();
+
+            ws.send(JSON.stringify({ type: 'pass', player: myColor, phase: phase }));
+        });
+
+        document.getElementById('undoBtn').addEventListener('click', () => {
+            ws.send(JSON.stringify({ type: 'undoRequest' }));
+        });
+
+        document.getElementById('resignBtn').addEventListener('click', () => {
+            if (confirm('确定认输吗？')) ws.send(JSON.stringify({ type: 'resign', player: myColor }));
+        });
+
+        document.getElementById('endReqBtn').addEventListener('click', () => {
+            ws.send(JSON.stringify({ type: 'endRequest' }));
+        });
+
+        radioBlack.addEventListener('change', function () {
+            if (this.checked && !this.disabled) ws.send(JSON.stringify({ type: 'selectColor', color: 'black' }));
+        });
+
+        radioWhite.addEventListener('change', function () {
+            if (this.checked && !this.disabled) ws.send(JSON.stringify({ type: 'selectColor', color: 'white' }));
+        });
+
+        connectWebSocket();
+    </script>
+</body>
+</html>

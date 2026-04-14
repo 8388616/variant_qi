@@ -1,0 +1,2463 @@
+﻿<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=2.0, user-scalable=yes">
+    <title>六角围棋</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            user-select: none;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        html, body {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            overflow-x: hidden;
+        }
+
+        body {
+            background: #2b5e3b;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            font-family: 'Segoe UI', Roboto, sans-serif;
+            padding: 10px;
+        }
+
+        .game-wrapper {
+            background: #d9c8ac;
+            padding: 40px;
+            border-radius: 28px;
+            box-shadow: 0 20px 30px rgba(0,0,0,0.6);
+            border: 2px solid #6b4a2e;
+            width: 100%;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .top-panel {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: space-between;
+            align-items: center;
+            background: #8f6b4f;
+            padding: 12px 20px;
+            border-radius: 40px;
+            color: #f9eed7;
+            font-weight: bold;
+            margin-bottom: 20px;
+            border-bottom: 4px solid #4d2f1b;
+            gap: 10px;
+        }
+
+        .left-group {
+            display: flex;
+            gap: 30px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .side-select {
+            display: flex;
+            gap: 30px;
+            flex-wrap: wrap;
+        }
+
+            .side-select label {
+                font-size: 1.1rem;
+                cursor: pointer;
+                display: inline-flex;
+                align-items: center;
+                gap: 8px;
+                position: relative;
+            }
+
+            .side-select input[type="radio"] {
+                position: absolute;
+                opacity: 0;
+                width: 0;
+                height: 0;
+                margin: 0;
+            }
+
+            .side-select label::before {
+                content: "";
+                display: inline-block;
+                width: 1em;
+                height: 1em;
+                border-radius: 50%;
+                background-color: white;
+                border: 1.5px solid #6b4a2e;
+                transition: all 0.1s ease;
+                box-sizing: border-box;
+            }
+
+            .side-select label.self-radio::before {
+                border-color: #ff3b6f;
+            }
+
+            .side-select label.self-radio.checked-disabled::before {
+                background-color: #ff3b6f;
+                box-shadow: inset 0 0 0 0.15em white;
+            }
+
+            .side-select label.opponent-radio::before {
+                border-color: #999999;
+            }
+
+            .side-select label.opponent-radio.checked-disabled::before {
+                background-color: #999999;
+                box-shadow: inset 0 0 0 0.15em white;
+            }
+
+        .komi-info {
+            background: #3e2e21;
+            padding: 6px 20px;
+            border-radius: 30px;
+            color: #ffd966;
+            font-size: 1rem;
+            white-space: nowrap;
+        }
+
+        .color-status {
+            background: #3e2e21;
+            padding: 6px 16px;
+            border-radius: 30px;
+            color: #ffd966;
+            white-space: nowrap;
+        }
+
+        .board-size-select {
+            background: #3e2e21;
+            color: #ffd966;
+            border: none;
+            padding: 6px 12px;
+            border-radius: 30px;
+            font-weight: bold;
+            font-size: 0.95rem;
+            cursor: pointer;
+        }
+
+        .right-buttons {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+        }
+
+        .help-btn, .back-to-lobby-btn {
+            background: none;
+            border: none;
+            color: #fff9c2;
+            font-weight: bold;
+            padding: 0px 8px;
+            cursor: pointer;
+            font-size: 1rem;
+            transition: color 0.2s ease;
+        }
+
+        .rules-modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.5);
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+
+        .rules-content {
+            background: #f9eed7;
+            color: #3e2e21;
+            max-width: 600px;
+            width: 90%;
+            padding: 20px 25px;
+            border-radius: 28px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.3);
+            border: 2px solid #8f6b4f;
+            position: relative;
+        }
+
+            .rules-content h3 {
+                margin-top: 0;
+                text-align: center;
+                color: #5e2b3b;
+            }
+
+            .rules-content p {
+                line-height: 1.5;
+                font-size: 0.95rem;
+            }
+
+            .rules-content .close-rules {
+                position: absolute;
+                top: 10px;
+                right: 15px;
+                font-size: 1.5rem;
+                cursor: pointer;
+                color: #8f6b4f;
+            }
+
+        .main-area {
+            display: flex;
+            gap: 20px;
+            align-items: flex-start;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+
+        .button-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            width: 140px;
+        }
+
+        .ctrl-btn {
+            background: #b88a4b;
+            border: none;
+            color: white;
+            font-weight: bold;
+            padding: 12px 8px;
+            border-radius: 30px;
+            font-size: 1rem;
+            border-bottom: 5px solid #5e3e1e;
+            cursor: pointer;
+            transition: 0.08s;
+            text-align: center;
+        }
+
+            .ctrl-btn:active {
+                border-bottom-width: 2px;
+                transform: translateY(3px);
+            }
+
+        .board-and-info {
+            display: flex;
+            flex-direction: row;
+            align-items: stretch;
+            gap: 40px;
+            flex: 0 1 auto;
+            min-width: 0;
+        }
+
+        .board-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            flex: 0 1 auto;
+            width: 100%;
+            max-width: 600px;
+            min-width: 0;
+            position: relative;
+        }
+
+        .main-area-right {
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-start;
+            width: 280px;
+            max-width: 100%;
+            flex: 0 0 auto;
+            min-width: 0;
+        }
+
+        .main-area-right .info-panel {
+            margin-bottom: 0;
+            width: 100%;
+        }
+
+        /* 桌面端：位置由 updateBoardMarkOuterPosition() 固定左缘，展开向右；手机端由下方 @media 覆盖 */
+        .board-mark-outer {
+            position: absolute;
+            left: 0;
+            top: 0;
+            bottom: auto;
+            right: auto;
+            margin-left: 0;
+            display: flex;
+            flex-direction: row;
+            align-items: center;
+            width: max-content;
+            max-width: min(100%, 280px);
+            min-height: 52px;
+            max-height: 52px;
+            z-index: 2;
+            box-sizing: border-box;
+            overflow: visible;
+        }
+
+        .board-mark-panel[hidden],
+        .board-mark-expand-btn[hidden] {
+            display: none !important;
+        }
+
+        .board-mark-panel {
+            order: 1;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            background: rgba(62, 46, 33, 0.92);
+            color: #ffd966;
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 0.82rem;
+            font-weight: bold;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+            width: max-content;
+            max-width: min(100%, 260px);
+            max-height: 52px;
+            box-sizing: border-box;
+        }
+
+        .board-mark-panel label {
+            white-space: nowrap;
+            flex-shrink: 0;
+        }
+
+        .board-mark-select {
+            flex: 0 1 auto;
+            min-width: 0;
+            background: #3e2e21;
+            color: #ffd966;
+            border: 1px solid #c9a450;
+            border-radius: 8px;
+            padding: 2px 4px;
+            font-size: 0.9rem;
+            font-weight: bold;
+            cursor: pointer;
+            width: 3em;
+            max-width: min(200px, 55vw);
+            max-height: 44px;
+        }
+
+        .board-mark-fold-btn {
+            background: transparent;
+            color: #ffd966;
+            border: none;
+            border-radius: 8px;
+            padding: 2px 2px;
+            font-size: 1.1rem;
+            line-height: 1;
+            font-weight: bold;
+            cursor: pointer;
+            font-family: inherit;
+            white-space: nowrap;
+        }
+
+        .board-mark-expand-btn {
+            order: 0;
+            flex-shrink: 0;
+            background: rgba(62, 46, 33, 0.92);
+            color: #ffd966;
+            border: none;
+            border-radius: 10px;
+            padding: 6px 6px;
+            font-size: 0.82rem;
+            font-weight: bold;
+            cursor: pointer;
+            font-family: inherit;
+            white-space: nowrap;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+        }
+
+        .board-mark-fold-btn:active,
+        .board-mark-expand-btn:active {
+            transform: translateY(1px);
+        }
+
+        /* 木质外框由 drawRoundedHexagon 绘制；canvas 元素不额外显示阴影/圆角框 */
+        canvas {
+            display: block;
+            background: transparent;
+            width: 100%;
+            height: auto;
+            aspect-ratio: 1 / 1;
+            max-width: 100%;
+        }
+
+        .info-panel {
+            background: #8f6b4f;
+            padding: 20px 16px;
+            border-radius: 20px;
+            color: #efdfbb;
+            width: 100%;
+            max-width: 280px;
+            border: 1px solid #c9a450;
+            margin: 0 auto;
+            min-height: 200px;
+            display: flex;
+            flex-direction: column;
+            margin-bottom: 20px;
+            border-bottom: 4px solid #4d2f1b;
+        }
+
+        .turn-box {
+            background: #3e2e21;
+            padding: 12px;
+            border-radius: 50px;
+            text-align: center;
+            color: #ffd966;
+            font-size: 1.2rem;
+            margin-bottom: 20px;
+        }
+
+        .score-box {
+            background: #3e2e21;
+            padding: 14px;
+            border-radius: 16px;
+            line-height: 1.6;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }
+
+        .score-title {
+            font-size: 1.3rem;
+            margin-bottom: 10px;
+        }
+
+        .score-content {
+            min-height: 60px;
+        }
+
+        .score-confirm-panel {
+            margin-top: 15px;
+            background: #3e2e21;
+            border-radius: 20px;
+            padding: 12px;
+            text-align: center;
+        }
+
+            .score-confirm-panel p {
+                margin: 0 0 10px 0;
+                font-size: 0.9rem;
+                color: #ffd98c;
+            }
+
+        .score-confirm-buttons {
+            display: flex;
+            gap: 12px;
+            justify-content: center;
+        }
+
+            .score-confirm-buttons button {
+                background: #b88a4b;
+                border: none;
+                color: white;
+                padding: 6px 16px;
+                border-radius: 30px;
+                cursor: pointer;
+                font-weight: bold;
+                border-bottom: 2px solid #5e3e1e;
+            }
+
+                .score-confirm-buttons button:active {
+                    transform: translateY(2px);
+                }
+
+        .replay-panel {
+            margin-top: 15px;
+            background: #3e2e21;
+            border-radius: 20px;
+            padding: 14px;
+            text-align: center;
+        }
+
+        .replay-step-display {
+            color: #ffd966;
+            font-size: 1.1rem;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+
+        .replay-nav {
+            display: flex;
+            gap: 12px;
+            justify-content: center;
+            margin-bottom: 12px;
+        }
+
+        .replay-nav-btn {
+            background: #b88a4b;
+            border: none;
+            color: white;
+            font-weight: bold;
+            padding: 8px 20px;
+            border-radius: 30px;
+            font-size: 0.95rem;
+            border-bottom: 3px solid #5e3e1e;
+            cursor: pointer;
+            transition: 0.08s;
+        }
+
+            .replay-nav-btn:active {
+                border-bottom-width: 1px;
+                transform: translateY(2px);
+            }
+
+        .replay-slider {
+            width: 100%;
+            cursor: pointer;
+            accent-color: #b88a4b;
+        }
+
+        @media (max-width: 700px) {
+            .game-wrapper {
+                padding: 12px;
+            }
+
+            .button-panel {
+                flex-direction: row;
+                flex-wrap: wrap;
+                width: 100%;
+                gap: 10px;
+            }
+
+                .button-panel .ctrl-btn {
+                    width: calc(50% - 10px);
+                    min-width: 120px;
+                }
+
+            .info-panel {
+                max-width: 100%;
+                margin-top: 10px;
+            }
+
+            .top-panel {
+                padding: 10px 12px;
+            }
+
+            .left-group {
+                gap: 15px;
+            }
+
+            .side-select label {
+                font-size: 0.95rem;
+            }
+
+            .komi-info, .color-status {
+                white-space: normal;
+                font-size: 0.9rem;
+            }
+
+            .board-container {
+                max-width: 100%;
+            }
+
+            .board-and-info {
+                display: grid;
+                grid-template-columns: 1fr;
+                grid-template-rows: auto auto;
+                row-gap: 12px;
+                width: 100%;
+            }
+
+            .board-and-info > .board-container {
+                grid-column: 1;
+                grid-row: 1;
+                width: 100%;
+                z-index: 1;
+            }
+
+            .main-area-right {
+                display: contents;
+            }
+
+            .board-mark-outer {
+                position: absolute;
+                right: calc(-10px - 12px);
+                bottom: 0;
+                left: auto !important;
+                top: auto;
+                margin-left: 0 !important;
+                margin-right: 0;
+                width: max-content;
+                max-width: none;
+                z-index: 5;
+                pointer-events: none;
+                overflow: visible;
+                max-height: none;
+                height: auto;
+                min-height: 0;
+                display: flex;
+                flex-direction: column;
+                align-items: flex-end;
+                justify-content: flex-end;
+            }
+
+            .board-mark-outer > .board-mark-panel,
+            .board-mark-outer > .board-mark-expand-btn {
+                pointer-events: auto;
+            }
+
+            .board-mark-panel {
+                flex-direction: row;
+            }
+
+            .board-mark-fold-btn {
+                order: -1;
+            }
+
+            .main-area-right .info-panel {
+                grid-column: 1;
+                grid-row: 2;
+                width: 100%;
+                max-width: 600px;
+                margin-top: 0;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="game-wrapper">
+        <div class="top-panel">
+            <div class="left-group">
+                <div class="side-select">
+                    <label id="labelBlack"><input type="radio" name="color" value="black" id="radioBlack"> ⚫ 黑方</label>
+                    <label id="labelWhite"><input type="radio" name="color" value="white" id="radioWhite"> ⚪ 白方</label>
+                </div>
+                <div class="komi-info">黑贴白3.25点</div>
+                <div class="color-status" id="colorStatus">观战</div>
+                <select id="boardSizeSelect" class="board-size-select" style="display: none;"></select>
+                <label style="cursor:pointer; display:inline-flex; align-items:center; gap:5px; font-size:0.95rem;">
+                    <input type="checkbox" id="showNumbersCheck"> 显示序号
+                </label>
+            </div>
+            <div class="right-buttons">
+                <button class="help-btn" id="helpBtn">说明</button>
+                <button class="back-to-lobby-btn" id="backToLobbyBtn">返回大厅</button>
+            </div>
+        </div>
+
+        <div id="rulesModal" class="rules-modal">
+            <div class="rules-content">
+                <span class="close-rules" id="closeRulesBtn">&times;</span>
+                <h3>六角围棋</h3>
+                <p>
+                    基本规则同标准围棋。<br /><br />
+                    采用六角棋盘。<br />
+                </p>
+            </div>
+        </div>
+
+        <div class="main-area">
+            <div class="button-panel">
+                <button class="ctrl-btn" id="newGameBtn">新局</button>
+                <button class="ctrl-btn" id="estimateBtn">形势判断</button>
+                <button class="ctrl-btn" id="tryPlayBtn" style="display:none;">试下</button>
+                <button class="ctrl-btn" id="passBtn">虚着</button>
+                <button class="ctrl-btn" id="undoBtn">悔棋</button>
+                <button class="ctrl-btn" id="resignBtn">认输</button>
+                <button class="ctrl-btn" id="drawBtn">和棋</button>
+                <button class="ctrl-btn" id="endReqBtn">申请数子</button>
+                <button class="ctrl-btn" id="importBtn">导入棋谱</button>
+                <button class="ctrl-btn" id="exportBtn" style="display:none;">导出棋谱</button>
+            </div>
+            <div class="board-and-info">
+                <div class="board-container">
+                    <canvas id="goBoard" width="600" height="600"></canvas>
+                    <div class="board-mark-outer" id="boardMarkOuter">
+                        <div class="board-mark-panel" id="boardMarkPanel" hidden title="右键或长按空点放置标记；再次放置可清除">
+                            <label for="boardMarkSelect">标记</label>
+                            <select id="boardMarkSelect" class="board-mark-select" aria-label="棋盘标记符号"></select>
+                            <button type="button" class="board-mark-fold-btn" id="boardMarkFoldBtn" title="收起">‹</button>
+                        </div>
+                        <button type="button" class="board-mark-expand-btn" id="boardMarkExpandBtn" title="展开标记">›</button>
+                    </div>
+                </div>
+                <div class="main-area-right">
+                    <div class="info-panel">
+                        <div class="turn-box" id="turnDisplay">　</div>
+                        <div class="score-box">
+                            <div class="score-title" id="scoreTitle">　</div>
+                            <div class="score-content">
+                                <div id="scoreBoard">　</div>
+                                <div id="leadInfo" style="margin-top:12px; color:#ffb870;">　</div>
+                            </div>
+                        </div>
+                        <!-- 数子确认面板 -->
+                        <div id="scoreConfirmPanel" class="score-confirm-panel" style="display: none;">
+                            <p id="scoreConfirmText">黑胜0点，是否同意该结果？</p>
+                            <div class="score-confirm-buttons">
+                                <button id="scoreConfirmYes">确定</button>
+                                <button id="scoreConfirmNo">取消</button>
+                            </div>
+                        </div>
+                        <div id="replayPanel" class="replay-panel">
+                            <div class="replay-step-display" id="replayStepDisplay">0 / 0</div>
+                            <div class="replay-nav">
+                                <button class="replay-nav-btn" id="replayBackBtn">◀ 后退</button>
+                                <button class="replay-nav-btn" id="replayForwardBtn">前进 ▶</button>
+                            </div>
+                            <input type="range" id="replaySlider" min="0" max="0" value="0" class="replay-slider">
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <input type="file" id="importFileInput" accept=".json" style="display:none;">
+
+    <script>
+        // ======================== 棋盘生成（与后端一致：路数 n，交点数 6(n−1)²） ========================
+        const CANVAS_SIZE = 600;
+        const FRAME_CENTER = CANVAS_SIZE / 2;
+        /** 木质外框正六边形顶点圆（与外接圆同心），与路数无关，保持视觉大小不变 */
+        const OUTER_HEX_RADIUS = 280;
+        /** 外框圆角半径（px），固定，不随 cellSize 变化 */
+        const FRAME_CORNER_RADIUS = 12;
+
+        /** 桌面端：左缘固定，展开向右；距画布右缘 56px（原 6px 再向左 50px）、距底 6px */
+        function updateBoardMarkOuterPosition() {
+            const el = document.getElementById('boardMarkOuter');
+            if (!el) return;
+            if (window.matchMedia('(max-width: 700px)').matches) {
+                el.style.left = '';
+                el.style.top = '';
+                el.style.bottom = '';
+                el.style.right = '';
+                el.style.marginLeft = '';
+                return;
+            }
+            const gapBottom = 6;
+            const gapFromCanvasRight = 56;
+            const collapsedTabW = 36;
+            el.style.left = `calc(100% - 140px)`;
+            el.style.right = 'auto';
+            el.style.top = 'auto';
+            el.style.bottom = `${gapBottom + 36}px`;
+            el.style.marginLeft = '0';
+        }
+
+        let BOARD_SIZE = 9;
+        let V;
+        let transformed;
+        let neighbors;
+        let hexagons;
+        let clickThreshold;
+        let cellSize;
+        let centerX;
+        let centerY;
+
+        function generateHexBoard(n) {
+            const S = n - 1;
+            const R = 2;
+            const sqrt3 = Math.sqrt(3);
+            const vertexMap = new Map();
+            const vertices = [];
+            const hexList = [];
+            const dx = [R, R / 2, -R / 2, -R, -R / 2, R / 2];
+            const dy = [0, R * sqrt3 / 2, R * sqrt3 / 2, 0, -R * sqrt3 / 2, -R * sqrt3 / 2];
+
+            for (let q = -(S - 1); q <= S - 1; q++) {
+                for (let r = -(S - 1); r <= S - 1; r++) {
+                    const s = -q - r;
+                    if (Math.max(Math.abs(q), Math.abs(r), Math.abs(s)) > S - 1) continue;
+                    const cx = R * (3 / 2) * q;
+                    const cy = R * sqrt3 * (r + q / 2);
+                    const hexIds = [];
+                    for (let j = 0; j < 6; j++) {
+                        const x = cx + dx[j];
+                        const y = cy + dy[j];
+                        const key = `${Math.round(x * 100) / 100},${Math.round(y * 100) / 100}`;
+                        if (!vertexMap.has(key)) {
+                            vertexMap.set(key, vertices.length);
+                            vertices.push({ x, y });
+                        }
+                        hexIds.push(vertexMap.get(key));
+                    }
+                    hexList.push(hexIds);
+                }
+            }
+
+            for (let i = 0; i < vertices.length; i++) {
+                const { x, y } = vertices[i];
+                vertices[i] = { x: -y, y: x };
+            }
+
+            const vc = vertices.length;
+            const neighborSets = Array.from({ length: vc }, () => new Set());
+            for (const hex of hexList) {
+                for (let i = 0; i < 6; i++) {
+                    const a = hex[i];
+                    const b = hex[(i + 1) % 6];
+                    if (a !== b) {
+                        neighborSets[a].add(b);
+                        neighborSets[b].add(a);
+                    }
+                }
+            }
+            const neighborList = neighborSets.map(set => Array.from(set));
+
+            const PADDING = 72 - 4 * n;
+            const R_inner = OUTER_HEX_RADIUS - PADDING;
+
+            let cx = 0, cy = 0;
+            for (const v of vertices) {
+                cx += v.x;
+                cy += v.y;
+            }
+            cx /= vc;
+            cy /= vc;
+            let maxDist = 0;
+            for (const v of vertices) {
+                const d = Math.hypot(v.x - cx, v.y - cy);
+                if (d > maxDist) maxDist = d;
+            }
+            const scale = maxDist > 0 ? R_inner / maxDist : 1;
+
+            const transformedPts = vertices.map(v => ({
+                x: FRAME_CENTER + (v.x - cx) * scale,
+                y: FRAME_CENTER + (v.y - cy) * scale
+            }));
+
+            let totalDist = 0;
+            let edgeCount = 0;
+            for (const hex of hexList) {
+                for (let i = 0; i < 6; i++) {
+                    const a = hex[i];
+                    const b = hex[(i + 1) % 6];
+                    const ddx = transformedPts[a].x - transformedPts[b].x;
+                    const ddy = transformedPts[a].y - transformedPts[b].y;
+                    totalDist += Math.sqrt(ddx * ddx + ddy * ddy);
+                    edgeCount++;
+                }
+            }
+            const cs = totalDist / edgeCount;
+            const ct = cs * 0.4;
+
+            return {
+                vertexCount: vc,
+                transformed: transformedPts,
+                neighborList,
+                hexagons: hexList,
+                clickThreshold: ct,
+                cellSize: cs,
+                centerX: FRAME_CENTER,
+                centerY: FRAME_CENTER
+            };
+        }
+
+        function applyHexGeometry(data) {
+            V = data.vertexCount;
+            transformed = data.transformed;
+            neighbors = data.neighborList;
+            hexagons = data.hexagons;
+            clickThreshold = data.clickThreshold;
+            cellSize = data.cellSize;
+            centerX = data.centerX;
+            centerY = data.centerY;
+        }
+
+        applyHexGeometry(generateHexBoard(BOARD_SIZE));
+
+        (function fillBoardSizeSelect() {
+            const sel = document.getElementById('boardSizeSelect');
+            if (!sel) return;
+            for (let n = 4; n <= 11; n++) {
+                const opt = document.createElement('option');
+                opt.value = String(n);
+                opt.textContent = n + '路';
+                if (n === BOARD_SIZE) opt.selected = true;
+                sel.appendChild(opt);
+            }
+        })();
+
+        // ======================== 房间参数 ========================
+        const pathMatch = window.location.pathname.match(/^\/qi\/([^/]+)\/(\d+)$/);
+        if (!pathMatch) { alert('无效的房间链接'); throw new Error('Invalid room URL'); }
+        const gameType = pathMatch[1];
+        const roomId = pathMatch[2];
+        let roomPassword = sessionStorage.getItem(`roomPassword_${roomId}`) || null;
+
+        // ======================== 游戏状态 ========================
+        let board = Array(V).fill(0);
+        let numberOfHands = 1;
+        let currentPlayer = 1;
+        let mySlot = null;               // 'black' or 'white'
+        let gameOver = false;
+        let winner = null;
+        let lastMoveMarkers = [];
+        let showEstimateActive = false;
+        let cachedLiveBoard = null;
+        let cachedTerritory = null;
+        let waitingScoreConfirm = false;
+        let iRejected = false;
+
+        let ws;
+        let isMyTurn = false;
+        let slots = { black: false, white: false };
+        let reconnectTimer = null;
+
+        let replayMode = false;
+        let replayBoards = [];
+        let replayMarkers = [];
+        let replayStepPlayers = [];
+        let replayStep = 0;
+        let replayTotalSteps = 0;
+
+        let showMoveNumbers = false;
+        let moveLog = [];
+        let moveCoordsFull = [];
+
+        let tryPlayMode = false;
+        let tryPlayBaseStep = 0;
+        let tryPlayBoards = [];
+        let tryPlayMarkers = [];
+        let tryPlayCurrentPlayer = 1;
+        let tryPlayStep = 0;
+        let tryPlayTotalSteps = 0;
+
+        let liveReplayBoards = [];
+        let liveReplayMarkers = [];
+        let liveReplayStepPlayers = [];
+        let liveViewStep = 0;
+        let liveFollowLatest = true;
+
+        /** 本地标记：键为顶点索引字符串 "0".."V-1" */
+        let userBoardMarks = Object.create(null);
+        const BOARD_MARK_CHAR_LIST = (() => {
+            const a = [];
+            a.push('?', '!');
+            for (let i = 0; i < 26; i++) a.push(String.fromCharCode(65 + i));
+            a.push('△', '▽', '♡', '○', '◇', '□', '☆', '×', '🚩');
+            return a;
+        })();
+
+        // DOM
+        const canvas = document.getElementById('goBoard');
+        const ctx = canvas.getContext('2d');
+        const turnDisplay = document.getElementById('turnDisplay');
+        const colorStatus = document.getElementById('colorStatus');
+        const radioBlack = document.getElementById('radioBlack');
+        const radioWhite = document.getElementById('radioWhite');
+        const labelBlack = document.getElementById('labelBlack');
+        const labelWhite = document.getElementById('labelWhite');
+        const scoreTitle = document.getElementById('scoreTitle');
+        const scoreBoard = document.getElementById('scoreBoard');
+        const leadInfo = document.getElementById('leadInfo');
+        const scoreConfirmPanel = document.getElementById('scoreConfirmPanel');
+        const scoreConfirmText = document.getElementById('scoreConfirmText');
+        const scoreConfirmYes = document.getElementById('scoreConfirmYes');
+        const scoreConfirmNo = document.getElementById('scoreConfirmNo');
+        const boardMarkSelect = document.getElementById('boardMarkSelect');
+
+        (function initBoardMarkSelect() {
+            if (!boardMarkSelect) return;
+            const frag = document.createDocumentFragment();
+            const optEmpty = document.createElement('option');
+            optEmpty.value = '';
+            optEmpty.textContent = '清除';
+            frag.appendChild(optEmpty);
+            for (const ch of BOARD_MARK_CHAR_LIST) {
+                const o = document.createElement('option');
+                o.value = ch;
+                o.textContent = ch;
+                if (ch === '?') o.selected = true;
+                frag.appendChild(o);
+            }
+            boardMarkSelect.appendChild(frag);
+        })();
+
+        (function initBoardMarkFold() {
+            const panel = document.getElementById('boardMarkPanel');
+            const foldBtn = document.getElementById('boardMarkFoldBtn');
+            const expandBtn = document.getElementById('boardMarkExpandBtn');
+            if (!panel || !foldBtn || !expandBtn) return;
+            function setCollapsed(collapsed) {
+                panel.hidden = collapsed;
+                expandBtn.hidden = !collapsed;
+                foldBtn.setAttribute('aria-expanded', String(!collapsed));
+                expandBtn.setAttribute('aria-expanded', String(!collapsed));
+            }
+            foldBtn.onclick = () => setCollapsed(true);
+            expandBtn.onclick = () => setCollapsed(false);
+            setCollapsed(true);
+        })();
+
+        updateBoardMarkOuterPosition();
+        window.addEventListener('resize', updateBoardMarkOuterPosition);
+
+        let hoverVertex = -1;
+        let isHoverValid = false;
+        const isTouchDevice = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+        const isMouseDevice = window.matchMedia('(hover: hover) and (pointer: fine)').matches;
+
+        function mobileTwoStepPlacing() {
+            return !isMouseDevice && BOARD_SIZE > 9;
+        }
+        function clearMobileMovePreview() {
+            hoverVertex = -1;
+            isHoverValid = false;
+        }
+
+        // ======================== 工具函数 ========================
+        const KOMI = 3.25;
+
+        function formatScore(num) {
+            let str = num.toFixed(2);
+            return str.replace(/\.?0+$/, '');
+        }
+
+        function isUserBoardMarkVisibleAtVertex(v) {
+            if (showEstimateActive) return false;
+            if (v < 0 || v >= V) return false;
+            if (board[v] !== 0) return false;
+            return true;
+        }
+
+        function deepCopyBoard(src) { return src.slice(); }
+
+        // 气计算
+        function hasLiberty(boardState, start, visited = null) {
+            const color = boardState[start];
+            if (color === 0) return false;
+            const queue = [start];
+            const visitedLocal = visited || new Array(V).fill(false);
+            visitedLocal[start] = true;
+            let idx = 0;
+            while (idx < queue.length) {
+                const v = queue[idx++];
+                for (let nb of neighbors[v]) {
+                    if (boardState[nb] === 0) return true;
+                    if (boardState[nb] === color && !visitedLocal[nb]) {
+                        visitedLocal[nb] = true;
+                        queue.push(nb);
+                    }
+                }
+            }
+            return false;
+        }
+
+        function removeGroup(boardState, start) {
+            const color = boardState[start];
+            if (color === 0) return;
+            const queue = [start];
+            boardState[start] = 0;
+            let idx = 0;
+            while (idx < queue.length) {
+                const v = queue[idx++];
+                for (let nb of neighbors[v]) {
+                    if (boardState[nb] === color) {
+                        boardState[nb] = 0;
+                        queue.push(nb);
+                    }
+                }
+            }
+        }
+
+        function tryPlaceStone(boardBefore, vertex, playerVal) {
+            if (boardBefore[vertex] !== 0) return null;
+            let newBoard = deepCopyBoard(boardBefore);
+            newBoard[vertex] = playerVal;
+
+            // 移除对方无气棋子
+            for (let v = 0; v < V; v++) {
+                if (newBoard[v] === 3 - playerVal && !hasLiberty(newBoard, v)) {
+                    removeGroup(newBoard, v);
+                }
+            }
+
+            // 检查己方刚落子是否有气
+            if (!hasLiberty(newBoard, vertex)) return null;
+            return newBoard;
+        }
+
+        // 形势判断函数（复用原代码中的）
+        function isLibertySurroundedByOpponent(boardState, libertyVertex, opponentColor) {
+            for (let nb of neighbors[libertyVertex]) {
+                if (boardState[nb] === opponentColor) return true;
+            }
+            return false;
+        }
+
+        function removeDeadAndDying(srcBoard) {
+            let newBoard = deepCopyBoard(srcBoard);
+            let changed = true;
+            while (changed) {
+                changed = false;
+                let visited = new Array(V).fill(false);
+                for (let v = 0; v < V; v++) {
+                    if (newBoard[v] !== 0 && !visited[v]) {
+                        let color = newBoard[v];
+                        let queue = [v];
+                        visited[v] = true;
+                        let stones = [v];
+                        let liberties = new Set();
+                        let idx = 0;
+                        while (idx < queue.length) {
+                            let cur = queue[idx++];
+                            for (let nb of neighbors[cur]) {
+                                if (newBoard[nb] === 0) liberties.add(nb);
+                                else if (newBoard[nb] === color && !visited[nb]) {
+                                    visited[nb] = true;
+                                    queue.push(nb);
+                                    stones.push(nb);
+                                }
+                            }
+                        }
+                        if (liberties.size === 0) {
+                            for (let s of stones) newBoard[s] = 0;
+                            changed = true;
+                            continue;
+                        }
+                        if (liberties.size <= 2) {
+                            let allControlled = true;
+                            for (let lib of liberties) {
+                                if (!isLibertySurroundedByOpponent(newBoard, lib, 3 - color)) {
+                                    allControlled = false;
+                                    break;
+                                }
+                            }
+                            if (allControlled) {
+                                for (let s of stones) newBoard[s] = 0;
+                                changed = true;
+                            }
+                        }
+                    }
+                }
+            }
+            return newBoard;
+        }
+
+        function multiSourceBFS(liveBoard, color) {
+            let dist = new Array(V).fill(Infinity);
+            let queue = [];
+            for (let v = 0; v < V; v++) {
+                if (liveBoard[v] === color) {
+                    dist[v] = 0;
+                    queue.push(v);
+                }
+            }
+            let head = 0;
+            while (head < queue.length) {
+                let cur = queue[head++];
+                for (let nb of neighbors[cur]) {
+                    if (dist[nb] > dist[cur] + 1) {
+                        dist[nb] = dist[cur] + 1;
+                        queue.push(nb);
+                    }
+                }
+            }
+            return dist;
+        }
+
+        function assignTerritory(liveBoard) {
+            let territory = new Array(V).fill(0);
+            let blackCount = 0, whiteCount = 0;
+            for (let v = 0; v < V; v++) {
+                if (liveBoard[v] === 1) blackCount++;
+                else if (liveBoard[v] === 2) whiteCount++;
+            }
+            if (blackCount === 0 && whiteCount === 0) return territory;
+            if (blackCount === 0) {
+                for (let v = 0; v < V; v++) if (liveBoard[v] === 0) territory[v] = 2;
+                return territory;
+            }
+            if (whiteCount === 0) {
+                for (let v = 0; v < V; v++) if (liveBoard[v] === 0) territory[v] = 1;
+                return territory;
+            }
+            let distBlack = multiSourceBFS(liveBoard, 1);
+            let distWhite = multiSourceBFS(liveBoard, 2);
+            for (let v = 0; v < V; v++) {
+                if (liveBoard[v] !== 0) continue;
+                if (distBlack[v] < distWhite[v]) territory[v] = 1;
+                else if (distWhite[v] < distBlack[v]) territory[v] = 2;
+                else territory[v] = 3;
+            }
+            return territory;
+        }
+
+        function computeScore(liveBoard, territory) {
+            let blackStones = 0, whiteStones = 0;
+            let blackTerritory = 0, whiteTerritory = 0, publicTerritory = 0;
+            for (let v = 0; v < V; v++) {
+                if (liveBoard[v] === 1) blackStones++;
+                else if (liveBoard[v] === 2) whiteStones++;
+                else {
+                    if (territory[v] === 1) blackTerritory++;
+                    else if (territory[v] === 2) whiteTerritory++;
+                    else if (territory[v] === 3) publicTerritory++;
+                }
+            }
+            let blackTotal = blackStones + blackTerritory + publicTerritory / 2;
+            let whiteTotal = whiteStones + whiteTerritory + publicTerritory / 2;
+            return { blackTotal, whiteTotal };
+        }
+
+        function computeScoreFromBoard(srcBoard) {
+            let liveBoard = removeDeadAndDying(srcBoard);
+            let territory = assignTerritory(liveBoard);
+            return computeScore(liveBoard, territory);
+        }
+
+        function computeLead() {
+            let { blackTotal, whiteTotal } = computeScoreFromBoard(board);
+            return blackTotal - whiteTotal - 2 * KOMI;
+        }
+
+        function computeStoneNumbers() {
+            const nums = new Array(V).fill(0);
+            if (replayMode && tryPlayMode) {
+                for (let i = 1; i <= tryPlayStep; i++) {
+                    const markers = tryPlayMarkers[i];
+                    if (markers && markers.length > 0) {
+                        const m = markers[0];
+                        if (m.vertex !== undefined && board[m.vertex] !== 0)
+                            nums[m.vertex] = i;
+                    }
+                }
+            } else if (replayMode) {
+                for (let i = 1; i <= replayStep; i++) {
+                    const markers = replayMarkers[i];
+                    if (markers && markers.length > 0) {
+                        const m = markers[0];
+                        if (m.vertex !== undefined && board[m.vertex] !== 0)
+                            nums[m.vertex] = i;
+                    }
+                }
+            } else if (liveReplayBoards.length && liveViewStep < liveReplayBoards.length - 1) {
+                for (let i = 1; i <= liveViewStep; i++) {
+                    const markers = liveReplayMarkers[i];
+                    if (markers && markers.length > 0) {
+                        const m = markers[0];
+                        if (m.vertex !== undefined && board[m.vertex] !== 0)
+                            nums[m.vertex] = i;
+                    }
+                }
+            } else {
+                for (let i = 0; i < moveLog.length; i++) {
+                    const m = moveLog[i];
+                    if (m && m.vertex !== undefined && board[m.vertex] !== 0)
+                        nums[m.vertex] = i + 1;
+                }
+            }
+            return nums;
+        }
+
+        // ======================== 绘制函数 ========================
+        function drawRoundedHexagon(ctx, vertices, radius) {
+            if (vertices.length !== 6) return;
+            const startPoints = [];
+            const endPoints = [];
+            for (let i = 0; i < 6; i++) {
+                const curr = vertices[i];
+                const prev = vertices[(i - 1 + 6) % 6];
+                const next = vertices[(i + 1) % 6];
+                const v1 = { x: prev.x - curr.x, y: prev.y - curr.y };
+                const v2 = { x: next.x - curr.x, y: next.y - curr.y };
+                const len1 = Math.hypot(v1.x, v1.y);
+                const len2 = Math.hypot(v2.x, v2.y);
+                const dx1 = v1.x / len1;
+                const dy1 = v1.y / len1;
+                const dx2 = v2.x / len2;
+                const dy2 = v2.y / len2;
+                startPoints.push({ x: curr.x + dx1 * radius, y: curr.y + dy1 * radius });
+                endPoints.push({ x: curr.x + dx2 * radius, y: curr.y + dy2 * radius });
+            }
+            ctx.beginPath();
+            ctx.moveTo(startPoints[0].x, startPoints[0].y);
+            for (let i = 0; i < 6; i++) {
+                ctx.arcTo(vertices[i].x, vertices[i].y, endPoints[i].x, endPoints[i].y, radius);
+                if (i < 5) ctx.lineTo(startPoints[i + 1].x, startPoints[i + 1].y);
+            }
+            ctx.lineTo(startPoints[0].x, startPoints[0].y);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+        }
+
+        function drawEstimateOverlay(liveBoard, territory) {
+            const markSize = cellSize * 0.2;
+            for (let v = 0; v < V; v++) {
+                if (board[v] !== 0 && liveBoard[v] === 0) {
+                    let { x, y } = transformed[v];
+                    ctx.fillStyle = board[v] === 1 ? '#ffffff' : '#222222';
+                    ctx.fillRect(x - markSize, y - markSize, markSize * 2, markSize * 2);
+                }
+            }
+            for (let v = 0; v < V; v++) {
+                if (board[v] !== 0) continue;
+                let owner = territory[v];
+                if (owner === 0 || owner === 3) continue;
+                ctx.fillStyle = owner === 1 ? '#222' : '#f0f0f0';
+                let { x, y } = transformed[v];
+                ctx.fillRect(x - markSize, y - markSize, markSize * 2, markSize * 2);
+            }
+        }
+
+        function drawBoard() {
+            ctx.clearRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
+            const angles = [0, 60, 120, 180, 240, 300].map(deg => deg * Math.PI / 180);
+            const outerVerts = angles.map(angle => ({
+                x: FRAME_CENTER + OUTER_HEX_RADIUS * Math.cos(angle),
+                y: FRAME_CENTER + OUTER_HEX_RADIUS * Math.sin(angle)
+            }));
+            ctx.shadowColor = 'rgba(0,0,0,0.5)';
+            ctx.shadowBlur = 15;
+            ctx.shadowOffsetY = 5;
+            ctx.fillStyle = '#deb887';
+            ctx.strokeStyle = '#6b4a2e';
+            ctx.lineWidth = 1;
+            drawRoundedHexagon(ctx, outerVerts, FRAME_CORNER_RADIUS);
+            ctx.shadowBlur = 0;
+            ctx.shadowOffsetY = 0;
+            ctx.lineWidth = 1.5;
+            ctx.strokeStyle = '#3a281c';
+            ctx.lineJoin = 'miter';
+            for (let hex of hexagons) {
+                for (let i = 0; i < 6; i++) {
+                    const a = hex[i];
+                    const b = hex[(i + 1) % 6];
+                    ctx.beginPath();
+                    ctx.moveTo(transformed[a].x, transformed[a].y);
+                    ctx.lineTo(transformed[b].x, transformed[b].y);
+                    ctx.stroke();
+                }
+            }
+
+            const markSize = cellSize * 0.3;
+            const stoneRadius = cellSize * 0.44;
+            const lowerLastMoveMarker = showMoveNumbers || showEstimateActive;
+            if (lowerLastMoveMarker) {
+                for (let { vertex, color } of lastMoveMarkers) {
+                    if (vertex === undefined) continue;
+                    const { x, y } = transformed[vertex];
+                    ctx.beginPath();
+                    ctx.moveTo(x + stoneRadius, y + stoneRadius);
+                    ctx.lineTo(x, y + stoneRadius);
+                    ctx.lineTo(x + stoneRadius, y);
+                    ctx.closePath();
+                    ctx.fillStyle = color === 1 ? '#fff' : '#222';
+                    ctx.fill();
+                }
+            }
+
+            for (let v = 0; v < V; v++) {
+                if (board[v] === 0) continue;
+                const radius = stoneRadius;
+                const { x, y } = transformed[v];
+                ctx.shadowBlur = 6;
+                ctx.shadowColor = 'rgba(0,0,0,0.5)';
+                ctx.shadowOffsetY = 2;
+                const gradient = ctx.createRadialGradient(x - 3, y - 3, radius * 0.2, x, y, radius * 1.2);
+                if (board[v] === 1) {
+                    gradient.addColorStop(0, '#444');
+                    gradient.addColorStop(0.6, '#222');
+                    gradient.addColorStop(1, '#111');
+                } else {
+                    gradient.addColorStop(0, '#fff');
+                    gradient.addColorStop(0.5, '#eee');
+                    gradient.addColorStop(1, '#aaa');
+                }
+                ctx.beginPath();
+                ctx.arc(x, y, radius, 0, 2 * Math.PI);
+                ctx.fillStyle = gradient;
+                ctx.fill();
+                ctx.shadowBlur = 0;
+                ctx.shadowOffsetY = 0;
+                if (!showMoveNumbers) {
+                    ctx.beginPath();
+                    ctx.arc(x - 3, y - 3, radius * 0.15, 0, 2 * Math.PI);
+                    ctx.fillStyle = board[v] === 1 ? '#444' : '#fff';
+                    ctx.fill();
+                }
+            }
+            if (showMoveNumbers) {
+                const nums = computeStoneNumbers();
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                for (let v = 0; v < V; v++) {
+                    if (nums[v] > 0 && board[v] !== 0) {
+                        const { x, y } = transformed[v];
+                        const numStr = nums[v].toString();
+                        const fontSize = Math.max(8, Math.floor(cellSize * (numStr.length >= 3 ? 0.28 : 0.36)));
+                        ctx.font = `bold ${fontSize}px Arial`;
+                        ctx.fillStyle = board[v] === 1 ? '#fff' : '#000';
+                        ctx.fillText(numStr, x, y + 1);
+                    }
+                }
+            }
+            if (!lowerLastMoveMarker) {
+                for (let { vertex, color } of lastMoveMarkers) {
+                    if (vertex === undefined) continue;
+                    const { x, y } = transformed[vertex];
+                    ctx.beginPath();
+                    ctx.moveTo(x, y);
+                    ctx.lineTo(x + markSize, y);
+                    ctx.lineTo(x, y + markSize);
+                    ctx.closePath();
+                    ctx.fillStyle = color === 1 ? '#fff' : '#222';
+                    ctx.fill();
+                }
+            }
+            for (const key of Object.keys(userBoardMarks)) {
+                const v = parseInt(key, 10);
+                if (Number.isNaN(v) || !isUserBoardMarkVisibleAtVertex(v)) continue;
+                const ch = userBoardMarks[key];
+                const { x, y } = transformed[v];
+                const markBgR = cellSize * 0.3;
+                ctx.beginPath();
+                ctx.arc(x, y, markBgR, 0, 2 * Math.PI);
+                ctx.fillStyle = '#deb887';
+                ctx.fill();
+                const fontPx = cellSize * (ch === '🚩' ? 0.6 : 0.66);
+                ctx.font = `bold ${fontPx}px "Segoe UI", "Apple Color Emoji", "Segoe UI Emoji", sans-serif`;
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillStyle = '#3a281c';
+                ctx.fillText(ch, x, y + 1);
+            }
+            const canHover = tryPlayMode || (!gameOver && isMyTurn);
+            if ((isMouseDevice || mobileTwoStepPlacing()) && canHover && isHoverValid && hoverVertex >= 0 && board[hoverVertex] === 0) {
+                const { x, y } = transformed[hoverVertex];
+                ctx.globalAlpha = 0.45;
+                ctx.beginPath();
+                ctx.arc(x, y, cellSize * 0.42, 0, 2 * Math.PI);
+                const hoverColor = tryPlayMode ? (tryPlayCurrentPlayer === 1 ? '#222' : '#ddd') : (mySlot === 'black' ? '#222' : '#ddd');
+                ctx.fillStyle = hoverColor;
+                ctx.fill();
+                ctx.globalAlpha = 1.0;
+            }
+            if (showEstimateActive && cachedLiveBoard && cachedTerritory) {
+                drawEstimateOverlay(cachedLiveBoard, cachedTerritory);
+            }
+        }
+
+        function drawBoardWithOverlay() {
+            drawBoard();
+        }
+
+        function showEstimate()
+        {
+            if (!showEstimateActive) { clearEstimate(); return; }
+            cachedLiveBoard = removeDeadAndDying(board);
+            cachedTerritory = assignTerritory(cachedLiveBoard);
+            let { blackTotal, whiteTotal } = computeScore(cachedLiveBoard, cachedTerritory);
+            let lead = blackTotal - whiteTotal - 2 * KOMI;
+            scoreTitle.innerText = '形势判断';
+            scoreBoard.innerText = `黑: ${formatScore(blackTotal)} | 白: ${formatScore(whiteTotal)}`;
+            leadInfo.innerText = `黑${lead >= 0 ? '+' : ''}${formatScore(lead)}点`;
+            drawBoardWithOverlay();
+        }
+
+        function clearEstimate()
+        {
+            cachedLiveBoard = null;
+            cachedTerritory = null;
+            scoreTitle.innerText = '　';
+            scoreBoard.innerText = '　';
+            leadInfo.innerText = '　';
+            drawBoardWithOverlay();
+        }
+
+        function updateTurn()
+        {
+            if (replayMode) {
+                isMyTurn = false;
+                if (showEstimateActive) showEstimate();
+                else drawBoardWithOverlay();
+                return;
+            }
+            const liveTotal = liveReplayBoards.length > 0 ? liveReplayBoards.length - 1 : 0;
+            const browsingLive = liveReplayBoards.length > 0 && liveViewStep < liveTotal;
+            if (browsingLive) {
+                if (liveViewStep === 0) {
+                    turnDisplay.innerText = '初始局面';
+                } else {
+                    const emoji = liveReplayStepPlayers[liveViewStep] === 1 ? '⚫' : '⚪';
+                    turnDisplay.innerText = `${emoji} 第${liveViewStep}手`;
+                }
+                isMyTurn = false;
+                if (showEstimateActive) showEstimate();
+                else drawBoardWithOverlay();
+                return;
+            }
+            if (gameOver) {
+                turnDisplay.innerText = '对局结束';
+                if (winner === 'black') scoreTitle.innerText = '黑胜';
+                else if (winner === 'white') scoreTitle.innerText = '白胜';
+                else if (winner === 'draw') scoreTitle.innerText = '和棋';
+                else scoreTitle.innerText = '　';
+                isMyTurn = false;
+                drawBoardWithOverlay();
+                return;
+            }
+            if (tryPlayMode) {
+                if (showEstimateActive) showEstimate();
+                else drawBoardWithOverlay();
+                return;
+            }
+            const total = liveReplayBoards.length > 0 ? liveReplayBoards.length - 1 : 0;
+            if (liveReplayBoards.length === 0) {
+                const n = moveCoordsFull.length;
+                if (n === 0) {
+                    turnDisplay.innerText = '初始局面';
+                } else {
+                    const lastPl = moveCoordsFull[n - 1].player === 'black' ? 1 : 2;
+                    turnDisplay.innerText = `${lastPl === 1 ? '⚫' : '⚪'} 第${n}手`;
+                }
+            } else if (total === 0) {
+                turnDisplay.innerText = '初始局面';
+            } else {
+                const p = liveReplayStepPlayers[total];
+                turnDisplay.innerText = `${p === 1 ? '⚫' : '⚪'} 第${total}手`;
+            }
+            isMyTurn = (mySlot !== null) && ((mySlot === 'black' && currentPlayer === 1) || (mySlot === 'white' && currentPlayer === 2));
+            if (showEstimateActive) showEstimate();
+            else drawBoardWithOverlay();
+        }
+
+        function showScoreConfirm(lead) {
+            const absLead = Math.abs(lead).toFixed(1);
+            const winnerText = lead > 0 ? `黑胜${absLead}点` : (lead < 0 ? `白胜${absLead}点` : '和棋');
+            scoreConfirmText.innerText = `${winnerText}，是否同意该结果？`;
+            scoreConfirmPanel.style.display = 'block';
+        }
+
+        function hideScoreConfirm() {
+            scoreConfirmPanel.style.display = 'none';
+        }
+
+        function downloadRecord(data) {
+            const now = new Date();
+            const pad = n => n.toString().padStart(2, '0');
+            const dateStr = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+            const filename = `六角围棋_${data.boardSize}路_${dateStr}.json`;
+            const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+
+        function enterReplayMode(data) {
+            replayBoards = [];
+            replayMarkers = [];
+            replayStepPlayers = [0];
+
+            let curBoard = Array(V).fill(0);
+            if (data.initialPosition) {
+                if (Array.isArray(data.initialPosition.black)) {
+                    for (const pos of data.initialPosition.black) {
+                        const vi = typeof pos === 'number' ? pos : pos[0];
+                        if (vi >= 0 && vi < V) curBoard[vi] = 1;
+                    }
+                }
+                if (Array.isArray(data.initialPosition.white)) {
+                    for (const pos of data.initialPosition.white) {
+                        const vi = typeof pos === 'number' ? pos : pos[0];
+                        if (vi >= 0 && vi < V) curBoard[vi] = 2;
+                    }
+                }
+            }
+            replayBoards.push(deepCopyBoard(curBoard));
+            replayMarkers.push([]);
+
+            for (const move of (data.moves || [])) {
+                const playerVal = move.player === 'black' ? 1 : 2;
+                replayStepPlayers.push(playerVal);
+                if (move.type === 'move') {
+                    const newBoard = tryPlaceStone(curBoard, move.vertex, playerVal);
+                    if (newBoard) curBoard = newBoard;
+                    replayBoards.push(deepCopyBoard(curBoard));
+                    replayMarkers.push([{ vertex: move.vertex, color: playerVal }]);
+                } else if (move.type === 'pass') {
+                    replayBoards.push(deepCopyBoard(curBoard));
+                    replayMarkers.push([]);
+                }
+            }
+
+            replayTotalSteps = replayBoards.length - 1;
+            replayMode = true;
+
+            const slider = document.getElementById('replaySlider');
+            slider.max = replayTotalSteps;
+            setReplayStep(replayTotalSteps);
+            updateReplayUI();
+        }
+
+        function exitReplayMode() {
+            clearMobileMovePreview();
+            tryPlayMode = false;
+            tryPlayBoards = [];
+            tryPlayMarkers = [];
+            tryPlayStep = 0;
+            tryPlayTotalSteps = 0;
+            replayMode = false;
+            replayBoards = [];
+            replayMarkers = [];
+            replayStepPlayers = [];
+            replayStep = 0;
+            replayTotalSteps = 0;
+            updateReplayUI();
+        }
+
+        function setReplayStep(step) {
+            clearMobileMovePreview();
+            if (step < 0) step = 0;
+            if (step > replayTotalSteps) step = replayTotalSteps;
+            replayStep = step;
+            board = deepCopyBoard(replayBoards[step]);
+            lastMoveMarkers = replayMarkers[step].map(m => ({ ...m }));
+
+            document.getElementById('replaySlider').value = step;
+            document.getElementById('replayStepDisplay').innerText = `${step} / ${replayTotalSteps}`;
+
+            if (step === 0) {
+                turnDisplay.innerText = '初始局面';
+            } else {
+                const emoji = replayStepPlayers[step] === 1 ? '⚫' : '⚪';
+                turnDisplay.innerText = `${emoji} 第${step}手`;
+            }
+            isMyTurn = false;
+
+            if (showEstimateActive) showEstimate();
+            else drawBoardWithOverlay();
+        }
+
+        function updateReplayUI() {
+            const gameButtonIds = ['passBtn', 'undoBtn', 'resignBtn', 'drawBtn', 'endReqBtn'];
+            const replayPanel = document.getElementById('replayPanel');
+            const tryPlayBtn = document.getElementById('tryPlayBtn');
+            if (replayMode) {
+                for (const id of gameButtonIds)
+                    document.getElementById(id).style.display = 'none';
+                replayPanel.style.display = '';
+                tryPlayBtn.style.display = '';
+                tryPlayBtn.innerText = tryPlayMode ? '试下结束' : '试下';
+            } else {
+                for (const id of gameButtonIds)
+                    document.getElementById(id).style.display = '';
+                replayPanel.style.display = '';
+                tryPlayBtn.style.display = 'none';
+                tryPlayBtn.innerText = '试下';
+            }
+            updateRecordButtons();
+        }
+
+        function enterTryPlay() {
+            clearMobileMovePreview();
+            tryPlayMode = true;
+            tryPlayBaseStep = replayStep;
+            tryPlayBoards = [deepCopyBoard(board)];
+            tryPlayMarkers = [lastMoveMarkers.map(m => ({ ...m }))];
+
+            if (replayStep === 0) {
+                tryPlayCurrentPlayer = 1;
+            } else {
+                tryPlayCurrentPlayer = replayStepPlayers[replayStep] === 1 ? 2 : 1;
+            }
+            tryPlayStep = 0;
+            tryPlayTotalSteps = 0;
+
+            const slider = document.getElementById('replaySlider');
+            slider.min = 0;
+            slider.max = 0;
+            slider.value = 0;
+            updateTryPlayDisplay();
+            updateReplayUI();
+        }
+
+        function exitTryPlay() {
+            clearMobileMovePreview();
+            tryPlayMode = false;
+            tryPlayBoards = [];
+            tryPlayMarkers = [];
+            tryPlayStep = 0;
+            tryPlayTotalSteps = 0;
+
+            const slider = document.getElementById('replaySlider');
+            slider.min = 0;
+            slider.max = replayTotalSteps;
+            setReplayStep(tryPlayBaseStep);
+            updateReplayUI();
+        }
+
+        function tryPlayMove(vertex) {
+            if (board[vertex] !== 0) return false;
+            const playerVal = tryPlayCurrentPlayer;
+            const newBoard = tryPlaceStone(board, vertex, playerVal);
+            if (!newBoard) return false;
+
+            if (tryPlayStep < tryPlayTotalSteps) {
+                tryPlayBoards.length = tryPlayStep + 1;
+                tryPlayMarkers.length = tryPlayStep + 1;
+            }
+
+            tryPlayBoards.push(deepCopyBoard(newBoard));
+            tryPlayMarkers.push([{ vertex, color: playerVal }]);
+            tryPlayTotalSteps = tryPlayBoards.length - 1;
+            tryPlayStep = tryPlayTotalSteps;
+            tryPlayCurrentPlayer = 3 - tryPlayCurrentPlayer;
+
+            board = deepCopyBoard(newBoard);
+            lastMoveMarkers = [{ vertex, color: playerVal }];
+
+            const slider = document.getElementById('replaySlider');
+            slider.max = tryPlayTotalSteps;
+            slider.value = tryPlayStep;
+            updateTryPlayDisplay();
+            if (showEstimateActive) showEstimate();
+            else drawBoardWithOverlay();
+            return true;
+        }
+
+        function setTryPlayStep(step) {
+            clearMobileMovePreview();
+            if (step < 0) step = 0;
+            if (step > tryPlayTotalSteps) step = tryPlayTotalSteps;
+            tryPlayStep = step;
+            board = deepCopyBoard(tryPlayBoards[step]);
+            lastMoveMarkers = tryPlayMarkers[step].map(m => ({ ...m }));
+
+            const basePlayer = tryPlayBaseStep === 0 ? 1 : (3 - replayStepPlayers[tryPlayBaseStep]);
+            tryPlayCurrentPlayer = step % 2 === 0 ? basePlayer : (3 - basePlayer);
+
+            document.getElementById('replaySlider').value = step;
+            updateTryPlayDisplay();
+            if (showEstimateActive) showEstimate();
+            else drawBoardWithOverlay();
+        }
+
+        function updateTryPlayDisplay() {
+            const stepDisplay = document.getElementById('replayStepDisplay');
+            if (tryPlayMode) {
+                stepDisplay.innerText = `试下 ${tryPlayStep} / ${tryPlayTotalSteps}`;
+                const emoji = tryPlayCurrentPlayer === 1 ? '⚫' : '⚪';
+                turnDisplay.innerText = `${emoji} 试下`;
+            }
+        }
+
+        function rebuildLiveReplayFromMoveCoords(moveCoords) {
+            liveReplayBoards = [];
+            liveReplayMarkers = [];
+            liveReplayStepPlayers = [0];
+            let curBoard = Array(V).fill(0);
+            liveReplayBoards.push(deepCopyBoard(curBoard));
+            liveReplayMarkers.push([]);
+            for (const move of (moveCoords || [])) {
+                const playerVal = move.player === 'black' ? 1 : 2;
+                liveReplayStepPlayers.push(playerVal);
+                if (move.type === 'move') {
+                    const newBoard = tryPlaceStone(curBoard, move.vertex, playerVal);
+                    if (newBoard) curBoard = newBoard;
+                    liveReplayBoards.push(deepCopyBoard(curBoard));
+                    liveReplayMarkers.push([{ vertex: move.vertex, color: playerVal }]);
+                } else if (move.type === 'pass') {
+                    liveReplayBoards.push(deepCopyBoard(curBoard));
+                    liveReplayMarkers.push([]);
+                }
+            }
+        }
+
+        function applyLiveViewBoard() {
+            if (!liveReplayBoards.length) {
+                board = Array(V).fill(0);
+                lastMoveMarkers = [];
+                return;
+            }
+            if (liveViewStep < 0) liveViewStep = 0;
+            if (liveViewStep >= liveReplayBoards.length) liveViewStep = liveReplayBoards.length - 1;
+            board = deepCopyBoard(liveReplayBoards[liveViewStep]);
+            lastMoveMarkers = liveReplayMarkers[liveViewStep].map(m => ({ ...m }));
+        }
+
+        function updateLiveReplayPanelUI() {
+            if (replayMode) return;
+            const total = Math.max(0, liveReplayBoards.length - 1);
+            const slider = document.getElementById('replaySlider');
+            slider.min = 0;
+            slider.max = total;
+            slider.value = liveViewStep;
+            document.getElementById('replayStepDisplay').innerText = `${liveViewStep} / ${total}`;
+        }
+
+        function setLiveViewStep(step) {
+            clearMobileMovePreview();
+            if (replayMode) return;
+            const total = Math.max(0, liveReplayBoards.length - 1);
+            if (step < 0) step = 0;
+            if (step > total) step = total;
+            liveViewStep = step;
+            liveFollowLatest = step >= total;
+            applyLiveViewBoard();
+            updateLiveReplayPanelUI();
+            if (showEstimateActive) showEstimate();
+            else updateTurn();
+        }
+
+        function updateRecordButtons() {
+            const importBtn = document.getElementById('importBtn');
+            const exportBtn = document.getElementById('exportBtn');
+            if (replayMode) {
+                importBtn.style.display = 'none';
+                exportBtn.style.display = 'none';
+            } else {
+                const hasAnyStone = board.some(v => v !== 0);
+                const noPlayers = !slots.black && !slots.white;
+                if (noPlayers && !hasAnyStone) {
+                    importBtn.style.display = '';
+                    exportBtn.style.display = 'none';
+                } else {
+                    importBtn.style.display = 'none';
+                    exportBtn.style.display = '';
+                }
+            }
+        }
+
+        // ======================== WebSocket ========================
+        function connectWebSocket() {
+            if (reconnectTimer) clearTimeout(reconnectTimer);
+            const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${protocol}//${location.host}/qi/ws?game=${gameType}&room=${roomId}`;
+            ws = new WebSocket(wsUrl);
+            ws.onopen = () => {
+                ws.send(JSON.stringify({ type: 'join', password: roomPassword, requestedSlot: null }));
+            };
+            ws.onmessage = (e) => {
+                const msg = JSON.parse(e.data);
+                handleMessage(msg);
+            };
+            ws.onclose = (event) => {
+                if (event.code === 1008 && event.reason.includes('房间不存在')) {
+                    alert('房间不存在，请返回大厅');
+                    window.location.href = '/qi';
+                    return;
+                }
+                colorStatus.innerText = '连接断开，重连中...';
+                reconnectTimer = setTimeout(connectWebSocket, 2000);
+            };
+        }
+
+        function syncState(state)
+        {
+            clearMobileMovePreview();
+            const incomingSize = state.boardSize != null ? Number(state.boardSize) : NaN;
+            const sizeNum = Number(BOARD_SIZE);
+            const needGeometry =
+                Number.isFinite(incomingSize) &&
+                (incomingSize !== sizeNum || (state.board && state.board.length !== V));
+            if (needGeometry) {
+                BOARD_SIZE = incomingSize;
+                applyHexGeometry(generateHexBoard(BOARD_SIZE));
+                const sizeSelect = document.getElementById('boardSizeSelect');
+                if (sizeSelect) sizeSelect.value = String(BOARD_SIZE);
+            }
+            numberOfHands = state.numberOfHands || 1;
+            currentPlayer = state.currentPlayer;
+            gameOver = state.gameOver || false;
+            winner = state.winner || null;
+            if (state.moveCoords !== undefined) {
+                moveCoordsFull = state.moveCoords || [];
+                moveLog = moveCoordsFull.map(m => m.type === 'move' ? { vertex: m.vertex } : null);
+            }
+            if (state.slots)
+                slots = state.slots;
+
+            if (!replayMode) {
+                const prevTotal = Math.max(0, liveReplayBoards.length - 1);
+                const wasAtEnd = liveFollowLatest || liveViewStep >= prevTotal;
+                rebuildLiveReplayFromMoveCoords(state.moveCoords || []);
+                const newTotal = Math.max(0, liveReplayBoards.length - 1);
+                if (newTotal === 0) {
+                    liveViewStep = 0;
+                    liveFollowLatest = true;
+                } else if (wasAtEnd) {
+                    liveViewStep = newTotal;
+                    liveFollowLatest = true;
+                } else {
+                    liveViewStep = Math.min(liveViewStep, newTotal);
+                    if (liveViewStep === newTotal)
+                        liveFollowLatest = true;
+                }
+                applyLiveViewBoard();
+                updateLiveReplayPanelUI();
+            } else {
+                board = state.board;
+                lastMoveMarkers = state.lastMoveMarkers || [];
+            }
+
+            const hasAnyStone = board.some(v => v !== 0);
+            const hasPlayer = slots.black || slots.white;
+            const sizeSelect = document.getElementById('boardSizeSelect');
+            if (!hasAnyStone && !hasPlayer && !gameOver && mySlot === null)
+                sizeSelect.style.display = 'inline-block';
+            else
+                sizeSelect.style.display = 'none';
+
+            if (showEstimateActive) {
+                cachedLiveBoard = removeDeadAndDying(board);
+                cachedTerritory = assignTerritory(cachedLiveBoard);
+            }
+            updateTurn();
+            updateReplayUI();
+        }
+
+        function handleMessage(msg)
+        {
+            switch (msg.type) {
+                case 'joined':
+                    sessionStorage.removeItem(`roomPassword_${roomId}`);
+                    if (msg.state && msg.state.boardSize != null) {
+                        const jsz = Number(msg.state.boardSize);
+                        if (Number.isFinite(jsz) && (jsz !== Number(BOARD_SIZE) || (msg.state.board && msg.state.board.length !== V))) {
+                            BOARD_SIZE = jsz;
+                            applyHexGeometry(generateHexBoard(BOARD_SIZE));
+                            const joinSel = document.getElementById('boardSizeSelect');
+                            if (joinSel) joinSel.value = String(BOARD_SIZE);
+                        }
+                    }
+                    if (msg.role === 'player') {
+                        mySlot = msg.slot;
+                        colorStatus.innerText = `已选择: ${mySlot === 'black' ? '黑方' : '白方'}`;
+                        if (msg.state) syncState(msg.state);
+                    } else {
+                        mySlot = null;
+                        colorStatus.innerText = '观战';
+                        if (msg.state) syncState(msg.state);
+                    }
+                    updateRadioStyles();
+                    break;
+                case 'slotOccupied':
+                    if (msg.slot === 'black') slots.black = true;
+                    else if (msg.slot === 'white') slots.white = true;
+                    updateRadioStyles();
+                    break;
+                case 'slotReleased':
+                    if (msg.slot === 'black') slots.black = false;
+                    else if (msg.slot === 'white') slots.white = false;
+                    if (mySlot === msg.slot) {
+                        mySlot = null;
+                        colorStatus.innerText = '观战';
+                    }
+                    updateRadioStyles();
+                    break;
+                case 'colorAssigned':
+                    mySlot = msg.color;
+                    colorStatus.innerText = `已选择: ${mySlot === 'black' ? '黑方' : '白方'}`;
+                    if (mySlot === 'black') slots.black = true;
+                    else slots.white = true;
+                    updateRadioStyles();
+                    break;
+                case 'gameState':
+                    syncState(msg);
+                    updateRadioStyles();
+                    break;
+                case 'broadcast':
+                    {
+                        const wasOver = gameOver;
+                        syncState(msg);
+                        if (msg.gameOver && !wasOver) {
+                            if (msg.winner === 'black') alert('黑胜。');
+                            else if (msg.winner === 'white') alert('白胜。');
+                            else if (msg.winner === 'draw') alert('和棋。');
+                        } else if (msg.action === 'drawAgreed' && !wasOver)
+                            alert('和棋。');
+                        else if (msg.action === 'resign' && !wasOver)
+                            alert(`${msg.player === 'black' ? '黑方' : '白方'}认输`);
+                    }
+                    break;
+                case 'newGameStarted':
+                    exitReplayMode();
+                    // 必须在 syncState 之前重置本地身份：syncState 根据 mySlot 决定是否显示路数选择；
+                    // 若仍为上一局的执棋方，会误判为隐藏，需刷新页面才能出现。
+                    mySlot = null;
+                    colorStatus.innerText = '观战';
+                    slots = { black: false, white: false };
+                    syncState(msg);
+                    clearEstimate();
+                    hideScoreConfirm();
+                    waitingScoreConfirm = false;
+                    iRejected = false;
+                    scoreTitle.innerText = '　';
+                    updateRadioStyles();
+                    break;
+                case 'newGameRequest':
+                    if (confirm('对方请求开始新的一局，是否同意？'))
+                        ws.send(JSON.stringify({ type: 'newGameResponse', accept: true }));
+                    else
+                        ws.send(JSON.stringify({ type: 'newGameResponse', accept: false }));
+                    break;
+                case 'undoRequest':
+                    if (confirm('对方请求悔棋，是否同意？'))
+                        ws.send(JSON.stringify({ type: 'undoResponse', accept: true }));
+                    else
+                        ws.send(JSON.stringify({ type: 'undoResponse', accept: false }));
+                    break;
+                case 'drawRequest':
+                    if (confirm('对方申请和棋，是否同意？'))
+                        ws.send(JSON.stringify({ type: 'drawResponse', accept: true }));
+                    else
+                        ws.send(JSON.stringify({ type: 'drawResponse', accept: false }));
+                    break;
+                case 'scoreProposal':
+                    {
+                        const lead = msg.lead;
+                        clearMobileMovePreview();
+                        waitingScoreConfirm = true;
+                        iRejected = false;
+                        if (!showEstimateActive) {
+                            showEstimateActive = true;
+                            showEstimate();
+                        } else {
+                            showEstimate();
+                        }
+                        showScoreConfirm(lead);
+                    }
+                    break;
+                case 'scoreAgreed':
+                    gameOver = true;
+                    winner = msg.winner;
+                    const finalLead = msg.lead;
+                    const finalWinnerText = finalLead > 0 ? `黑胜${finalLead.toFixed(1)}点` : (finalLead < 0 ? `白胜${(-finalLead).toFixed(1)}点` : '和棋');
+                    scoreTitle.innerText = finalWinnerText;
+                    turnDisplay.innerText = '对局结束';
+                    if (showEstimateActive) {
+                        showEstimateActive = false;
+                        clearEstimate();
+                    }
+                    hideScoreConfirm();
+                    waitingScoreConfirm = false;
+                    iRejected = false;
+                    clearMobileMovePreview();
+                    updateTurn();
+                    break;
+                case 'scoreRejected':
+                    clearMobileMovePreview();
+                    if (iRejected) {
+                        iRejected = false;
+                    } else {
+                        alert('对方拒绝数子结果，对局继续');
+                    }
+                    if (showEstimateActive) {
+                        showEstimateActive = false;
+                        clearEstimate();
+                    }
+                    hideScoreConfirm();
+                    waitingScoreConfirm = false;
+                    break;
+                case 'requestEnd':
+                    if (confirm('对方申请数子，是否同意？'))
+                        ws.send(JSON.stringify({ type: 'endResponse', accept: true }));
+                    else
+                        ws.send(JSON.stringify({ type: 'endResponse', accept: false }));
+                    break;
+                case 'gameRecord':
+                    downloadRecord(msg.data);
+                    break;
+                case 'importSuccess':
+                    syncState(msg);
+                    clearEstimate();
+                    hideScoreConfirm();
+                    waitingScoreConfirm = false;
+                    if (msg.replayData) enterReplayMode(msg.replayData);
+                    updateRadioStyles();
+                    break;
+                case 'roomReset':
+                    exitReplayMode();
+                    syncState(msg);
+                    clearEstimate();
+                    hideScoreConfirm();
+                    waitingScoreConfirm = false;
+                    updateRadioStyles();
+                    break;
+                case 'boardSizeChanged':
+                    if (msg.boardSize != null) {
+                        const bs = Number(msg.boardSize);
+                        if (Number.isFinite(bs) && bs !== Number(BOARD_SIZE)) {
+                            BOARD_SIZE = bs;
+                            applyHexGeometry(generateHexBoard(BOARD_SIZE));
+                            board = Array(V).fill(0);
+                        }
+                        const sel = document.getElementById('boardSizeSelect');
+                        if (sel) sel.value = String(msg.boardSize);
+                        drawBoardWithOverlay();
+                    }
+                    break;
+                case 'error':
+                    if (msg.message === '密码错误') {
+                        sessionStorage.removeItem(`roomPassword_${roomId}`);
+                        window.location.href = `/qi?game=${gameType}&room=${roomId}&needPassword=1`;
+                    }
+                    else alert(msg.message);
+                    break;
+                default:
+                    console.log('未知消息', msg);
+            }
+        }
+
+        function updateRadioStyles() {
+            labelBlack.classList.remove('self-radio', 'opponent-radio', 'checked-disabled');
+            labelWhite.classList.remove('self-radio', 'opponent-radio', 'checked-disabled');
+            if (slots.black) {
+                labelBlack.classList.add(mySlot === 'black' ? 'self-radio' : 'opponent-radio');
+                labelBlack.classList.add('checked-disabled');
+                radioBlack.disabled = true;
+                radioBlack.checked = true;
+            } else {
+                radioBlack.disabled = false;
+                radioBlack.checked = false;
+            }
+            if (slots.white) {
+                labelWhite.classList.add(mySlot === 'white' ? 'self-radio' : 'opponent-radio');
+                labelWhite.classList.add('checked-disabled');
+                radioWhite.disabled = true;
+                radioWhite.checked = true;
+            } else {
+                radioWhite.disabled = false;
+                radioWhite.checked = false;
+            }
+            updateRecordButtons();
+        }
+
+        function commitMove(vertex) {
+            if (gameOver) return false;
+            if (!isMyTurn) return false;
+            if (board[vertex] !== 0) return false;
+            ws.send(JSON.stringify({ type: 'move', vertex }));
+            return true;
+        }
+
+        function getNearestVertex(x, y) {
+            let minDist = Infinity, best = -1;
+            for (let v = 0; v < V; v++) {
+                const { x: vx, y: vy } = transformed[v];
+                const dx = vx - x, dy = vy - y;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                if (dist < minDist) {
+                    minDist = dist;
+                    best = v;
+                }
+            }
+            return minDist < clickThreshold ? best : -1;
+        }
+
+        function canvasCoordsFromClient(clientX, clientY) {
+            const rect = canvas.getBoundingClientRect();
+            const scale = CANVAS_SIZE / rect.width;
+            return {
+                x: (clientX - rect.left) * scale,
+                y: (clientY - rect.top) * scale
+            };
+        }
+
+        function getSelectedBoardMark() {
+            if (!boardMarkSelect) return { clear: false, ch: '?' };
+            const val = boardMarkSelect.value;
+            if (val === '') return { clear: true, ch: '' };
+            return { clear: false, ch: val };
+        }
+
+        function applyUserBoardMark(vertex) {
+            if (vertex < 0 || vertex >= V) return;
+            if (board[vertex] !== 0) return;
+            const { clear, ch } = getSelectedBoardMark();
+            const key = String(vertex);
+            const existing = userBoardMarks[key];
+            if (clear) {
+                if (existing !== undefined) {
+                    delete userBoardMarks[key];
+                    drawBoardWithOverlay();
+                }
+                return;
+            }
+            if (existing === undefined) {
+                userBoardMarks[key] = ch;
+            } else if (existing !== ch) {
+                userBoardMarks[key] = ch;
+            } else {
+                delete userBoardMarks[key];
+            }
+            drawBoardWithOverlay();
+        }
+
+        let suppressCanvasClickAfterLongMark = false;
+
+        canvas.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            const { x, y } = canvasCoordsFromClient(e.clientX, e.clientY);
+            const v = getNearestVertex(x, y);
+            applyUserBoardMark(v);
+        });
+
+        const LONG_MARK_MS = 500;
+        const LONG_MARK_MOVE_CANCEL = 14;
+        let longMarkTimer = null;
+        let longMarkStart = null;
+
+        canvas.addEventListener('touchstart', (e) => {
+            if (e.touches.length !== 1) return;
+            const t = e.touches[0];
+            longMarkStart = { x: t.clientX, y: t.clientY };
+            longMarkTimer = setTimeout(() => {
+                longMarkTimer = null;
+                if (!longMarkStart) return;
+                const { x, y } = canvasCoordsFromClient(longMarkStart.x, longMarkStart.y);
+                const v = getNearestVertex(x, y);
+                applyUserBoardMark(v);
+                suppressCanvasClickAfterLongMark = true;
+                setTimeout(() => { suppressCanvasClickAfterLongMark = false; }, 450);
+                longMarkStart = null;
+            }, LONG_MARK_MS);
+        }, { passive: true });
+
+        canvas.addEventListener('touchmove', (e) => {
+            if (!longMarkTimer || !longMarkStart || e.touches.length !== 1) return;
+            const t = e.touches[0];
+            const dx = t.clientX - longMarkStart.x;
+            const dy = t.clientY - longMarkStart.y;
+            if (dx * dx + dy * dy > LONG_MARK_MOVE_CANCEL * LONG_MARK_MOVE_CANCEL) {
+                clearTimeout(longMarkTimer);
+                longMarkTimer = null;
+            }
+        }, { passive: true });
+
+        function clearLongMarkTouch() {
+            if (longMarkTimer) {
+                clearTimeout(longMarkTimer);
+                longMarkTimer = null;
+            }
+            longMarkStart = null;
+        }
+        canvas.addEventListener('touchend', clearLongMarkTouch);
+        canvas.addEventListener('touchcancel', clearLongMarkTouch);
+
+        // 事件绑定
+        canvas.addEventListener('click', (e) => {
+            if (suppressCanvasClickAfterLongMark) {
+                e.preventDefault();
+                return;
+            }
+            const rect = canvas.getBoundingClientRect();
+            const scale = CANVAS_SIZE / rect.width;
+            const x = (e.clientX - rect.left) * scale;
+            const y = (e.clientY - rect.top) * scale;
+            const v = getNearestVertex(x, y);
+            if (tryPlayMode && replayMode) {
+                if (waitingScoreConfirm) return;
+                if (v === -1) {
+                    if (mobileTwoStepPlacing()) clearMobileMovePreview();
+                    drawBoardWithOverlay();
+                    return;
+                }
+                if (board[v] !== 0) return;
+                if (mobileTwoStepPlacing()) {
+                    if (hoverVertex === v && isHoverValid) {
+                        clearMobileMovePreview();
+                        tryPlayMove(v);
+                    } else {
+                        hoverVertex = v;
+                        isHoverValid = true;
+                        drawBoardWithOverlay();
+                    }
+                    return;
+                }
+                tryPlayMove(v);
+                return;
+            }
+            if (gameOver) return;
+            if (!isMyTurn) return;
+            if (waitingScoreConfirm) return;
+            if (v === -1) {
+                if (mobileTwoStepPlacing()) clearMobileMovePreview();
+                drawBoardWithOverlay();
+                return;
+            }
+            if (board[v] !== 0) return;
+            if (mobileTwoStepPlacing()) {
+                if (hoverVertex === v && isHoverValid) {
+                    clearMobileMovePreview();
+                    commitMove(v);
+                    drawBoardWithOverlay();
+                } else {
+                    hoverVertex = v;
+                    isHoverValid = true;
+                    drawBoardWithOverlay();
+                }
+                return;
+            }
+            commitMove(v);
+        });
+
+        if (isMouseDevice)
+        {
+            canvas.addEventListener('mousemove', (e) =>
+            {
+                if (waitingScoreConfirm) {
+                    if (isHoverValid) { isHoverValid = false; hoverVertex = -1; drawBoardWithOverlay(); }
+                    return;
+                }
+                const canHover = tryPlayMode || (!gameOver && isMyTurn);
+                if (!canHover) {
+                    if (isHoverValid) { isHoverValid = false; hoverVertex = -1; drawBoardWithOverlay(); }
+                    return;
+                }
+                const rect = canvas.getBoundingClientRect();
+                const scale = CANVAS_SIZE / rect.width;
+                const x = (e.clientX - rect.left) * scale;
+                const y = (e.clientY - rect.top) * scale;
+                const v = getNearestVertex(x, y);
+                hoverVertex = v;
+                isHoverValid = (v !== -1 && board[v] === 0);
+                drawBoardWithOverlay();
+            });
+            canvas.addEventListener('mouseleave', () => {
+                if (!waitingScoreConfirm) {
+                    hoverVertex = -1;
+                    isHoverValid = false;
+                    drawBoardWithOverlay();
+                }
+            });
+        }
+
+        document.getElementById('newGameBtn').onclick = () => {
+            if (replayMode) {
+                ws.send(JSON.stringify({ type: 'resetRoom' }));
+                return;
+            }
+            if (!mySlot) { alert('只有对局者可以开始新局'); return; }
+            const opponentSlot = mySlot === 'black' ? 'white' : 'black';
+            const hasOpponent = slots[opponentSlot];
+            if (hasOpponent) {
+                if (confirm('确定向对方申请开始新局吗？')) ws.send(JSON.stringify({ type: 'requestNewGame' }));
+            } else {
+                if (confirm('确定开始新局吗？')) ws.send(JSON.stringify({ type: 'requestNewGame' }));
+            }
+        };
+        document.getElementById('estimateBtn').onclick = () => {
+            showEstimateActive = !showEstimateActive;
+            if (showEstimateActive) showEstimate();
+            else clearEstimate();
+        };
+        document.getElementById('tryPlayBtn').onclick = () => {
+            if (tryPlayMode) exitTryPlay();
+            else enterTryPlay();
+        };
+        document.getElementById('showNumbersCheck').onchange = (e) => {
+            showMoveNumbers = e.target.checked;
+            drawBoardWithOverlay();
+        };
+        document.getElementById('passBtn').onclick = () => {
+            if (!isMyTurn) return;
+            ws.send(JSON.stringify({ type: 'pass' }));
+        };
+        document.getElementById('undoBtn').onclick = () => {
+            if (!mySlot) { alert('只有对局者可以悔棋'); return; }
+            const opponentSlot = mySlot === 'black' ? 'white' : 'black';
+            const hasOpponent = slots[opponentSlot];
+            if (hasOpponent) {
+                if (confirm('确定向对方申请悔棋吗？')) ws.send(JSON.stringify({ type: 'requestUndo' }));
+            } else {
+                if (confirm('确定悔棋吗？')) ws.send(JSON.stringify({ type: 'requestUndo' }));
+            }
+        };
+        document.getElementById('resignBtn').onclick = () => {
+            if (!mySlot) { alert('只有对局者可以认输'); return; }
+            if (confirm('确定认输吗？')) ws.send(JSON.stringify({ type: 'resign' }));
+        };
+        document.getElementById('drawBtn').onclick = () => {
+            if (!mySlot) { alert('只有对局者可以申请和棋'); return; }
+            ws.send(JSON.stringify({ type: 'requestDraw' }));
+        };
+        document.getElementById('endReqBtn').onclick = () => {
+            if (!mySlot) { alert('只有对局者可以申请数子'); return; }
+            ws.send(JSON.stringify({ type: 'requestEnd' }));
+        };
+        document.getElementById('exportBtn').onclick = () => {
+            ws.send(JSON.stringify({ type: 'exportRecord' }));
+        };
+        document.getElementById('importBtn').onclick = () => {
+            document.getElementById('importFileInput').click();
+        };
+        document.getElementById('importFileInput').onchange = (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (ev) => {
+                try {
+                    const data = JSON.parse(ev.target.result);
+                    ws.send(JSON.stringify({ type: 'importRecord', data }));
+                } catch (err) {
+                    alert('棋谱文件解析失败');
+                }
+            };
+            reader.readAsText(file);
+            e.target.value = '';
+        };
+        document.getElementById('boardSizeSelect').addEventListener('change', (e) => {
+            const newSize = parseInt(e.target.value, 10);
+            if (ws && ws.readyState === WebSocket.OPEN)
+                ws.send(JSON.stringify({ type: 'setBoardSize', size: newSize }));
+        });
+        document.getElementById('replayBackBtn').onclick = () => {
+            if (replayMode) {
+                if (tryPlayMode) setTryPlayStep(tryPlayStep - 1);
+                else setReplayStep(replayStep - 1);
+            } else {
+                setLiveViewStep(liveViewStep - 1);
+            }
+        };
+        document.getElementById('replayForwardBtn').onclick = () => {
+            if (replayMode) {
+                if (tryPlayMode) setTryPlayStep(tryPlayStep + 1);
+                else setReplayStep(replayStep + 1);
+            } else {
+                setLiveViewStep(liveViewStep + 1);
+            }
+        };
+        document.getElementById('replaySlider').addEventListener('input', (e) => {
+            const val = parseInt(e.target.value, 10);
+            if (replayMode) {
+                if (tryPlayMode) setTryPlayStep(val);
+                else setReplayStep(val);
+            } else {
+                setLiveViewStep(val);
+            }
+        });
+        document.getElementById('backToLobbyBtn').onclick = () => { window.location.href = '/qi'; };
+        radioBlack.onchange = function () { if (this.checked && !this.disabled) ws.send(JSON.stringify({ type: 'selectColor', color: 'black' })); };
+        radioWhite.onchange = function () { if (this.checked && !this.disabled) ws.send(JSON.stringify({ type: 'selectColor', color: 'white' })); };
+
+        if (scoreConfirmYes)
+        {
+            scoreConfirmYes.onclick = () =>
+            {
+                ws.send(JSON.stringify({ type: 'scoreResponse', accept: true }));
+                hideScoreConfirm();
+            };
+            scoreConfirmNo.onclick = () => {
+                iRejected = true;
+                ws.send(JSON.stringify({ type: 'scoreResponse', accept: false }));
+                hideScoreConfirm();
+                if (showEstimateActive) {
+                    showEstimateActive = false;
+                    clearEstimate();
+                }
+                waitingScoreConfirm = false;
+            };
+        }
+
+        const modal = document.getElementById('rulesModal');
+        document.getElementById('helpBtn').onclick = () => modal.style.display = 'flex';
+        document.getElementById('closeRulesBtn').onclick = () => modal.style.display = 'none';
+        modal.onclick = (e) => { if (e.target === modal) modal.style.display = 'none'; };
+
+        updateRecordButtons();
+        connectWebSocket();
+    </script>
+</body>
+</html>

@@ -1,0 +1,1644 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=2.0, user-scalable=yes">
+    <title>正反面围棋</title>
+    <style>
+        * { box-sizing: border-box; user-select: none; -webkit-tap-highlight-color: transparent; }
+        html, body { margin: 0; padding: 0; width: 100%; overflow-x: hidden; }
+        body {
+            background: #2b5e3b;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            font-family: 'Segoe UI', Roboto, sans-serif;
+            padding: 10px;
+        }
+        .game-wrapper {
+            background: #d9c8ac;
+            padding: 32px;
+            border-radius: 28px;
+            box-shadow: 0 20px 30px rgba(0,0,0,0.6);
+            border: 2px solid #6b4a2e;
+            width: 100%;
+            max-width: 1500px;
+            margin: 0 auto;
+        }
+        .top-panel {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: space-between;
+            align-items: center;
+            background: #8f6b4f;
+            padding: 12px 20px;
+            border-radius: 40px;
+            color: #f9eed7;
+            font-weight: bold;
+            margin-bottom: 18px;
+            border-bottom: 4px solid #4d2f1b;
+            gap: 10px;
+        }
+        .left-group { display: flex; gap: 24px; align-items: center; flex-wrap: wrap; }
+        .side-select { display: flex; gap: 30px; flex-wrap: wrap; }
+        .side-select label {
+            font-size: 1.05rem;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            position: relative;
+        }
+        .side-select input[type="radio"] {
+            position: absolute; opacity: 0; width: 0; height: 0; margin: 0;
+        }
+        .side-select label::before {
+            content: "";
+            display: inline-block;
+            width: 1em; height: 1em;
+            border-radius: 50%;
+            background-color: white;
+            border: 1.5px solid #6b4a2e;
+            transition: all 0.1s ease;
+            box-sizing: border-box;
+        }
+        .side-select label.self-radio::before { border-color: #ff3b6f; }
+        .side-select label.self-radio.checked-disabled::before {
+            background-color: #ff3b6f;
+            box-shadow: inset 0 0 0 0.15em white;
+        }
+        .side-select label.opponent-radio::before { border-color: #999999; }
+        .side-select label.opponent-radio.checked-disabled::before {
+            background-color: #999999;
+            box-shadow: inset 0 0 0 0.15em white;
+        }
+        .komi-info {
+            background: #3e2e21;
+            padding: 6px 18px;
+            border-radius: 30px;
+            color: #ffd966;
+            font-size: 0.95rem;
+        }
+        .color-status {
+            background: #3e2e21;
+            padding: 6px 14px;
+            border-radius: 30px;
+            color: #ffd966;
+        }
+        .right-buttons { display: flex; gap: 12px; align-items: center; }
+        .help-btn, .back-to-lobby-btn {
+            background: none;
+            border: none;
+            color: #fff9c2;
+            font-weight: bold;
+            padding: 0 8px;
+            cursor: pointer;
+            font-size: 1rem;
+        }
+        .rules-modal {
+            display: none;
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            background: rgba(0,0,0,0.5);
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+        .rules-content {
+            background: #f9eed7;
+            color: #3e2e21;
+            max-width: 560px;
+            width: 90%;
+            padding: 20px 24px;
+            border-radius: 28px;
+            border: 2px solid #8f6b4f;
+            position: relative;
+        }
+        .rules-content h3 { margin-top: 0; text-align: center; color: #5e2b3b; }
+        .rules-content p { line-height: 1.55; font-size: 0.92rem; }
+        .rules-content .close-rules {
+            position: absolute;
+            top: 10px; right: 14px;
+            font-size: 1.5rem;
+            cursor: pointer;
+            color: #8f6b4f;
+        }
+        .main-area {
+            display: flex;
+            gap: 20px;
+            align-items: flex-start;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+        .button-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            width: 140px;
+        }
+        .ctrl-btn {
+            background: #b88a4b;
+            border: none;
+            color: white;
+            font-weight: bold;
+            padding: 12px 8px;
+            border-radius: 30px;
+            font-size: 1rem;
+            border-bottom: 5px solid #5e3e1e;
+            cursor: pointer;
+            transition: 0.08s;
+            text-align: center;
+        }
+        .ctrl-btn:active {
+            border-bottom-width: 2px;
+            transform: translateY(3px);
+        }
+        /* 与标准围棋相同：双棋盘 + 标记 + 信息列同一行，标记贴在整幅双棋盘右缘外，不挤占横向滚动 */
+        .board-and-info {
+            display: flex;
+            flex-direction: row;
+            align-items: stretch;
+            gap: 40px;
+            flex: 0 1 auto;
+            min-width: 0;
+        }
+        .dual-boards-container {
+            position: relative;
+            display: flex;
+            flex-direction: row;
+            align-items: stretch;
+            align-self: flex-start;
+            flex: 0 1 auto;
+            min-width: 0;
+        }
+        .dual-boards {
+            display: flex;
+            flex-wrap: nowrap;
+            gap: 50px;
+            justify-content: center;
+            align-items: flex-start;
+            flex: 0 1 auto;
+            min-width: 0;
+            overflow: visible;
+            padding-bottom: 0;
+        }
+        .board-wrap {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            flex: 0 0 auto;
+            width: 100%;
+            max-width: 450px;
+        }
+        .main-area-right {
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-start;
+            width: 280px;
+            max-width: 100%;
+            flex: 0 0 auto;
+            min-width: 0;
+        }
+        .main-area-right .info-panel {
+            margin-bottom: 0;
+            width: 100%;
+        }
+        /* 标记区：相对 dual-boards-container，桌面在整幅双棋盘右缘外 6px（与 info-panel 之间空隙内展开） */
+        .board-mark-outer {
+            position: absolute;
+            left: 100%;
+            margin-left: 6px;
+            bottom: 0;
+            right: auto;
+            top: auto;
+            display: grid;
+            grid-template-rows: 52px;
+            grid-template-columns: max-content;
+            width: max-content;
+            max-width: min(100%, 280px);
+            min-height: 52px;
+            max-height: 52px;
+            z-index: 2;
+            box-sizing: border-box;
+            overflow: hidden;
+        }
+        .board-mark-panel[hidden],
+        .board-mark-expand-btn[hidden] {
+            display: none !important;
+        }
+        .board-mark-outer > .board-mark-panel,
+        .board-mark-outer > .board-mark-expand-btn {
+            grid-area: 1 / 1;
+            align-self: end;
+            justify-self: start;
+            margin: 0;
+        }
+        .board-mark-panel {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            background: rgba(62, 46, 33, 0.92);
+            color: #ffd966;
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 0.82rem;
+            font-weight: bold;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+            width: max-content;
+            max-width: min(100%, 260px);
+            max-height: 52px;
+            box-sizing: border-box;
+        }
+        .board-mark-panel label {
+            white-space: nowrap;
+            flex-shrink: 0;
+        }
+        .board-mark-select {
+            flex: 0 1 auto;
+            min-width: 0;
+            background: #3e2e21;
+            color: #ffd966;
+            border: 1px solid #c9a450;
+            border-radius: 8px;
+            padding: 2px 4px;
+            font-size: 0.9rem;
+            font-weight: bold;
+            cursor: pointer;
+            width: 3em;
+            max-width: min(200px, 55vw);
+            max-height: 44px;
+        }
+        .board-mark-fold-btn {
+            background: transparent;
+            color: #ffd966;
+            border: none;
+            border-radius: 8px;
+            padding: 2px 2px;
+            font-size: 1.1rem;
+            line-height: 1;
+            font-weight: bold;
+            cursor: pointer;
+            font-family: inherit;
+            white-space: nowrap;
+        }
+        .board-mark-expand-btn {
+            background: rgba(62, 46, 33, 0.92);
+            color: #ffd966;
+            border: none;
+            border-radius: 10px;
+            padding: 6px 6px;
+            font-size: 0.82rem;
+            font-weight: bold;
+            cursor: pointer;
+            font-family: inherit;
+            white-space: nowrap;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+        }
+        .board-mark-fold-btn:active,
+        .board-mark-expand-btn:active {
+            transform: translateY(1px);
+        }
+        canvas.go-canvas {
+            display: block;
+            width: 100%;
+            height: auto;
+            aspect-ratio: 1 / 1;
+            border-radius: 4px;
+            box-shadow: inset 0 0 0 1px #6b4a2e, 0 10px 15px #3a2e1e;
+            max-width: 100%;
+        }
+        canvas.board-a { background: #deb887; }
+        canvas.board-b { background: #cb9665; }
+        .info-panel {
+            background: #8f6b4f;
+            padding: 20px 16px;
+            border-radius: 20px;
+            color: #efdfbb;
+            width: 100%;
+            max-width: 280px;
+            border: 1px solid #c9a450;
+            margin: 0 auto;
+            min-height: 200px;
+            display: flex;
+            flex-direction: column;
+            margin-bottom: 20px;
+            border-bottom: 4px solid #4d2f1b;
+        }
+        .turn-box {
+            background: #3e2e21;
+            padding: 12px;
+            border-radius: 50px;
+            text-align: center;
+            color: #ffd966;
+            font-size: 1.05rem;
+            margin-bottom: 14px;
+        }
+        .score-box {
+            background: #3e2e21;
+            padding: 12px;
+            border-radius: 16px;
+            line-height: 1.55;
+        }
+        .score-title { font-size: 1.15rem; margin-bottom: 8px; }
+        .score-confirm-panel {
+            margin-top: 12px;
+            background: #3e2e21;
+            border-radius: 20px;
+            padding: 12px;
+            text-align: center;
+        }
+        .score-confirm-buttons { display: flex; gap: 10px; justify-content: center; margin-top: 8px; }
+        .score-confirm-buttons button {
+            background: #b88a4b;
+            border: none;
+            color: white;
+            padding: 6px 14px;
+            border-radius: 30px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        .board-size-select {
+            background: #3e2e21;
+            color: #ffd966;
+            border: none;
+            padding: 6px 12px;
+            border-radius: 30px;
+            font-weight: bold;
+            font-size: 0.9rem;
+            cursor: pointer;
+        }
+        @media (max-width: 900px) {
+            .game-wrapper { padding: 14px; }
+            .button-panel {
+                flex-direction: row;
+                flex-wrap: wrap;
+                justify-content: center;
+                width: 100%;
+                margin: 10px 0 0;
+                gap: 10px;
+            }
+            .button-panel .ctrl-btn {
+                width: calc(50% - 10px);
+                min-width: 120px;
+            }
+            /* 与标准围棋：整列棋盘上、信息面板在下 */
+            .board-and-info {
+                display: grid;
+                grid-template-columns: 1fr;
+                grid-template-rows: auto auto;
+                row-gap: 12px;
+                width: 100%;
+            }
+            .board-and-info > .dual-boards-container {
+                grid-column: 1;
+                grid-row: 1;
+                width: 100%;
+                z-index: 1;
+            }
+            .main-area-right {
+                display: contents;
+            }
+            .main-area-right .info-panel {
+                grid-column: 1;
+                grid-row: 2;
+                width: 100%;
+                max-width: 600px;
+                margin-top: 0;
+            }
+            .dual-boards {
+                flex-direction: column;
+                align-items: center;
+                justify-content: flex-start;
+                gap: 24px;
+                padding-bottom: 14px;
+            }
+            .board-wrap { max-width: 100%; }
+            /* 手机：标记贴在下方棋盘（整区底边）右下，与标准围棋一致 */
+            .dual-boards-container .board-mark-outer {
+                position: absolute;
+                right: calc(-10px - 14px);
+                bottom: 0;
+                left: auto !important;
+                top: auto;
+                margin-left: 0 !important;
+                margin-right: 0;
+                width: max-content;
+                max-width: none;
+                z-index: 5;
+                pointer-events: none;
+                overflow: visible;
+                max-height: none;
+                height: auto;
+                min-height: 0;
+                display: flex;
+                flex-direction: column;
+                align-items: flex-end;
+                justify-content: flex-end;
+            }
+            .dual-boards-container .board-mark-outer > .board-mark-panel,
+            .dual-boards-container .board-mark-outer > .board-mark-expand-btn {
+                pointer-events: auto;
+            }
+            .dual-boards-container .board-mark-panel {
+                flex-direction: row;
+            }
+            .dual-boards-container .board-mark-fold-btn {
+                order: -1;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="game-wrapper">
+        <div class="top-panel">
+            <div class="left-group">
+                <div class="side-select">
+                    <label id="labelBlack"><input type="radio" name="color" value="black" id="radioBlack"> ⚫ 黑方</label>
+                    <label id="labelWhite"><input type="radio" name="color" value="white" id="radioWhite"> ⚪ 白方</label>
+                </div>
+                <div class="komi-info">无贴目</div>
+                <div class="color-status" id="colorStatus">观战</div>
+                <select id="boardSizeSelect" class="board-size-select" style="display:none;">
+                    <option value="5">5路</option>
+                    <option value="6">6路</option>
+                    <option value="7">7路</option>
+                    <option value="8">8路</option>
+                    <option value="9">9路</option>
+                    <option value="10">10路</option>
+                    <option value="11">11路</option>
+                    <option value="12">12路</option>
+                    <option value="13">13路</option>
+                    <option value="14">14路</option>
+                    <option value="15" selected>15路</option>
+                    <option value="16">16路</option>
+                    <option value="17">17路</option>
+                    <option value="18">18路</option>
+                    <option value="19">19路</option>
+                </select>
+            </div>
+            <div class="right-buttons">
+                <button class="help-btn" id="helpBtn">说明</button>
+                <button class="back-to-lobby-btn" id="backToLobbyBtn">返回大厅</button>
+            </div>
+        </div>
+
+        <div id="rulesModal" class="rules-modal">
+            <div class="rules-content">
+                <span class="close-rules" id="closeRulesBtn">&times;</span>
+                <h3>正反面围棋</h3>
+                <p>
+                    基本规则同围棋。<br /><br />
+                    双方依次在正面和反面落子。<br /><br />
+                    在某一面落子时，另一面同位置变为洞；洞不可落子、不提供气。<br /><br />
+                    双方连续四步虚着终局，点数按两面点数之和计，无贴目。<br />
+                </p>
+            </div>
+        </div>
+
+        <div class="main-area">
+            <div class="button-panel">
+                <button class="ctrl-btn" id="newGameBtn">新局</button>
+                <button class="ctrl-btn" id="estimateBtn">形势判断</button>
+                <button class="ctrl-btn" id="passBtn">虚着</button>
+                <button class="ctrl-btn" id="undoBtn">悔棋</button>
+                <button class="ctrl-btn" id="resignBtn">认输</button>
+                <button class="ctrl-btn" id="drawBtn">和棋</button>
+                <button class="ctrl-btn" id="endReqBtn">申请数子</button>
+                <button class="ctrl-btn" id="importBtn">导入棋谱</button>
+                <button class="ctrl-btn" id="exportBtn" style="display:none;">导出棋谱</button>
+            </div>
+            <div class="board-and-info">
+                <div class="dual-boards-container">
+                    <div class="dual-boards">
+                        <div class="board-wrap">
+                            <canvas id="boardA" class="go-canvas board-a" width="450" height="450"></canvas>
+                        </div>
+                        <div class="board-wrap">
+                            <canvas id="boardB" class="go-canvas board-b" width="450" height="450"></canvas>
+                        </div>
+                    </div>
+                    <div class="board-mark-outer" id="boardMarkOuter">
+                        <div class="board-mark-panel" id="boardMarkPanel" hidden title="右键或长按空点放置标记；洞与有子处不可标记">
+                            <label for="boardMarkSelect">标记</label>
+                            <select id="boardMarkSelect" class="board-mark-select" aria-label="棋盘标记符号"></select>
+                            <button type="button" class="board-mark-fold-btn" id="boardMarkFoldBtn" title="收起">‹</button>
+                        </div>
+                        <button type="button" class="board-mark-expand-btn" id="boardMarkExpandBtn" title="展开标记">›</button>
+                    </div>
+                </div>
+                <div class="main-area-right">
+                    <div class="info-panel">
+                        <div class="turn-box" id="turnDisplay">　</div>
+                        <div class="score-box">
+                            <div class="score-title" id="scoreTitle">　</div>
+                            <div id="scoreBoard">　</div>
+                            <div id="leadInfo" style="margin-top:10px; color:#ffb870;">　</div>
+                        </div>
+                        <div id="scoreConfirmPanel" class="score-confirm-panel" style="display:none;">
+                            <p id="scoreConfirmText">　</p>
+                            <div class="score-confirm-buttons">
+                                <button id="scoreConfirmYes">确定</button>
+                                <button id="scoreConfirmNo">取消</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <input type="file" id="importFileInput" accept=".json" style="display:none;">
+
+    <script>
+        let BOARD_SIZE = 15;
+        const CANVAS_PX = 450;
+        let PADDING = 63 - 2 * BOARD_SIZE;
+        let CELL_SIZE = (CANVAS_PX - 2 * PADDING) / (BOARD_SIZE - 1);
+
+        const pathMatch = window.location.pathname.match(/^\/qi\/([^/]+)\/(\d+)$/);
+        if (!pathMatch) { alert('无效的房间链接'); throw new Error('Invalid room URL'); }
+        const gameType = pathMatch[1];
+        const roomId = pathMatch[2];
+        let roomPassword = sessionStorage.getItem(`roomPassword_${roomId}`) || null;
+
+        let boardA = initBoard(BOARD_SIZE);
+        let boardB = initBoard(BOARD_SIZE);
+        let holesA = [];
+        let holesB = [];
+        let nextMoveNumber = 1;
+        let expectedBoard = 'A';
+        let expectedSlot = 'black';
+        let lastMoveMarkers = [];
+        let moveCoords = [];
+        let mySlot = null;
+        let gameOver = false;
+        let winner = null;
+        let passCounter = 0;
+        let slots = { black: false, white: false };
+        let showEstimateActive = false;
+        let cachedLiveA = null, cachedTerrA = null;
+        let cachedLiveB = null, cachedTerrB = null;
+        let waitingScoreConfirm = false;
+        let ws, reconnectTimer = null;
+
+        const canvasA = document.getElementById('boardA');
+        const canvasB = document.getElementById('boardB');
+        const ctxA = canvasA.getContext('2d');
+        const ctxB = canvasB.getContext('2d');
+        const turnDisplay = document.getElementById('turnDisplay');
+        const colorStatus = document.getElementById('colorStatus');
+        const radioBlack = document.getElementById('radioBlack');
+        const radioWhite = document.getElementById('radioWhite');
+        const labelBlack = document.getElementById('labelBlack');
+        const labelWhite = document.getElementById('labelWhite');
+        const scoreTitle = document.getElementById('scoreTitle');
+        const scoreBoard = document.getElementById('scoreBoard');
+        const leadInfo = document.getElementById('leadInfo');
+        const boardMarkSelect = document.getElementById('boardMarkSelect');
+
+        /** 本地标记，键 "A|r,c" / "B|r,c"（仅本机；两面共用一套选项） */
+        let userBoardMarks = Object.create(null);
+        const BOARD_MARK_CHAR_LIST = (() => {
+            const a = [];
+            a.push('?', '!');
+            for (let i = 0; i < 26; i++) a.push(String.fromCharCode(65 + i));
+            a.push('△', '▽', '♡', '○', '◇', '□', '☆', '×', '🚩');
+            return a;
+        })();
+
+        (function initBoardMarkSelect() {
+            if (!boardMarkSelect) return;
+            const frag = document.createDocumentFragment();
+            const optEmpty = document.createElement('option');
+            optEmpty.value = '';
+            optEmpty.textContent = '清除';
+            frag.appendChild(optEmpty);
+            for (const ch of BOARD_MARK_CHAR_LIST) {
+                const o = document.createElement('option');
+                o.value = ch;
+                o.textContent = ch;
+                if (ch === '?') o.selected = true;
+                frag.appendChild(o);
+            }
+            boardMarkSelect.appendChild(frag);
+        })();
+
+        (function initBoardMarkFold() {
+            const panel = document.getElementById('boardMarkPanel');
+            const foldBtn = document.getElementById('boardMarkFoldBtn');
+            const expandBtn = document.getElementById('boardMarkExpandBtn');
+            if (!panel || !foldBtn || !expandBtn) return;
+            function setCollapsed(collapsed) {
+                panel.hidden = collapsed;
+                expandBtn.hidden = !collapsed;
+                foldBtn.setAttribute('aria-expanded', String(!collapsed));
+                expandBtn.setAttribute('aria-expanded', String(!collapsed));
+            }
+            foldBtn.onclick = () => setCollapsed(true);
+            expandBtn.onclick = () => setCollapsed(false);
+            setCollapsed(true);
+        })();
+
+        let hoverA = { row: -1, col: -1, ok: false };
+        let hoverB = { row: -1, col: -1, ok: false };
+        const isMouseDevice = window.matchMedia('(hover: hover) and (pointer: fine)').matches;
+
+        function mobileTwoStepPlacing() {
+            return !isMouseDevice && BOARD_SIZE > 9;
+        }
+        function clearMobileMovePreview() {
+            hoverA.row = -1; hoverA.col = -1; hoverA.ok = false;
+            hoverB.row = -1; hoverB.col = -1; hoverB.ok = false;
+        }
+
+        function initBoard(n) {
+            return Array(n).fill().map(() => Array(n).fill(0));
+        }
+
+        function deepCopyBoard(b) { return b.map(row => row.slice()); }
+
+        function isHole(holes, r, c) {
+            return holes.some(p => p.row === r && p.col === c);
+        }
+
+        function getStarPoints(boardSize) {
+            const stars = [];
+            let cornerOffset = boardSize <= 11 ? 2 : 3;
+            const corners = [
+                [cornerOffset, cornerOffset],
+                [cornerOffset, boardSize - 1 - cornerOffset],
+                [boardSize - 1 - cornerOffset, cornerOffset],
+                [boardSize - 1 - cornerOffset, boardSize - 1 - cornerOffset]
+            ];
+            stars.push(...corners);
+            if (boardSize >= 9 && boardSize % 2 === 1) {
+                const center = Math.floor(boardSize / 2);
+                stars.push([center, center]);
+            }
+            if (boardSize >= 15 && boardSize % 2 === 1) {
+                const center = Math.floor(boardSize / 2);
+                const sideOffset = 3;
+                stars.push([sideOffset, center], [boardSize - 1 - sideOffset, center]);
+                stars.push([center, sideOffset], [center, boardSize - 1 - sideOffset]);
+            }
+            return stars;
+        }
+
+        function updateBoardGeometry() {
+            PADDING = 63 - 2 * BOARD_SIZE;
+            CELL_SIZE = (CANVAS_PX - 2 * PADDING) / (BOARD_SIZE - 1);
+            drawAllBoards();
+        }
+
+        function isUserBoardMarkVisibleAt(which, r, c) {
+            if (showEstimateActive) return false;
+            if (r < 0 || r >= BOARD_SIZE || c < 0 || c >= BOARD_SIZE) return false;
+            const board = which === 'A' ? boardA : boardB;
+            const holes = which === 'A' ? holesA : holesB;
+            if (board[r][c] !== 0) return false;
+            if (isHole(holes, r, c)) return false;
+            return true;
+        }
+
+        function getClosestIntersection(x, y) {
+            let bestRow = -1, bestCol = -1;
+            let bestDist = Infinity;
+            for (let r = 0; r < BOARD_SIZE; r++) {
+                for (let c = 0; c < BOARD_SIZE; c++) {
+                    const ix = PADDING + c * CELL_SIZE;
+                    const iy = PADDING + r * CELL_SIZE;
+                    const d = Math.hypot(x - ix, y - iy);
+                    if (d < bestDist) {
+                        bestDist = d;
+                        bestRow = r;
+                        bestCol = c;
+                    }
+                }
+            }
+            const maxDist = CELL_SIZE * 0.45;
+            if (bestDist > maxDist) return { row: -1, col: -1 };
+            return { row: bestRow, col: bestCol };
+        }
+
+        function drawHole(ctx, row, col) {
+            const cellSize = CELL_SIZE;
+            const x = PADDING + col * cellSize;
+            const y = PADDING + row * cellSize;
+            const size = cellSize * 0.8;
+            const halfSize = size / 2;
+            const left = x - halfSize;
+            const top = y - halfSize;
+            ctx.save();
+            ctx.shadowBlur = 6;
+            ctx.shadowColor = 'rgba(0,0,0,0.5)';
+            ctx.shadowOffsetY = 2;
+            const grad = ctx.createLinearGradient(left, top, left + size, top + size);
+            grad.addColorStop(0, '#c02020');
+            grad.addColorStop(0.5, '#a00000');
+            grad.addColorStop(1, '#880000');
+            ctx.fillStyle = grad;
+            ctx.fillRect(left, top, size, size);
+            const hx = left + size * 0.35;
+            const hy = top + size * 0.35;
+            const rad = size * 0.6;
+            const rg = ctx.createRadialGradient(hx, hy, 0, hx, hy, rad);
+            rg.addColorStop(0, 'rgba(255,255,255,0.4)');
+            rg.addColorStop(0.5, 'rgba(255,255,255,0.2)');
+            rg.addColorStop(1, 'rgba(255,255,255,0)');
+            ctx.fillStyle = rg;
+            ctx.beginPath();
+            ctx.arc(hx, hy, rad, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+        }
+
+        function drawBoardLayer(ctx, board, holes, which) {
+            ctx.clearRect(0, 0, CANVAS_PX, CANVAS_PX);
+            const cellSize = CELL_SIZE;
+            ctx.lineWidth = 1.5;
+            ctx.strokeStyle = '#3a281c';
+            for (let i = 0; i < BOARD_SIZE; i++) {
+                ctx.beginPath();
+                ctx.moveTo(PADDING + i * cellSize, PADDING);
+                ctx.lineTo(PADDING + i * cellSize, CANVAS_PX - PADDING);
+                ctx.stroke();
+                ctx.beginPath();
+                ctx.moveTo(PADDING, PADDING + i * cellSize);
+                ctx.lineTo(CANVAS_PX - PADDING, PADDING + i * cellSize);
+                ctx.stroke();
+            }
+            const stars = getStarPoints(BOARD_SIZE);
+            ctx.fillStyle = '#3a281c';
+            for (let [r, c] of stars) {
+                ctx.beginPath();
+                ctx.arc(PADDING + c * cellSize, PADDING + r * cellSize, cellSize * 0.12, 0, 2 * Math.PI);
+                ctx.fill();
+            }
+
+            const stoneRadius = cellSize * 0.44;
+            const markLenDefault = cellSize * 0.352;
+            const lowerLastMoveMarker = showEstimateActive;
+            if (lowerLastMoveMarker) {
+                for (let m of lastMoveMarkers) {
+                    if ((m.board === 'A' && ctx === ctxA) || (m.board === 'B' && ctx === ctxB)) {
+                        const { row, col, color } = m;
+                        const x = PADDING + col * cellSize;
+                        const y = PADDING + row * cellSize;
+                        ctx.beginPath();
+                        ctx.moveTo(x + stoneRadius, y + stoneRadius);
+                        ctx.lineTo(x, y + stoneRadius);
+                        ctx.lineTo(x + stoneRadius, y);
+                        ctx.closePath();
+                        ctx.fillStyle = color === 1 ? '#fff' : '#222';
+                        ctx.fill();
+                    }
+                }
+            }
+
+            for (let r = 0; r < BOARD_SIZE; r++) {
+                for (let c = 0; c < BOARD_SIZE; c++) {
+                    const val = board[r][c];
+                    if (val !== 1 && val !== 2) continue;
+                    const x = PADDING + c * cellSize;
+                    const y = PADDING + r * cellSize;
+                    const radius = stoneRadius;
+                    ctx.save();
+                    ctx.shadowBlur = 6;
+                    ctx.shadowColor = 'rgba(0,0,0,0.5)';
+                    ctx.shadowOffsetY = 2;
+                    const grad = ctx.createRadialGradient(x - 3, y - 3, radius * 0.2, x, y, radius * 1.2);
+                    if (val === 1) {
+                        grad.addColorStop(0, '#444');
+                        grad.addColorStop(0.6, '#222');
+                        grad.addColorStop(1, '#111');
+                    } else {
+                        grad.addColorStop(0, '#fff');
+                        grad.addColorStop(0.5, '#eee');
+                        grad.addColorStop(1, '#aaa');
+                    }
+                    ctx.beginPath();
+                    ctx.arc(x, y, radius, 0, 2 * Math.PI);
+                    ctx.fillStyle = grad;
+                    ctx.fill();
+                    ctx.restore();
+                    ctx.beginPath();
+                    ctx.arc(x - 3, y - 3, radius * 0.15, 0, 2 * Math.PI);
+                    ctx.fillStyle = val === 1 ? '#444' : '#fff';
+                    ctx.fill();
+                }
+            }
+            for (let p of holes) drawHole(ctx, p.row, p.col);
+
+            if (!lowerLastMoveMarker) {
+                const markLen = markLenDefault;
+                for (let m of lastMoveMarkers) {
+                    if ((m.board === 'A' && ctx === ctxA) || (m.board === 'B' && ctx === ctxB)) {
+                        const { row, col, color } = m;
+                        const x = PADDING + col * cellSize;
+                        const y = PADDING + row * cellSize;
+                        ctx.beginPath();
+                        ctx.moveTo(x, y);
+                        ctx.lineTo(x + markLen, y);
+                        ctx.lineTo(x, y + markLen);
+                        ctx.closePath();
+                        ctx.fillStyle = color === 1 ? '#fff' : '#222';
+                        ctx.fill();
+                    }
+                }
+            }
+            const markPrefix = which + '|';
+            const markBg = which === 'A' ? '#deb887' : '#cb9665';
+            for (const key of Object.keys(userBoardMarks)) {
+                if (!key.startsWith(markPrefix)) continue;
+                const [r, c] = key.slice(markPrefix.length).split(',').map(Number);
+                if (!isUserBoardMarkVisibleAt(which, r, c)) continue;
+                const ch = userBoardMarks[key];
+                const x = PADDING + c * cellSize;
+                const y = PADDING + r * cellSize;
+                const markBgR = cellSize * 0.3;
+                ctx.beginPath();
+                ctx.arc(x, y, markBgR, 0, 2 * Math.PI);
+                ctx.fillStyle = markBg;
+                ctx.fill();
+                const fontPx = cellSize * (ch === '🚩' ? 0.6 : 0.66);
+                ctx.font = `bold ${fontPx}px "Segoe UI", "Apple Color Emoji", "Segoe UI Emoji", sans-serif`;
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillStyle = '#3a281c';
+                ctx.fillText(ch, x, y + 1);
+            }
+        }
+
+        function drawHover(ctx, board, holes, which, hover) {
+            if (!showEstimateActive && !gameOver && mySlot && isMyTurn() && hover.ok && hover.row >= 0) {
+                const r = hover.row, c = hover.col;
+                if (expectedBoard === which && board[r][c] === 0 && !isHole(holes, r, c)) {
+                    ctx.globalAlpha = 0.45;
+                    ctx.beginPath();
+                    ctx.arc(PADDING + c * CELL_SIZE, PADDING + r * CELL_SIZE, CELL_SIZE * 0.44, 0, 2 * Math.PI);
+                    ctx.fillStyle = mySlot === 'black' ? '#222' : '#ddd';
+                    ctx.fill();
+                    ctx.globalAlpha = 1;
+                }
+            }
+        }
+
+        function drawEstimateOverlay(ctx, liveBoard, territory, baseBoard) {
+            if (!showEstimateActive || !liveBoard || !territory) return;
+            const dotR = CELL_SIZE * 0.18;
+            for (let r = 0; r < BOARD_SIZE; r++) {
+                for (let c = 0; c < BOARD_SIZE; c++) {
+                    if (baseBoard[r][c] !== 0 && liveBoard[r][c] === 0) {
+                        const x = PADDING + c * CELL_SIZE;
+                        const y = PADDING + r * CELL_SIZE;
+                        ctx.fillStyle = baseBoard[r][c] === 1 ? '#fff' : '#222';
+                        ctx.fillRect(x - dotR, y - dotR, dotR * 2, dotR * 2);
+                    } else if (baseBoard[r][c] === 0 && territory[r][c] === 1) {
+                        const x = PADDING + c * CELL_SIZE;
+                        const y = PADDING + r * CELL_SIZE;
+                        ctx.fillStyle = '#222';
+                        ctx.fillRect(x - dotR, y - dotR, dotR * 2, dotR * 2);
+                    } else if (baseBoard[r][c] === 0 && territory[r][c] === 2) {
+                        const x = PADDING + c * CELL_SIZE;
+                        const y = PADDING + r * CELL_SIZE;
+                        ctx.fillStyle = '#f0f0f0';
+                        ctx.fillRect(x - dotR, y - dotR, dotR * 2, dotR * 2);
+                    }
+                }
+            }
+        }
+
+        function drawAllBoards() {
+            drawBoardLayer(ctxA, boardA, holesA, 'A');
+            drawBoardLayer(ctxB, boardB, holesB, 'B');
+            if (showEstimateActive) {
+                drawEstimateOverlay(ctxA, cachedLiveA, cachedTerrA, boardA);
+                drawEstimateOverlay(ctxB, cachedLiveB, cachedTerrB, boardB);
+            }
+            drawHover(ctxA, boardA, holesA, 'A', hoverA);
+            drawHover(ctxB, boardB, holesB, 'B', hoverB);
+        }
+
+        function isLibertySurroundedByOpponent(board, lr, lc, opponentColor) {
+            const dirs = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+            for (const [dr, dc] of dirs) {
+                const nr = lr + dr, nc = lc + dc;
+                if (nr >= 0 && nr < BOARD_SIZE && nc >= 0 && nc < BOARD_SIZE && board[nr][nc] === opponentColor) return true;
+            }
+            return false;
+        }
+
+        function removeDeadAndDyingScore(board, holes) {
+            let boardCopy = deepCopyBoard(board);
+            const forbidden = (r, c) => isHole(holes, r, c);
+            let changed = true;
+            while (changed) {
+                changed = false;
+                const visited = Array(BOARD_SIZE).fill().map(() => Array(BOARD_SIZE).fill(false));
+                for (let r = 0; r < BOARD_SIZE; r++) {
+                    for (let c = 0; c < BOARD_SIZE; c++) {
+                        const val = boardCopy[r][c];
+                        if ((val === 1 || val === 2) && !visited[r][c]) {
+                            const color = val;
+                            const queue = [[r, c]];
+                            visited[r][c] = true;
+                            const stones = [[r, c]];
+                            const liberties = new Set();
+                            let idx = 0;
+                            const dirs = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+                            while (idx < queue.length) {
+                                const [rr, cc] = queue[idx++];
+                                for (const [dr, dc] of dirs) {
+                                    const nr = rr + dr, nc = cc + dc;
+                                    if (nr < 0 || nr >= BOARD_SIZE || nc < 0 || nc >= BOARD_SIZE) continue;
+                                    if (boardCopy[nr][nc] === 0 && !forbidden(nr, nc)) liberties.add(nr + ',' + nc);
+                                    else if (boardCopy[nr][nc] === color && !visited[nr][nc]) {
+                                        visited[nr][nc] = true;
+                                        queue.push([nr, nc]);
+                                        stones.push([nr, nc]);
+                                    }
+                                }
+                            }
+                            if (liberties.size === 0) {
+                                for (const [rr, cc] of stones) boardCopy[rr][cc] = 0;
+                                changed = true;
+                                continue;
+                            }
+                            if (liberties.size <= 2) {
+                                let allControlled = true;
+                                for (const lib of liberties) {
+                                    const [lr, lc] = lib.split(',').map(Number);
+                                    if (!isLibertySurroundedByOpponent(boardCopy, lr, lc, 3 - color)) {
+                                        allControlled = false;
+                                        break;
+                                    }
+                                }
+                                if (allControlled) {
+                                    for (const [rr, cc] of stones) boardCopy[rr][cc] = 0;
+                                    changed = true;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            return boardCopy;
+        }
+
+        function assignTerritoryWithRange(liveBoard, holes) {
+            const territory = Array(BOARD_SIZE).fill().map(() => Array(BOARD_SIZE).fill(0));
+            const forbidden = (r, c) => isHole(holes, r, c);
+            const n = BOARD_SIZE;
+            for (let r = 0; r < n; r++) {
+                for (let c = 0; c < n; c++) {
+                    if (liveBoard[r][c] !== 0) continue;
+                    if (forbidden(r, c)) continue;
+                    const maxDist = (r <= 1 || r >= n - 2 || c <= 1 || c >= n - 2) ? 5 : 4;
+                    let blackMin = Infinity, whiteMin = Infinity;
+                    const dist = Array(n).fill().map(() => Array(n).fill(Infinity));
+                    dist[r][c] = 0;
+                    const queue = [[r, c]];
+                    let front = 0;
+                    const dirs = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+                    while (front < queue.length) {
+                        const [cr, cc] = queue[front++];
+                        const d = dist[cr][cc];
+                        if (d > maxDist) continue;
+                        if (liveBoard[cr][cc] === 1 && d < blackMin) blackMin = d;
+                        if (liveBoard[cr][cc] === 2 && d < whiteMin) whiteMin = d;
+                        for (const [dr, dc] of dirs) {
+                            const nr = cr + dr, nc = cc + dc;
+                            if (nr < 0 || nr >= n || nc < 0 || nc >= n) continue;
+                            if (forbidden(nr, nc)) continue;
+                            if (dist[nr][nc] !== Infinity) continue;
+                            dist[nr][nc] = d + 1;
+                            queue.push([nr, nc]);
+                        }
+                    }
+                    if (blackMin <= maxDist && whiteMin <= maxDist) {
+                        if (blackMin < whiteMin) territory[r][c] = 1;
+                        else if (whiteMin < blackMin) territory[r][c] = 2;
+                        else territory[r][c] = 3;
+                    } else if (blackMin <= maxDist) territory[r][c] = 1;
+                    else if (whiteMin <= maxDist) territory[r][c] = 2;
+                    else territory[r][c] = 3;
+                }
+            }
+            return territory;
+        }
+
+        function computeScore(liveBoard, territory, holes) {
+            let blackStones = 0, whiteStones = 0, blackTerritory = 0, whiteTerritory = 0, publicTerritory = 0;
+            for (let r = 0; r < BOARD_SIZE; r++) {
+                for (let c = 0; c < BOARD_SIZE; c++) {
+                    if (liveBoard[r][c] === 1) blackStones++;
+                    else if (liveBoard[r][c] === 2) whiteStones++;
+                    else if (liveBoard[r][c] === 0 && !isHole(holes, r, c)) {
+                        if (territory[r][c] === 1) blackTerritory++;
+                        else if (territory[r][c] === 2) whiteTerritory++;
+                        else if (territory[r][c] === 3) publicTerritory++;
+                    }
+                }
+            }
+            const blackTotal = blackStones + blackTerritory + publicTerritory / 2;
+            const whiteTotal = whiteStones + whiteTerritory + publicTerritory / 2;
+            return { blackTotal, whiteTotal };
+        }
+
+        function showEstimate() {
+            if (!showEstimateActive) { clearEstimate(); return; }
+            cachedLiveA = removeDeadAndDyingScore(boardA, holesA);
+            cachedTerrA = assignTerritoryWithRange(cachedLiveA, holesA);
+            cachedLiveB = removeDeadAndDyingScore(boardB, holesB);
+            cachedTerrB = assignTerritoryWithRange(cachedLiveB, holesB);
+            const a = computeScore(cachedLiveA, cachedTerrA, holesA);
+            const b = computeScore(cachedLiveB, cachedTerrB, holesB);
+            const blackTotal = a.blackTotal + b.blackTotal;
+            const whiteTotal = a.whiteTotal + b.whiteTotal;
+            const lead = blackTotal - whiteTotal;
+            scoreTitle.innerText = '形势判断';
+            scoreBoard.innerText = `黑: ${blackTotal.toFixed(1)}　白: ${whiteTotal.toFixed(1)}`;
+            leadInfo.innerText = `黑${lead >= 0 ? '+' : ''}${lead.toFixed(1)}点（无贴目）`;
+            drawAllBoards();
+        }
+
+        function clearEstimate() {
+            cachedLiveA = cachedTerrA = cachedLiveB = cachedTerrB = null;
+            scoreTitle.innerText = '　';
+            scoreBoard.innerText = '　';
+            leadInfo.innerText = '　';
+            drawAllBoards();
+        }
+
+        function isMyTurn() {
+            if (gameOver || !mySlot) return false;
+            return mySlot === expectedSlot;
+        }
+
+        function updateTurn() {
+            if (waitingScoreConfirm) return;
+            if (gameOver) {
+                turnDisplay.innerText = '对局结束';
+                drawAllBoards();
+                return;
+            }
+            const emoji = expectedSlot === 'black' ? '⚫' : '⚪';
+            turnDisplay.innerText = `${emoji}第${nextMoveNumber}手`;
+            drawAllBoards();
+        }
+
+        function syncState(state) {
+            clearMobileMovePreview();
+            if (state.boardSize && state.boardSize !== BOARD_SIZE) {
+                BOARD_SIZE = state.boardSize;
+                boardA = initBoard(BOARD_SIZE);
+                boardB = initBoard(BOARD_SIZE);
+                holesA = [];
+                holesB = [];
+                updateBoardGeometry();
+                const sel = document.getElementById('boardSizeSelect');
+                if (sel) sel.value = BOARD_SIZE;
+            }
+            if (state.boardA) boardA = state.boardA.map(row => row.slice());
+            if (state.boardB) boardB = state.boardB.map(row => row.slice());
+            holesA = (state.holesA || []).map(p => ({ row: p.row, col: p.col }));
+            holesB = (state.holesB || []).map(p => ({ row: p.row, col: p.col }));
+            nextMoveNumber = state.nextMoveNumber != null ? state.nextMoveNumber : 1;
+            expectedBoard = state.expectedBoard || 'A';
+            expectedSlot = state.expectedSlot || 'black';
+            passCounter = state.passCounter || 0;
+            lastMoveMarkers = (state.lastMoveMarkers || []).map(m => ({ ...m }));
+            moveCoords = state.moveCoords || moveCoords;
+            gameOver = !!state.gameOver;
+            winner = state.winner;
+            if (state.slots) slots = state.slots;
+
+            const hasStone = boardA.some(r => r.some(v => v !== 0)) || boardB.some(r => r.some(v => v !== 0));
+            const hasHole = holesA.length > 0 || holesB.length > 0;
+            const hasPlayer = slots.black || slots.white;
+            const sizeSelect = document.getElementById('boardSizeSelect');
+            if (!hasStone && !hasHole && !hasPlayer && !gameOver && mySlot === null)
+                sizeSelect.style.display = 'inline-block';
+            else
+                sizeSelect.style.display = 'none';
+
+            updateRecordButtons();
+            if (showEstimateActive) showEstimate();
+            else updateTurn();
+        }
+
+        function updateRecordButtons() {
+            const importBtn = document.getElementById('importBtn');
+            const exportBtn = document.getElementById('exportBtn');
+            const hasStone = boardA.some(r => r.some(v => v !== 0)) || boardB.some(r => r.some(v => v !== 0));
+            const noPlayers = !slots.black && !slots.white;
+            if (noPlayers && !hasStone && holesA.length === 0 && holesB.length === 0) {
+                importBtn.style.display = '';
+                exportBtn.style.display = 'none';
+            } else {
+                importBtn.style.display = 'none';
+                exportBtn.style.display = '';
+            }
+        }
+
+        function connectWebSocket() {
+            if (reconnectTimer) clearTimeout(reconnectTimer);
+            const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${protocol}//${location.host}/qi/ws?game=${gameType}&room=${roomId}`;
+            ws = new WebSocket(wsUrl);
+            ws.onopen = () => ws.send(JSON.stringify({ type: 'join', password: roomPassword, requestedSlot: null }));
+            ws.onmessage = (e) => handleMessage(JSON.parse(e.data));
+            ws.onclose = (event) => {
+                if (event.code === 1008 && event.reason && event.reason.includes('房间不存在')) {
+                    alert('房间不存在，请返回大厅');
+                    window.location.href = '/qi';
+                    return;
+                }
+                colorStatus.innerText = '连接断开，重连中...';
+                reconnectTimer = setTimeout(connectWebSocket, 2000);
+            };
+        }
+
+        function handleMessage(msg) {
+            switch (msg.type) {
+                case 'joined':
+                    sessionStorage.removeItem(`roomPassword_${roomId}`);
+                    if (msg.state && msg.state.boardSize && msg.state.boardSize !== BOARD_SIZE) {
+                        BOARD_SIZE = msg.state.boardSize;
+                        boardA = initBoard(BOARD_SIZE);
+                        boardB = initBoard(BOARD_SIZE);
+                        updateBoardGeometry();
+                        const sel = document.getElementById('boardSizeSelect');
+                        if (sel) sel.value = BOARD_SIZE;
+                    }
+                    if (msg.role === 'player') {
+                        mySlot = msg.slot;
+                        colorStatus.innerText = `已选择: ${mySlot === 'black' ? '黑方' : '白方'}`;
+                        if (msg.state) syncState(msg.state);
+                    } else {
+                        mySlot = null;
+                        colorStatus.innerText = '观战';
+                        if (msg.state) syncState(msg.state);
+                    }
+                    updateRadioStyles();
+                    break;
+                case 'slotOccupied':
+                    if (msg.slot === 'black') slots.black = true;
+                    else if (msg.slot === 'white') slots.white = true;
+                    updateRadioStyles();
+                    break;
+                case 'slotReleased':
+                    if (msg.slot === 'black') slots.black = false;
+                    else if (msg.slot === 'white') slots.white = false;
+                    if (mySlot === msg.slot) {
+                        mySlot = null;
+                        colorStatus.innerText = '观战';
+                    }
+                    updateRadioStyles();
+                    break;
+                case 'colorAssigned':
+                    mySlot = msg.color;
+                    colorStatus.innerText = `已选择: ${mySlot === 'black' ? '黑方' : '白方'}`;
+                    if (mySlot === 'black') slots.black = true;
+                    else slots.white = true;
+                    updateRadioStyles();
+                    break;
+                case 'gameState':
+                    syncState(msg);
+                    updateRadioStyles();
+                    break;
+                case 'broadcast':
+                    if (['move', 'pass', 'undoAccept', 'drawAgreed', 'resign', 'endAgreed'].includes(msg.action)) {
+                        const wasOver = gameOver;
+                        syncState(msg);
+                        if (msg.gameOver && !wasOver) {
+                            if (msg.winner === 'black') alert('黑胜。');
+                            else if (msg.winner === 'white') alert('白胜。');
+                            else if (msg.winner === 'draw') alert('和棋。');
+                        }
+                    }
+                    break;
+                case 'newGameStarted':
+                    mySlot = null;
+                    colorStatus.innerText = '观战';
+                    slots = { black: false, white: false };
+                    waitingScoreConfirm = false;
+                    hideScoreConfirm();
+                    scoreTitle.innerText = '　';
+                    syncState(msg);
+                    updateRadioStyles();
+                    break;
+                case 'newGameRequest':
+                    if (confirm('对方请求开始新的一局，是否同意？'))
+                        ws.send(JSON.stringify({ type: 'newGameResponse', accept: true }));
+                    else
+                        ws.send(JSON.stringify({ type: 'newGameResponse', accept: false }));
+                    break;
+                case 'undoRequest':
+                    if (confirm('对方请求悔棋，是否同意？'))
+                        ws.send(JSON.stringify({ type: 'undoResponse', accept: true }));
+                    else
+                        ws.send(JSON.stringify({ type: 'undoResponse', accept: false }));
+                    break;
+                case 'drawRequest':
+                    if (confirm('对方申请和棋，是否同意？'))
+                        ws.send(JSON.stringify({ type: 'drawResponse', accept: true }));
+                    else
+                        ws.send(JSON.stringify({ type: 'drawResponse', accept: false }));
+                    break;
+                case 'scoreProposal':
+                    clearMobileMovePreview();
+                    waitingScoreConfirm = true;
+                    if (!showEstimateActive) {
+                        showEstimateActive = true;
+                        showEstimate();
+                    } else showEstimate();
+                    showScoreConfirm(msg.lead, msg.blackTotal, msg.whiteTotal);
+                    break;
+                case 'scoreAgreed':
+                    gameOver = true;
+                    winner = msg.winner;
+                    const finalLead = msg.lead;
+                    const bt = msg.blackTotal, wt = msg.whiteTotal;
+                    scoreTitle.innerText = finalLead > 0 ? `黑胜 ${finalLead.toFixed(1)} 点` : (finalLead < 0 ? `白胜 ${(-finalLead).toFixed(1)} 点` : '和棋');
+                    scoreBoard.innerText = `黑 ${bt != null ? bt.toFixed(1) : '-'}　白 ${wt != null ? wt.toFixed(1) : '-'}`;
+                    turnDisplay.innerText = '对局结束';
+                    showEstimateActive = false;
+                    clearEstimate();
+                    hideScoreConfirm();
+                    waitingScoreConfirm = false;
+                    clearMobileMovePreview();
+                    updateTurn();
+                    break;
+                case 'scoreRejected':
+                    clearMobileMovePreview();
+                    alert('对方拒绝数子结果，对局继续');
+                    showEstimateActive = false;
+                    clearEstimate();
+                    hideScoreConfirm();
+                    waitingScoreConfirm = false;
+                    break;
+                case 'requestEnd':
+                    if (confirm('对方申请数子，是否同意？'))
+                        ws.send(JSON.stringify({ type: 'endResponse', accept: true }));
+                    else
+                        ws.send(JSON.stringify({ type: 'endResponse', accept: false }));
+                    break;
+                case 'gameRecord':
+                    downloadRecord(msg.data);
+                    break;
+                case 'importSuccess':
+                    if (msg.boardSize && msg.boardSize !== BOARD_SIZE) {
+                        BOARD_SIZE = msg.boardSize;
+                        boardA = initBoard(BOARD_SIZE);
+                        boardB = initBoard(BOARD_SIZE);
+                        updateBoardGeometry();
+                        document.getElementById('boardSizeSelect').value = BOARD_SIZE;
+                    }
+                    syncState(msg);
+                    hideScoreConfirm();
+                    waitingScoreConfirm = false;
+                    updateRadioStyles();
+                    break;
+                case 'roomReset':
+                    syncState(msg);
+                    hideScoreConfirm();
+                    waitingScoreConfirm = false;
+                    updateRadioStyles();
+                    break;
+                case 'boardSizeChanged':
+                    if (msg.boardSize) {
+                        document.getElementById('boardSizeSelect').value = msg.boardSize;
+                        if (msg.boardSize !== BOARD_SIZE) {
+                            BOARD_SIZE = msg.boardSize;
+                            boardA = initBoard(BOARD_SIZE);
+                            boardB = initBoard(BOARD_SIZE);
+                            updateBoardGeometry();
+                        }
+                    }
+                    break;
+                case 'error':
+                    if (msg.message === '密码错误') {
+                        sessionStorage.removeItem(`roomPassword_${roomId}`);
+                        window.location.href = `/qi?game=${gameType}&room=${roomId}&needPassword=1`;
+                    } else alert(msg.message);
+                    break;
+                default: break;
+            }
+        }
+
+        function showScoreConfirm(lead, blackTotal, whiteTotal) {
+            const absLead = Math.abs(lead).toFixed(1);
+            const wt = winnerText(lead);
+            let extra = '';
+            if (blackTotal != null && whiteTotal != null)
+                extra = `（黑 ${blackTotal.toFixed(1)}　白 ${whiteTotal.toFixed(1)}）`;
+            document.getElementById('scoreConfirmText').innerText = `${wt}${extra}，是否同意该结果？`;
+            document.getElementById('scoreConfirmPanel').style.display = 'block';
+        }
+
+        function winnerText(lead) {
+            if (lead > 0) return `黑胜${Math.abs(lead).toFixed(1)}点`;
+            if (lead < 0) return `白胜${Math.abs(lead).toFixed(1)}点`;
+            return '和棋';
+        }
+
+        function hideScoreConfirm() {
+            document.getElementById('scoreConfirmPanel').style.display = 'none';
+        }
+
+        function downloadRecord(data) {
+            const now = new Date();
+            const pad = n => n.toString().padStart(2, '0');
+            const dateStr = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+            const filename = `正反面围棋_${data.boardSize}路_${dateStr}.json`;
+            const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+
+        function updateRadioStyles() {
+            labelBlack.classList.remove('self-radio', 'opponent-radio', 'checked-disabled');
+            labelWhite.classList.remove('self-radio', 'opponent-radio', 'checked-disabled');
+            if (slots.black) {
+                labelBlack.classList.add(mySlot === 'black' ? 'self-radio' : 'opponent-radio');
+                labelBlack.classList.add('checked-disabled');
+                radioBlack.disabled = true;
+                radioBlack.checked = true;
+            } else {
+                radioBlack.disabled = false;
+                radioBlack.checked = false;
+            }
+            if (slots.white) {
+                labelWhite.classList.add(mySlot === 'white' ? 'self-radio' : 'opponent-radio');
+                labelWhite.classList.add('checked-disabled');
+                radioWhite.disabled = true;
+                radioWhite.checked = true;
+            } else {
+                radioWhite.disabled = false;
+                radioWhite.checked = false;
+            }
+        }
+
+        function canvasCoordsFromClient(canvas, clientX, clientY) {
+            const rect = canvas.getBoundingClientRect();
+            const scale = CANVAS_PX / rect.width;
+            return {
+                x: (clientX - rect.left) * scale,
+                y: (clientY - rect.top) * scale
+            };
+        }
+
+        function getSelectedBoardMark() {
+            if (!boardMarkSelect) return { clear: false, ch: '?' };
+            const v = boardMarkSelect.value;
+            if (v === '') return { clear: true, ch: '' };
+            return { clear: false, ch: v };
+        }
+
+        function applyUserBoardMark(which, row, col) {
+            if (row < 0 || col < 0) return;
+            const board = which === 'A' ? boardA : boardB;
+            const holes = which === 'A' ? holesA : holesB;
+            if (board[row][col] !== 0 || isHole(holes, row, col)) return;
+            const key = which + '|' + row + ',' + col;
+            const { clear, ch } = getSelectedBoardMark();
+            const existing = userBoardMarks[key];
+            if (clear) {
+                if (existing !== undefined) {
+                    delete userBoardMarks[key];
+                    drawAllBoards();
+                }
+                return;
+            }
+            if (existing === undefined) {
+                userBoardMarks[key] = ch;
+            } else if (existing !== ch) {
+                userBoardMarks[key] = ch;
+            } else {
+                delete userBoardMarks[key];
+            }
+            drawAllBoards();
+        }
+
+        let suppressCanvasClickAfterLongMark = false;
+
+        function attachCanvas(canvas, which, hoverRef) {
+            canvas.addEventListener('click', (e) => {
+                if (suppressCanvasClickAfterLongMark) {
+                    e.preventDefault();
+                    return;
+                }
+                if (waitingScoreConfirm) return;
+                if (gameOver || !mySlot || !isMyTurn()) return;
+                const rect = canvas.getBoundingClientRect();
+                const scale = CANVAS_PX / rect.width;
+                const x = (e.clientX - rect.left) * scale;
+                const y = (e.clientY - rect.top) * scale;
+                const { row, col } = getClosestIntersection(x, y);
+                if (row < 0) {
+                    if (mobileTwoStepPlacing()) { clearMobileMovePreview(); drawAllBoards(); }
+                    return;
+                }
+                if (which !== expectedBoard) {
+                    if (mobileTwoStepPlacing()) clearMobileMovePreview();
+                    return;
+                }
+                const board = which === 'A' ? boardA : boardB;
+                const holes = which === 'A' ? holesA : holesB;
+                if (board[row][col] !== 0 || isHole(holes, row, col)) {
+                    if (mobileTwoStepPlacing()) { clearMobileMovePreview(); drawAllBoards(); }
+                    return;
+                }
+                const m2 = mobileTwoStepPlacing();
+                if (m2) {
+                    const h = hoverRef;
+                    if (h.row === row && h.col === col && h.ok) {
+                        clearMobileMovePreview();
+                        ws.send(JSON.stringify({ type: 'move', row, col, board: which }));
+                        drawAllBoards();
+                    } else {
+                        if (which === 'A') { hoverB.row = -1; hoverB.col = -1; hoverB.ok = false; }
+                        else { hoverA.row = -1; hoverA.col = -1; hoverA.ok = false; }
+                        hoverRef.row = row;
+                        hoverRef.col = col;
+                        hoverRef.ok = true;
+                        drawAllBoards();
+                    }
+                    return;
+                }
+                ws.send(JSON.stringify({ type: 'move', row, col, board: which }));
+            });
+            if (isMouseDevice) {
+                canvas.addEventListener('mousemove', (e) => {
+                    if (waitingScoreConfirm) return;
+                    const rect = canvas.getBoundingClientRect();
+                    const scale = CANVAS_PX / rect.width;
+                    const x = (e.clientX - rect.left) * scale;
+                    const y = (e.clientY - rect.top) * scale;
+                    const { row, col } = getClosestIntersection(x, y);
+                    const board = which === 'A' ? boardA : boardB;
+                    const holes = which === 'A' ? holesA : holesB;
+                    hoverRef.row = row;
+                    hoverRef.col = col;
+                    hoverRef.ok = row >= 0 && which === expectedBoard && board[row][col] === 0 && !isHole(holes, row, col) && isMyTurn();
+                    drawAllBoards();
+                });
+                canvas.addEventListener('mouseleave', () => {
+                    hoverRef.row = -1;
+                    hoverRef.ok = false;
+                    drawAllBoards();
+                });
+            }
+        }
+
+        attachCanvas(canvasA, 'A', hoverA);
+        attachCanvas(canvasB, 'B', hoverB);
+
+        function bindBoardMarkInteraction(canvas, which) {
+            canvas.addEventListener('contextmenu', (e) => {
+                e.preventDefault();
+                const { x, y } = canvasCoordsFromClient(canvas, e.clientX, e.clientY);
+                const { row, col } = getClosestIntersection(x, y);
+                applyUserBoardMark(which, row, col);
+            });
+            const LONG_MARK_MS = 500;
+            const LONG_MARK_MOVE_CANCEL = 14;
+            let longMarkTimer = null;
+            let longMarkStart = null;
+            canvas.addEventListener('touchstart', (e) => {
+                if (e.touches.length !== 1) return;
+                const t = e.touches[0];
+                longMarkStart = { x: t.clientX, y: t.clientY };
+                longMarkTimer = setTimeout(() => {
+                    longMarkTimer = null;
+                    if (!longMarkStart) return;
+                    const { x, y } = canvasCoordsFromClient(canvas, longMarkStart.x, longMarkStart.y);
+                    const { row, col } = getClosestIntersection(x, y);
+                    applyUserBoardMark(which, row, col);
+                    suppressCanvasClickAfterLongMark = true;
+                    setTimeout(() => { suppressCanvasClickAfterLongMark = false; }, 450);
+                    longMarkStart = null;
+                }, LONG_MARK_MS);
+            }, { passive: true });
+            canvas.addEventListener('touchmove', (e) => {
+                if (!longMarkTimer || !longMarkStart || e.touches.length !== 1) return;
+                const t = e.touches[0];
+                const dx = t.clientX - longMarkStart.x;
+                const dy = t.clientY - longMarkStart.y;
+                if (dx * dx + dy * dy > LONG_MARK_MOVE_CANCEL * LONG_MARK_MOVE_CANCEL) {
+                    clearTimeout(longMarkTimer);
+                    longMarkTimer = null;
+                }
+            }, { passive: true });
+            function clearLongMarkTouch() {
+                if (longMarkTimer) {
+                    clearTimeout(longMarkTimer);
+                    longMarkTimer = null;
+                }
+                longMarkStart = null;
+            }
+            canvas.addEventListener('touchend', clearLongMarkTouch);
+            canvas.addEventListener('touchcancel', clearLongMarkTouch);
+        }
+        bindBoardMarkInteraction(canvasA, 'A');
+        bindBoardMarkInteraction(canvasB, 'B');
+
+        document.getElementById('helpBtn').onclick = () => {
+            document.getElementById('rulesModal').style.display = 'flex';
+        };
+        document.getElementById('closeRulesBtn').onclick = () => {
+            document.getElementById('rulesModal').style.display = 'none';
+        };
+        document.getElementById('backToLobbyBtn').onclick = () => { window.location.href = '/qi'; };
+
+        radioBlack.addEventListener('change', () => {
+            if (radioBlack.checked) ws.send(JSON.stringify({ type: 'selectColor', color: 'black' }));
+        });
+        radioWhite.addEventListener('change', () => {
+            if (radioWhite.checked) ws.send(JSON.stringify({ type: 'selectColor', color: 'white' }));
+        });
+
+        document.getElementById('newGameBtn').onclick = () => {
+            if (!mySlot) { alert('只有对局者可以请求新局'); return; }
+            const opponentSlot = mySlot === 'black' ? 'white' : 'black';
+            const hasOpponent = slots[opponentSlot];
+            if (hasOpponent) {
+                if (confirm('确定向对方申请开始新局吗？')) ws.send(JSON.stringify({ type: 'requestNewGame' }));
+            } else {
+                if (confirm('确定开始新局吗？')) ws.send(JSON.stringify({ type: 'requestNewGame' }));
+            }
+        };
+        document.getElementById('estimateBtn').onclick = () => {
+            showEstimateActive = !showEstimateActive;
+            if (showEstimateActive) showEstimate();
+            else clearEstimate();
+        };
+        document.getElementById('passBtn').onclick = () => {
+            if (!mySlot || gameOver || waitingScoreConfirm) return;
+            if (!isMyTurn()) return;
+            ws.send(JSON.stringify({ type: 'pass' }));
+        };
+        document.getElementById('undoBtn').onclick = () => {
+            if (!mySlot || gameOver) return;
+            const opponentSlot = mySlot === 'black' ? 'white' : 'black';
+            const hasOpponent = slots[opponentSlot];
+            if (hasOpponent) {
+                if (confirm('确定向对方申请悔棋吗？')) ws.send(JSON.stringify({ type: 'requestUndo' }));
+            } else {
+                if (confirm('确定悔棋吗？')) ws.send(JSON.stringify({ type: 'requestUndo' }));
+            }
+        };
+        document.getElementById('resignBtn').onclick = () => {
+            if (!mySlot || gameOver) return;
+            if (confirm('确定认输？')) ws.send(JSON.stringify({ type: 'resign' }));
+        };
+        document.getElementById('drawBtn').onclick = () => {
+            if (!mySlot || gameOver) return;
+            ws.send(JSON.stringify({ type: 'requestDraw' }));
+        };
+        document.getElementById('endReqBtn').onclick = () => {
+            if (!mySlot) return;
+            ws.send(JSON.stringify({ type: 'requestEnd' }));
+        };
+        document.getElementById('exportBtn').onclick = () => ws.send(JSON.stringify({ type: 'exportRecord' }));
+        document.getElementById('importBtn').onclick = () => document.getElementById('importFileInput').click();
+        document.getElementById('importFileInput').onchange = (ev) => {
+            const f = ev.target.files && ev.target.files[0];
+            ev.target.value = '';
+            if (!f) return;
+            const reader = new FileReader();
+            reader.onload = () => {
+                try {
+                    const data = JSON.parse(reader.result);
+                    ws.send(JSON.stringify({ type: 'importRecord', data }));
+                } catch (err) {
+                    alert('棋谱文件无效');
+                }
+            };
+            reader.readAsText(f);
+        };
+        document.getElementById('scoreConfirmYes').onclick = () => {
+            ws.send(JSON.stringify({ type: 'scoreResponse', accept: true }));
+        };
+        document.getElementById('scoreConfirmNo').onclick = () => {
+            ws.send(JSON.stringify({ type: 'scoreResponse', accept: false }));
+        };
+
+        document.getElementById('boardSizeSelect').addEventListener('change', (e) => {
+            const n = parseInt(e.target.value, 10);
+            if (n >= 5 && n <= 19) ws.send(JSON.stringify({ type: 'setBoardSize', size: n }));
+        });
+
+        updateBoardGeometry();
+        connectWebSocket();
+    </script>
+</body>
+</html>
