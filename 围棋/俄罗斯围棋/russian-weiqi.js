@@ -1,6 +1,6 @@
 const { QiTwoPlayerRoomBase, qiProtocol, squareWeiqiRules, applyInitialPositionCompact } = require('../common');
 
-class UkrainianWeiqiRoom extends QiTwoPlayerRoomBase {
+class RussianWeiqiRoom extends QiTwoPlayerRoomBase {
     constructor(room) {
         super(room);
         this.boardSize = 19;
@@ -14,6 +14,7 @@ class UkrainianWeiqiRoom extends QiTwoPlayerRoomBase {
         this.historyLastUsed = [];
         this.lastMoveMarkers = [];
         this.lastUsedShapeByColor = { 1: -1, 2: -1 };
+        this.historyNextShape = [];
         this.gameOver = false;
         this.winner = null;
         this.passCounter = 0;
@@ -25,12 +26,37 @@ class UkrainianWeiqiRoom extends QiTwoPlayerRoomBase {
         this.scoreProposalData = null;
 
         this.SHAPES = [
-            [[-1, -1], [0, 0], [1, 1]],
             [[-1, -1], [-1, 0], [1, 1]],
-            [[-1, -1], [0, 1], [1, -1]],
-            [[-1, -1], [0, 1], [1, 0]],
-            [[-1, -1], [1, -1], [-1, 1]]
+            [[-1, -1], [-1, 1], [1, -1]],
+            [[-1, -1], [-1, 1], [1, 0]],
+            [[-1, -1], [0, 0], [1, 1]],
+            [[-1, -1], [1, -1], [-1, 1]],
+            [[-1, -1], [-1, 0], [1, 1]],
+            [[-1, -1], [-1, 1], [1, -1]],
+            [[-1, -1], [-1, 1], [1, 0]],
+            [[-1, -1], [0, 0], [1, 1]],
+            [[-1, -1], [1, -1], [-1, 1]],
+            [[-1, -1], [-1, 0], [1, 1]],
+            [[-1, -1], [-1, 1], [1, -1]],
+            [[-1, -1], [-1, 1], [1, 0]],
+            [[-1, -1], [0, 0], [1, 1]],
+            [[-1, -1], [1, -1], [-1, 1]],
+            [[0, -1], [0, 0], [1, 1]],
+            [[-1, -1], [-1, 0], [1, 0]],
+            [[0, -1], [-1, 0], [0, 1]],
+            [[0, -1], [0, 0], [1, 1]],
+            [[-1, -1], [-1, 0], [1, 0]],
+            [[0, -1], [-1, 0], [0, 1]],
+            [[0, -1], [0, 0], [0, 1]],
+            [[0, -1], [0, 0], [-1, 0]],
         ];
+        this.nextShapeIndex = this.rollNextShapeIndex();
+        /** 第 k 手局面（已下 k 手）时要求的复合形状索引；长度 = moveCoords.length + 1 */
+        this.nextShapeSnapshots = [this.nextShapeIndex];
+    }
+
+    rollNextShapeIndex() {
+        return Math.floor(Math.random() * this.SHAPES.length);
     }
 
     transformCoords(baseCoords, rot, flip) {
@@ -173,6 +199,8 @@ class UkrainianWeiqiRoom extends QiTwoPlayerRoomBase {
             gameOver: this.gameOver,
             winner: this.winner,
             lastUsedShapeByColor: this.lastUsedShapeByColor,
+            nextShapeIndex: this.nextShapeIndex,
+            nextShapeSnapshots: [...this.nextShapeSnapshots],
             moveCoords: this.moveCoords,
             komi: 3.25,
             slots: {
@@ -198,8 +226,10 @@ class UkrainianWeiqiRoom extends QiTwoPlayerRoomBase {
             else this.lastMoveMarkers = [];
             if (this.historyLastUsed.length > 0) this.lastUsedShapeByColor = this.historyLastUsed.pop();
             else this.lastUsedShapeByColor = { 1: -1, 2: -1 };
+            if (this.historyNextShape.length > 0) this.nextShapeIndex = this.historyNextShape.pop();
             if (this.moveHistory.length > 0) this.moveHistory.pop();
             if (this.moveCoords.length > 0) this.moveCoords.pop();
+            if (this.nextShapeSnapshots.length > 1) this.nextShapeSnapshots.pop();
             this.currentPlayer = 3 - this.currentPlayer;
         }
         if (this.historyBoards.length === 0) {
@@ -221,6 +251,9 @@ class UkrainianWeiqiRoom extends QiTwoPlayerRoomBase {
         this.lastMoveMarkers = [];
         this.lastUsedShapeByColor = { 1: -1, 2: -1 };
         this.moveCoords = [];
+        this.historyNextShape = [];
+        this.nextShapeIndex = this.rollNextShapeIndex();
+        this.nextShapeSnapshots = [this.nextShapeIndex];
         this.gameOver = false;
         this.winner = null;
         this.passCounter = 0;
@@ -245,6 +278,7 @@ class UkrainianWeiqiRoom extends QiTwoPlayerRoomBase {
     compoundPass(slot) {
         const room = this.room;
         const passPlayerVal = this.currentPlayer === 1 ? 1 : 2;
+        this.historyNextShape.push(this.nextShapeIndex);
         this.historyBoards.push(this.copyBoard(this.board));
         this.historyBoardSet.add(this.boardToString(this.board));
         this.historyMarkers.push(this.copyMarkers(this.lastMoveMarkers));
@@ -253,6 +287,8 @@ class UkrainianWeiqiRoom extends QiTwoPlayerRoomBase {
         this.moveCoords.push({ type: 'pass', player: slot });
         this.lastUsedShapeByColor[passPlayerVal] = -1;
         this.currentPlayer = 3 - this.currentPlayer;
+        this.nextShapeIndex = this.rollNextShapeIndex();
+        this.nextShapeSnapshots.push(this.nextShapeIndex);
         this.passCounter++;
         this.lastMoveMarkers = [];
         this.broadcast({ type: 'broadcast', action: 'pass', ...this.getState() });
@@ -286,8 +322,11 @@ class UkrainianWeiqiRoom extends QiTwoPlayerRoomBase {
                 if (!slot || slot !== (this.currentPlayer === 1 ? 'black' : 'white')) return;
                 const { shapeIndex, rotation, flipped, row, col } = msg;
                 if (shapeIndex === undefined || rotation === undefined || flipped === undefined || row === undefined || col === undefined) return;
+                if (shapeIndex !== this.nextShapeIndex) {
+                    ws.send(JSON.stringify({ type: 'error', message: '复合棋子形状与当前要求不一致。' }));
+                    return;
+                }
                 const playerVal = this.currentPlayer === 1 ? 1 : 2;
-                if (this.lastUsedShapeByColor[playerVal] === shapeIndex) return;
                 const newBoard = this.tryPlaceShape(this.board, shapeIndex, rotation, flipped, row, col, playerVal);
                 if (!newBoard) return;
                 const newBoardStr = this.boardToString(newBoard);
@@ -295,6 +334,7 @@ class UkrainianWeiqiRoom extends QiTwoPlayerRoomBase {
                     ws.send(JSON.stringify({ type: 'error', message: '禁全同。' }));
                     return;
                 }
+                this.historyNextShape.push(this.nextShapeIndex);
                 this.historyBoards.push(this.copyBoard(newBoard));
                 this.historyBoardSet.add(newBoardStr);
                 this.historyMarkers.push(this.copyMarkers(this.lastMoveMarkers));
@@ -307,6 +347,8 @@ class UkrainianWeiqiRoom extends QiTwoPlayerRoomBase {
                 this.lastMoveMarkers = coords.map(([r, c]) => ({ row: r, col: c, color: playerVal }));
                 this.lastUsedShapeByColor[playerVal] = shapeIndex;
                 this.currentPlayer = 3 - this.currentPlayer;
+                this.nextShapeIndex = this.rollNextShapeIndex();
+                this.nextShapeSnapshots.push(this.nextShapeIndex);
                 this.passCounter = 0;
                 this.broadcast({ type: 'broadcast', action: 'move', ...this.getState() });
                 break;
@@ -421,6 +463,9 @@ class UkrainianWeiqiRoom extends QiTwoPlayerRoomBase {
         this.historyLastUsed = [];
         this.lastMoveMarkers = [];
         this.lastUsedShapeByColor = { 1: -1, 2: -1 };
+        this.historyNextShape = [];
+        this.nextShapeIndex = this.rollNextShapeIndex();
+        this.nextShapeSnapshots = [this.nextShapeIndex];
         this.gameOver = false;
         this.winner = null;
         this.passCounter = 0;
@@ -432,8 +477,8 @@ class UkrainianWeiqiRoom extends QiTwoPlayerRoomBase {
         return {
             format: 'muzei',
             version: 1,
-            gameType: '乌克兰围棋',
-            gameId: 'ukrainian-weiqi',
+            gameType: '俄罗斯围棋',
+            gameId: 'russian-weiqi',
             boardSize: this.boardSize,
             komi: 3.25,
             players: { black: null, white: null },
@@ -458,6 +503,9 @@ class UkrainianWeiqiRoom extends QiTwoPlayerRoomBase {
         this.historyLastUsed = [];
         this.lastMoveMarkers = [];
         this.lastUsedShapeByColor = { 1: -1, 2: -1 };
+        this.historyNextShape = [];
+        this.nextShapeIndex = this.rollNextShapeIndex();
+        this.nextShapeSnapshots = [this.nextShapeIndex];
         this.gameOver = false;
         this.winner = null;
         this.passCounter = 0;
@@ -484,8 +532,8 @@ class UkrainianWeiqiRoom extends QiTwoPlayerRoomBase {
     }
 
     importRecord(data, requesterWs) {
-        if (!data || data.gameId !== 'ukrainian-weiqi') {
-            requesterWs.send(JSON.stringify({ type: 'error', message: '棋谱格式不匹配（需要乌克兰围棋棋谱）。' }));
+        if (!data || data.gameId !== 'russian-weiqi') {
+            requesterWs.send(JSON.stringify({ type: 'error', message: '棋谱格式不匹配（需要俄罗斯围棋棋谱）。' }));
             return;
         }
         const newSize = data.boardSize || 19;
@@ -500,7 +548,7 @@ class UkrainianWeiqiRoom extends QiTwoPlayerRoomBase {
         applyInitialPositionCompact(this.board, this.boardSize, data.initialPosition);
 
         const rawMoves = data.moves || [];
-        const moves = rawMoves.map(UkrainianWeiqiRoom.parseMove);
+        const moves = rawMoves.map(RussianWeiqiRoom.parseMove);
 
         for (let i = 0; i < moves.length; i++) {
             const move = moves[i];
@@ -555,6 +603,8 @@ class UkrainianWeiqiRoom extends QiTwoPlayerRoomBase {
                 this.lastUsedShapeByColor[playerVal] = si >= 0 ? si : -1;
                 this.currentPlayer = 3 - this.currentPlayer;
                 this.passCounter = 0;
+                this.nextShapeIndex = this.rollNextShapeIndex();
+                this.nextShapeSnapshots.push(this.nextShapeIndex);
             } else if (move.type === 'pass') {
                 if (slot !== (this.currentPlayer === 1 ? 'black' : 'white')) {
                     this.resetToEmpty();
@@ -572,6 +622,8 @@ class UkrainianWeiqiRoom extends QiTwoPlayerRoomBase {
                 this.currentPlayer = 3 - this.currentPlayer;
                 this.passCounter++;
                 this.lastMoveMarkers = [];
+                this.nextShapeIndex = this.rollNextShapeIndex();
+                this.nextShapeSnapshots.push(this.nextShapeIndex);
             }
         }
 
@@ -579,6 +631,9 @@ class UkrainianWeiqiRoom extends QiTwoPlayerRoomBase {
             this.gameOver = true;
             this.winner = data.result;
         }
+
+        this.nextShapeIndex = this.rollNextShapeIndex();
+        if (this.nextShapeSnapshots.length) this.nextShapeSnapshots[this.nextShapeSnapshots.length - 1] = this.nextShapeIndex;
 
         this.broadcast({
             type: 'importSuccess',
@@ -614,7 +669,7 @@ class UkrainianWeiqiRoom extends QiTwoPlayerRoomBase {
 
 module.exports = {
     initRoom(room) {
-        room.gameLogic = new UkrainianWeiqiRoom(room);
+        room.gameLogic = new RussianWeiqiRoom(room);
         room.maxPlayers = 2;
     }
 };

@@ -1,6 +1,7 @@
-class FrontBackWeiqiRoom {
+const { QiTwoPlayerRoomBase, squareWeiqiRules } = require('../common');
+class FrontBackWeiqiRoom extends QiTwoPlayerRoomBase {
     constructor(room) {
-        this.room = room;
+        super(room);
         this.boardSize = 15;
         this.boardA = this.emptyBoard();
         this.boardB = this.emptyBoard();
@@ -29,8 +30,6 @@ class FrontBackWeiqiRoom {
     emptyBoard() {
         return Array(this.boardSize).fill().map(() => Array(this.boardSize).fill(0));
     }
-
-    copyBoard(src) { return src.map(row => row.slice()); }
     copyHoles(src) { return src.map(p => ({ row: p.row, col: p.col })); }
 
     expectedSlot() {
@@ -202,160 +201,14 @@ class FrontBackWeiqiRoom {
         };
     }
 
-    assignSlot(ws, requestedSlot) {
-        if (requestedSlot === 'black' && !this.room.getPlayerBySlot('black')) return 'black';
-        if (requestedSlot === 'white' && !this.room.getPlayerBySlot('white')) return 'white';
-        return null;
-    }
-
-    broadcast(data, exclude = null) {
-        const allClients = [...this.room.players.keys(), ...this.room.observers];
-        for (let client of allClients) {
-            if (client !== exclude && client.readyState === 1) {
-                client.send(JSON.stringify(data));
-            }
-        }
-    }
-
-    sendState(ws) {
-        ws.send(JSON.stringify({ type: 'gameState', ...this.getState() }));
-    }
-
-    // ---------- 形势判断（与同步围棋一致：洞不可穿行；无贴目） ----------
-    isLibertySurroundedByOpponentScore(board, libertyRow, libertyCol, opponentColor, holes) {
-        const dirs = [[-1, 0], [1, 0], [0, -1], [0, 1]];
-        const n = this.boardSize;
-        for (const [dr, dc] of dirs) {
-            const nr = libertyRow + dr, nc = libertyCol + dc;
-            if (nr >= 0 && nr < n && nc >= 0 && nc < n && board[nr][nc] === opponentColor) return true;
-        }
-        return false;
-    }
-
-    removeDeadAndDyingForScore(srcBoard, holes) {
-        const n = this.boardSize;
-        let boardCopy = srcBoard.map(row => row.slice());
-        let changed = true;
-        const isForbidden = (r, c) => this.isHole(holes, r, c);
-        while (changed) {
-            changed = false;
-            const visited = Array(n).fill().map(() => Array(n).fill(false));
-            for (let r = 0; r < n; r++) {
-                for (let c = 0; c < n; c++) {
-                    const val = boardCopy[r][c];
-                    if ((val === 1 || val === 2) && !visited[r][c]) {
-                        const color = val;
-                        const queue = [[r, c]];
-                        visited[r][c] = true;
-                        const stones = [[r, c]];
-                        const liberties = new Set();
-                        let idx = 0;
-                        const dirs = [[-1, 0], [1, 0], [0, -1], [0, 1]];
-                        while (idx < queue.length) {
-                            const [rr, cc] = queue[idx++];
-                            for (const [dr, dc] of dirs) {
-                                const nr = rr + dr, nc = cc + dc;
-                                if (nr < 0 || nr >= n || nc < 0 || nc >= n) continue;
-                                if (boardCopy[nr][nc] === 0 && !isForbidden(nr, nc)) liberties.add(nr + ',' + nc);
-                                else if (boardCopy[nr][nc] === color && !visited[nr][nc]) {
-                                    visited[nr][nc] = true;
-                                    queue.push([nr, nc]);
-                                    stones.push([nr, nc]);
-                                }
-                            }
-                        }
-                        if (liberties.size === 0) {
-                            for (const [rr, cc] of stones) boardCopy[rr][cc] = 0;
-                            changed = true;
-                            continue;
-                        }
-                        if (liberties.size <= 2) {
-                            let allControlled = true;
-                            for (const lib of liberties) {
-                                const [lr, lc] = lib.split(',').map(Number);
-                                if (!this.isLibertySurroundedByOpponentScore(boardCopy, lr, lc, 3 - color)) {
-                                    allControlled = false;
-                                    break;
-                                }
-                            }
-                            if (allControlled) {
-                                for (const [rr, cc] of stones) boardCopy[rr][cc] = 0;
-                                changed = true;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        return boardCopy;
-    }
-
-    assignTerritoryWithRangeForScore(liveBoard, holes) {
-        const n = this.boardSize;
-        const territory = Array(n).fill().map(() => Array(n).fill(0));
-        const isForbidden = (r, c) => this.isHole(holes, r, c);
-        for (let r = 0; r < n; r++) {
-            for (let c = 0; c < n; c++) {
-                if (liveBoard[r][c] !== 0) continue;
-                if (isForbidden(r, c)) continue;
-                const maxDist = (r <= 1 || r >= n - 2 || c <= 1 || c >= n - 2) ? 5 : 4;
-                let blackMin = Infinity, whiteMin = Infinity;
-                const dist = Array(n).fill().map(() => Array(n).fill(Infinity));
-                dist[r][c] = 0;
-                const queue = [[r, c]];
-                const dirs = [[-1, 0], [1, 0], [0, -1], [0, 1]];
-                let front = 0;
-                while (front < queue.length) {
-                    const [cr, cc] = queue[front++];
-                    const d = dist[cr][cc];
-                    if (d > maxDist) continue;
-                    if (liveBoard[cr][cc] === 1 && d < blackMin) blackMin = d;
-                    if (liveBoard[cr][cc] === 2 && d < whiteMin) whiteMin = d;
-                    for (const [dr, dc] of dirs) {
-                        const nr = cr + dr, nc = cc + dc;
-                        if (nr < 0 || nr >= n || nc < 0 || nc >= n) continue;
-                        if (isForbidden(nr, nc)) continue;
-                        if (dist[nr][nc] !== Infinity) continue;
-                        dist[nr][nc] = d + 1;
-                        queue.push([nr, nc]);
-                    }
-                }
-                if (blackMin <= maxDist && whiteMin <= maxDist) {
-                    if (blackMin < whiteMin) territory[r][c] = 1;
-                    else if (whiteMin < blackMin) territory[r][c] = 2;
-                    else territory[r][c] = 3;
-                } else if (blackMin <= maxDist) territory[r][c] = 1;
-                else if (whiteMin <= maxDist) territory[r][c] = 2;
-                else territory[r][c] = 3;
-            }
-        }
-        return territory;
-    }
-
-    computeScoreTotals(liveBoard, territory, holes) {
-        const n = this.boardSize;
-        let blackStones = 0, whiteStones = 0, blackTerritory = 0, whiteTerritory = 0, publicTerritory = 0;
-        const isForbidden = (r, c) => this.isHole(holes, r, c);
-        for (let r = 0; r < n; r++) {
-            for (let c = 0; c < n; c++) {
-                if (liveBoard[r][c] === 1) blackStones++;
-                else if (liveBoard[r][c] === 2) whiteStones++;
-                else if (liveBoard[r][c] === 0 && !isForbidden(r, c)) {
-                    if (territory[r][c] === 1) blackTerritory++;
-                    else if (territory[r][c] === 2) whiteTerritory++;
-                    else if (territory[r][c] === 3) publicTerritory++;
-                }
-            }
-        }
-        const blackTotal = blackStones + blackTerritory + publicTerritory / 2;
-        const whiteTotal = whiteStones + whiteTerritory + publicTerritory / 2;
-        return { blackTotal, whiteTotal };
-    }
-
+    // ---------- 形势判断（洞不可作气/穿行；squareWeiqiRules 洞点扩展） ----------
     computeOfficialScoreOne(board, holes) {
-        const liveBoard = this.removeDeadAndDyingForScore(this.copyBoard(board), holes);
-        const territory = this.assignTerritoryWithRangeForScore(liveBoard, holes);
-        return this.computeScoreTotals(liveBoard, territory, holes);
+        const isHole = (r, c) => this.isHole(holes, r, c);
+        const liveBoard = squareWeiqiRules.removeDeadAndDyingWithHoles(
+            this.copyBoard(board), this.boardSize, (b) => this.copyBoard(b), isHole
+        );
+        const territory = squareWeiqiRules.assignTerritoryWithRangeWithHoles(liveBoard, this.boardSize, isHole);
+        return squareWeiqiRules.computeScoreWithHoles(liveBoard, territory, this.boardSize, isHole);
     }
 
     computeLead() {

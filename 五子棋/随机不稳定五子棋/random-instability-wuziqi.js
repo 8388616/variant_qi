@@ -1,6 +1,7 @@
-﻿class RandomInstabilityWuziqiRoom {
+﻿const { QiTwoPlayerRoomBase } = require('../common');
+class RandomInstabilityWuziqiRoom extends QiTwoPlayerRoomBase {
     constructor(room) {
-        this.room = room;
+        super(room);
         this.BOARD_SIZE = 9;
         this.board = Array(this.BOARD_SIZE).fill().map(() => Array(this.BOARD_SIZE).fill(0));
         this.lifetimes = Array(this.BOARD_SIZE).fill().map(() => Array(this.BOARD_SIZE).fill(0));
@@ -92,30 +93,6 @@
                 white: !!this.room.getPlayerBySlot('white')
             }
         };
-    }
-
-    assignSlot(ws, requestedSlot) {
-        const room = this.room;
-        if (requestedSlot === 'black' && !room.getPlayerBySlot('black'))
-            return 'black';
-        else if (requestedSlot === 'white' && !room.getPlayerBySlot('white'))
-            return 'white';
-        return null;
-    }
-
-    broadcast(data, exclude = null) {
-        this.room.broadcast(data, exclude);
-    }
-
-    sendState(ws) {
-        ws.send(JSON.stringify({
-            type: 'gameState',
-            ...this.getState()
-        }));
-    }
-
-    copyBoard(src) {
-        return src.map(row => row.slice());
     }
 
     copyLifetimes(src) {

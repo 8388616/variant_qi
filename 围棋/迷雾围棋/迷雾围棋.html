@@ -4,630 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=2.0, user-scalable=yes">
     <title>迷雾围棋</title>
-    <style>
-        * {
-            box-sizing: border-box;
-            user-select: none;
-            -webkit-tap-highlight-color: transparent;
-        }
-
-        html, body {
-            margin: 0;
-            padding: 0;
-            width: 100%;
-            overflow-x: hidden;
-        }
-
-        body {
-            background: #2b5e3b;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            min-height: 100vh;
-            font-family: 'Segoe UI', Roboto, sans-serif;
-            padding: 10px;
-        }
-
-        .game-wrapper {
-            background: #d9c8ac;
-            padding: 40px;
-            border-radius: 28px;
-            box-shadow: 0 20px 30px rgba(0,0,0,0.6);
-            border: 2px solid #6b4a2e;
-            width: 100%;
-            max-width: 1200px;
-            margin: 0 auto;
-        }
-
-        .top-panel {
-            display: flex;
-            flex-wrap: wrap;
-            justify-content: space-between;
-            align-items: center;
-            background: #8f6b4f;
-            padding: 12px 20px;
-            border-radius: 40px;
-            color: #f9eed7;
-            font-weight: bold;
-            margin-bottom: 20px;
-            border-bottom: 4px solid #4d2f1b;
-            gap: 10px;
-        }
-
-        .left-group {
-            display: flex;
-            gap: 30px;
-            align-items: center;
-            flex-wrap: wrap;
-        }
-
-        .side-select {
-            display: flex;
-            gap: 30px;
-            flex-wrap: wrap;
-        }
-
-            .side-select label {
-                font-size: 1.1rem;
-                cursor: pointer;
-                display: inline-flex;
-                align-items: center;
-                gap: 8px;
-                position: relative;
-            }
-
-            .side-select input[type="radio"] {
-                position: absolute;
-                opacity: 0;
-                width: 0;
-                height: 0;
-                margin: 0;
-            }
-
-            .side-select label::before {
-                content: "";
-                display: inline-block;
-                width: 1em;
-                height: 1em;
-                border-radius: 50%;
-                background-color: white;
-                border: 1.5px solid #6b4a2e;
-                transition: all 0.1s ease;
-                box-sizing: border-box;
-            }
-
-            .side-select label.self-radio::before {
-                border-color: #ff3b6f;
-            }
-
-            .side-select label.self-radio.checked-disabled::before {
-                background-color: #ff3b6f;
-                box-shadow: inset 0 0 0 0.15em white;
-            }
-
-            .side-select label.opponent-radio::before {
-                border-color: #999999;
-            }
-
-            .side-select label.opponent-radio.checked-disabled::before {
-                background-color: #999999;
-                box-shadow: inset 0 0 0 0.15em white;
-            }
-
-        .komi-info {
-            background: #3e2e21;
-            padding: 6px 20px;
-            border-radius: 30px;
-            color: #ffd966;
-            font-size: 1rem;
-            white-space: nowrap;
-        }
-
-        .color-status {
-            background: #3e2e21;
-            padding: 6px 16px;
-            border-radius: 30px;
-            color: #ffd966;
-            white-space: nowrap;
-        }
-
-        .board-size-select {
-            background: #3e2e21;
-            color: #ffd966;
-            border: none;
-            padding: 6px 12px;
-            border-radius: 30px;
-            font-weight: bold;
-            font-size: 0.95rem;
-            cursor: pointer;
-        }
-
-        .right-buttons {
-            display: flex;
-            gap: 12px;
-            align-items: center;
-        }
-
-        .help-btn, .back-to-lobby-btn {
-            background: none;
-            border: none;
-            color: #fff9c2;
-            font-weight: bold;
-            padding: 0px 8px;
-            cursor: pointer;
-            font-size: 1rem;
-            transition: color 0.2s ease;
-        }
-
-        .rules-modal {
-            display: none;
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background-color: rgba(0,0,0,0.5);
-            justify-content: center;
-            align-items: center;
-            z-index: 1000;
-        }
-
-        .rules-content {
-            background: #f9eed7;
-            color: #3e2e21;
-            max-width: 600px;
-            width: 90%;
-            padding: 20px 25px;
-            border-radius: 28px;
-            box-shadow: 0 10px 25px rgba(0,0,0,0.3);
-            border: 2px solid #8f6b4f;
-            position: relative;
-        }
-
-            .rules-content h3 {
-                margin-top: 0;
-                text-align: center;
-                color: #5e2b3b;
-            }
-
-            .rules-content p {
-                line-height: 1.5;
-                font-size: 0.95rem;
-            }
-
-            .rules-content .close-rules {
-                position: absolute;
-                top: 10px;
-                right: 15px;
-                font-size: 1.5rem;
-                cursor: pointer;
-                color: #8f6b4f;
-            }
-
-        .main-area {
-            display: flex;
-            gap: 20px;
-            align-items: flex-start;
-            flex-wrap: wrap;
-            justify-content: center;
-        }
-
-        .button-panel {
-            display: flex;
-            flex-direction: column;
-            gap: 16px;
-            width: 140px;
-        }
-
-        .ctrl-btn {
-            background: #b88a4b;
-            border: none;
-            color: white;
-            font-weight: bold;
-            padding: 12px 8px;
-            border-radius: 30px;
-            font-size: 1rem;
-            border-bottom: 5px solid #5e3e1e;
-            cursor: pointer;
-            transition: 0.08s;
-            text-align: center;
-        }
-
-            .ctrl-btn:active {
-                border-bottom-width: 2px;
-                transform: translateY(3px);
-            }
-
-        /* 中间：棋盘 + 右侧信息列（同列内底对齐标记与棋盘） */
-        .board-and-info {
-            display: flex;
-            flex-direction: row;
-            align-items: stretch;
-            gap: 40px;
-            flex: 0 1 auto;
-            min-width: 0;
-        }
-
-        .board-container {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            flex: 0 1 auto;
-            width: 100%;
-            max-width: 600px;
-            min-width: 0;
-            position: relative;
-        }
-
-        .main-area-right {
-            display: flex;
-            flex-direction: column;
-            justify-content: flex-start;
-            width: 280px;
-            max-width: 100%;
-            flex: 0 0 auto;
-            min-width: 0;
-        }
-
-        .main-area-right .info-panel {
-            margin-bottom: 0;
-            width: 100%;
-        }
-
-        /* 标记区：在棋盘容器内绝对定位，底与棋盘对齐；桌面在棋盘右缘外 6px（约原 gap40−34px） */
-        .board-mark-outer {
-            position: absolute;
-            left: 100%;
-            margin-left: 6px;
-            bottom: 0;
-            right: auto;
-            top: auto;
-            display: grid;
-            grid-template-rows: 52px;
-            grid-template-columns: max-content;
-            width: max-content;
-            max-width: min(100%, 280px);
-            min-height: 52px;
-            max-height: 52px;
-            z-index: 2;
-            box-sizing: border-box;
-            overflow: hidden;
-        }
-
-        /* [hidden] 须覆盖 .board-mark-panel 的 display:flex */
-        .board-mark-panel[hidden],
-        .board-mark-expand-btn[hidden] {
-            display: none !important;
-        }
-
-        .board-mark-outer > .board-mark-panel,
-        .board-mark-outer > .board-mark-expand-btn {
-            grid-area: 1 / 1;
-            align-self: end;
-            justify-self: start;
-            margin: 0;
-        }
-
-        .board-mark-panel {
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            background: rgba(62, 46, 33, 0.92);
-            color: #ffd966;
-            padding: 4px 8px;
-            border-radius: 12px;
-            font-size: 0.82rem;
-            font-weight: bold;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.12);
-            width: max-content;
-            max-width: min(100%, 260px);
-            max-height: 52px;
-            box-sizing: border-box;
-        }
-
-        .board-mark-panel label {
-            white-space: nowrap;
-            flex-shrink: 0;
-        }
-
-        .board-mark-select {
-            flex: 0 1 auto;
-            min-width: 0;
-            background: #3e2e21;
-            color: #ffd966;
-            border: 1px solid #c9a450;
-            border-radius: 8px;
-            padding: 2px 4px;
-            font-size: 0.9rem;
-            font-weight: bold;
-            cursor: pointer;
-            width: 3em;
-            max-width: min(200px, 55vw);
-            max-height: 44px;
-        }
-
-        .board-mark-fold-btn {
-            background: transparent;
-            color: #ffd966;
-            border: none;
-            border-radius: 8px;
-            padding: 2px 2px;
-            font-size: 1.1rem;
-            line-height: 1;
-            font-weight: bold;
-            cursor: pointer;
-            font-family: inherit;
-            white-space: nowrap;
-        }
-
-        .board-mark-expand-btn {
-            background: rgba(62, 46, 33, 0.92);
-            color: #ffd966;
-            border: none;
-            border-radius: 10px;
-            padding: 6px 6px;
-            font-size: 0.82rem;
-            font-weight: bold;
-            cursor: pointer;
-            font-family: inherit;
-            white-space: nowrap;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.12);
-        }
-
-        .board-mark-fold-btn:active,
-        .board-mark-expand-btn:active {
-            transform: translateY(1px);
-        }
-
-        canvas {
-            display: block;
-            background: #deb887;
-            width: 100%;
-            height: auto;
-            aspect-ratio: 1 / 1;
-            border-radius: 4px;
-            box-shadow: inset 0 0 0 1px #6b4a2e, 0 10px 15px #3a2e1e;
-            max-width: 100%;
-        }
-
-        .info-panel {
-            background: #8f6b4f;
-            padding: 20px 16px;
-            border-radius: 20px;
-            color: #efdfbb;
-            width: 100%;
-            max-width: 280px;
-            border: 1px solid #c9a450;
-            margin: 0 auto;
-            min-height: 200px;
-            display: flex;
-            flex-direction: column;
-            margin-bottom: 20px;
-            border-bottom: 4px solid #4d2f1b;
-        }
-
-        .turn-box {
-            background: #3e2e21;
-            padding: 12px;
-            border-radius: 50px;
-            text-align: center;
-            color: #ffd966;
-            font-size: 1.2rem;
-            margin-bottom: 20px;
-        }
-
-        .score-box {
-            background: #3e2e21;
-            padding: 14px;
-            border-radius: 16px;
-            line-height: 1.6;
-            flex: 1;
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-        }
-
-        .score-title {
-            font-size: 1.3rem;
-            margin-bottom: 10px;
-        }
-
-        .score-content {
-            min-height: 60px;
-        }
-
-        .score-confirm-panel {
-            margin-top: 15px;
-            background: #3e2e21;
-            border-radius: 20px;
-            padding: 12px;
-            text-align: center;
-        }
-
-            .score-confirm-panel p {
-                margin: 0 0 10px 0;
-                font-size: 0.9rem;
-                color: #ffd98c;
-            }
-
-        .score-confirm-buttons {
-            display: flex;
-            gap: 12px;
-            justify-content: center;
-        }
-
-            .score-confirm-buttons button {
-                background: #b88a4b;
-                border: none;
-                color: white;
-                padding: 6px 16px;
-                border-radius: 30px;
-                cursor: pointer;
-                font-weight: bold;
-                border-bottom: 2px solid #5e3e1e;
-            }
-
-                .score-confirm-buttons button:active {
-                    transform: translateY(2px);
-                }
-
-        .replay-panel {
-            margin-top: 15px;
-            background: #3e2e21;
-            border-radius: 20px;
-            padding: 14px;
-            text-align: center;
-        }
-
-        .replay-step-display {
-            color: #ffd966;
-            font-size: 1.1rem;
-            font-weight: bold;
-            margin-bottom: 10px;
-        }
-
-        .replay-nav {
-            display: flex;
-            gap: 12px;
-            justify-content: center;
-            margin-bottom: 12px;
-        }
-
-        .replay-nav-btn {
-            background: #b88a4b;
-            border: none;
-            color: white;
-            font-weight: bold;
-            padding: 8px 20px;
-            border-radius: 30px;
-            font-size: 0.95rem;
-            border-bottom: 3px solid #5e3e1e;
-            cursor: pointer;
-            transition: 0.08s;
-        }
-
-            .replay-nav-btn:active {
-                border-bottom-width: 1px;
-                transform: translateY(2px);
-            }
-
-        .replay-slider {
-            width: 100%;
-            cursor: pointer;
-            accent-color: #b88a4b;
-        }
-
-        @media (max-width: 700px) {
-            .game-wrapper {
-                padding: 12px;
-            }
-
-            .button-panel {
-                flex-direction: row;
-                flex-wrap: wrap;
-                justify-content: center;
-                width: 100%;
-                margin: 10px 0 0;
-                gap: 10px;
-            }
-
-                .button-panel .ctrl-btn {
-                    width: calc(50% - 10px);
-                    min-width: 120px;
-                }
-
-            .info-panel {
-                max-width: 100%;
-                margin-top: 10px;
-            }
-
-            .top-panel {
-                padding: 10px 12px;
-            }
-
-            .left-group {
-                gap: 15px;
-            }
-
-            .side-select label {
-                font-size: 0.95rem;
-            }
-
-            .komi-info, .color-status {
-                white-space: normal;
-                font-size: 0.9rem;
-            }
-
-            .board-container {
-                max-width: 100%;
-            }
-
-            /* 手机：棋盘整行；标记在 board-container 内 absolute，底与棋盘对齐；展开盖住棋盘 */
-            .board-and-info {
-                display: grid;
-                grid-template-columns: 1fr;
-                grid-template-rows: auto auto;
-                row-gap: 12px;
-                width: 100%;
-            }
-
-            .board-and-info > .board-container {
-                grid-column: 1;
-                grid-row: 1;
-                width: 100%;
-                z-index: 1;
-            }
-
-            .main-area-right {
-                display: contents;
-            }
-
-            /* 右缘：越过 game-wrapper 内边距与 body 内边距，与视口右缘对齐；底仍相对 board-container = 与 canvas 底对齐 */
-            .board-mark-outer {
-                position: absolute;
-                right: calc(-10px - 12px);
-                bottom: 0;
-                left: auto !important;
-                top: auto;
-                margin-left: 0 !important;
-                margin-right: 0;
-                width: max-content;
-                max-width: none;
-                z-index: 5;
-                pointer-events: none;
-                overflow: visible;
-                max-height: none;
-                height: auto;
-                min-height: 0;
-                display: flex;
-                flex-direction: column;
-                align-items: flex-end;
-                justify-content: flex-end;
-            }
-
-            .board-mark-outer > .board-mark-panel,
-            .board-mark-outer > .board-mark-expand-btn {
-                pointer-events: auto;
-            }
-
-            /* 展开条：收起钮靠整条最左侧（桌面保持 label→select→‹ 不变） */
-            .board-mark-panel {
-                flex-direction: row;
-            }
-
-            .board-mark-fold-btn {
-                order: -1;
-            }
-
-            .main-area-right .info-panel {
-                grid-column: 1;
-                grid-row: 2;
-                width: 100%;
-                max-width: 600px;
-                margin-top: 0;
-            }
-        }
-    </style>
+    <link rel="stylesheet" href="/qi/qi.css">
 </head>
 <body>
     <div class="game-wrapper">
@@ -739,6 +116,7 @@
     </div>
     <input type="file" id="importFileInput" accept=".json" style="display:none;">
 
+    <script src="/qi/qi.js"></script>
     <script>
         // ======================== 配置 ========================
         let BOARD_SIZE = 19;
@@ -833,38 +211,12 @@
         const scoreConfirmNo = document.getElementById('scoreConfirmNo');
         const boardMarkSelect = document.getElementById('boardMarkSelect');
 
-        (function initBoardMarkSelect() {
-            if (!boardMarkSelect) return;
-            const frag = document.createDocumentFragment();
-            const optEmpty = document.createElement('option');
-            optEmpty.value = '';
-            optEmpty.textContent = '清除';
-            frag.appendChild(optEmpty);
-            for (const ch of BOARD_MARK_CHAR_LIST) {
-                const o = document.createElement('option');
-                o.value = ch;
-                o.textContent = ch;
-                if (ch === '?') o.selected = true;
-                frag.appendChild(o);
-            }
-            boardMarkSelect.appendChild(frag);
-        })();
-
-        (function initBoardMarkFold() {
-            const panel = document.getElementById('boardMarkPanel');
-            const foldBtn = document.getElementById('boardMarkFoldBtn');
-            const expandBtn = document.getElementById('boardMarkExpandBtn');
-            if (!panel || !foldBtn || !expandBtn) return;
-            function setCollapsed(collapsed) {
-                panel.hidden = collapsed;
-                expandBtn.hidden = !collapsed;
-                foldBtn.setAttribute('aria-expanded', String(!collapsed));
-                expandBtn.setAttribute('aria-expanded', String(!collapsed));
-            }
-            foldBtn.onclick = () => setCollapsed(true);
-            expandBtn.onclick = () => setCollapsed(false);
-            setCollapsed(true);
-        })();
+        QiSquareWeiqiCanvas.initBoardMarkSelectDom(boardMarkSelect, BOARD_MARK_CHAR_LIST);
+        QiSquareWeiqiCanvas.initBoardMarkFoldDom(
+            document.getElementById('boardMarkPanel'),
+            document.getElementById('boardMarkFoldBtn'),
+            document.getElementById('boardMarkExpandBtn')
+        );
 
         let hoverRow = -1, hoverCol = -1, isHoverValid = false;
         const isMouseDevice = window.matchMedia('(hover: hover) and (pointer: fine)').matches;
@@ -1195,269 +547,40 @@
             return `rgb(${w(lineRgb[0])},${w(lineRgb[1])},${w(lineRgb[2])})`;
         }
 
-        function drawBoard() {
-            ctx.clearRect(0, 0, 600, 600);
+        function drawBoard() 
+        {
+            const d = QiSquareWeiqiCanvas.draw;
+            const cs = QiSquareWeiqiCanvas.DEFAULT_CANVAS_SIZE;
             const cellSize = CELL_SIZE;
-            const boardMax = PADDING + (BOARD_SIZE - 1) * cellSize;
-            ctx.lineWidth = 1.5;
-            ctx.strokeStyle = '#3a281c';
-            for (let i = 0; i < BOARD_SIZE; i++) {
-                ctx.beginPath();
-                ctx.moveTo(PADDING + i * cellSize, PADDING);
-                ctx.lineTo(PADDING + i * cellSize, boardMax);
-                ctx.stroke();
-                ctx.beginPath();
-                ctx.moveTo(PADDING, PADDING + i * cellSize);
-                ctx.lineTo(boardMax, PADDING + i * cellSize);
-                ctx.stroke();
-            }
-
-            const starPoints = getStarPoints(BOARD_SIZE);
-            const starKeySet = new Set(starPoints.map(([r, c]) => r + ',' + c));
-            ctx.fillStyle = '#3a281c';
-            for (let [r, c] of starPoints) {
-                ctx.beginPath();
-                ctx.arc(PADDING + c * cellSize, PADDING + r * cellSize, cellSize * 0.12, 0, 2 * Math.PI);
-                ctx.fill();
-            }
-
-            const showFogLayer = fogMask && !fogCleared && !replayMode && !tryPlayMode;
-            /** 迷雾：先整块铺雾再在无雾格挖木纹，避免逐格拼接在缩放时出现浅色缝 */
-            const FOG_ALPHA = 0.48;
-            const WOOD_RGB = [222, 184, 135];
-            const LINE_RGB = [58, 40, 28];
-            const fogTileFill = fogBlendWoodLine(WOOD_RGB, FOG_ALPHA);
-            const fogStroke = fogBlendLineOnFog(LINE_RGB, FOG_ALPHA);
-            if (showFogLayer) {
-                let hasFog = false;
-                outerFog: for (let r = 0; r < BOARD_SIZE; r++) {
-                    for (let c = 0; c < BOARD_SIZE; c++) {
-                        if (fogMask[r][c]) {
-                            hasFog = true;
-                            break outerFog;
-                        }
-                    }
-                }
-                if (hasFog) {
-                    ctx.fillStyle = fogTileFill;
-                    ctx.fillRect(PADDING, PADDING, boardMax - PADDING, boardMax - PADDING);
-                    /** 视野木纹略大于理论格，与邻格重叠，避免 CSS 缩放后木纹拼接缝 */
-                    const woodOverlap = Math.max(1.5, cellSize * 0.04);
-                    for (let r = 0; r < BOARD_SIZE; r++) {
-                        for (let c = 0; c < BOARD_SIZE; c++) {
-                            if (fogMask[r][c]) continue;
-                            let left = c === 0 ? PADDING : PADDING + (c - 0.5) * cellSize;
-                            let right = c === BOARD_SIZE - 1 ? boardMax : PADDING + (c + 0.5) * cellSize;
-                            let top = r === 0 ? PADDING : PADDING + (r - 0.5) * cellSize;
-                            let bottom = r === BOARD_SIZE - 1 ? boardMax : PADDING + (r + 0.5) * cellSize;
-                            if (c > 0) left -= woodOverlap;
-                            if (c < BOARD_SIZE - 1) right += woodOverlap;
-                            if (r > 0) top -= woodOverlap;
-                            if (r < BOARD_SIZE - 1) bottom += woodOverlap;
-                            left = Math.max(PADDING, left);
-                            right = Math.min(boardMax, right);
-                            top = Math.max(PADDING, top);
-                            bottom = Math.min(boardMax, bottom);
-                            ctx.fillStyle = '#deb887';
-                            ctx.fillRect(left, top, right - left, bottom - top);
-                        }
-                    }
-                    ctx.lineWidth = 1.5;
-                    ctx.lineCap = 'butt';
-                    for (let r = 0; r < BOARD_SIZE; r++) {
-                        for (let c = 0; c < BOARD_SIZE; c++) {
-                            const inFog = fogMask[r][c];
-                            const left = c === 0 ? PADDING : PADDING + (c - 0.5) * cellSize;
-                            const right = c === BOARD_SIZE - 1 ? boardMax : PADDING + (c + 0.5) * cellSize;
-                            const top = r === 0 ? PADDING : PADDING + (r - 0.5) * cellSize;
-                            const bottom = r === BOARD_SIZE - 1 ? boardMax : PADDING + (r + 0.5) * cellSize;
-                            const hy = PADDING + r * cellSize;
-                            const vx = PADDING + c * cellSize;
-                            ctx.strokeStyle = inFog ? fogStroke : '#3a281c';
-                            if (hy >= top && hy <= bottom) {
-                                ctx.beginPath();
-                                ctx.moveTo(left, hy);
-                                ctx.lineTo(right, hy);
-                                ctx.stroke();
-                            }
-                            if (vx >= left && vx <= right) {
-                                ctx.beginPath();
-                                ctx.moveTo(vx, top);
-                                ctx.lineTo(vx, bottom);
-                                ctx.stroke();
-                            }
-                            if (starKeySet.has(r + ',' + c)) {
-                                ctx.fillStyle = inFog ? fogStroke : '#3a281c';
-                                ctx.beginPath();
-                                ctx.arc(vx, hy, cellSize * 0.12, 0, 2 * Math.PI);
-                                ctx.fill();
-                            }
-                        }
-                    }
-                }
-                ctx.strokeStyle = '#3a281c';
-                ctx.fillStyle = '#3a281c';
-            }
-
-            /* 坐标在棋子下层：迷雾层之后、棋子之前 */
-            ctx.font = `bold ${17 - 0.2 * BOARD_SIZE}px Arial`;
-            ctx.fillStyle = '#3a281c';
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            for (let c = 0; c < BOARD_SIZE; c++) {
-                const letter = String.fromCharCode(65 + c);
-                const x = PADDING + c * cellSize;
-                const y = 0.6 * PADDING;
-                ctx.fillText(letter, x, y);
-            }
-            for (let r = 0; r < BOARD_SIZE; r++) {
-                const number = (r + 1).toString();
-                const x = PADDING / 2;
-                const y = PADDING + r * cellSize;
-                ctx.fillText(number, x, y);
-            }
-
+            d.clear(ctx, cs);
+            d.grid(ctx, BOARD_SIZE, PADDING, cellSize, cs);
+            d.starPoints(ctx, BOARD_SIZE, PADDING, cellSize);
+            d.coordLabels(ctx, BOARD_SIZE, PADDING, cellSize);
             const stoneRadius = cellSize * 0.44;
             const markLenDefault = cellSize * 0.352;
             const lowerLastMoveMarker = showMoveNumbers || showEstimateActive;
             if (lowerLastMoveMarker) {
-                for (let { row, col, color } of lastMoveMarkers) {
-                    const x = PADDING + col * cellSize;
-                    const y = PADDING + row * cellSize;
-                    ctx.beginPath();
-                    ctx.moveTo(x + stoneRadius, y + stoneRadius);
-                    ctx.lineTo(x, y + stoneRadius);
-                    ctx.lineTo(x + stoneRadius, y);
-                    ctx.closePath();
-                    ctx.fillStyle = color === 1 ? '#fff' : '#222';
-                    ctx.fill();
-                }
+                d.lastMoveMarkersLower(ctx, lastMoveMarkers, PADDING, cellSize, stoneRadius);
             }
-
-            for (let r = 0; r < BOARD_SIZE; r++) {
-                for (let c = 0; c < BOARD_SIZE; c++) {
-                    const val = board[r][c];
-                    if (val !== 1 && val !== 2) continue;
-                    const x = PADDING + c * cellSize;
-                    const y = PADDING + r * cellSize;
-                    const radius = stoneRadius;
-                    ctx.save();
-                    ctx.shadowBlur = 6;
-                    ctx.shadowColor = 'rgba(0,0,0,0.5)';
-                    ctx.shadowOffsetY = 2;
-                    const grad = ctx.createRadialGradient(x - 3, y - 3, radius * 0.2, x, y, radius * 1.2);
-                    if (val === 1) {
-                        grad.addColorStop(0, '#444');
-                        grad.addColorStop(0.6, '#222');
-                        grad.addColorStop(1, '#111');
-                    } else {
-                        grad.addColorStop(0, '#fff');
-                        grad.addColorStop(0.5, '#eee');
-                        grad.addColorStop(1, '#aaa');
-                    }
-                    ctx.beginPath();
-                    ctx.arc(x, y, radius, 0, 2 * Math.PI);
-                    ctx.fillStyle = grad;
-                    ctx.fill();
-                    ctx.restore();
-                    if (!showMoveNumbers) {
-                        ctx.beginPath();
-                        ctx.arc(x - 3, y - 3, radius * 0.15, 0, 2 * Math.PI);
-                        ctx.fillStyle = val === 1 ? '#444' : '#fff';
-                        ctx.fill();
-                    }
-                }
-            }
+            d.stonesBlackWhite(ctx, board, BOARD_SIZE, PADDING, cellSize, stoneRadius, showMoveNumbers);
             if (!lowerLastMoveMarker) {
-                const markLen = markLenDefault;
-                for (let { row, col, color } of lastMoveMarkers) {
-                    const x = PADDING + col * cellSize;
-                    const y = PADDING + row * cellSize;
-                    ctx.beginPath();
-                    ctx.moveTo(x, y);
-                    ctx.lineTo(x + markLen, y);
-                    ctx.lineTo(x, y + markLen);
-                    ctx.closePath();
-                    ctx.fillStyle = color === 1 ? '#fff' : '#222';
-                    ctx.fill();
-                }
+                d.lastMoveMarkersUpper(ctx, lastMoveMarkers, PADDING, cellSize, markLenDefault);
             }
-            for (const key of Object.keys(userBoardMarks)) {
-                const [r, c] = key.split(',').map(Number);
-                if (r < 0 || r >= BOARD_SIZE || c < 0 || c >= BOARD_SIZE) continue;
-                if (!isUserBoardMarkVisibleAt(r, c)) continue;
-                const ch = userBoardMarks[key];
-                const x = PADDING + c * cellSize;
-                const y = PADDING + r * cellSize;
-                /* 标记字号：改下面一行里 Math.max 的底数与 cellSize 的乘数；背景圆大小改上一行的 0.38 */
-                const markBgR = cellSize * 0.3;
-                const inFogMark = showFogLayer && fogMask[r][c];
-                ctx.beginPath();
-                ctx.arc(x, y, markBgR, 0, 2 * Math.PI);
-                /* 与原先「半透明黑叠在迷雾上」等效的实色（迷雾格底色 rgb≈115,96,70） */
-                ctx.fillStyle = inFogMark ? 'rgb(75,62,46)' : '#deb887';
-                ctx.fill();
-                const fontPx = cellSize * (ch === '🚩' ? 0.6 : 0.66);
-                ctx.font = `bold ${fontPx}px "Segoe UI", "Apple Color Emoji", "Segoe UI Emoji", sans-serif`;
-                ctx.textAlign = 'center';
-                ctx.textBaseline = 'middle';
-                ctx.fillStyle = inFogMark ? 'rgb(160,160,160)' : '#3a281c';
-                ctx.fillText(ch, x, y + 1);
-            }
+            d.userBoardMarks(ctx, userBoardMarks, BOARD_SIZE, PADDING, cellSize, isUserBoardMarkVisibleAt);
             if (showMoveNumbers) {
                 const nums = computeStoneNumbers();
-                ctx.textAlign = 'center';
-                ctx.textBaseline = 'middle';
-                for (let r = 0; r < BOARD_SIZE; r++) {
-                    for (let c = 0; c < BOARD_SIZE; c++) {
-                        if (nums[r][c] > 0 && board[r][c] !== 0) {
-                            const sx = PADDING + c * cellSize;
-                            const sy = PADDING + r * cellSize;
-                            const numStr = nums[r][c].toString();
-                            const fontSize = Math.max(9, Math.floor(cellSize * (numStr.length >= 3 ? 0.308 : 0.396)));
-                            ctx.font = `bold ${fontSize}px Arial`;
-                            ctx.fillStyle = board[r][c] === 1 ? '#fff' : '#000';
-                            ctx.fillText(numStr, sx, sy + 1);
-                        }
-                    }
-                }
+                d.moveNumbersOnStones(ctx, nums, board, BOARD_SIZE, PADDING, cellSize);
             }
-            const canHover = tryPlayMode || (!gameOver && isMyTurn);
-            if (canHover && isHoverValid && hoverRow >= 0 && hoverCol >= 0 && board[hoverRow][hoverCol] === 0) {
-                ctx.globalAlpha = 0.45;
-                ctx.beginPath();
-                ctx.arc(PADDING + hoverCol * cellSize, PADDING + hoverRow * cellSize, cellSize * 0.44, 0, 2 * Math.PI);
-                const hoverColor = tryPlayMode ? (tryPlayCurrentPlayer === 1 ? '#222' : '#ddd') : (mySlot === 'black' ? '#222' : '#ddd');
-                ctx.fillStyle = hoverColor;
-                ctx.fill();
-                ctx.globalAlpha = 1.0;
-            }
+            d.hoverPreviewStone(ctx, hoverRow, hoverCol, board, PADDING, cellSize, {
+                tryPlayMode,
+                tryPlayCurrentPlayer,
+                gameOver,
+                isMyTurn,
+                mySlot,
+                isHoverValid
+            });
             if (showEstimateActive && cachedLiveBoard && cachedTerritory) {
-                const dotRadius = cellSize * 0.18;
-                const skipFogEst = !fogCleared && fogMask && showFogLayer;
-                for (let r = 0; r < BOARD_SIZE; r++) {
-                    for (let c = 0; c < BOARD_SIZE; c++) {
-                        if (skipFogEst && fogMask[r][c]) continue;
-                        if (board[r][c] !== 0 && cachedLiveBoard[r][c] === 0) {
-                            const x = PADDING + c * cellSize;
-                            const y = PADDING + r * cellSize;
-                            ctx.fillStyle = board[r][c] === 1 ? '#fff' : '#222';
-                            ctx.fillRect(x - dotRadius, y - dotRadius, dotRadius * 2, dotRadius * 2);
-                        }
-                        else if (board[r][c] === 0 && cachedTerritory[r][c] === 1) {
-                            const x = PADDING + c * cellSize;
-                            const y = PADDING + r * cellSize;
-                            ctx.fillStyle = '#222';
-                            ctx.fillRect(x - dotRadius, y - dotRadius, dotRadius * 2, dotRadius * 2);
-                        }
-                        else if (board[r][c] === 0 && cachedTerritory[r][c] === 2) {
-                            const x = PADDING + c * cellSize;
-                            const y = PADDING + r * cellSize;
-                            ctx.fillStyle = '#f0f0f0';
-                            ctx.fillRect(x - dotRadius, y - dotRadius, dotRadius * 2, dotRadius * 2);
-                        }
-                    }
-                }
+                d.estimateOverlay(ctx, board, BOARD_SIZE, PADDING, cellSize, cachedLiveBoard, cachedTerritory);
             }
         }
 
@@ -1831,61 +954,19 @@
         // ======================== WebSocket ========================
         function connectWebSocket()
         {
-            if (reconnectTimer)
-                clearTimeout(reconnectTimer);
-            const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-            const wsUrl = `${protocol}//${location.host}/qi/ws?game=${gameType}&room=${roomId}`;
-            ws = new WebSocket(wsUrl);
-            ws.onopen = () =>
-            {
-                const sizeSelect = document.getElementById('boardSizeSelect');
-                const currentSize = (sizeSelect && sizeSelect.style.display !== 'none') ? parseInt(sizeSelect.value, 10) : BOARD_SIZE; 
-                ws.send(JSON.stringify({ type: 'join', password: roomPassword, requestedSlot: null }));
-            };
-            ws.onmessage = (e) => {
-                const msg = JSON.parse(e.data);
-                handleMessage(msg);
-            };
-            ws.onclose = (event) => {
-                if (event.code === 1008 && event.reason.includes('房间不存在')) {
-                    alert('房间不存在，请返回大厅');
-                    window.location.href = '/qi';
-                    return;
-                }
-                colorStatus.innerText = '连接断开，重连中...';
-                reconnectTimer = setTimeout(connectWebSocket, 2000);
-            };
+            ws = QiSquareWeiqiCanvas.connectWeiqiRoomWebSocket({
+                gameType,
+                roomId,
+                roomPassword,
+                onMessage: handleMessage,
+                clearReconnectTimer: () => { if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; } },
+                getReconnectTimer: () => reconnectTimer,
+                setReconnectTimer: (t) => { reconnectTimer = t; },
+                colorStatus,
+                connectWebSocket
+            });
         }
 
-        // 动态生成星位数组
-        function getStarPoints(boardSize)
-        {
-            const stars = [];
-            // 角星
-            let cornerOffset = boardSize <= 11 ? 2 : 3;  // 索引从0开始，3路对应索引2，4路对应索引3
-            const corners = [
-                [cornerOffset, cornerOffset],
-                [cornerOffset, boardSize - 1 - cornerOffset],
-                [boardSize - 1 - cornerOffset, cornerOffset],
-                [boardSize - 1 - cornerOffset, boardSize - 1 - cornerOffset]
-            ];
-            stars.push(...corners);
-            if (boardSize >= 9 && boardSize % 2 === 1)
-            {
-                const center = Math.floor(boardSize / 2);
-                stars.push([center, center]);
-            }
-            if (boardSize >= 15 && boardSize % 2 === 1)
-            {
-                const center = Math.floor(boardSize / 2);
-                const sideOffset = 3; // 4路对应索引3
-                stars.push([sideOffset, center]);      // 上边
-                stars.push([boardSize - 1 - sideOffset, center]); // 下边
-                stars.push([center, sideOffset]);      // 左边
-                stars.push([center, boardSize - 1 - sideOffset]); // 右边
-            }
-            return stars;
-        }
 
         function initBoardArray(size)
         {
@@ -2304,19 +1385,11 @@
         }
 
         function getClosestIntersection(x, y) {
-            const col = Math.round((x - PADDING) / CELL_SIZE);
-            const row = Math.round((y - PADDING) / CELL_SIZE);
-            if (row < 0 || row >= BOARD_SIZE || col < 0 || col >= BOARD_SIZE) return { row: -1, col: -1 };
-            return { row, col };
+            return QiSquareWeiqiCanvas.getClosestIntersection(x, y, BOARD_SIZE, PADDING, CELL_SIZE);
         }
 
         function canvasCoordsFromClient(clientX, clientY) {
-            const rect = canvas.getBoundingClientRect();
-            const scale = 600 / rect.width;
-            return {
-                x: (clientX - rect.left) * scale,
-                y: (clientY - rect.top) * scale
-            };
+            return QiSquareWeiqiCanvas.canvasCoordsFromClient(clientX, clientY, canvas, QiSquareWeiqiCanvas.DEFAULT_CANVAS_SIZE);
         }
 
         function getSelectedBoardMark() {
@@ -2528,8 +1601,14 @@
             if (confirm('确定认输吗？')) ws.send(JSON.stringify({ type: 'resign' }));
         };
         document.getElementById('drawBtn').onclick = () => {
-            if (!mySlot) { alert('只有对局者可以申请和棋'); return; }
-            ws.send(JSON.stringify({ type: 'requestDraw' }));
+            if (!ps.mySlot) { alert('只有对局者可以申请和棋'); return; }
+            const opponentSlot = ps.mySlot === 'black' ? 'white' : 'black';
+            const hasOpponent = ps.slots[opponentSlot];
+            if (hasOpponent) {
+                if (confirm('确定向对方申请和棋吗？')) ps.ws.send(JSON.stringify({ type: 'requestDraw' }));
+            } else {
+                if (confirm('确定和棋吗？')) ps.ws.send(JSON.stringify({ type: 'requestDraw' }));
+            }
         };
         document.getElementById('endReqBtn').onclick = () => {
             if (!mySlot) { alert('只有对局者可以申请数子'); return; }

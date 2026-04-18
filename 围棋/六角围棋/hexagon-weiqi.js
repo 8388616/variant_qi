@@ -50,9 +50,10 @@ function generateHexBoardData(n) {
     return { vertexCount: V, neighbors: neighborList };
 }
 
-class HexagonWeiqiRoom {
+const { QiTwoPlayerRoomBase, vertexGraphGoRules } = require('../common');
+class HexagonWeiqiRoom extends QiTwoPlayerRoomBase {
     constructor(room, initialSize = 9) {
-        this.room = room;
+        super(room);
         this.boardSize = initialSize;
         const { vertexCount, neighbors } = generateHexBoardData(initialSize);
         this.vertexCount = vertexCount;
@@ -80,113 +81,22 @@ class HexagonWeiqiRoom {
 
     boardToString(board) { return board.join(','); }
 
-    hasLiberty(boardState, start, visited = null) {
-        const color = boardState[start];
-        if (color === 0) return false;
-        const queue = [start];
-        const visitedLocal = visited || new Array(this.vertexCount).fill(false);
-        visitedLocal[start] = true;
-        let idx = 0;
-        while (idx < queue.length) {
-            const v = queue[idx++];
-            for (const nb of this.neighbors[v]) {
-                if (boardState[nb] === 0) return true;
-                if (boardState[nb] === color && !visitedLocal[nb]) {
-                    visitedLocal[nb] = true;
-                    queue.push(nb);
-                }
-            }
-        }
-        return false;
+    hasLiberty(boardState, start) {
+        return vertexGraphGoRules.hasLiberty(boardState, start, this.neighbors);
     }
 
     removeGroup(boardState, start) {
-        const color = boardState[start];
-        if (color === 0) return;
-        const queue = [start];
-        boardState[start] = 0;
-        let idx = 0;
-        while (idx < queue.length) {
-            const v = queue[idx++];
-            for (const nb of this.neighbors[v]) {
-                if (boardState[nb] === color) {
-                    boardState[nb] = 0;
-                    queue.push(nb);
-                }
-            }
-        }
+        vertexGraphGoRules.removeGroup(boardState, start, this.neighbors);
     }
 
     tryPlaceStone(boardBefore, vertex, playerVal) {
-        if (boardBefore[vertex] !== 0) return null;
-        const newBoard = this.copyBoard(boardBefore);
-        newBoard[vertex] = playerVal;
-
-        for (const nb of this.neighbors[vertex]) {
-            if (newBoard[nb] === 3 - playerVal && !this.hasLiberty(newBoard, nb))
-                this.removeGroup(newBoard, nb);
-        }
-
-        if (!this.hasLiberty(newBoard, vertex))
-            this.removeGroup(newBoard, vertex);
-
-        return newBoard;
-    }
-
-    isLibertySurroundedByOpponent(boardState, libertyVertex, opponentColor) {
-        for (const nb of this.neighbors[libertyVertex]) {
-            if (boardState[nb] === opponentColor) return true;
-        }
-        return false;
+        return vertexGraphGoRules.tryPlaceStone(boardBefore, vertex, playerVal, this.neighbors);
     }
 
     removeDeadAndDying(srcBoard) {
-        let newBoard = this.copyBoard(srcBoard);
-        let changed = true;
-        while (changed) {
-            changed = false;
-            const visited = new Array(this.vertexCount).fill(false);
-            for (let v = 0; v < this.vertexCount; v++) {
-                if (newBoard[v] !== 0 && !visited[v]) {
-                    const color = newBoard[v];
-                    const queue = [v];
-                    visited[v] = true;
-                    const stones = [v];
-                    const liberties = new Set();
-                    let idx = 0;
-                    while (idx < queue.length) {
-                        const cur = queue[idx++];
-                        for (const nb of this.neighbors[cur]) {
-                            if (newBoard[nb] === 0) liberties.add(nb);
-                            else if (newBoard[nb] === color && !visited[nb]) {
-                                visited[nb] = true;
-                                queue.push(nb);
-                                stones.push(nb);
-                            }
-                        }
-                    }
-                    if (liberties.size === 0) {
-                        for (const s of stones) newBoard[s] = 0;
-                        changed = true;
-                        continue;
-                    }
-                    if (liberties.size <= 2) {
-                        let allControlled = true;
-                        for (const lib of liberties) {
-                            if (!this.isLibertySurroundedByOpponent(newBoard, lib, 3 - color)) {
-                                allControlled = false;
-                                break;
-                            }
-                        }
-                        if (allControlled) {
-                            for (const s of stones) newBoard[s] = 0;
-                            changed = true;
-                        }
-                    }
-                }
-            }
-        }
-        return newBoard;
+        return vertexGraphGoRules.removeDeadAndDying(
+            srcBoard, this.neighbors, this.vertexCount, (b) => this.copyBoard(b)
+        );
     }
 
     multiSourceBFS(liveBoard, color) {
@@ -267,6 +177,7 @@ class HexagonWeiqiRoom {
         return {
             boardSize: this.boardSize,
             board: this.board,
+            komi: 3.25,
             numberOfHands: 1 + this.historyBoards.length,
             currentPlayer: this.currentPlayer,
             lastMoveMarkers: this.lastMoveMarkers,
@@ -278,25 +189,6 @@ class HexagonWeiqiRoom {
                 white: !!this.room.getPlayerBySlot('white')
             }
         };
-    }
-
-    assignSlot(ws, requestedSlot) {
-        if (requestedSlot === 'black' && !this.room.getPlayerBySlot('black')) return 'black';
-        if (requestedSlot === 'white' && !this.room.getPlayerBySlot('white')) return 'white';
-        return null;
-    }
-
-    broadcast(data, exclude = null) {
-        const allClients = [...this.room.players.keys(), ...this.room.observers];
-        for (const client of allClients) {
-            if (client !== exclude && client.readyState === 1) {
-                client.send(JSON.stringify(data));
-            }
-        }
-    }
-
-    sendState(ws) {
-        ws.send(JSON.stringify({ type: 'gameState', ...this.getState() }));
     }
 
     startScoreCounting(requester, opponent) {

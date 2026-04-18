@@ -1,8 +1,10 @@
-class InvisibleStoneWeiqiRoom {
+const { QiTwoPlayerRoomBase, squareWeiqiRules, encodeInitialPositionCompact, applyInitialPositionCompact } = require('../common');
+class InvisibleStoneWeiqiRoom extends QiTwoPlayerRoomBase {
     constructor(room, initialSize = 19) {
-        this.room = room;
+        super(room);
         this.boardSize = initialSize;
         this.board = this.emptyBoard();
+        this.openingBoard = this.copyBoard(this.board);
         this.invisible = this.emptyInvisible();
         this.currentPlayer = 1;
         this.historyBoards = [];
@@ -21,6 +23,7 @@ class InvisibleStoneWeiqiRoom {
         this.pendingScore = null;
         this.scoreProposalData = null;
         this.moveCoords = [];
+        this.plainWeiqiStartHand = null;
     }
 
     emptyBoard() {
@@ -30,257 +33,122 @@ class InvisibleStoneWeiqiRoom {
     emptyInvisible() {
         return Array(this.boardSize).fill().map(() => Array(this.boardSize).fill(false));
     }
-
-    copyBoard(src) { return src.map(row => row.slice()); }
     copyInvisible(src) { return src.map(row => row.slice()); }
-    boardToString(board) { return board.map(row => row.join(',')).join(';'); }
 
-    countGroupLiberties(board, row, col) {
-        const color = board[row][col];
-        if (color === 0) return 0;
-        const visited = Array(this.boardSize).fill().map(() => Array(this.boardSize).fill(false));
-        const queue = [[row, col]];
-        visited[row][col] = true;
-        const dirs = [[-1, 0], [1, 0], [0, -1], [0, 1]];
-        const liberties = new Set();
-        while (queue.length) {
-            const [r, c] = queue.shift();
-            for (let [dr, dc] of dirs) {
-                const nr = r + dr, nc = c + dc;
-                if (nr < 0 || nr >= this.boardSize || nc < 0 || nc >= this.boardSize) continue;
-                if (board[nr][nc] === 0) {
-                    liberties.add(nr + ',' + nc);
-                } else if (board[nr][nc] === color && !visited[nr][nc]) {
-                    visited[nr][nc] = true;
-                    queue.push([nr, nc]);
-                }
-            }
-        }
-        return liberties.size;
-    }
-
-    removeGroup(board, row, col, color) {
-        const queue = [[row, col]];
-        board[row][col] = 0;
-        const dirs = [[-1, 0], [1, 0], [0, -1], [0, 1]];
-        while (queue.length) {
-            const [r, c] = queue.shift();
-            for (let [dr, dc] of dirs) {
-                const nr = r + dr, nc = c + dc;
-                if (nr >= 0 && nr < this.boardSize && nc >= 0 && nc < this.boardSize && board[nr][nc] === color) {
-                    board[nr][nc] = 0;
-                    queue.push([nr, nc]);
-                }
-            }
-        }
-    }
-
-    collectGroupCells(board, row, col) {
-        const color = board[row][col];
-        if (color === 0) return [];
-        const dirs = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+    diffRemovedStones(oldBoard, newBoard) {
         const out = [];
-        const visited = Array(this.boardSize).fill().map(() => Array(this.boardSize).fill(false));
-        const queue = [[row, col]];
-        visited[row][col] = true;
-        while (queue.length) {
-            const [r, c] = queue.shift();
-            out.push([r, c]);
-            for (let [dr, dc] of dirs) {
-                const nr = r + dr, nc = c + dc;
-                if (nr < 0 || nr >= this.boardSize || nc < 0 || nc >= this.boardSize) continue;
-                if (board[nr][nc] === color && !visited[nr][nc]) {
-                    visited[nr][nc] = true;
-                    queue.push([nr, nc]);
-                }
+        for (let r = 0; r < this.boardSize; r++) {
+            for (let c = 0; c < this.boardSize; c++) {
+                const o = oldBoard[r][c];
+                const n = newBoard[r][c];
+                if (o !== 0 && n === 0) out.push({ row: r, col: c, color: o });
             }
         }
         return out;
     }
 
-    tryPlaceStone(boardBefore, row, col, playerVal) {
-        if (boardBefore[row][col] !== 0) return null;
-        const newBoard = this.copyBoard(boardBefore);
-        newBoard[row][col] = playerVal;
-
-        const enemyColor = 3 - playerVal;
-        const dirs = [[-1, 0], [1, 0], [0, -1], [0, 1]];
-        const checkedEnemy = new Set();
-
-        for (let [dr, dc] of dirs) {
-            const nr = row + dr, nc = col + dc;
-            if (nr >= 0 && nr < this.boardSize && nc >= 0 && nc < this.boardSize && newBoard[nr][nc] === enemyColor) {
-                const key = `${nr},${nc}`;
-                if (!checkedEnemy.has(key)) {
-                    checkedEnemy.add(key);
-                    if (this.countGroupLiberties(newBoard, nr, nc) < 1) {
-                        this.removeGroup(newBoard, nr, nc, enemyColor);
-                    }
-                }
-            }
+    /**
+     * 本手落子点落子前为空；若落子后该点被提（整块被提），diffRemovedStones 不会包含该点，
+     * 但参与「提子邻格显形」时必须把该点当作被提子之一。
+     */
+    dedupeRemovedStones(removed) {
+        const seen = new Set();
+        const out = [];
+        for (const x of removed) {
+            const k = `${x.row},${x.col}`;
+            if (seen.has(k)) continue;
+            seen.add(k);
+            out.push(x);
         }
-
-        if (this.countGroupLiberties(newBoard, row, col) < 1)
-            this.removeGroup(newBoard, row, col, playerVal);
-
-        return newBoard;
+        return out;
     }
 
-    diffRemovedStones(before, after) {
-        const removed = [];
-        for (let r = 0; r < this.boardSize; r++) {
-            for (let c = 0; c < this.boardSize; c++) {
-                if (before[r][c] !== 0 && after[r][c] === 0)
-                    removed.push({ row: r, col: c, color: before[r][c] });
-            }
-        }
-        return removed;
-    }
-
-    enemyCapturedAny(before, after, playerVal) {
-        const enemy = 3 - playerVal;
-        for (let r = 0; r < this.boardSize; r++) {
-            for (let c = 0; c < this.boardSize; c++) {
-                if (before[r][c] === enemy && after[r][c] === 0) return true;
-            }
-        }
-        return false;
-    }
-
-    findMoveIndexForStoneAt(row, col, playerSlot) {
-        for (let i = this.moveCoords.length - 1; i >= 0; i--) {
-            const m = this.moveCoords[i];
-            if (m.type === 'move' && m.player === playerSlot && m.row === row && m.col === col)
-                return i;
-        }
-        return -1;
+    removedStonesForCapture(oldBoard, newBoard, moveRow, moveCol, playerVal) {
+        let removed = this.diffRemovedStones(oldBoard, newBoard);
+        if (oldBoard[moveRow][moveCol] === 0 && newBoard[moveRow][moveCol] === 0)
+            removed = removed.concat([{ row: moveRow, col: moveCol, color: playerVal }]);
+        return this.dedupeRemovedStones(removed);
     }
 
     revealMoveAt(row, col, playerSlot) {
-        const idx = this.findMoveIndexForStoneAt(row, col, playerSlot);
-        if (idx >= 0 && this.moveCoords[idx].concealedFromOpponent)
-            this.moveCoords[idx].concealedFromOpponent = false;
+        for (const m of this.moveCoords) {
+            if (m.type !== 'move') continue;
+            if (m.player !== playerSlot) continue;
+            if (m.row === row && m.col === col) {
+                m.invisible = false;
+                m.concealedFromOpponent = false;
+            }
+        }
+    }
+
+    /**
+     * 与任一方被提子四邻、仍留在盘上的隐身子均显形（含：提对方子时邻格我方隐子、自提时邻格对方隐子）。
+     */
+    revealParticipatingInvisibleForCapture(removed) {
+        if (!removed || removed.length === 0) return;
+        const dirs = [[0, 1], [0, -1], [1, 0], [-1, 0]];
+        const seen = new Set();
+        for (const { row: rr, col: cc } of removed) {
+            for (const [dr, dc] of dirs) {
+                const nr = rr + dr;
+                const nc = cc + dc;
+                if (nr < 0 || nr >= this.boardSize || nc < 0 || nc >= this.boardSize) continue;
+                const v = this.board[nr][nc];
+                if (v !== 1 && v !== 2) continue;
+                if (!this.invisible[nr][nc]) continue;
+                const key = `${nr},${nc}`;
+                if (seen.has(key)) continue;
+                seen.add(key);
+                this.invisible[nr][nc] = false;
+                const ps = v === 1 ? 'black' : 'white';
+                this.revealMoveAt(nr, nc, ps);
+            }
+        }
+    }
+
+    revealAllInvisible() {
+        for (let r = 0; r < this.boardSize; r++) {
+            for (let c = 0; c < this.boardSize; c++) {
+                if (!this.invisible[r][c]) continue;
+                this.invisible[r][c] = false;
+                const v = this.board[r][c];
+                if (v === 0) continue;
+                const ps = v === 1 ? 'black' : 'white';
+                this.revealMoveAt(r, c, ps);
+            }
+        }
+    }
+
+    countGroupLiberties(board, row, col) {
+        return squareWeiqiRules.countGroupLiberties(board, row, col, this.boardSize);
+    }
+
+    removeGroup(board, row, col, color) {
+        squareWeiqiRules.removeGroup(board, row, col, color, this.boardSize);
+    }
+
+    tryPlaceStone(boardBefore, row, col, playerVal) {
+        return squareWeiqiRules.tryPlaceStoneNLiberty(
+            boardBefore, row, col, playerVal, this.boardSize, (b) => this.copyBoard(b), 1
+        );
     }
 
     isLibertySurroundedByOpponent(board, libertyRow, libertyCol, opponentColor) {
-        const dirs = [[-1, 0], [1, 0], [0, -1], [0, 1]];
-        for (let [dr, dc] of dirs) {
-            const nr = libertyRow + dr, nc = libertyCol + dc;
-            if (nr >= 0 && nr < this.boardSize && nc >= 0 && nc < this.boardSize && board[nr][nc] === opponentColor) return true;
-        }
-        return false;
+        return squareWeiqiRules.isLibertySurroundedByOpponent(
+            board, libertyRow, libertyCol, opponentColor, this.boardSize
+        );
     }
 
     removeDeadAndDying(srcBoard) {
-        let boardCopy = this.copyBoard(srcBoard);
-        let changed = true;
-        while (changed) {
-            changed = false;
-            const visited = Array(this.boardSize).fill().map(() => Array(this.boardSize).fill(false));
-            for (let r = 0; r < this.boardSize; r++) {
-                for (let c = 0; c < this.boardSize; c++) {
-                    const val = boardCopy[r][c];
-                    if ((val === 1 || val === 2) && !visited[r][c]) {
-                        const color = val;
-                        const queue = [[r, c]];
-                        visited[r][c] = true;
-                        const stones = [[r, c]];
-                        const liberties = new Set();
-                        let idx = 0;
-                        const dirs = [[-1, 0], [1, 0], [0, -1], [0, 1]];
-                        while (idx < queue.length) {
-                            const [rr, cc] = queue[idx++];
-                            for (let [dr, dc] of dirs) {
-                                const nr = rr + dr, nc = cc + dc;
-                                if (nr < 0 || nr >= this.boardSize || nc < 0 || nc >= this.boardSize) continue;
-                                if (boardCopy[nr][nc] === 0) liberties.add(nr + ',' + nc);
-                                else if (boardCopy[nr][nc] === color && !visited[nr][nc]) {
-                                    visited[nr][nc] = true;
-                                    queue.push([nr, nc]);
-                                    stones.push([nr, nc]);
-                                }
-                            }
-                        }
-                        if (liberties.size === 0) {
-                            for (let [rr, cc] of stones) boardCopy[rr][cc] = 0;
-                            changed = true;
-                            continue;
-                        }
-                        if (liberties.size <= 2) {
-                            let allControlled = true;
-                            for (let lib of liberties) {
-                                const [lr, lc] = lib.split(',').map(Number);
-                                if (!this.isLibertySurroundedByOpponent(boardCopy, lr, lc, 3 - color)) {
-                                    allControlled = false;
-                                    break;
-                                }
-                            }
-                            if (allControlled) {
-                                for (let [rr, cc] of stones) boardCopy[rr][cc] = 0;
-                                changed = true;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        return boardCopy;
+        return squareWeiqiRules.removeDeadAndDying(srcBoard, this.boardSize, (b) => this.copyBoard(b));
     }
 
     assignTerritoryWithRange(liveBoard) {
-        const territory = Array(this.boardSize).fill().map(() => Array(this.boardSize).fill(0));
-        for (let r = 0; r < this.boardSize; r++) {
-            for (let c = 0; c < this.boardSize; c++) {
-                if (liveBoard[r][c] !== 0) continue;
-                const maxDist = (r <= 1 || r >= this.boardSize - 2 || c <= 1 || c >= this.boardSize - 2) ? 5 : 4;
-                let blackMin = Infinity, whiteMin = Infinity;
-                const dist = Array(this.boardSize).fill().map(() => Array(this.boardSize).fill(Infinity));
-                dist[r][c] = 0;
-                const queue = [[r, c]];
-                const dirs = [[-1, 0], [1, 0], [0, -1], [0, 1]];
-                let front = 0;
-                while (front < queue.length) {
-                    const [cr, cc] = queue[front++];
-                    const d = dist[cr][cc];
-                    if (d > maxDist) continue;
-                    if (liveBoard[cr][cc] === 1 && d < blackMin) blackMin = d;
-                    if (liveBoard[cr][cc] === 2 && d < whiteMin) whiteMin = d;
-                    for (let [dr, dc] of dirs) {
-                        const nr = cr + dr, nc = cc + dc;
-                        if (nr >= 0 && nr < this.boardSize && nc >= 0 && nc < this.boardSize && liveBoard[nr][nc] !== -1 && dist[nr][nc] === Infinity) {
-                            dist[nr][nc] = d + 1;
-                            queue.push([nr, nc]);
-                        }
-                    }
-                }
-                if (blackMin <= maxDist && whiteMin <= maxDist) {
-                    if (blackMin < whiteMin) territory[r][c] = 1;
-                    else if (whiteMin < blackMin) territory[r][c] = 2;
-                    else territory[r][c] = 3;
-                } else if (blackMin <= maxDist) territory[r][c] = 1;
-                else if (whiteMin <= maxDist) territory[r][c] = 2;
-                else territory[r][c] = 3;
-            }
-        }
-        return territory;
+        return squareWeiqiRules.assignTerritoryWithRange(liveBoard, this.boardSize);
     }
 
     computeScore(liveBoard, territory) {
-        let blackStones = 0, whiteStones = 0, blackTerritory = 0, whiteTerritory = 0, publicTerritory = 0;
-        for (let r = 0; r < this.boardSize; r++) {
-            for (let c = 0; c < this.boardSize; c++) {
-                if (liveBoard[r][c] === 1) blackStones++;
-                else if (liveBoard[r][c] === 2) whiteStones++;
-                else if (liveBoard[r][c] === 0) {
-                    if (territory[r][c] === 1) blackTerritory++;
-                    else if (territory[r][c] === 2) whiteTerritory++;
-                    else if (territory[r][c] === 3) publicTerritory++;
-                }
-            }
-        }
-        const blackTotal = blackStones + blackTerritory + publicTerritory / 2;
-        const whiteTotal = whiteStones + whiteTerritory + publicTerritory / 2;
-        return { blackTotal, whiteTotal };
+        return squareWeiqiRules.computeScore(liveBoard, territory, this.boardSize);
     }
 
     computeLead() {
@@ -292,13 +160,15 @@ class InvisibleStoneWeiqiRoom {
     }
 
     buildViewBoard(slot) {
+        // 观战者不在 room.players 中，getSlotByWs 为 undefined（不是 null），须与黑白方区分
+        const isSpectator = slot !== 'black' && slot !== 'white';
         const out = this.emptyBoard();
         for (let r = 0; r < this.boardSize; r++) {
             for (let c = 0; c < this.boardSize; c++) {
                 const v = this.board[r][c];
                 if (v === 0) continue;
                 if (this.invisible[r][c]) {
-                    if (slot === null) {
+                    if (isSpectator) {
                         continue;
                     } else if (slot === 'black') {
                         if (v === 1) out[r][c] = v;
@@ -315,7 +185,7 @@ class InvisibleStoneWeiqiRoom {
 
     buildInvisibleTint(slot) {
         const list = [];
-        if (slot === null) return list;
+        if (slot !== 'black' && slot !== 'white') return list;
         for (let r = 0; r < this.boardSize; r++) {
             for (let c = 0; c < this.boardSize; c++) {
                 if (this.board[r][c] === 0) continue;
@@ -343,12 +213,13 @@ class InvisibleStoneWeiqiRoom {
 
     /** 对方与观战者不显示落在隐身子上的最后一手标记 */
     filterLastMoveMarkers(slot) {
+        const isSpectator = slot !== 'black' && slot !== 'white';
         if (!this.lastMoveMarkers.length) return [];
         return this.lastMoveMarkers.filter(m => {
             const { row, col, color } = m;
             if (row < 0 || row >= this.boardSize || col < 0 || col >= this.boardSize) return true;
             if (!this.invisible[row][col]) return true;
-            if (slot === null) return false;
+            if (isSpectator) return false;
             const blackStone = color === 1;
             if (blackStone && slot === 'white') return false;
             if (!blackStone && slot === 'black') return false;
@@ -369,11 +240,18 @@ class InvisibleStoneWeiqiRoom {
             gameOver: this.gameOver,
             winner: this.winner,
             moveCoords: this.filterMoveCoordsForSlot(slot),
+            plainWeiqiStartHand: this.plainWeiqiStartHand,
+            komi: 4.25,
             slots: {
                 black: !!this.room.getPlayerBySlot('black'),
                 white: !!this.room.getPlayerBySlot('white')
             }
         };
+    }
+
+    /** 基类 sendState 依赖 getState()；本玩法按连接返回不同棋盘，故覆盖为 getStateForClient。 */
+    sendState(ws) {
+        ws.send(JSON.stringify({ type: 'gameState', ...this.getStateForClient(ws) }));
     }
 
     broadcastState(action, extra = {}) {
@@ -393,24 +271,15 @@ class InvisibleStoneWeiqiRoom {
         }
     }
 
-    assignSlot(ws, requestedSlot) {
-        if (requestedSlot === 'black' && !this.room.getPlayerBySlot('black')) return 'black';
-        if (requestedSlot === 'white' && !this.room.getPlayerBySlot('white')) return 'white';
-        return null;
-    }
-
-    broadcast(data, exclude = null) {
-        this.broadcastFlat(data, exclude);
-    }
-
-    sendState(ws) {
-        ws.send(JSON.stringify({ type: 'gameState', ...this.getStateForClient(ws) }));
-    }
-
     startScoreCounting(requester, opponent) {
+        this.revealAllInvisible();
+        this.plainWeiqiStartHand = this.moveHistory.length + 1;
+        if (this.historyInvisible.length > 0)
+            this.historyInvisible[this.historyInvisible.length - 1] = this.copyInvisible(this.invisible);
         const lead = this.computeLead();
         this.scoreProposalData = { lead, requester, opponent };
         const proposalMsg = { type: 'scoreProposal', lead };
+        this.broadcastState('scoreCountingStarted');
         requester.send(JSON.stringify(proposalMsg));
         opponent.send(JSON.stringify(proposalMsg));
         this.pendingScore = { requester, opponent, agreed: new Set() };
@@ -451,7 +320,21 @@ class InvisibleStoneWeiqiRoom {
                         this.invisible[row][col] = false;
                         const enemySlot = enemyVal === 1 ? 'black' : 'white';
                         this.revealMoveAt(row, col, enemySlot);
-                        this.broadcastState('invisibleReveal', { reason: 'hit', row, col });
+                        this.historyBoards.push(this.copyBoard(this.board));
+                        this.historyInvisible.push(this.copyInvisible(this.invisible));
+                        this.historyMarkers.push(this.copyMarkers(this.lastMoveMarkers));
+                        this.moveHistory.push(slot);
+                        this.moveCoords.push({
+                            type: 'pass',
+                            player: slot,
+                            reason: 'hitInvisible',
+                            revealRow: row,
+                            revealCol: col
+                        });
+                        this.lastMoveMarkers = [];
+                        this.currentPlayer = 3 - this.currentPlayer;
+                        this.passCounter = 0;
+                        this.broadcastState('invisibleReveal', { reason: 'hitPass', row, col });
                     }
                     return;
                 }
@@ -467,10 +350,13 @@ class InvisibleStoneWeiqiRoom {
                 }
 
                 const nextHand = this.moveHistory.length + 1;
-                const isInvisibleStone = nextHand >= 3 && nextHand % 3 === 0;
+                const isInvisibleStone =
+                    (this.plainWeiqiStartHand == null || nextHand < this.plainWeiqiStartHand) &&
+                    nextHand >= 3 &&
+                    nextHand % 3 === 0;
 
                 this.board = this.copyBoard(newBoard);
-                const removed = this.diffRemovedStones(oldBoard, this.board);
+                const removed = this.removedStonesForCapture(oldBoard, this.board, row, col, playerVal);
                 for (const { row: rr, col: cc } of removed)
                     this.invisible[rr][cc] = false;
 
@@ -479,20 +365,12 @@ class InvisibleStoneWeiqiRoom {
                     this.revealMoveAt(rr, cc, ps);
                 }
 
-                if (this.enemyCapturedAny(oldBoard, this.board, playerVal)) {
-                    const group = this.collectGroupCells(this.board, row, col);
-                    for (const [gr, gc] of group) {
-                        if (this.invisible[gr][gc]) {
-                            this.invisible[gr][gc] = false;
-                            const ps = this.board[gr][gc] === 1 ? 'black' : 'white';
-                            this.revealMoveAt(gr, gc, ps);
-                        }
-                    }
-                }
-
+                // 须先于 revealParticipatingInvisibleForCapture 标记本手隐身子，否则邻格显形遍历时该点仍为 false，参与提子的新落隐身子不会被显形。
                 if (isInvisibleStone && this.board[row][col] === playerVal) {
                     this.invisible[row][col] = true;
                 }
+
+                this.revealParticipatingInvisibleForCapture(removed);
 
                 this.historyBoards.push(this.copyBoard(this.board));
                 this.historyInvisible.push(this.copyInvisible(this.invisible));
@@ -707,6 +585,10 @@ class InvisibleStoneWeiqiRoom {
             this.board = this.copyBoard(this.historyBoards.at(-1));
             this.invisible = this.copyInvisible(this.historyInvisible.at(-1));
         }
+        if (this.moveHistory.length === 0)
+            this.plainWeiqiStartHand = null;
+        else if (this.plainWeiqiStartHand != null && this.moveHistory.length < this.plainWeiqiStartHand - 1)
+            this.plainWeiqiStartHand = null;
         this.broadcastState('undoAccept');
     }
 
@@ -716,6 +598,7 @@ class InvisibleStoneWeiqiRoom {
 
     resetGame() {
         this.board = this.emptyBoard();
+        this.openingBoard = this.copyBoard(this.board);
         this.invisible = this.emptyInvisible();
         this.currentPlayer = 1;
         this.historyBoards = [];
@@ -728,6 +611,7 @@ class InvisibleStoneWeiqiRoom {
         this.winner = null;
         this.passCounter = 0;
         this.moveCoords = [];
+        this.plainWeiqiStartHand = null;
         for (let [client, s] of this.room.players.entries()) {
             this.room.slotOccupancy.delete(s);
             this.room.players.delete(client);
@@ -764,10 +648,15 @@ class InvisibleStoneWeiqiRoom {
             boardSize: this.boardSize,
             komi: 4.25,
             players: { black: null, white: null },
-            initialPosition: { black: [], white: [] },
+            initialPosition: encodeInitialPositionCompact(this.openingBoard, this.boardSize),
+            plainWeiqiStartHand: this.plainWeiqiStartHand,
             moves: this.moveCoords.map(m => {
                 const p = m.player === 'black' ? 'B' : 'W';
-                if (m.type === 'pass') return p + 'p';
+                if (m.type === 'pass') {
+                    if (m.reason === 'hitInvisible')
+                        return `${p}ph${m.revealRow},${m.revealCol}`;
+                    return p + 'p';
+                }
                 const inv = m.invisible ? 'i' : '';
                 return p + m.row + ',' + m.col + inv;
             }),
@@ -777,6 +666,7 @@ class InvisibleStoneWeiqiRoom {
 
     resetToEmpty() {
         this.board = this.emptyBoard();
+        this.openingBoard = this.copyBoard(this.board);
         this.invisible = this.emptyInvisible();
         this.currentPlayer = 1;
         this.historyBoards = [];
@@ -795,12 +685,25 @@ class InvisibleStoneWeiqiRoom {
         this.pendingEnd = null;
         this.pendingScore = null;
         this.scoreProposalData = null;
+        this.plainWeiqiStartHand = null;
     }
 
     static parseMove(entry) {
         if (typeof entry === 'string') {
             const player = entry[0] === 'B' ? 'black' : 'white';
-            if (entry[1] === 'p') return { type: 'pass', player };
+            if (entry[1] === 'p') {
+                if (entry[2] === 'h') {
+                    const coords = entry.substring(3).split(',').map(Number);
+                    return {
+                        type: 'pass',
+                        player,
+                        reason: 'hitInvisible',
+                        revealRow: coords[0],
+                        revealCol: coords[1]
+                    };
+                }
+                return { type: 'pass', player };
+            }
             let s = entry;
             let invisible = false;
             if (s.endsWith('i')) {
@@ -826,31 +729,15 @@ class InvisibleStoneWeiqiRoom {
 
         this.boardSize = newSize;
         this.resetToEmpty();
+        this.plainWeiqiStartHand = data.plainWeiqiStartHand != null ? data.plainWeiqiStartHand : null;
 
-        if (data.initialPosition) {
-            if (Array.isArray(data.initialPosition.black)) {
-                for (const pos of data.initialPosition.black) {
-                    if (Array.isArray(pos) && pos.length === 2) {
-                        const [r, c] = pos;
-                        if (r >= 0 && r < this.boardSize && c >= 0 && c < this.boardSize)
-                            this.board[r][c] = 1;
-                    }
-                }
-            }
-            if (Array.isArray(data.initialPosition.white)) {
-                for (const pos of data.initialPosition.white) {
-                    if (Array.isArray(pos) && pos.length === 2) {
-                        const [r, c] = pos;
-                        if (r >= 0 && r < this.boardSize && c >= 0 && c < this.boardSize)
-                            this.board[r][c] = 2;
-                    }
-                }
-            }
-        }
+        applyInitialPositionCompact(this.board, this.boardSize, data.initialPosition);
+        this.openingBoard = this.copyBoard(this.board);
 
         const rawMoves = data.moves || [];
         const moves = rawMoves.map(InvisibleStoneWeiqiRoom.parseMove);
         const fromWeiqi = data.gameId === 'weiqi';
+        const pwsh = data.plainWeiqiStartHand != null ? data.plainWeiqiStartHand : null;
         let importHand = 0;
         for (let i = 0; i < moves.length; i++) {
             const move = moves[i];
@@ -875,28 +762,19 @@ class InvisibleStoneWeiqiRoom {
                 }
                 const newBoardStr = this.boardToString(newBoard);
                 this.board = this.copyBoard(newBoard);
-                const removed = this.diffRemovedStones(oldBoard, this.board);
+                const removed = this.removedStonesForCapture(oldBoard, this.board, row, col, playerVal);
                 for (const { row: rr, col: cc } of removed)
                     this.invisible[rr][cc] = false;
                 for (const { row: rr, col: cc, color } of removed) {
                     const ps = color === 1 ? 'black' : 'white';
                     this.revealMoveAt(rr, cc, ps);
                 }
-                if (this.enemyCapturedAny(oldBoard, this.board, playerVal)) {
-                    const group = this.collectGroupCells(this.board, row, col);
-                    for (const [gr, gc] of group) {
-                        if (this.invisible[gr][gc]) {
-                            this.invisible[gr][gc] = false;
-                            const ps = this.board[gr][gc] === 1 ? 'black' : 'white';
-                            this.revealMoveAt(gr, gc, ps);
-                        }
-                    }
-                }
-                const wantInv = fromWeiqi
-                    ? (importHand >= 3 && importHand % 3 === 0)
-                    : !!move.invisible;
+                const wantInv =
+                    (pwsh == null || importHand < pwsh) &&
+                    (fromWeiqi ? importHand >= 3 && importHand % 3 === 0 : !!move.invisible);
                 if (wantInv && this.board[row][col] === playerVal)
                     this.invisible[row][col] = true;
+                this.revealParticipatingInvisibleForCapture(removed);
 
                 this.historyBoards.push(this.copyBoard(this.board));
                 this.historyInvisible.push(this.copyInvisible(this.invisible));
@@ -917,13 +795,29 @@ class InvisibleStoneWeiqiRoom {
                 this.passCounter = 0;
             } else if (move.type === 'pass') {
                 importHand++;
+                if (move.reason === 'hitInvisible') {
+                    this.invisible[move.revealRow][move.revealCol] = false;
+                    const v = this.board[move.revealRow][move.revealCol];
+                    const ps = v === 1 ? 'black' : 'white';
+                    this.revealMoveAt(move.revealRow, move.revealCol, ps);
+                }
                 this.historyBoards.push(this.copyBoard(this.board));
                 this.historyInvisible.push(this.copyInvisible(this.invisible));
                 this.historyMarkers.push(this.copyMarkers(this.lastMoveMarkers));
                 this.moveHistory.push(slot);
-                this.moveCoords.push({ type: 'pass', player: slot });
+                this.moveCoords.push(
+                    move.reason === 'hitInvisible'
+                        ? {
+                            type: 'pass',
+                            player: slot,
+                            reason: 'hitInvisible',
+                            revealRow: move.revealRow,
+                            revealCol: move.revealCol
+                        }
+                        : { type: 'pass', player: slot }
+                );
                 this.currentPlayer = 3 - this.currentPlayer;
-                this.passCounter++;
+                this.passCounter = move.reason === 'hitInvisible' ? 0 : this.passCounter + 1;
                 this.lastMoveMarkers = [];
             }
         }
@@ -940,7 +834,8 @@ class InvisibleStoneWeiqiRoom {
                 type: 'importSuccess',
                 ...this.getStateForClient(client),
                 replayData: {
-                    initialPosition: data.initialPosition || { black: [], white: [] },
+                    initialPosition: data.initialPosition || [],
+                    plainWeiqiStartHand: this.plainWeiqiStartHand,
                     moves: this.moveCoords.map(m => ({ ...m }))
                 }
             }));

@@ -4,187 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=2.0, user-scalable=yes">
     <title>无格线围棋</title>
-    <style>
-        * { box-sizing: border-box; user-select: none; -webkit-tap-highlight-color: transparent; }
-        html, body { margin: 0; padding: 0; width: 100%; overflow-x: hidden; }
-        body {
-            background: #2b5e3b;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            min-height: 100vh;
-            font-family: 'Segoe UI', Roboto, sans-serif;
-            padding: 10px;
-        }
-        .game-wrapper {
-            background: #d9c8ac;
-            padding: 40px;
-            border-radius: 28px;
-            box-shadow: 0 20px 30px rgba(0,0,0,0.6);
-            border: 2px solid #6b4a2e;
-            width: 100%;
-            max-width: 1200px;
-            margin: 0 auto;
-        }
-        .top-panel {
-            display: flex;
-            flex-wrap: wrap;
-            justify-content: space-between;
-            align-items: center;
-            background: #8f6b4f;
-            padding: 12px 20px;
-            border-radius: 40px;
-            color: #f9eed7;
-            font-weight: bold;
-            margin-bottom: 20px;
-            border-bottom: 4px solid #4d2f1b;
-            gap: 10px;
-        }
-        .left-group { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
-        .side-select { display: flex; gap: 24px; flex-wrap: wrap; }
-        .side-select label { font-size: 1rem; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; position: relative; }
-        .side-select input[type="radio"] { position: absolute; opacity: 0; width: 0; height: 0; margin: 0; }
-        .side-select label::before {
-            content: ""; display: inline-block; width: 1em; height: 1em; border-radius: 50%;
-            background-color: white; border: 1.5px solid #6b4a2e; transition: all 0.1s ease; box-sizing: border-box;
-        }
-        .side-select label.self-radio::before { border-color: #ff3b6f; }
-        .side-select label.self-radio.checked-disabled::before {
-            background-color: #ff3b6f; box-shadow: inset 0 0 0 0.15em white;
-        }
-        .side-select label.opponent-radio::before { border-color: #999999; }
-        .side-select label.opponent-radio.checked-disabled::before {
-            background-color: #999999; box-shadow: inset 0 0 0 0.15em white;
-        }
-        .komi-info {
-            background: #3e2e21; padding: 6px 16px; border-radius: 30px;
-            color: #ffd966; font-size: 0.95rem; white-space: nowrap;
-        }
-        .board-size-select {
-            background: #3e2e21; color: #ffd966; border: none;
-            padding: 6px 12px; border-radius: 30px; font-weight: bold; font-size: 0.9rem; cursor: pointer;
-        }
-        .color-status {
-            background: #3e2e21; padding: 6px 16px; border-radius: 30px;
-            color: #ffd966; white-space: nowrap; font-size: 0.95rem;
-        }
-        .adjacent-line-toggle label, .chk-inline {
-            cursor: pointer; display: inline-flex; align-items: center; gap: 5px;
-            color: #f9eed7; font-size: 0.92rem;
-        }
-        .right-buttons { display: flex; gap: 12px; align-items: center; }
-        .help-btn, .back-to-lobby-btn {
-            background: none; border: none; color: #fff9c2; font-weight: bold;
-            padding: 0 8px; cursor: pointer; font-size: 1rem;
-        }
-        .rules-modal {
-            display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0,0,0,0.5); justify-content: center; align-items: center; z-index: 1000;
-        }
-        .rules-content {
-            background: #f9eed7; color: #3e2e21; max-width: 560px; width: 90%; padding: 20px 24px;
-            border-radius: 28px; border: 2px solid #8f6b4f; position: relative;
-        }
-        .rules-content .close-rules { position: absolute; top: 10px; right: 15px; font-size: 1.5rem; cursor: pointer; color: #8f6b4f; }
-        .main-area { display: flex; gap: 20px; align-items: flex-start; flex-wrap: wrap; justify-content: center; }
-        .button-panel { display: flex; flex-direction: column; gap: 16px; width: 140px; }
-        .ctrl-btn {
-            background: #b88a4b; border: none; color: white; font-weight: bold;
-            padding: 12px 8px; border-radius: 30px; font-size: 1rem;
-            border-bottom: 5px solid #5e3e1e; cursor: pointer; transition: 0.08s; text-align: center;
-        }
-        .ctrl-btn:active { border-bottom-width: 2px; transform: translateY(3px); }
-        .board-and-info {
-            display: flex; flex-direction: row; align-items: stretch; gap: 40px;
-            flex: 0 1 auto; min-width: 0;
-        }
-        .board-container {
-            display: flex; flex-direction: column; align-items: center;
-            flex: 0 1 auto; width: 100%; max-width: 600px; min-width: 0; position: relative;
-        }
-        .main-area-right { display: flex; flex-direction: column; width: 280px; max-width: 100%; flex: 0 0 auto; min-width: 0; }
-        .board-mark-outer {
-            position: absolute; left: 100%; margin-left: 6px; bottom: 0;
-            display: grid; grid-template-rows: 52px; grid-template-columns: max-content;
-            width: max-content; max-width: min(100%, 280px); min-height: 52px; max-height: 52px; z-index: 2;
-            box-sizing: border-box; overflow: hidden;
-        }
-        .board-mark-panel[hidden], .board-mark-expand-btn[hidden] { display: none !important; }
-        .board-mark-outer > .board-mark-panel, .board-mark-outer > .board-mark-expand-btn {
-            grid-area: 1 / 1; align-self: end; justify-self: start; margin: 0;
-        }
-        .board-mark-panel {
-            display: flex; align-items: center; gap: 6px;
-            background: rgba(62, 46, 33, 0.92); color: #ffd966; padding: 4px 8px;
-            border-radius: 12px; font-size: 0.82rem; font-weight: bold;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.12); width: max-content; max-width: min(100%, 260px);
-            max-height: 52px; box-sizing: border-box;
-        }
-        .board-mark-select {
-            flex: 0 1 auto; min-width: 0; background: #3e2e21; color: #ffd966;
-            border: 1px solid #c9a450; border-radius: 8px; padding: 2px 4px;
-            font-size: 0.9rem; font-weight: bold; cursor: pointer; width: 3.2em;
-            max-width: min(200px, 55vw); max-height: 44px;
-        }
-        .board-mark-fold-btn, .board-mark-expand-btn {
-            background: transparent; color: #ffd966; border: none; border-radius: 8px;
-            padding: 2px; font-size: 1.1rem; cursor: pointer; font-family: inherit; font-weight: bold;
-        }
-        .board-mark-expand-btn {
-            background: rgba(62, 46, 33, 0.92); padding: 6px; border-radius: 10px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.12);
-        }
-        canvas {
-            display: block; background: #deb887; width: 100%; height: auto; aspect-ratio: 1 / 1;
-            border-radius: 4px; box-shadow: inset 0 0 0 1px #6b4a2e, 0 10px 15px #3a2e1e; max-width: 100%;
-        }
-        .info-panel {
-            background: #8f6b4f; padding: 20px 16px; border-radius: 20px; color: #efdfbb;
-            width: 100%; max-width: 280px; border: 1px solid #c9a450; margin-bottom: 20px;
-            border-bottom: 4px solid #4d2f1b; display: flex; flex-direction: column;
-        }
-        .turn-box {
-            background: #3e2e21; padding: 12px; border-radius: 50px; text-align: center;
-            color: #ffd966; font-size: 1.2rem; margin-bottom: 20px;
-        }
-        .score-box {
-            background: #3e2e21; padding: 14px; border-radius: 16px; line-height: 1.6; flex: 1;
-            display: flex; flex-direction: column; justify-content: center;
-        }
-        .score-title { font-size: 1.3rem; margin-bottom: 10px; }
-        .score-confirm-panel {
-            margin-top: 15px; background: #3e2e21; border-radius: 20px; padding: 12px; text-align: center;
-        }
-        .score-confirm-buttons { display: flex; gap: 12px; justify-content: center; }
-        .score-confirm-buttons button {
-            background: #b88a4b; border: none; color: white; padding: 6px 16px;
-            border-radius: 30px; cursor: pointer; font-weight: bold;
-        }
-        .replay-panel {
-            margin-top: 15px; background: #3e2e21; border-radius: 20px; padding: 14px; text-align: center;
-        }
-        .replay-step-display { color: #ffd966; font-size: 1.1rem; font-weight: bold; margin-bottom: 10px; }
-        .replay-nav { display: flex; gap: 12px; justify-content: center; margin-bottom: 12px; }
-        .replay-nav-btn {
-            background: #b88a4b; border: none; color: white; font-weight: bold;
-            padding: 8px 20px; border-radius: 30px; font-size: 0.95rem;
-            border-bottom: 3px solid #5e3e1e; cursor: pointer;
-        }
-        .replay-slider { width: 100%; cursor: pointer; accent-color: #b88a4b; }
-        @media (max-width: 700px) {
-            .game-wrapper { padding: 12px; }
-            .button-panel { flex-direction: row; flex-wrap: wrap; justify-content: center; width: 100%; gap: 10px; }
-            .button-panel .ctrl-btn { width: calc(50% - 10px); min-width: 120px; }
-            .board-and-info { display: grid; grid-template-columns: 1fr; row-gap: 12px; width: 100%; }
-            .board-and-info > .board-container { grid-column: 1; grid-row: 1; z-index: 1; }
-            .main-area-right { display: contents; }
-            .board-mark-outer {
-                position: absolute; right: calc(-10px - 12px); bottom: 0; left: auto !important;
-                margin-left: 0 !important; z-index: 5; pointer-events: none; max-width: none;
-            }
-            .board-mark-outer > .board-mark-panel, .board-mark-outer > .board-mark-expand-btn { pointer-events: auto; }
-        }
-    </style>
+    <link rel="stylesheet" href="/qi/qi.css">
 </head>
 <body>
     <div class="game-wrapper">
@@ -303,6 +123,8 @@
     </div>
     <input type="file" id="importFileInput" accept=".json" style="display:none;">
 
+    <script src="/qi/qi.js"></script>
+
     <script>
 (function () {
     const COORD_SCALE = 1000000;
@@ -395,36 +217,12 @@
         return a;
     })();
 
-    (function initBoardMarkSelect() {
-        if (!boardMarkSelect) return;
-        const frag = document.createDocumentFragment();
-        const optEmpty = document.createElement('option');
-        optEmpty.value = '';
-        optEmpty.textContent = '清除';
-        frag.appendChild(optEmpty);
-        for (const ch of BOARD_MARK_CHAR_LIST) {
-            const o = document.createElement('option');
-            o.value = ch;
-            o.textContent = ch;
-            if (ch === '?') o.selected = true;
-            frag.appendChild(o);
-        }
-        boardMarkSelect.appendChild(frag);
-    })();
-
-    (function initBoardMarkFold() {
-        const panel = document.getElementById('boardMarkPanel');
-        const foldBtn = document.getElementById('boardMarkFoldBtn');
-        const expandBtn = document.getElementById('boardMarkExpandBtn');
-        if (!panel || !foldBtn || !expandBtn) return;
-        function setCollapsed(collapsed) {
-            panel.hidden = collapsed;
-            expandBtn.hidden = !collapsed;
-        }
-        foldBtn.onclick = () => setCollapsed(true);
-        expandBtn.onclick = () => setCollapsed(false);
-        setCollapsed(true);
-    })();
+    QiSquareWeiqiCanvas.initBoardMarkSelectDom(boardMarkSelect, BOARD_MARK_CHAR_LIST);
+    QiSquareWeiqiCanvas.initBoardMarkFoldDom(
+        document.getElementById('boardMarkPanel'),
+        document.getElementById('boardMarkFoldBtn'),
+        document.getElementById('boardMarkExpandBtn')
+    );
 
     const scoreConfirmPanel = document.getElementById('scoreConfirmPanel');
     const scoreConfirmText = document.getElementById('scoreConfirmText');

@@ -1,10 +1,11 @@
 const crypto = require('crypto');
+const { QiTwoPlayerRoomBase, squareWeiqiRules } = require('../common');
 
-class TranspositionWeiqiRoom
+class TranspositionWeiqiRoom extends QiTwoPlayerRoomBase
 {
     constructor(room, initialSize = 19)
     {
-        this.room = room;
+        super(room);
         this.boardSize = initialSize;
         this.board = Array(this.boardSize).fill().map(() => Array(this.boardSize).fill(0));
         this.currentPlayer = 1;          // 1:黑, 2:白
@@ -30,8 +31,6 @@ class TranspositionWeiqiRoom
     }
 
     // ---------- 工具函数 ----------
-    copyBoard(src) { return src.map(row => row.slice()); }
-    boardToString(board) { return board.map(row => row.join(',')).join(';'); }
 
     computeMaxTranspositionMoves(size)
     {
@@ -43,244 +42,35 @@ class TranspositionWeiqiRoom
 
     // 计算连通块的气数（标准围棋规则：气为相邻空点）
     countGroupLiberties(board, row, col) {
-        const color = board[row][col];
-        if (color === 0) return 0;
-        const visited = Array(this.boardSize).fill().map(() => Array(this.boardSize).fill(false));
-        const queue = [[row, col]];
-        visited[row][col] = true;
-        const dirs = [[-1, 0], [1, 0], [0, -1], [0, 1]];
-        const liberties = new Set();
-        while (queue.length) {
-            const [r, c] = queue.shift();
-            for (let [dr, dc] of dirs) {
-                const nr = r + dr, nc = c + dc;
-                if (nr < 0 || nr >= this.boardSize || nc < 0 || nc >= this.boardSize) continue;
-                if (board[nr][nc] === 0) {
-                    liberties.add(nr + ',' + nc);
-                } else if (board[nr][nc] === color && !visited[nr][nc]) {
-                    visited[nr][nc] = true;
-                    queue.push([nr, nc]);
-                }
-            }
-        }
-        return liberties.size;
+        return squareWeiqiRules.countGroupLiberties(board, row, col, this.boardSize);
     }
 
     removeGroup(board, row, col, color) {
-        const queue = [[row, col]];
-        board[row][col] = 0;
-        const dirs = [[-1, 0], [1, 0], [0, -1], [0, 1]];
-        while (queue.length) {
-            const [r, c] = queue.shift();
-            for (let [dr, dc] of dirs) {
-                const nr = r + dr, nc = c + dc;
-                if (nr >= 0 && nr < this.boardSize && nc >= 0 && nc < this.boardSize && board[nr][nc] === color) {
-                    board[nr][nc] = 0;
-                    queue.push([nr, nc]);
-                }
-            }
-        }
+        squareWeiqiRules.removeGroup(board, row, col, color, this.boardSize);
     }
 
-    tryPlaceStone(boardBefore, row, col, playerVal)
-    {
-        if (boardBefore[row][col] !== 0) return null;
-        const newBoard = this.copyBoard(boardBefore);
-        newBoard[row][col] = playerVal;
-
-        const dirs = [[-1, 0], [1, 0], [0, -1], [0, 1]];
-
-        const affectedEnemy = new Set();
-        for (let [dr, dc] of dirs)
-        {
-            const nr = row + dr, nc = col + dc;
-            if (nr >= 0 && nr < this.boardSize && nc >= 0 && nc < this.boardSize && newBoard[nr][nc] === 3 - playerVal) {
-                affectedEnemy.add(`${nr},${nc}`);
-            }
-        }
-
-        for (let key of affectedEnemy)
-        {
-            const [r, c] = key.split(',').map(Number);
-            if (newBoard[r][c] === 3 - playerVal && this.countGroupLiberties(newBoard, r, c) === 0)
-                this.removeGroup(newBoard, r, c, 3 - playerVal);
-        }
-
-        if (newBoard[row][col] === playerVal && this.countGroupLiberties(newBoard, row, col) === 0)
-            this.removeGroup(newBoard, row, col, playerVal);
-
-        return newBoard;
+    tryPlaceStone(boardBefore, row, col, playerVal) {
+        return squareWeiqiRules.tryPlaceStoneNLiberty(
+            boardBefore, row, col, playerVal, this.boardSize, (b) => this.copyBoard(b), 1
+        );
     }
 
-    trySwapPiece(boardBefore, fromRow, fromCol, toRow, toCol, playerVal)
-    {
-        // 边界与合法性检查
-        if (fromRow < 0 || fromRow >= this.boardSize || fromCol < 0 || fromCol >= this.boardSize ||
-            toRow < 0 || toRow >= this.boardSize || toCol < 0 || toCol >= this.boardSize) return null;
-        if (boardBefore[fromRow][fromCol] !== playerVal) return null;
-        if (boardBefore[toRow][toCol] !== 3 - playerVal) return null;
-        if (Math.abs(fromRow - toRow) + Math.abs(fromCol - toCol) !== 1) return null;
-
-        const newBoard = this.copyBoard(boardBefore);
-        // 交换落子
-        newBoard[fromRow][fromCol] = 3 - playerVal;
-        newBoard[toRow][toCol] = playerVal;
-
-        const dirs = [[-1, 0], [1, 0], [0, -1], [0, 1]];
-
-        const enemyPositions = new Set();
-        enemyPositions.add(`${fromRow},${fromCol}`);
-
-        for (let [dr, dc] of dirs)
-        {
-            const nr = toRow + dr, nc = toCol + dc;
-            if (nr >= 0 && nr < this.boardSize && nc >= 0 && nc < this.boardSize && newBoard[nr][nc] === 3 - playerVal)
-                enemyPositions.add(`${nr},${nc}`);
-        }
-        for (let key of enemyPositions) {
-            const [r, c] = key.split(',').map(Number);
-            if (newBoard[r][c] === 3 - playerVal && this.countGroupLiberties(newBoard, r, c) === 0) {
-                this.removeGroup(newBoard, r, c, 3 - playerVal);
-            }
-        }
-
-        const friendlyPositions = new Set();
-        for (let [dr, dc] of dirs)
-        {
-            const nr = fromRow + dr, nc = fromCol + dc;
-            if (nr >= 0 && nr < this.boardSize && nc >= 0 && nc < this.boardSize && newBoard[nr][nc] === playerVal)
-                friendlyPositions.add(`${nr},${nc}`);
-        }
-        for (let key of friendlyPositions) {
-            const [r, c] = key.split(',').map(Number);
-            if (newBoard[r][c] === playerVal && this.countGroupLiberties(newBoard, r, c) === 0) {
-                this.removeGroup(newBoard, r, c, playerVal);
-            }
-        }
-
-        return newBoard;
-    }
-
-    // ---------- 形势判断：某气点是否被对方棋子包围 ----------
     isLibertySurroundedByOpponent(board, libertyRow, libertyCol, opponentColor) {
-        const dirs = [[-1, 0], [1, 0], [0, -1], [0, 1]];
-        for (let [dr, dc] of dirs) {
-            const nr = libertyRow + dr, nc = libertyCol + dc;
-            if (nr >= 0 && nr < this.boardSize && nc >= 0 && nc < this.boardSize && board[nr][nc] === opponentColor) return true;
-        }
-        return false;
+        return squareWeiqiRules.isLibertySurroundedByOpponent(
+            board, libertyRow, libertyCol, opponentColor, this.boardSize
+        );
     }
 
     removeDeadAndDying(srcBoard) {
-        let boardCopy = this.copyBoard(srcBoard);
-        let changed = true;
-        while (changed) {
-            changed = false;
-            const visited = Array(this.boardSize).fill().map(() => Array(this.boardSize).fill(false));
-            for (let r = 0; r < this.boardSize; r++) {
-                for (let c = 0; c < this.boardSize; c++) {
-                    const val = boardCopy[r][c];
-                    if ((val === 1 || val === 2) && !visited[r][c]) {
-                        const color = val;
-                        const queue = [[r, c]];
-                        visited[r][c] = true;
-                        const stones = [[r, c]];
-                        const liberties = new Set();
-                        let idx = 0;
-                        const dirs = [[-1, 0], [1, 0], [0, -1], [0, 1]];
-                        while (idx < queue.length) {
-                            const [rr, cc] = queue[idx++];
-                            for (let [dr, dc] of dirs) {
-                                const nr = rr + dr, nc = cc + dc;
-                                if (nr < 0 || nr >= this.boardSize || nc < 0 || nc >= this.boardSize) continue;
-                                if (boardCopy[nr][nc] === 0) liberties.add(nr + ',' + nc);
-                                else if (boardCopy[nr][nc] === color && !visited[nr][nc]) {
-                                    visited[nr][nc] = true;
-                                    queue.push([nr, nc]);
-                                    stones.push([nr, nc]);
-                                }
-                            }
-                        }
-                        if (liberties.size === 0) {
-                            for (let [rr, cc] of stones) boardCopy[rr][cc] = 0;
-                            changed = true;
-                            continue;
-                        }
-                        if (liberties.size <= 2) {
-                            let allControlled = true;
-                            for (let lib of liberties) {
-                                const [lr, lc] = lib.split(',').map(Number);
-                                if (!this.isLibertySurroundedByOpponent(boardCopy, lr, lc, 3 - color)) {
-                                    allControlled = false;
-                                    break;
-                                }
-                            }
-                            if (allControlled) {
-                                for (let [rr, cc] of stones) boardCopy[rr][cc] = 0;
-                                changed = true;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        return boardCopy;
+        return squareWeiqiRules.removeDeadAndDying(srcBoard, this.boardSize, (b) => this.copyBoard(b));
     }
 
     assignTerritoryWithRange(liveBoard) {
-        const territory = Array(this.boardSize).fill().map(() => Array(this.boardSize).fill(0));
-        for (let r = 0; r < this.boardSize; r++) {
-            for (let c = 0; c < this.boardSize; c++) {
-                if (liveBoard[r][c] !== 0) continue;
-                const maxDist = (r <= 1 || r >= this.boardSize - 2 || c <= 1 || c >= this.boardSize - 2) ? 5 : 4;
-                let blackMin = Infinity, whiteMin = Infinity;
-                const dist = Array(this.boardSize).fill().map(() => Array(this.boardSize).fill(Infinity));
-                dist[r][c] = 0;
-                const queue = [[r, c]];
-                const dirs = [[-1, 0], [1, 0], [0, -1], [0, 1]];
-                let front = 0;
-                while (front < queue.length) {
-                    const [cr, cc] = queue[front++];
-                    const d = dist[cr][cc];
-                    if (d > maxDist) continue;
-                    if (liveBoard[cr][cc] === 1 && d < blackMin) blackMin = d;
-                    if (liveBoard[cr][cc] === 2 && d < whiteMin) whiteMin = d;
-                    for (let [dr, dc] of dirs) {
-                        const nr = cr + dr, nc = cc + dc;
-                        if (nr >= 0 && nr < this.boardSize && nc >= 0 && nc < this.boardSize && liveBoard[nr][nc] !== -1 && dist[nr][nc] === Infinity) {
-                            dist[nr][nc] = d + 1;
-                            queue.push([nr, nc]);
-                        }
-                    }
-                }
-                if (blackMin <= maxDist && whiteMin <= maxDist) {
-                    if (blackMin < whiteMin) territory[r][c] = 1;
-                    else if (whiteMin < blackMin) territory[r][c] = 2;
-                    else territory[r][c] = 3;
-                } else if (blackMin <= maxDist) territory[r][c] = 1;
-                else if (whiteMin <= maxDist) territory[r][c] = 2;
-                else territory[r][c] = 3;
-            }
-        }
-        return territory;
+        return squareWeiqiRules.assignTerritoryWithRange(liveBoard, this.boardSize);
     }
 
     computeScore(liveBoard, territory) {
-        let blackStones = 0, whiteStones = 0, blackTerritory = 0, whiteTerritory = 0, publicTerritory = 0;
-        for (let r = 0; r < this.boardSize; r++) {
-            for (let c = 0; c < this.boardSize; c++) {
-                if (liveBoard[r][c] === 1) blackStones++;
-                else if (liveBoard[r][c] === 2) whiteStones++;
-                else if (liveBoard[r][c] === 0) {
-                    if (territory[r][c] === 1) blackTerritory++;
-                    else if (territory[r][c] === 2) whiteTerritory++;
-                    else if (territory[r][c] === 3) publicTerritory++;
-                }
-            }
-        }
-        const blackTotal = blackStones + blackTerritory + publicTerritory / 2;
-        const whiteTotal = whiteStones + whiteTerritory + publicTerritory / 2;
-        return { blackTotal, whiteTotal };
+        return squareWeiqiRules.computeScore(liveBoard, territory, this.boardSize);
     }
 
     computeLead() {
@@ -312,26 +102,6 @@ class TranspositionWeiqiRoom
                 white: !!this.room.getPlayerBySlot('white')
             }
         };
-    }
-
-    assignSlot(ws, requestedSlot) {
-        if (requestedSlot === 'black' && !this.room.getPlayerBySlot('black')) return 'black';
-        if (requestedSlot === 'white' && !this.room.getPlayerBySlot('white')) return 'white';
-        return null;
-    }
-
-    broadcast(data, exclude = null)
-    {
-        const allClients = [...this.room.players.keys(), ...this.room.observers];
-        for (const client of allClients) {
-            if (client !== exclude && client.readyState === 1) {
-                client.send(JSON.stringify(data));
-            }
-        }
-    }
-
-    sendState(ws) {
-        ws.send(JSON.stringify({ type: 'gameState', ...this.getState() }));
     }
 
     // ---------- 悔棋实现 ----------
@@ -763,26 +533,10 @@ class TranspositionWeiqiRoom
         this.boardSize = newSize;
         this.resetToEmpty();
 
-        if (data.initialPosition) {
-            if (Array.isArray(data.initialPosition.black)) {
-                for (const pos of data.initialPosition.black) {
-                    if (Array.isArray(pos) && pos.length === 2) {
-                        const [r, c] = pos;
-                        if (r >= 0 && r < this.boardSize && c >= 0 && c < this.boardSize)
-                            this.board[r][c] = 1;
-                    }
-                }
-            }
-            if (Array.isArray(data.initialPosition.white)) {
-                for (const pos of data.initialPosition.white) {
-                    if (Array.isArray(pos) && pos.length === 2) {
-                        const [r, c] = pos;
-                        if (r >= 0 && r < this.boardSize && c >= 0 && c < this.boardSize)
-                            this.board[r][c] = 2;
-                    }
-                }
-            }
-        }
+        let curBoard = QiSquareWeiqiCanvas.initBoardArray(ps.BOARD_SIZE);
+        if (data.initialPosition && Array.isArray(data.initialPosition))
+            QiWeiqiSquarePageRuntime.applyInitialPositionCompact(curBoard, ps.BOARD_SIZE, data.initialPosition);
+
 
         const rawMoves = data.moves || [];
         const moves = rawMoves.map(TranspositionWeiqiRoom.parseMove);

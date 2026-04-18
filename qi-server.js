@@ -213,6 +213,8 @@ Express.get('/qi/rooms', (request, response) => {
 
 Express.use(express.static(path.join(__dirname, "public")));
 Express.get("/qi", (request, response) => response.sendFile(path.join(__dirname, "public", "qi.html")));
+Express.get("/qi/qi.css", (request, response) => response.sendFile(path.join(__dirname, "public", "qi.css")));
+Express.get("/qi/qi.js", (request, response) => response.sendFile(path.join(__dirname, "public", "qi.js")));
 
 Express.get('/qi/:game/:roomId', (request, response) => {
     try {

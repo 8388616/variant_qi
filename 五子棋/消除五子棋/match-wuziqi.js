@@ -1,6 +1,7 @@
-class MatchWuziqiRoom {
+const { QiTwoPlayerRoomBase } = require('../common');
+class MatchWuziqiRoom extends QiTwoPlayerRoomBase {
     constructor(room) {
-        this.room = room;
+        super(room);
         this.BOARD_SIZE = 13;
         this.board = Array(this.BOARD_SIZE).fill().map(() => Array(this.BOARD_SIZE).fill(0));
         this.currentPlayer = 1;
@@ -19,8 +20,6 @@ class MatchWuziqiRoom {
         this.pendingUndo = null;
         this.pendingDraw = null;
     }
-
-    copyBoard(src) { return src.map(row => row.slice()); }
     getCurrentSlot() { return this.currentPlayer === 1 ? 'black' : 'white'; }
     getOpponentVal(v) { return v === 1 ? 2 : 1; }
 
@@ -134,25 +133,6 @@ class MatchWuziqiRoom {
 
     getMoveCount() {
         return this.moveHistory.length;
-    }
-
-    assignSlot(ws, requestedSlot) {
-        if (requestedSlot === 'black' && !this.room.getPlayerBySlot('black')) return 'black';
-        if (requestedSlot === 'white' && !this.room.getPlayerBySlot('white')) return 'white';
-        return null;
-    }
-
-    broadcast(data, exclude = null) {
-        const allClients = [...this.room.players.keys(), ...this.room.observers];
-        for (const client of allClients) {
-            if (client !== exclude && client.readyState === 1) {
-                client.send(JSON.stringify(data));
-            }
-        }
-    }
-
-    sendState(ws) {
-        ws.send(JSON.stringify({ type: 'gameState', ...this.getState() }));
     }
 
     exportRecord() {

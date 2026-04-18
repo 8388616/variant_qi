@@ -1,6 +1,7 @@
-class SyncWeiqiRoom {
+const { QiTwoPlayerRoomBase } = require('../common');
+class SyncWeiqiRoom extends QiTwoPlayerRoomBase {
     constructor(room) {
-        this.room = room;
+        super(room);
         this.boardSize = 19;
         this.board = Array(this.boardSize).fill().map(() => Array(this.boardSize).fill(0));
         this.forbiddenPoints = [];
@@ -31,14 +32,8 @@ class SyncWeiqiRoom {
             lastMoveMarkers: this.copyMarkers(this.lastMoveMarkers)
         });
     }
-
-    copyBoard(src) { return src.map(row => row.slice()); }
     copyForbiddenPoints(src) { return src.map(p => ({ row: p.row, col: p.col })); }
     copyMarkers(markers) { return markers.map(m => ({ row: m.row, col: m.col, color: m.color })); }
-
-    boardToString(board) {
-        return board.map(row => row.join(',')).join(';');
-    }
 
     areForbiddenPointsEqual(fp1, fp2) {
         if (fp1.length !== fp2.length) return false;
@@ -305,25 +300,6 @@ class SyncWeiqiRoom {
             else if (this.pendingWhite.move) mySyncPending = { row: this.pendingWhite.move.row, col: this.pendingWhite.move.col };
         }
         return { ...base, mySyncPending };
-    }
-
-    assignSlot(ws, requestedSlot) {
-        if (requestedSlot === 'black' && !this.room.getPlayerBySlot('black')) return 'black';
-        if (requestedSlot === 'white' && !this.room.getPlayerBySlot('white')) return 'white';
-        return null;
-    }
-
-    broadcast(data, exclude = null) {
-        const allClients = [...this.room.players.keys(), ...this.room.observers];
-        for (let client of allClients) {
-            if (client !== exclude && client.readyState === 1) {
-                client.send(JSON.stringify(data));
-            }
-        }
-    }
-
-    sendState(ws) {
-        ws.send(JSON.stringify({ type: 'gameState', ...this.getStateForClient(ws) }));
     }
 
     /** 形势判断 pipeline 与前端一致：去死棋/欠气块 → 点目（洞不可穿行 BFS） */

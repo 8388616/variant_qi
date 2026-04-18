@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=2.0, user-scalable=yes">
-    <title>强磁性围棋</title>
+    <title>四气围棋</title>
     <link rel="stylesheet" href="/qi/qi.css">
 </head>
 <body>
@@ -46,11 +46,10 @@
         <div id="rulesModal" class="rules-modal">
             <div class="rules-content">
                 <span class="close-rules" id="closeRulesBtn">&times;</span>
-                <h3>强磁性围棋</h3>
+                <h3>四气围棋</h3>
                 <p>
                     基本规则同围棋。<br /><br />
-                    棋子具有强磁性。落子时，上下左右四个方向上的所有棋子都会受到磁力影响而移动：己方棋子远离落子点，对方棋子靠近落子点，直至遇到阻碍。<br /><br />
-                    移动时先移动己方棋子（同一方向上由远到近），再移动对方棋子（由近到远）；同一方向可重复多轮，直到一整轮内没有任何棋子能移动为止。<br />
+                    每片棋都必须有四口气或以上才能留在棋盘上，否则就要被提掉。<br />
                 </p>
             </div>
         </div>
@@ -160,9 +159,7 @@
             userBoardMarks: Object.create(null),
             hoverRow: -1,
             hoverCol: -1,
-            isHoverValid: false,
-            moveCoordsFull: null,
-            replayMovesFull: null
+            isHoverValid: false
         };
         (function initSquareGeometry() {
             const g = QiSquareWeiqiCanvas.computePaddingAndCell(ps.BOARD_SIZE);
@@ -214,251 +211,6 @@
 
         const isMouseDevice = window.matchMedia('(hover: hover) and (pointer: fine)').matches;
 
-        function magneticRemoveDeadGroupsClient(board, boardSize) {
-            let changed;
-            do {
-                changed = false;
-                for (let i = 0; i < boardSize; i++) {
-                    for (let j = 0; j < boardSize; j++) {
-                        const val = board[i][j];
-                        if (val !== 0 && !QiWeiqiSquarePageRuntime.hasLiberty(board, i, j, boardSize)) {
-                            QiWeiqiSquarePageRuntime.removeGroup(board, i, j, val, boardSize);
-                            changed = true;
-                        }
-                    }
-                }
-            } while (changed);
-        }
-
-        function magneticApplyOneRoundStrongClient(board, row, col, playerVal, boardSize) {
-            const dirs = [[0, -1], [0, 1], [-1, 0], [1, 0]];
-            const ownList = [];
-            const oppList = [];
-            for (let dirIdx = 0; dirIdx < dirs.length; dirIdx++) {
-                const [dr, dc] = dirs[dirIdx];
-                for (let step = 1; ; step++) {
-                    const nr = row + dr * step;
-                    const nc = col + dc * step;
-                    if (nr < 0 || nr >= boardSize || nc < 0 || nc >= boardSize) break;
-                    if (board[nr][nc] === 0) continue;
-                    const color = board[nr][nc];
-                    const entry = { r: nr, c: nc, step, dirIdx, dr, dc, color };
-                    if (color === playerVal) ownList.push(entry);
-                    else oppList.push(entry);
-                }
-            }
-            ownList.sort((a, b) => b.step - a.step || a.dirIdx - b.dirIdx);
-            oppList.sort((a, b) => a.step - b.step || a.dirIdx - b.dirIdx);
-            let movedAny = false;
-            const tryShift = (r, c, dr, dc, color) => {
-                const moveDr = (color === playerVal) ? dr : -dr;
-                const moveDc = (color === playerVal) ? dc : -dc;
-                const newR = r + moveDr;
-                const newC = c + moveDc;
-                if (newR >= 0 && newR < boardSize && newC >= 0 && newC < boardSize && board[newR][newC] === 0) {
-                    board[newR][newC] = color;
-                    board[r][c] = 0;
-                    movedAny = true;
-                }
-            };
-            for (const item of ownList) {
-                const { r, c, dr, dc } = item;
-                if (board[r][c] === 0) continue;
-                const color = board[r][c];
-                if (color !== playerVal) continue;
-                tryShift(r, c, dr, dc, color);
-            }
-            for (const item of oppList) {
-                const { r, c, dr, dc } = item;
-                if (board[r][c] === 0) continue;
-                const color = board[r][c];
-                if (color === playerVal) continue;
-                tryShift(r, c, dr, dc, color);
-            }
-            return movedAny;
-        }
-
-        function magneticApplyMoveStrongClient(board, row, col, playerVal, boardSize) {
-            let guard = 0;
-            const maxRounds = boardSize * boardSize * boardSize * 8 + 1000;
-            while (magneticApplyOneRoundStrongClient(board, row, col, playerVal, boardSize)) {
-                if (++guard > maxRounds) break;
-            }
-            return board;
-        }
-
-        function strongMagneticTryPlaceStone(boardBefore, row, col, playerVal) {
-            const boardSize = ps.BOARD_SIZE;
-            if (boardBefore[row][col] !== 0) return null;
-            const newBoard = QiSquareWeiqiCanvas.deepCopyBoard(boardBefore);
-            newBoard[row][col] = playerVal;
-            magneticApplyMoveStrongClient(newBoard, row, col, playerVal, boardSize);
-            magneticRemoveDeadGroupsClient(newBoard, boardSize);
-            return newBoard;
-        }
-
-        function removeGroupWithNum(board, numGrid, row, col, color, boardSize) {
-            const queue = [[row, col]];
-            board[row][col] = 0;
-            numGrid[row][col] = 0;
-            const dirs = [[-1, 0], [1, 0], [0, -1], [0, 1]];
-            while (queue.length) {
-                const [r, c] = queue.shift();
-                for (const [dr, dc] of dirs) {
-                    const nr = r + dr;
-                    const nc = c + dc;
-                    if (nr >= 0 && nr < boardSize && nc >= 0 && nc < boardSize && board[nr][nc] === color) {
-                        board[nr][nc] = 0;
-                        numGrid[nr][nc] = 0;
-                        queue.push([nr, nc]);
-                    }
-                }
-            }
-        }
-
-        function magneticRemoveDeadGroupsClientWithNum(board, numGrid, boardSize) {
-            let changed;
-            do {
-                changed = false;
-                for (let i = 0; i < boardSize; i++) {
-                    for (let j = 0; j < boardSize; j++) {
-                        const val = board[i][j];
-                        if (val !== 0 && !QiWeiqiSquarePageRuntime.hasLiberty(board, i, j, boardSize)) {
-                            removeGroupWithNum(board, numGrid, i, j, val, boardSize);
-                            changed = true;
-                        }
-                    }
-                }
-            } while (changed);
-        }
-
-        function magneticApplyOneRoundStrongClientWithNum(board, numGrid, row, col, playerVal, boardSize) {
-            const dirs = [[0, -1], [0, 1], [-1, 0], [1, 0]];
-            const ownList = [];
-            const oppList = [];
-            for (let dirIdx = 0; dirIdx < dirs.length; dirIdx++) {
-                const [dr, dc] = dirs[dirIdx];
-                for (let step = 1; ; step++) {
-                    const nr = row + dr * step;
-                    const nc = col + dc * step;
-                    if (nr < 0 || nr >= boardSize || nc < 0 || nc >= boardSize) break;
-                    if (board[nr][nc] === 0) continue;
-                    const color = board[nr][nc];
-                    const entry = { r: nr, c: nc, step, dirIdx, dr, dc, color };
-                    if (color === playerVal) ownList.push(entry);
-                    else oppList.push(entry);
-                }
-            }
-            ownList.sort((a, b) => b.step - a.step || a.dirIdx - b.dirIdx);
-            oppList.sort((a, b) => a.step - b.step || a.dirIdx - b.dirIdx);
-            let movedAny = false;
-            const tryShift = (r, c, dr, dc, color) => {
-                const moveDr = (color === playerVal) ? dr : -dr;
-                const moveDc = (color === playerVal) ? dc : -dc;
-                const newR = r + moveDr;
-                const newC = c + moveDc;
-                if (newR >= 0 && newR < boardSize && newC >= 0 && newC < boardSize && board[newR][newC] === 0) {
-                    board[newR][newC] = color;
-                    board[r][c] = 0;
-                    const t = numGrid[r][c];
-                    numGrid[r][c] = numGrid[newR][newC];
-                    numGrid[newR][newC] = t;
-                    movedAny = true;
-                }
-            };
-            for (const item of ownList) {
-                const { r, c, dr, dc } = item;
-                if (board[r][c] === 0) continue;
-                const color = board[r][c];
-                if (color !== playerVal) continue;
-                tryShift(r, c, dr, dc, color);
-            }
-            for (const item of oppList) {
-                const { r, c, dr, dc } = item;
-                if (board[r][c] === 0) continue;
-                const color = board[r][c];
-                if (color === playerVal) continue;
-                tryShift(r, c, dr, dc, color);
-            }
-            return movedAny;
-        }
-
-        function magneticApplyMoveStrongClientWithNum(board, numGrid, row, col, playerVal, boardSize) {
-            let guard = 0;
-            const maxRounds = boardSize * boardSize * boardSize * 8 + 1000;
-            while (magneticApplyOneRoundStrongClientWithNum(board, numGrid, row, col, playerVal, boardSize)) {
-                if (++guard > maxRounds) break;
-            }
-            return board;
-        }
-
-        function strongMagneticTryPlaceStoneWithNum(boardBefore, numGridBefore, row, col, playerVal, moveNum) {
-            const boardSize = ps.BOARD_SIZE;
-            if (boardBefore[row][col] !== 0) return null;
-            const newBoard = QiSquareWeiqiCanvas.deepCopyBoard(boardBefore);
-            const newNum = numGridBefore.map(r => r.slice());
-            newBoard[row][col] = playerVal;
-            newNum[row][col] = moveNum;
-            magneticApplyMoveStrongClientWithNum(newBoard, newNum, row, col, playerVal, boardSize);
-            magneticRemoveDeadGroupsClientWithNum(newBoard, newNum, boardSize);
-            return { board: newBoard, numGrid: newNum };
-        }
-
-        function emptyNumGrid(n) {
-            return Array(n).fill().map(() => Array(n).fill(0));
-        }
-
-        function computeStrongMagneticStoneNumbers() {
-            const n = ps.BOARD_SIZE;
-            const applySeq = (moves, upTo) => {
-                let numGrid = emptyNumGrid(n);
-                let board = QiSquareWeiqiCanvas.initBoardArray(n);
-                let mi = 0;
-                const lim = upTo == null ? moves.length : upTo;
-                for (let j = 0; j < lim; j++) {
-                    const mv = moves[j];
-                    if (!mv || mv.type === 'pass') continue;
-                    if (mv.type !== 'move') continue;
-                    mi++;
-                    const pv = mv.player === 'black' ? 1 : 2;
-                    const r = strongMagneticTryPlaceStoneWithNum(board, numGrid, mv.row, mv.col, pv, mi);
-                    if (r) {
-                        board = r.board;
-                        numGrid = r.numGrid;
-                    }
-                }
-                return numGrid;
-            };
-
-            if (ps.replayMode && ps.tryPlayMode) {
-                let numGrid = emptyNumGrid(n);
-                let board = QiSquareWeiqiCanvas.initBoardArray(n);
-                for (let i = 1; i <= ps.tryPlayStep; i++) {
-                    const markers = ps.tryPlayMarkers[i];
-                    if (markers && markers.length > 0) {
-                        const m = markers[0];
-                        const r = strongMagneticTryPlaceStoneWithNum(board, numGrid, m.row, m.col, m.color, i);
-                        if (r) {
-                            board = r.board;
-                            numGrid = r.numGrid;
-                        }
-                    }
-                }
-                return numGrid;
-            }
-            if (ps.replayMode) {
-                const moves = ps.replayMovesFull || [];
-                return applySeq(moves, ps.replayStep);
-            }
-            if (ps.liveReplayBoards.length && ps.liveViewStep < ps.liveReplayBoards.length - 1) {
-                const moves = ps.moveCoordsFull || [];
-                return applySeq(moves, ps.liveViewStep);
-            }
-            return applySeq(ps.moveCoordsFull || [], null);
-        }
-
-        const pageHolder = {};
-
         const domPage = {
             turnDisplay,
             scoreTitle,
@@ -472,89 +224,15 @@
             boardMarkSelect,
             colorStatus
         };
-        function strongMagneticDrawBoard() {
-            const d = QiSquareWeiqiCanvas.draw;
-            const cs = QiSquareWeiqiCanvas.DEFAULT_CANVAS_SIZE;
-            const cellSize = ps.CELL_SIZE;
-            const dom = domPage;
-            d.clear(dom.ctx, cs);
-            d.grid(dom.ctx, ps.BOARD_SIZE, ps.PADDING, cellSize, cs);
-            d.starPoints(dom.ctx, ps.BOARD_SIZE, ps.PADDING, cellSize);
-            d.coordLabels(dom.ctx, ps.BOARD_SIZE, ps.PADDING, cellSize);
-            const stoneRadius = cellSize * 0.44;
-            const markLenDefault = cellSize * 0.352;
-            const lowerLastMoveMarker = ps.showMoveNumbers || ps.showEstimateActive;
-            if (lowerLastMoveMarker) {
-                d.lastMoveMarkersLower(dom.ctx, ps.lastMoveMarkers, ps.PADDING, cellSize, stoneRadius);
-            }
-            d.stonesBlackWhite(dom.ctx, ps.board, ps.BOARD_SIZE, ps.PADDING, cellSize, stoneRadius, ps.showMoveNumbers);
-            if (!lowerLastMoveMarker) {
-                d.lastMoveMarkersUpper(dom.ctx, ps.lastMoveMarkers, ps.PADDING, cellSize, markLenDefault);
-            }
-            function isUserBoardMarkVisibleAt(r, c) {
-                if (ps.showEstimateActive) return false;
-                if (r < 0 || r >= ps.BOARD_SIZE || c < 0 || c >= ps.BOARD_SIZE) return false;
-                if (ps.board[r][c] !== 0) return false;
-                return true;
-            }
-            d.userBoardMarks(dom.ctx, ps.userBoardMarks, ps.BOARD_SIZE, ps.PADDING, cellSize, isUserBoardMarkVisibleAt);
-            if (ps.showMoveNumbers) {
-                const nums = computeStrongMagneticStoneNumbers();
-                d.moveNumbersOnStones(dom.ctx, nums, ps.board, ps.BOARD_SIZE, ps.PADDING, cellSize);
-            }
-            d.hoverPreviewStone(dom.ctx, ps.hoverRow, ps.hoverCol, ps.board, ps.PADDING, cellSize, {
-                tryPlayMode: ps.tryPlayMode,
-                tryPlayCurrentPlayer: ps.tryPlayCurrentPlayer,
-                gameOver: ps.gameOver,
-                isMyTurn: ps.isMyTurn,
-                mySlot: ps.mySlot,
-                isHoverValid: ps.isHoverValid,
-                hoverCapture: !!ps.hoverCapture
-            });
-            if (ps.hoverCapture) {
-                d.hoverCaptureRing(dom.ctx, ps.hoverRow, ps.hoverCol, ps.PADDING, cellSize, stoneRadius, {
-                    tryPlayMode: ps.tryPlayMode,
-                    gameOver: ps.gameOver,
-                    isMyTurn: ps.isMyTurn,
-                    isHoverValid: ps.isHoverValid,
-                    hoverCapture: !!ps.hoverCapture
-                });
-            }
-            if (ps.showEstimateActive && ps.cachedLiveBoard && ps.cachedTerritory) {
-                d.estimateOverlay(dom.ctx, ps.board, ps.BOARD_SIZE, ps.PADDING, cellSize, ps.cachedLiveBoard, ps.cachedTerritory);
-            }
-        }
-
         const page = QiWeiqiSquarePageRuntime.create(ps, domPage, {
-            recordDownloadPrefix: '强磁性围棋',
-            minLib: 1,
-            maxWeakLiberties: 2,
+            recordDownloadPrefix: '四气围棋',
+            minLib: 4,
+            maxWeakLiberties: 4,
             gameType,
             roomId,
             roomPassword,
-            isMouseDevice,
-            tryPlaceStone: strongMagneticTryPlaceStone,
-            drawBoard: strongMagneticDrawBoard,
-            enterReplayMode(data) {
-                ps.replayMovesFull = data.moves || [];
-                const built = QiWeiqiSquarePageRuntime.buildReplayFromImportData(
-                    data,
-                    strongMagneticTryPlaceStone,
-                    QiSquareWeiqiCanvas.deepCopyBoard,
-                    () => pageHolder.page.initBoardArray(ps.BOARD_SIZE)
-                );
-                ps.replayBoards = built.replayBoards;
-                ps.replayMarkers = built.replayMarkers;
-                ps.replayStepPlayers = built.replayStepPlayers;
-                ps.replayTotalSteps = built.replayTotalSteps;
-                ps.replayMode = true;
-                const slider = document.getElementById('replaySlider');
-                slider.max = ps.replayTotalSteps;
-                pageHolder.page.setReplayStep(ps.replayTotalSteps);
-                pageHolder.page.updateReplayUI();
-            }
+            isMouseDevice
         });
-        pageHolder.page = page;
         const {
             mobileTwoStepPlacing,
             clearMobileMovePreview,
@@ -566,7 +244,7 @@
             showScoreConfirm,
             hideScoreConfirm,
             enterReplayMode,
-            exitReplayMode: exitReplayModeBase,
+            exitReplayMode,
             setReplayStep,
             updateReplayUI,
             enterTryPlay,
@@ -581,22 +259,12 @@
             connectWebSocket,
             initBoardArray,
             updateBoardGeometry,
-            syncState: syncStateBase,
+            syncState,
             commitMove,
             getClosestIntersection,
             canvasCoordsFromClient,
             applyUserBoardMark
         } = page;
-
-        function syncState(state) {
-            if (state.moveCoords) ps.moveCoordsFull = state.moveCoords;
-            syncStateBase(state);
-        }
-
-        function exitReplayMode() {
-            ps.replayMovesFull = null;
-            exitReplayModeBase();
-        }
 
         const _weiqiBindings = QiBoardRoomClient.createWeiqiMessageBindings({
             roomId,
@@ -782,7 +450,7 @@
                 }
             });
         }
-
+        
         // 数子确认按钮事件
         if (scoreConfirmYes)
         {
@@ -803,6 +471,7 @@
         }
 
         connectWebSocket(handleMessage);
+    
     </script>
 </body>
 </html>

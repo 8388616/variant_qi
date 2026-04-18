@@ -1,6 +1,7 @@
-class ReverseWuziqiRoom {
+const { QiTwoPlayerRoomBase, qiProtocol } = require('../common');
+class ReverseWuziqiRoom extends QiTwoPlayerRoomBase {
     constructor(room) {
-        this.room = room;
+        super(room);
         this.BOARD_SIZE = 13;
         this.board = Array(this.BOARD_SIZE).fill().map(() => Array(this.BOARD_SIZE).fill(0));
         this.currentPlayer = 1;
@@ -13,8 +14,6 @@ class ReverseWuziqiRoom {
         this.pendingUndo = null;
         this.pendingDraw = null;
     }
-
-    copyBoard(src) { return src.map(row => row.slice()); }
 
     checkWin(row, col, colorVal) {
         if (this.board[row][col] !== colorVal) return false;
@@ -62,25 +61,6 @@ class ReverseWuziqiRoom {
 
     getMoveCount() {
         return this.moveHistory.length;
-    }
-
-    assignSlot(ws, requestedSlot) {
-        if (requestedSlot === 'black' && !this.room.getPlayerBySlot('black')) return 'black';
-        if (requestedSlot === 'white' && !this.room.getPlayerBySlot('white')) return 'white';
-        return null;
-    }
-
-    broadcast(data, exclude = null) {
-        const allClients = [...this.room.players.keys(), ...this.room.observers];
-        for (const client of allClients) {
-            if (client !== exclude && client.readyState === 1) {
-                client.send(JSON.stringify(data));
-            }
-        }
-    }
-
-    sendState(ws) {
-        ws.send(JSON.stringify({ type: 'gameState', ...this.getState() }));
     }
 
     _isBoardFullStatic(board, BOARD_SIZE) {
@@ -217,41 +197,23 @@ class ReverseWuziqiRoom {
 
         switch (msg.type) {
             case 'selectColor':
-                if (slot) return;
-                const newSlot = this.assignSlot(ws, msg.color);
-                if (newSlot) {
-                    room.setPlayerSlot(ws, newSlot);
-                    ws.send(JSON.stringify({ type: 'colorAssigned', color: newSlot }));
-                    this.sendState(ws);
-                    room.broadcast({ type: 'slotOccupied', slot: newSlot }, ws);
-                } else {
-                    ws.send(JSON.stringify({ type: 'error', message: '该颜色已被占用。' }));
-                }
+                qiProtocol.selectColor(this, ws, msg);
                 break;
 
-            case 'setBoardSize': {
-                if (slot) break;
-                const n = parseInt(String(msg.size ?? ''), 10);
-                this.setBoardSize(n, ws);
+            case 'setBoardSize':
+                qiProtocol.setBoardSizeObserverOnly(this, ws, msg, slot);
                 break;
-            }
 
             case 'exportRecord':
-                ws.send(JSON.stringify({ type: 'gameRecord', data: this.exportRecord() }));
+                qiProtocol.exportRecord(this, ws);
                 break;
 
             case 'importRecord':
-                if (this.room.getPlayerBySlot('black') || this.room.getPlayerBySlot('white')) {
-                    ws.send(JSON.stringify({ type: 'error', message: '已有玩家入座，无法导入棋谱。' }));
-                    return;
-                }
-                this.importRecord(msg.data, ws);
+                qiProtocol.importRecord(this, ws, msg);
                 break;
 
             case 'resetRoom':
-                if (this.room.getPlayerBySlot('black') || this.room.getPlayerBySlot('white')) return;
-                this.resetToEmpty();
-                this.broadcast({ type: 'roomReset', ...this.getState() });
+                qiProtocol.resetRoomToEmpty(this, ws);
                 break;
 
             case 'move':
@@ -288,100 +250,31 @@ class ReverseWuziqiRoom {
                 break;
 
             case 'requestUndo':
-                if (!slot || this.gameOver) return;
-                const isMyTurn = (slot === 'black' && this.currentPlayer === 1) || (slot === 'white' && this.currentPlayer === 2);
-                const steps = isMyTurn ? 2 : 1;
-                if (this.historyBoards.length < steps) {
-                    ws.send(JSON.stringify({ type: 'error', message: '无法悔棋。' }));
-                    return;
-                }
-                const opponentSlot = slot === 'black' ? 'white' : 'black';
-                const opponent = room.getPlayerBySlot(opponentSlot);
-                if (!opponent) {
-                    for (let i = 0; i < steps; i++) {
-                        this.board = this.copyBoard(this.historyBoards.pop());
-                        this.moveHistory.pop();
-                    }
-                    let newPlayer = this.currentPlayer;
-                    for (let i = 0; i < steps; i++) newPlayer = newPlayer === 1 ? 2 : 1;
-                    this.currentPlayer = newPlayer;
-                    this.lastMoveMarkers = [];
-                    this.broadcast({ type: 'broadcast', action: 'undoAccept', ...this.getState() });
-                } else {
-                    this.pendingUndo = { requester: ws, steps };
-                    opponent.send(JSON.stringify({ type: 'undoRequest' }));
-                }
+                qiProtocol.undoGomokuHistory(this, ws, msg, slot);
                 break;
 
             case 'undoResponse':
-                if (this.pendingUndo && msg.accept) {
-                    const steps = this.pendingUndo.steps;
-                    if (this.historyBoards.length >= steps) {
-                        for (let i = 0; i < steps; i++) {
-                            this.board = this.copyBoard(this.historyBoards.pop());
-                            this.moveHistory.pop();
-                        }
-                        let newPlayer = this.currentPlayer;
-                        for (let i = 0; i < steps; i++) newPlayer = newPlayer === 1 ? 2 : 1;
-                        this.currentPlayer = newPlayer;
-                        this.lastMoveMarkers = [];
-                        this.broadcast({ type: 'broadcast', action: 'undoAccept', ...this.getState() });
-                    }
-                } else if (this.pendingUndo && !msg.accept) {
-                    this.pendingUndo.requester.send(JSON.stringify({ type: 'error', message: '对方拒绝悔棋。' }));
-                }
-                this.pendingUndo = null;
+                qiProtocol.undoResponseGomokuHistory(this, ws, msg);
                 break;
 
             case 'resign':
-                if (!slot || this.gameOver) return;
-                this.gameOver = true;
-                this.winner = slot === 'black' ? 'white' : 'black';
-                this.broadcast({ type: 'broadcast', action: 'resign', player: slot, winner: this.winner, ...this.getState() });
+                qiProtocol.resign(this, ws, slot);
                 break;
 
             case 'requestNewGame':
-                if (!slot) return;
-                const newGameOpponent = room.getPlayerBySlot(slot === 'black' ? 'white' : 'black');
-                if (!newGameOpponent) {
-                    this.resetGame();
-                } else {
-                    this.pendingNewGame = ws;
-                    newGameOpponent.send(JSON.stringify({ type: 'newGameRequest' }));
-                }
+                qiProtocol.requestNewGame(this, ws, slot);
                 break;
 
             case 'newGameResponse':
-                if (this.pendingNewGame && msg.accept) {
-                    this.resetGame();
-                } else if (this.pendingNewGame && !msg.accept) {
-                    this.pendingNewGame.send(JSON.stringify({ type: 'error', message: '对方拒绝开始新局。' }));
-                }
-                this.pendingNewGame = null;
+                qiProtocol.newGameResponse(this, ws, msg);
                 break;
 
             case 'requestDraw':
-                if (!slot || this.gameOver) return;
-                const drawOpponent = room.getPlayerBySlot(slot === 'black' ? 'white' : 'black');
-                if (!drawOpponent) {
-                    this.gameOver = true;
-                    this.winner = 'draw';
-                    this.broadcast({ type: 'broadcast', action: 'drawAgreed', ...this.getState() });
-                } else {
-                    this.pendingDraw = ws;
-                    drawOpponent.send(JSON.stringify({ type: 'drawRequest' }));
-                }
+                qiProtocol.requestDraw(this, ws, slot);
                 break;
 
             case 'drawResponse':
-                if (this.pendingDraw && msg.accept) {
-                    this.gameOver = true;
-                    this.winner = 'draw';
-                    this.broadcast({ type: 'broadcast', action: 'drawAgreed', ...this.getState() });
-                } else if (this.pendingDraw && !msg.accept) {
-                    this.pendingDraw.send(JSON.stringify({ type: 'error', message: '对方拒绝和棋。' }));
-                }
-                this.pendingDraw = null;
+                qiProtocol.drawResponse(this, ws, msg);
                 break;
 
             default:

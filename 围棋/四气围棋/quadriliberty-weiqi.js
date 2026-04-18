@@ -1,7 +1,7 @@
-﻿const crypto = require('crypto');
+const crypto = require('crypto');
+const { QiTwoPlayerRoomBase, squareWeiqiRules, applyInitialPositionCompact } = require('../common');
 
-const { QiTwoPlayerRoomBase, qiProtocol, squareWeiqiRules, applyInitialPositionCompact } = require('../common');
-class WeiqiRoom extends QiTwoPlayerRoomBase
+class QuadrilibertyWeiqiRoom extends QiTwoPlayerRoomBase
 {
     constructor(room, initialSize = 19) {
         super(room);
@@ -35,7 +35,7 @@ class WeiqiRoom extends QiTwoPlayerRoomBase
 
     tryPlaceStone(boardBefore, row, col, playerVal) {
         return squareWeiqiRules.tryPlaceStoneNLiberty(
-            boardBefore, row, col, playerVal, this.boardSize, (b) => this.copyBoard(b), 1
+            boardBefore, row, col, playerVal, this.boardSize, (b) => this.copyBoard(b), 4
         );
     }
 
@@ -46,7 +46,9 @@ class WeiqiRoom extends QiTwoPlayerRoomBase
     }
 
     removeDeadAndDying(srcBoard) {
-        return squareWeiqiRules.removeDeadAndDying(srcBoard, this.boardSize, (b) => this.copyBoard(b));
+        return squareWeiqiRules.removeDeadAndDying(
+            srcBoard, this.boardSize, (b) => this.copyBoard(b), 4
+        );
     }
 
     assignTerritoryWithRange(liveBoard) {
@@ -62,7 +64,7 @@ class WeiqiRoom extends QiTwoPlayerRoomBase
         const liveBoard = this.removeDeadAndDying(this.board);
         const territory = this.assignTerritoryWithRange(liveBoard);
         const { blackTotal, whiteTotal } = this.computeScore(liveBoard, territory);
-        const KOMI = this.boardSize <= 8 ? 4.25 : 3.25;
+        const KOMI = 3.25;
         return blackTotal - whiteTotal - 2 * KOMI;
     }
 
@@ -70,8 +72,8 @@ class WeiqiRoom extends QiTwoPlayerRoomBase
     {
         return {
             boardSize: this.boardSize,
-            komi: this.boardSize <= 8 ? 4.25 : 3.25,
             board: this.board,
+            komi: 3.25,
             numberOfHands: 1 + this.historyBoards.length,
             currentPlayer: this.currentPlayer,
             lastMoveMarkers: this.lastMoveMarkers,
@@ -102,47 +104,166 @@ class WeiqiRoom extends QiTwoPlayerRoomBase
         switch (msg.type)
         {
             case 'selectColor':
-                qiProtocol.selectColor(this, ws, msg);
+                if (slot)
+                    return;
+                const newSlot = this.assignSlot(ws, msg.color);
+                if (newSlot)
+                {
+                    room.setPlayerSlot(ws, newSlot);
+                    ws.send(JSON.stringify({ type: 'colorAssigned', color: newSlot }));
+                    this.sendState(ws);
+                    room.broadcast({ type: 'slotOccupied', slot: newSlot }, ws);
+                }
                 break;
 
             case 'setBoardSize':
-                qiProtocol.setBoardSizeWeiqiObserver(this, ws, msg, slot);
+                if (!slot && !this.room.players.size)
+                    this.setBoardSize(msg.size, ws);
                 break;
 
             case 'move':
-                qiProtocol.weiqiMove(this, ws, msg, slot);
+                if (this.gameOver)
+                    return;
+                if (!slot || slot !== (this.currentPlayer === 1 ? 'black' : 'white'))
+                    return;
+                const { row, col } = msg;
+                if (row < 0 || row >= this.boardSize || col < 0 || col >= this.boardSize)
+                    return;
+                if (this.board[row][col] !== 0) {
+                    return;
+                }
+                const playerVal = this.currentPlayer === 1 ? 1 : 2;
+                const newBoard = this.tryPlaceStone(this.board, row, col, playerVal);
+                if (!newBoard)
+                    return;
+                const newBoardStr = this.boardToString(newBoard);
+                if (this.historyBoardSet.has(newBoardStr))
+                {
+                    ws.send(JSON.stringify({ type: 'error', message: '禁全同。' }));
+                    return;
+                } 
+                // 保存历史
+                this.historyBoards.push(this.copyBoard(newBoard));
+                this.historyBoardSet.add(newBoardStr);
+                this.historyMarkers.push(this.copyMarkers(this.lastMoveMarkers));
+                this.moveHistory.push(slot);
+                this.moveCoords.push({ type: 'move', player: slot, row, col });
+                this.board = newBoard;
+                this.lastMoveMarkers = [{ row, col, color: playerVal }];
+                this.currentPlayer = 3 - this.currentPlayer;
+                this.passCounter = 0;
+                this.broadcast({ type: 'broadcast', action: 'move', ...this.getState() });
                 break;
 
             case 'pass':
-                qiProtocol.weiqiPass(this, ws, slot);
+                if (this.gameOver) return;
+                if (!slot || slot !== (this.currentPlayer === 1 ? 'black' : 'white')) return;
+                this.historyBoards.push(this.copyBoard(this.board));
+                this.historyMarkers.push(this.copyMarkers(this.lastMoveMarkers));
+                this.moveHistory.push(slot);
+                this.moveCoords.push({ type: 'pass', player: slot });
+                this.currentPlayer = this.currentPlayer === 1 ? 2 : 1;
+                this.passCounter++;
+                this.lastMoveMarkers = [];
+                this.broadcast({ type: 'broadcast', action: 'pass', ...this.getState() });
+                if (this.passCounter >= 2) {
+                    const blackPlayer = room.getPlayerBySlot('black');
+                    const whitePlayer = room.getPlayerBySlot('white');
+                    if (blackPlayer && whitePlayer) {
+                        this.startScoreCounting(blackPlayer, whitePlayer);
+                    } else {
+                        this.gameOver = true;
+                        this.broadcast({ type: 'broadcast', action: 'endAgreed', ...this.getState() });
+                    }
+                }
                 break;
 
             case 'requestUndo':
-                qiProtocol.weiqiRequestUndo(this, ws, slot);
+                if (!slot || this.gameOver)
+                    return;
+                let steps = 0;
+                for (let i = this.moveHistory.length - 1; i >= 0; i--)
+                {
+                    steps++;
+                    if (this.moveHistory[i] === slot)
+                        break;
+                }
+                if (steps === 0 || steps > this.historyBoards.length)
+                {
+                    ws.send(JSON.stringify({ type: 'error', message: '无法悔棋。' }));
+                    return;
+                }
+                const opponentSlot = slot === 'black' ? 'white' : 'black';
+                const opponent = room.getPlayerBySlot(opponentSlot);
+                if (!opponent)
+                    this.performUndo(steps, ws);
+                else
+                {
+                    this.pendingUndo = { requester: ws, steps };
+                    opponent.send(JSON.stringify({ type: 'undoRequest' }));
+                }
                 break;
 
             case 'undoResponse':
-                qiProtocol.weiqiUndoResponse(this, ws, msg);
+                if (this.pendingUndo)
+                {
+                    if (msg.accept)
+                        this.performUndo(this.pendingUndo.steps, this.pendingUndo.requester);
+                    else
+                        this.pendingUndo.requester.send(JSON.stringify({ type: 'error', message: '对方拒绝悔棋。' }));
+                }
+                this.pendingUndo = null;
                 break;
 
             case 'resign':
-                qiProtocol.resign(this, ws, slot);
+                if (!slot || this.gameOver) return;
+                this.gameOver = true;
+                this.winner = slot === 'black' ? 'white' : 'black';
+                this.broadcast({ type: 'broadcast', action: 'resign', player: slot, winner: this.winner, ...this.getState() });
                 break;
 
             case 'requestNewGame':
-                qiProtocol.requestNewGame(this, ws, slot);
+                if (!slot) return;
+                const newGameOpponent = room.getPlayerBySlot(slot === 'black' ? 'white' : 'black');
+                if (!newGameOpponent) {
+                    this.resetGame();
+                } else {
+                    this.pendingNewGame = ws;
+                    newGameOpponent.send(JSON.stringify({ type: 'newGameRequest' }));
+                }
                 break;
 
             case 'newGameResponse':
-                qiProtocol.newGameResponse(this, ws, msg, { newGameDeniedMsg: '对方拒绝开始新局' });
+                if (this.pendingNewGame && msg.accept) {
+                    this.resetGame();
+                } else if (this.pendingNewGame && !msg.accept) {
+                    this.pendingNewGame.send(JSON.stringify({ type: 'error', message: '对方拒绝开始新局' }));
+                }
+                this.pendingNewGame = null;
                 break;
 
             case 'requestDraw':
-                qiProtocol.requestDraw(this, ws, slot);
+                if (!slot || this.gameOver) return;
+                const drawOpponent = room.getPlayerBySlot(slot === 'black' ? 'white' : 'black');
+                if (!drawOpponent) {
+                    this.gameOver = true;
+                    this.winner = 'draw';
+                    this.broadcast({ type: 'broadcast', action: 'drawAgreed', ...this.getState() });
+                } else {
+                    this.pendingDraw = ws;
+                    drawOpponent.send(JSON.stringify({ type: 'drawRequest' }));
+                }
                 break;
 
             case 'drawResponse':
-                qiProtocol.drawResponse(this, ws, msg);
+                if (this.pendingDraw && msg.accept) {
+                    this.gameOver = true;
+                    this.winner = 'draw';
+                    this.broadcast({ type: 'broadcast', action: 'drawAgreed', ...this.getState() });
+                } else if (this.pendingDraw && !msg.accept) {
+                    this.pendingDraw.send(JSON.stringify({ type: 'error', message: '对方拒绝和棋。' }));
+                }
+                this.pendingDraw = null;
                 break;
 
             case 'requestEnd':
@@ -187,15 +308,21 @@ class WeiqiRoom extends QiTwoPlayerRoomBase
                 break;
 
             case 'exportRecord':
-                qiProtocol.exportRecord(this, ws);
+                ws.send(JSON.stringify({ type: 'gameRecord', data: this.exportRecord() }));
                 break;
 
             case 'importRecord':
-                qiProtocol.importRecord(this, ws, msg, { importBlockedMsg: '已有玩家入座，无法导入棋谱' });
+                if (this.room.getPlayerBySlot('black') || this.room.getPlayerBySlot('white')) {
+                    ws.send(JSON.stringify({ type: 'error', message: '已有玩家入座，无法导入棋谱' }));
+                    return;
+                }
+                this.importRecord(msg.data, ws);
                 break;
 
             case 'resetRoom':
-                qiProtocol.resetRoomToEmpty(this, ws);
+                if (this.room.getPlayerBySlot('black') || this.room.getPlayerBySlot('white')) return;
+                this.resetToEmpty();
+                this.broadcast({ type: 'roomReset', ...this.getState() });
                 break;
 
             default:
@@ -260,8 +387,8 @@ class WeiqiRoom extends QiTwoPlayerRoomBase
 
     setBoardSize(newSize, requesterWs)
     {
-        if (!Number.isInteger(newSize) || newSize < 7 || newSize > 99) {
-            requesterWs.send(JSON.stringify({ type: 'error', message: '棋盘大小无效' }));
+        if (!Number.isInteger(newSize) || newSize < 7 || newSize > 21) {
+            requesterWs.send(JSON.stringify({ type: 'error', message: '棋盘大小无效。' }));
             return false;
         }
         const hasAnyStone = this.board.some(row => row.some(v => v !== 0));
@@ -276,15 +403,14 @@ class WeiqiRoom extends QiTwoPlayerRoomBase
         return true;
     }
 
-    exportRecord()
-     {
+    exportRecord() {
         return {
             format: 'muzei',
             version: 1,
-            gameType: '围棋',
-            gameId: 'weiqi',
+            gameType: '四气围棋',
+            gameId: 'quadriliberty-weiqi',
             boardSize: this.boardSize,
-            komi: this.boardSize <= 8 ? 4.25 : 3.25,
+            komi: 3.25,
             players: { black: null, white: null },
             initialPosition: [],
             moves: this.moveCoords.map(m => {
@@ -326,12 +452,12 @@ class WeiqiRoom extends QiTwoPlayerRoomBase
     }
 
     importRecord(data, requesterWs) {
-        if (!data || data.gameId !== 'weiqi') {
-            requesterWs.send(JSON.stringify({ type: 'error', message: '棋谱格式不匹配（需要围棋棋谱）。' }));
+        if (!data || data.gameId !== 'quadriliberty-weiqi') {
+            requesterWs.send(JSON.stringify({ type: 'error', message: '棋谱格式不匹配（需要四气围棋棋谱）' }));
             return;
         }
         const newSize = data.boardSize || 19;
-        if (!Number.isInteger(newSize) || newSize > 99) {
+        if (!Number.isInteger(newSize) || newSize < 7 || newSize > 21) {
             requesterWs.send(JSON.stringify({ type: 'error', message: '棋谱中棋盘大小无效' }));
             return;
         }
@@ -342,7 +468,7 @@ class WeiqiRoom extends QiTwoPlayerRoomBase
         applyInitialPositionCompact(this.board, this.boardSize, data.initialPosition);
 
         const rawMoves = data.moves || [];
-        const moves = rawMoves.map(WeiqiRoom.parseMove);
+        const moves = rawMoves.map(TrilibertyWeiqiRoom.parseMove);
         for (let i = 0; i < moves.length; i++) {
             const move = moves[i];
             const slot = move.player;
@@ -420,7 +546,7 @@ class WeiqiRoom extends QiTwoPlayerRoomBase
 
 module.exports = {
     initRoom(room) {
-        room.gameLogic = new WeiqiRoom(room);
+        room.gameLogic = new QuadrilibertyWeiqiRoom(room);
         room.maxPlayers = 2;
     }
 };

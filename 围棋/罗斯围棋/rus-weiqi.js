@@ -1,6 +1,8 @@
-class RusWeiqiRoom {
+const { QiTwoPlayerRoomBase, qiProtocol, squareWeiqiRules, applyInitialPositionCompact } = require('../common');
+
+class RusWeiqiRoom extends QiTwoPlayerRoomBase {
     constructor(room) {
-        this.room = room;
+        super(room);
         this.boardSize = 19;
         this.board = Array(this.boardSize).fill().map(() => Array(this.boardSize).fill(0));
         this.moveCoords = [];
@@ -25,15 +27,12 @@ class RusWeiqiRoom {
         this.SHAPES = [
             [[-1, -1], [0, 0], [1, 1]],
             [[-1, -1], [-1, 0], [1, 1]],
-            [[-1, -1], [0, 1], [1, -1]],
+            [[-1, -1], [-1, 0], [1, 0]],
             [[-1, -1], [0, 1], [1, 0]],
-            [[-1, -1], [1, -1], [-1, 1]]
+            [[1, -1], [-1, -1], [-1, 1]]
         ];
         this.SHAPE_STONE_OWNERS = ['self', 'opp', 'self'];
     }
-
-    copyBoard(src) { return src.map(row => row.slice()); }
-    boardToString(board) { return board.map(row => row.join(',')).join(';'); }
 
     transformCoords(baseCoords, rot, flip) {
         return baseCoords.map(([dr, dc]) => {
@@ -51,43 +50,23 @@ class RusWeiqiRoom {
     }
 
     countGroupLiberties(board, row, col) {
-        const color = board[row][col];
-        if (color === 0) return 0;
-        const visited = Array(this.boardSize).fill().map(() => Array(this.boardSize).fill(false));
-        const queue = [[row, col]];
-        visited[row][col] = true;
-        const dirs = [[-1, 0], [1, 0], [0, -1], [0, 1]];
-        const liberties = new Set();
-        while (queue.length) {
-            const [r, c] = queue.shift();
-            for (let [dr, dc] of dirs) {
-                const nr = r + dr, nc = c + dc;
-                if (nr < 0 || nr >= this.boardSize || nc < 0 || nc >= this.boardSize) continue;
-                if (board[nr][nc] === 0) {
-                    liberties.add(`${nr},${nc}`);
-                } else if (board[nr][nc] === color && !visited[nr][nc]) {
-                    visited[nr][nc] = true;
-                    queue.push([nr, nc]);
-                }
-            }
-        }
-        return liberties.size;
+        return squareWeiqiRules.countGroupLiberties(board, row, col, this.boardSize);
     }
 
     removeGroup(board, row, col, color) {
-        const queue = [[row, col]];
-        board[row][col] = 0;
-        const dirs = [[-1, 0], [1, 0], [0, -1], [0, 1]];
-        while (queue.length) {
-            const [r, c] = queue.shift();
-            for (let [dr, dc] of dirs) {
-                const nr = r + dr, nc = c + dc;
-                if (nr >= 0 && nr < this.boardSize && nc >= 0 && nc < this.boardSize && board[nr][nc] === color) {
-                    board[nr][nc] = 0;
-                    queue.push([nr, nc]);
-                }
-            }
-        }
+        squareWeiqiRules.removeGroup(board, row, col, color, this.boardSize);
+    }
+
+    removeDeadAndDying(srcBoard) {
+        return squareWeiqiRules.removeDeadAndDying(srcBoard, this.boardSize, (b) => this.copyBoard(b), 2);
+    }
+
+    assignTerritoryWithRange(liveBoard) {
+        return squareWeiqiRules.assignTerritoryWithRange(liveBoard, this.boardSize);
+    }
+
+    computeScore(liveBoard, territory) {
+        return squareWeiqiRules.computeScore(liveBoard, territory, this.boardSize);
     }
 
     tryPlaceShape(boardBefore, shapeIdx, rot, flip, refRow, refCol, playerVal) {
@@ -100,18 +79,28 @@ class RusWeiqiRoom {
 
         const newBoard = this.copyBoard(boardBefore);
         const owners = this.SHAPE_STONE_OWNERS;
+        const affectedEnemy = new Set();
+        const affectedFriend = new Set();
         for (let i = 0; i < coords.length; i++) {
             const [r, c] = coords[i];
-            newBoard[r][c] = owners[i] === 'opp' ? (3 - playerVal) : playerVal;
+            if (owners[i] === 'opp') {
+                newBoard[r][c] = 3 - playerVal;
+                affectedEnemy.add(`${r},${c}`);
+            } else if (owners[i] === 'self') {
+                newBoard[r][c] = playerVal;
+                affectedFriend.add(`${r},${c}`);
+            }
         }
 
-        const affectedEnemy = new Set();
         const dirs = [[-1, 0], [1, 0], [0, -1], [0, 1]];
         for (let [r, c] of coords) {
             for (let [dr, dc] of dirs) {
                 const nr = r + dr, nc = c + dc;
-                if (nr >= 0 && nr < this.boardSize && nc >= 0 && nc < this.boardSize && newBoard[nr][nc] === 3 - playerVal) {
-                    affectedEnemy.add(`${nr},${nc}`);
+                if (nr >= 0 && nr < this.boardSize && nc >= 0 && nc < this.boardSize) {
+                    if (newBoard[r][c] === playerVal && newBoard[nr][nc] === 3 - playerVal)
+                        affectedEnemy.add(`${nr},${nc}`);
+                    else if (newBoard[r][c] === 3 - playerVal && newBoard[nr][nc] === playerVal)
+                        affectedFriend.add(`${nr},${nc}`);
                 }
             }
         }
@@ -122,7 +111,7 @@ class RusWeiqiRoom {
                 this.removeGroup(newBoard, r, c, 3 - playerVal);
         }
 
-        for (let [r, c] of coords) {
+        for (let [r, c] of affectedFriend) {
             if (newBoard[r][c] === playerVal && this.countGroupLiberties(newBoard, r, c) === 0)
                 this.removeGroup(newBoard, r, c, playerVal);
         }
@@ -137,25 +126,36 @@ class RusWeiqiRoom {
         for (const o of stoneOwners) { if (o === 'opp') oppN++; }
         if (oppN !== 1) return null;
 
-        for (let i = 0; i < 3; i++) {
+        for (let i = 0; i < stoneCoords.length; i++) {
             const [r, c] = stoneCoords[i];
             if (r < 0 || r >= this.boardSize || c < 0 || c >= this.boardSize) return null;
             if (boardBefore[r][c] !== 0) return null;
         }
 
         const newBoard = this.copyBoard(boardBefore);
-        for (let i = 0; i < 3; i++) {
+        const affectedEnemy = new Set();
+        const affectedFriend = new Set();
+        for (let i = 0; i < stoneCoords.length; i++) {
             const [r, c] = stoneCoords[i];
-            newBoard[r][c] = stoneOwners[i] === 'opp' ? (3 - playerVal) : playerVal;
+            if (stoneOwners[i] === 'opp') {
+                newBoard[r][c] = 3 - playerVal;
+                affectedEnemy.add(`${r},${c}`);
+            } else if (stoneOwners[i] === 'self') {
+                newBoard[r][c] = playerVal;
+                affectedFriend.add(`${r},${c}`);
+            }
         }
 
-        const affectedEnemy = new Set();
         const dirs = [[-1, 0], [1, 0], [0, -1], [0, 1]];
         for (let [r, c] of stoneCoords) {
             for (let [dr, dc] of dirs) {
                 const nr = r + dr, nc = c + dc;
-                if (nr >= 0 && nr < this.boardSize && nc >= 0 && nc < this.boardSize && newBoard[nr][nc] === 3 - playerVal)
-                    affectedEnemy.add(`${nr},${nc}`);
+                if (nr >= 0 && nr < this.boardSize && nc >= 0 && nc < this.boardSize) {
+                    if (newBoard[r][c] === playerVal && newBoard[nr][nc] === 3 - playerVal)
+                        affectedEnemy.add(`${nr},${nc}`);
+                    else if (newBoard[r][c] === 3 - playerVal && newBoard[nr][nc] === playerVal)
+                        affectedFriend.add(`${nr},${nc}`);
+                }
             }
         }
         for (let key of affectedEnemy) {
@@ -163,7 +163,7 @@ class RusWeiqiRoom {
             if (newBoard[r][c] === 3 - playerVal && this.countGroupLiberties(newBoard, r, c) === 0)
                 this.removeGroup(newBoard, r, c, 3 - playerVal);
         }
-        for (let [r, c] of stoneCoords) {
+        for (let [r, c] of affectedFriend) {
             if (newBoard[r][c] === playerVal && this.countGroupLiberties(newBoard, r, c) === 0)
                 this.removeGroup(newBoard, r, c, playerVal);
         }
@@ -191,57 +191,11 @@ class RusWeiqiRoom {
         return -1;
     }
 
-    assignTerritoryWithRange(board) {
-        const n = this.boardSize;
-        const territory = Array(n).fill().map(() => Array(n).fill(0));
-        for (let r = 0; r < n; r++) {
-            for (let c = 0; c < n; c++) {
-                if (board[r][c] !== 0) continue;
-                const maxDist = (r <= 1 || r >= n - 2 || c <= 1 || c >= n - 2) ? 5 : 4;
-                let blackMin = Infinity, whiteMin = Infinity;
-                for (let sr = 0; sr < n; sr++) {
-                    for (let sc = 0; sc < n; sc++) {
-                        const v = board[sr][sc];
-                        if (v !== 1 && v !== 2) continue;
-                        const d = Math.abs(r - sr) + Math.abs(c - sc);
-                        if (v === 1 && d < blackMin) blackMin = d;
-                        else if (v === 2 && d < whiteMin) whiteMin = d;
-                    }
-                }
-                if (blackMin <= maxDist && whiteMin <= maxDist) {
-                    if (blackMin < whiteMin) territory[r][c] = 1;
-                    else if (whiteMin < blackMin) territory[r][c] = 2;
-                    else territory[r][c] = 3;
-                } else if (blackMin <= maxDist) territory[r][c] = 1;
-                else if (whiteMin <= maxDist) territory[r][c] = 2;
-                else territory[r][c] = 3;
-            }
-        }
-        return territory;
-    }
-
-    computeScore(liveBoard, territory) {
-        let blackStones = 0, whiteStones = 0, blackTerritory = 0, whiteTerritory = 0, publicTerritory = 0;
-        for (let r = 0; r < this.boardSize; r++) {
-            for (let c = 0; c < this.boardSize; c++) {
-                if (liveBoard[r][c] === 1) blackStones++;
-                else if (liveBoard[r][c] === 2) whiteStones++;
-                else if (liveBoard[r][c] === 0) {
-                    if (territory[r][c] === 1) blackTerritory++;
-                    else if (territory[r][c] === 2) whiteTerritory++;
-                    else if (territory[r][c] === 3) publicTerritory++;
-                }
-            }
-        }
-        const blackTotal = blackStones + blackTerritory + publicTerritory / 2;
-        const whiteTotal = whiteStones + whiteTerritory + publicTerritory / 2;
-        return { blackTotal, whiteTotal };
-    }
-
     computeLead() {
-        const territory = this.assignTerritoryWithRange(this.board);
-        const { blackTotal, whiteTotal } = this.computeScore(this.board, territory);
-        const KOMI = 3.25;
+        const liveBoard = this.removeDeadAndDying(this.board);
+        const territory = this.assignTerritoryWithRange(liveBoard);
+        const { blackTotal, whiteTotal } = this.computeScore(liveBoard, territory);
+        const KOMI = 2.25;
         return blackTotal - whiteTotal - 2 * KOMI;
     }
 
@@ -249,6 +203,7 @@ class RusWeiqiRoom {
         return {
             boardSize: this.boardSize,
             board: this.board,
+            komi: 2.25,
             numberOfHands: 1 + this.historyBoards.length,
             currentPlayer: this.currentPlayer,
             lastMoveMarkers: this.lastMoveMarkers,
@@ -256,7 +211,7 @@ class RusWeiqiRoom {
             winner: this.winner,
             lastUsedShapeByColor: this.lastUsedShapeByColor,
             moveCoords: this.moveCoords,
-            komi: 3.25,
+            komi: 2.25,
             slots: {
                 black: !!this.room.getPlayerBySlot('black'),
                 white: !!this.room.getPlayerBySlot('white')
@@ -264,23 +219,8 @@ class RusWeiqiRoom {
         };
     }
 
-    assignSlot(ws, requestedSlot) {
-        if (requestedSlot === 'black' && !this.room.getPlayerBySlot('black')) return 'black';
-        if (requestedSlot === 'white' && !this.room.getPlayerBySlot('white')) return 'white';
-        return null;
-    }
-
-    broadcast(data, exclude = null) {
-        const allClients = [...this.room.players.keys(), ...this.room.observers];
-        for (const client of allClients) {
-            if (client !== exclude && client.readyState === 1) {
-                client.send(JSON.stringify(data));
-            }
-        }
-    }
-
-    sendState(ws) {
-        ws.send(JSON.stringify({ type: 'gameState', ...this.getState() }));
+    copyMarkers(markers) {
+        return markers.map(m => ({ row: m.row, col: m.col, color: m.color }));
     }
 
     performUndo(steps, requesterWs) {
@@ -339,6 +279,32 @@ class RusWeiqiRoom {
         this.pendingScore = { requester, opponent, agreed: new Set() };
     }
 
+    compoundPass(slot) {
+        const room = this.room;
+        const passPlayerVal = this.currentPlayer === 1 ? 1 : 2;
+        this.historyBoards.push(this.copyBoard(this.board));
+        this.historyBoardSet.add(this.boardToString(this.board));
+        this.historyMarkers.push(this.copyMarkers(this.lastMoveMarkers));
+        this.historyLastUsed.push({ 1: this.lastUsedShapeByColor[1], 2: this.lastUsedShapeByColor[2] });
+        this.moveHistory.push(slot);
+        this.moveCoords.push({ type: 'pass', player: slot });
+        this.lastUsedShapeByColor[passPlayerVal] = -1;
+        this.currentPlayer = 3 - this.currentPlayer;
+        this.passCounter++;
+        this.lastMoveMarkers = [];
+        this.broadcast({ type: 'broadcast', action: 'pass', ...this.getState() });
+        if (this.passCounter >= 2) {
+            const blackPlayer = room.getPlayerBySlot('black');
+            const whitePlayer = room.getPlayerBySlot('white');
+            if (blackPlayer && whitePlayer) {
+                this.startScoreCounting(blackPlayer, whitePlayer);
+            } else {
+                this.gameOver = true;
+                this.broadcast({ type: 'broadcast', action: 'endAgreed', ...this.getState() });
+            }
+        }
+    }
+
     handleMessage(ws, msg) {
         const slot = this.room.getSlotByWs(ws);
         const room = this.room;
@@ -346,16 +312,11 @@ class RusWeiqiRoom {
 
         switch (msg.type) {
             case 'selectColor':
-                if (slot) return;
-                const newSlot = this.assignSlot(ws, msg.color);
-                if (newSlot) {
-                    room.setPlayerSlot(ws, newSlot);
-                    ws.send(JSON.stringify({ type: 'colorAssigned', color: newSlot }));
-                    this.sendState(ws);
-                    room.broadcast({ type: 'slotOccupied', slot: newSlot }, ws);
-                } else {
-                    ws.send(JSON.stringify({ type: 'error', message: '该颜色已被占用。' }));
-                }
+                qiProtocol.selectColor(this, ws, msg);
+                break;
+
+            case 'setBoardSize':
+                qiProtocol.setBoardSizeWeiqiObserver(this, ws, msg, slot);
                 break;
 
             case 'move':
@@ -364,21 +325,18 @@ class RusWeiqiRoom {
                 const { shapeIndex, rotation, flipped, row, col } = msg;
                 if (shapeIndex === undefined || rotation === undefined || flipped === undefined || row === undefined || col === undefined) return;
                 const playerVal = this.currentPlayer === 1 ? 1 : 2;
-                if (this.lastUsedShapeByColor[playerVal] === shapeIndex) {
-                    return;
-                }
+                if (this.lastUsedShapeByColor[playerVal] === shapeIndex) return;
                 const newBoard = this.tryPlaceShape(this.board, shapeIndex, rotation, flipped, row, col, playerVal);
                 if (!newBoard) return;
                 const newBoardStr = this.boardToString(newBoard);
-                if (this.historyBoardSet.has(newBoardStr))
-                {
+                if (this.historyBoardSet.has(newBoardStr)) {
                     ws.send(JSON.stringify({ type: 'error', message: '禁全同。' }));
                     return;
                 }
-                
+
                 this.historyBoards.push(this.copyBoard(newBoard));
                 this.historyBoardSet.add(newBoardStr);
-                this.historyMarkers.push([...this.lastMoveMarkers]);
+                this.historyMarkers.push(this.copyMarkers(this.lastMoveMarkers));
                 this.historyLastUsed.push({ 1: this.lastUsedShapeByColor[1], 2: this.lastUsedShapeByColor[2] });
                 this.moveHistory.push(slot);
                 this.board = newBoard;
@@ -404,109 +362,35 @@ class RusWeiqiRoom {
             case 'pass':
                 if (this.gameOver) return;
                 if (!slot || slot !== (this.currentPlayer === 1 ? 'black' : 'white')) return;
-                const passPlayerVal = this.currentPlayer === 1 ? 1 : 2;
-                this.historyBoards.push(this.copyBoard(this.board));
-                this.historyBoardSet.add(this.boardToString(this.board));
-                this.historyMarkers.push([...this.lastMoveMarkers]);
-                this.historyLastUsed.push({ 1: this.lastUsedShapeByColor[1], 2: this.lastUsedShapeByColor[2] });
-                this.moveHistory.push(slot);
-                this.moveCoords.push({ type: 'pass', player: slot });
-                this.lastUsedShapeByColor[passPlayerVal] = -1;
-                this.currentPlayer = 3 - this.currentPlayer;
-                this.passCounter++;
-                this.lastMoveMarkers = [];
-                this.broadcast({ type: 'broadcast', action: 'pass', ...this.getState() });
-                if (this.passCounter >= 2) {
-                    const blackPlayer = room.getPlayerBySlot('black');
-                    const whitePlayer = room.getPlayerBySlot('white');
-                    if (blackPlayer && whitePlayer) {
-                        this.startScoreCounting(blackPlayer, whitePlayer);
-                    } else {
-                        this.gameOver = true;
-                        this.broadcast({ type: 'broadcast', action: 'endAgreed', ...this.getState() });
-                    }
-                }
+                this.compoundPass(slot);
                 break;
 
             case 'requestUndo':
-                if (!slot || this.gameOver) return;
-                let steps = 0;
-                for (let i = this.moveHistory.length - 1; i >= 0; i--) {
-                    steps++;
-                    if (this.moveHistory[i] === slot) break;
-                }
-                if (steps === 0 || steps > this.historyBoards.length) {
-                    ws.send(JSON.stringify({ type: 'error', message: '无法悔棋。' }));
-                    return;
-                }
-                const opponentSlot = slot === 'black' ? 'white' : 'black';
-                const opponent = room.getPlayerBySlot(opponentSlot);
-                if (!opponent) {
-                    this.performUndo(steps, ws);
-                } else {
-                    this.pendingUndo = { requester: ws, steps };
-                    opponent.send(JSON.stringify({ type: 'undoRequest' }));
-                }
+                qiProtocol.weiqiRequestUndo(this, ws, slot, { cannotUndoMsg: '无法悔棋。' });
                 break;
 
             case 'undoResponse':
-                if (this.pendingUndo && msg.accept) {
-                    this.performUndo(this.pendingUndo.steps, this.pendingUndo.requester);
-                } else if (this.pendingUndo && !msg.accept) {
-                    this.pendingUndo.requester.send(JSON.stringify({ type: 'error', message: '对方拒绝悔棋。' }));
-                }
-                this.pendingUndo = null;
+                qiProtocol.weiqiUndoResponse(this, ws, msg);
                 break;
 
             case 'resign':
-                if (!slot || this.gameOver) return;
-                this.gameOver = true;
-                this.winner = slot === 'black' ? 'white' : 'black';
-                this.broadcast({ type: 'broadcast', action: 'resign', player: slot, winner: this.winner, ...this.getState() });
+                qiProtocol.resign(this, ws, slot);
                 break;
 
             case 'requestNewGame':
-                if (!slot) return;
-                const newGameOpponent = room.getPlayerBySlot(slot === 'black' ? 'white' : 'black');
-                if (!newGameOpponent) {
-                    this.resetGame();
-                } else {
-                    this.pendingNewGame = ws;
-                    newGameOpponent.send(JSON.stringify({ type: 'newGameRequest' }));
-                }
+                qiProtocol.requestNewGame(this, ws, slot);
                 break;
 
             case 'newGameResponse':
-                if (this.pendingNewGame && msg.accept) {
-                    this.resetGame();
-                } else if (this.pendingNewGame && !msg.accept) {
-                    this.pendingNewGame.send(JSON.stringify({ type: 'error', message: '对方拒绝开始新局' }));
-                }
-                this.pendingNewGame = null;
+                qiProtocol.newGameResponse(this, ws, msg, { newGameDeniedMsg: '对方拒绝开始新局。' });
                 break;
 
             case 'requestDraw':
-                if (!slot || this.gameOver) return;
-                const drawOpponent = room.getPlayerBySlot(slot === 'black' ? 'white' : 'black');
-                if (!drawOpponent) {
-                    this.gameOver = true;
-                    this.winner = 'draw';
-                    this.broadcast({ type: 'broadcast', action: 'drawAgreed', ...this.getState() });
-                } else {
-                    this.pendingDraw = ws;
-                    drawOpponent.send(JSON.stringify({ type: 'drawRequest' }));
-                }
+                qiProtocol.requestDraw(this, ws, slot);
                 break;
 
             case 'drawResponse':
-                if (this.pendingDraw && msg.accept) {
-                    this.gameOver = true;
-                    this.winner = 'draw';
-                    this.broadcast({ type: 'broadcast', action: 'drawAgreed', ...this.getState() });
-                } else if (this.pendingDraw && !msg.accept) {
-                    this.pendingDraw.send(JSON.stringify({ type: 'error', message: '对方拒绝和棋。' }));
-                }
-                this.pendingDraw = null;
+                qiProtocol.drawResponse(this, ws, msg);
                 break;
 
             case 'requestEnd':
@@ -531,15 +415,17 @@ class RusWeiqiRoom {
 
             case 'scoreResponse':
                 if (this.pendingScore && (ws === this.pendingScore.requester || ws === this.pendingScore.opponent)) {
-                    this.pendingScore.agreed.add(ws);
-                    if (this.pendingScore.agreed.size === 2) {
-                        const lead = this.scoreProposalData.lead;
-                        this.gameOver = true;
-                        this.winner = lead > 0 ? 'black' : (lead < 0 ? 'white' : 'draw');
-                        this.broadcast({ type: 'scoreAgreed', winner: this.winner, lead });
-                        this.pendingScore = null;
-                        this.scoreProposalData = null;
-                    } else if (!msg.accept) {
+                    if (msg.accept) {
+                        this.pendingScore.agreed.add(ws);
+                        if (this.pendingScore.agreed.size === 2) {
+                            const lead = this.scoreProposalData.lead;
+                            this.gameOver = true;
+                            this.winner = lead > 0 ? 'black' : (lead < 0 ? 'white' : 'draw');
+                            this.broadcast({ type: 'scoreAgreed', winner: this.winner, lead });
+                            this.pendingScore = null;
+                            this.scoreProposalData = null;
+                        }
+                    } else {
                         this.broadcast({ type: 'scoreRejected' });
                         this.pendingScore = null;
                         this.scoreProposalData = null;
@@ -547,27 +433,16 @@ class RusWeiqiRoom {
                 }
                 break;
 
-            case 'setBoardSize':
-                if (!slot && !this.room.players.size)
-                    this.setBoardSize(msg.size, ws);
-                break;
-
             case 'exportRecord':
-                ws.send(JSON.stringify({ type: 'gameRecord', data: this.exportRecord() }));
+                qiProtocol.exportRecord(this, ws);
                 break;
 
             case 'importRecord':
-                if (this.room.getPlayerBySlot('black') || this.room.getPlayerBySlot('white')) {
-                    ws.send(JSON.stringify({ type: 'error', message: '已有玩家入座，无法导入棋谱。' }));
-                    return;
-                }
-                this.importRecord(msg.data, ws);
+                qiProtocol.importRecord(this, ws, msg, { importBlockedMsg: '已有玩家入座，无法导入棋谱。' });
                 break;
 
             case 'resetRoom':
-                if (this.room.getPlayerBySlot('black') || this.room.getPlayerBySlot('white')) return;
-                this.resetToEmpty();
-                this.broadcast({ type: 'roomReset', ...this.getState() });
+                qiProtocol.resetRoomToEmpty(this, ws);
                 break;
 
             default:
@@ -582,10 +457,7 @@ class RusWeiqiRoom {
         }
         const hasAnyStone = this.board.some(row => row.some(v => v !== 0));
         const hasPlayer = this.room.getPlayerBySlot('black') || this.room.getPlayerBySlot('white');
-        if (hasAnyStone || hasPlayer) {
-
-            return false;
-        }
+        if (hasAnyStone || hasPlayer) return false;
         this.boardSize = newSize;
         this.board = Array(this.boardSize).fill().map(() => Array(this.boardSize).fill(0));
         this.currentPlayer = 1;
@@ -611,11 +483,10 @@ class RusWeiqiRoom {
             gameType: '罗斯围棋',
             gameId: 'rus-weiqi',
             boardSize: this.boardSize,
-            komi: 3.25,
+            komi: 2.25,
             stoneEncoding: 'plusMinus',
-            stoneEncodingNote: '+ 己方 - 对方（相对行棋方）',
             players: { black: null, white: null },
-            initialPosition: { black: [], white: [] },
+            initialPosition: [],
             moves: this.moveCoords.map(m => {
                 const p = m.player === 'black' ? 'B' : 'W';
                 if (m.type === 'pass') return p + 'p';
@@ -694,26 +565,7 @@ class RusWeiqiRoom {
         this.boardSize = newSize;
         this.resetToEmpty();
 
-        if (data.initialPosition) {
-            if (Array.isArray(data.initialPosition.black)) {
-                for (const pos of data.initialPosition.black) {
-                    if (Array.isArray(pos) && pos.length === 2) {
-                        const [r, c] = pos;
-                        if (r >= 0 && r < this.boardSize && c >= 0 && c < this.boardSize)
-                            this.board[r][c] = 1;
-                    }
-                }
-            }
-            if (Array.isArray(data.initialPosition.white)) {
-                for (const pos of data.initialPosition.white) {
-                    if (Array.isArray(pos) && pos.length === 2) {
-                        const [r, c] = pos;
-                        if (r >= 0 && r < this.boardSize && c >= 0 && c < this.boardSize)
-                            this.board[r][c] = 2;
-                    }
-                }
-            }
-        }
+        applyInitialPositionCompact(this.board, this.boardSize, data.initialPosition);
 
         const rawMoves = data.moves || [];
         const moves = rawMoves.map(RusWeiqiRoom.parseMove);
@@ -768,7 +620,7 @@ class RusWeiqiRoom {
                 }
                 this.historyBoards.push(this.copyBoard(newBoard));
                 this.historyBoardSet.add(newBoardStr);
-                this.historyMarkers.push([...this.lastMoveMarkers]);
+                this.historyMarkers.push(this.copyMarkers(this.lastMoveMarkers));
                 this.historyLastUsed.push({ 1: this.lastUsedShapeByColor[1], 2: this.lastUsedShapeByColor[2] });
                 this.moveHistory.push(slot);
                 this.moveCoords.push({
@@ -796,7 +648,7 @@ class RusWeiqiRoom {
                 }
                 this.historyBoards.push(this.copyBoard(this.board));
                 this.historyBoardSet.add(this.boardToString(this.board));
-                this.historyMarkers.push([...this.lastMoveMarkers]);
+                this.historyMarkers.push(this.copyMarkers(this.lastMoveMarkers));
                 this.historyLastUsed.push({ 1: this.lastUsedShapeByColor[1], 2: this.lastUsedShapeByColor[2] });
                 this.moveHistory.push(slot);
                 this.moveCoords.push({ type: 'pass', player: slot });
@@ -816,7 +668,7 @@ class RusWeiqiRoom {
             type: 'importSuccess',
             ...this.getState(),
             replayData: {
-                initialPosition: data.initialPosition || { black: [], white: [] },
+                initialPosition: data.initialPosition || [],
                 moves: this.moveCoords.map(m => {
                     if (m.type === 'pass') return { type: 'pass', player: m.player };
                     return {
@@ -837,6 +689,15 @@ class RusWeiqiRoom {
     onPlayerLeave(ws) {
         const slot = this.room.getSlotByWs(ws);
         if (slot) this.room.broadcast({ type: 'playerLeft', slot });
+
+        if (this.pendingUndo && this.pendingUndo.requester === ws) this.pendingUndo = null;
+        if (this.pendingNewGame === ws) this.pendingNewGame = null;
+        if (this.pendingDraw === ws) this.pendingDraw = null;
+        if (this.pendingEnd && (this.pendingEnd.requester === ws || this.pendingEnd.opponent === ws)) this.pendingEnd = null;
+        if (this.pendingScore && (this.pendingScore.requester === ws || this.pendingScore.opponent === ws)) {
+            this.pendingScore = null;
+            this.scoreProposalData = null;
+        }
     }
 }
 

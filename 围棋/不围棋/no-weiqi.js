@@ -1,8 +1,9 @@
-﻿class NoWeiqiRoom
+﻿const { QiTwoPlayerRoomBase, squareWeiqiRules, applyInitialPositionCompact } = require('../common');
+class NoWeiqiRoom extends QiTwoPlayerRoomBase
 {
     constructor(room)
     {
-        this.room = room;
+        super(room);
         this.boardSize = 9;
         this.board = Array(this.boardSize).fill().map(() => Array(this.boardSize).fill(0));
         this.currentPlayer = 1;
@@ -19,60 +20,12 @@
         this.pendingDraw = null;
     }
 
-    copyBoard(src)
-    {
-        return src.map(row => row.slice());
+    hasLiberty(board, row, col) {
+        return squareWeiqiRules.hasLiberty(board, row, col, this.boardSize);
     }
 
-    boardToString(board)
-    {
-        return board.map(row => row.join(',')).join(';');
-    }
-
-    hasLiberty(board, row, col)
-    {
-        const color = board[row][col];
-        if (color === 0) return false;
-        const visited = Array(this.boardSize).fill().map(() => Array(this.boardSize).fill(false));
-        const queue = [[row, col]];
-        visited[row][col] = true;
-        const dirs = [[-1, 0], [1, 0], [0, -1], [0, 1]];
-        while (queue.length)
-        {
-            const [r, c] = queue.shift();
-            for (let[dr, dc] of dirs)
-            {
-                const nr = r + dr, nc = c + dc;
-                if (nr < 0 || nr >= this.boardSize || nc < 0 || nc >= this.boardSize) continue;
-                if (board[nr][nc] === 0) return true;
-                if (board[nr][nc] === color && !visited[nr][nc])
-                {
-                    visited[nr][nc] = true;
-                    queue.push([nr, nc]);
-                }
-            }
-        }
-        return false;
-    }
-
-    removeGroup(board, row, col, color)
-    {
-        const queue = [[row, col]];
-        board[row][col] = 0;
-        const dirs = [[-1, 0], [1, 0], [0, -1], [0, 1]];
-        while (queue.length)
-        {
-            const [r, c] = queue.shift();
-            for (let[dr, dc] of dirs)
-            {
-                const nr = r + dr, nc = c + dc;
-                if (nr >= 0 && nr < this.boardSize && nc >= 0 && nc < this.boardSize && board[nr][nc] === color)
-                {
-                    board[nr][nc] = 0;
-                    queue.push([nr, nc]);
-                }
-            }
-        }
+    removeGroup(board, row, col, color) {
+        squareWeiqiRules.removeGroup(board, row, col, color, this.boardSize);
     }
 
     tryPlaceStone(boardBefore, row, col, playerVal)
@@ -137,29 +90,6 @@
             }
         }
         ;
-    }
-
-    assignSlot(ws, requestedSlot)
-    {
-        if (requestedSlot === 'black' && !this.room.getPlayerBySlot('black')) return 'black';
-        if (requestedSlot === 'white' && !this.room.getPlayerBySlot('white')) return 'white';
-        return null;
-    }
-
-    broadcast(data, exclude = null)
-    {
-        const allClients = [...this.room.players.keys(), ...this.room.observers];
-        for (const client of allClients) {
-            if (client !== exclude && client.readyState === 1)
-            {
-                client.send(JSON.stringify(data));
-            }
-        }
-    }
-
-    sendState(ws)
-    {
-        ws.send(JSON.stringify({ type: 'gameState', ...this.getState() }));
     }
 
     handleMessage(ws, msg)
@@ -445,7 +375,7 @@
             gameId: 'no-weiqi',
             boardSize: this.boardSize,
             players: { black: null, white: null },
-            initialPosition: { black: [], white: [] },
+            initialPosition: [],
             moves: this.moveCoords.map(m => {
                 const p = m.player === 'black' ? 'B' : 'W';
                 return p + m.row + ',' + m.col;
@@ -493,26 +423,7 @@
         this.boardSize = newSize;
         this.resetToEmpty();
 
-        if (data.initialPosition) {
-            if (Array.isArray(data.initialPosition.black)) {
-                for (const pos of data.initialPosition.black) {
-                    if (Array.isArray(pos) && pos.length === 2) {
-                        const [r, c] = pos;
-                        if (r >= 0 && r < this.boardSize && c >= 0 && c < this.boardSize)
-                            this.board[r][c] = 1;
-                    }
-                }
-            }
-            if (Array.isArray(data.initialPosition.white)) {
-                for (const pos of data.initialPosition.white) {
-                    if (Array.isArray(pos) && pos.length === 2) {
-                        const [r, c] = pos;
-                        if (r >= 0 && r < this.boardSize && c >= 0 && c < this.boardSize)
-                            this.board[r][c] = 2;
-                    }
-                }
-            }
-        }
+        applyInitialPositionCompact(this.board, this.boardSize, data.initialPosition);
 
         const rawMoves = data.moves || [];
         const moves = rawMoves.map(NoWeiqiRoom.parseMove);
@@ -579,7 +490,7 @@
             type: 'importSuccess',
             ...this.getState(),
             replayData: {
-                initialPosition: data.initialPosition || { black: [], white: [] },
+                initialPosition: data.initialPosition || [],
                 moves: this.moveCoords.map(m => ({ ...m }))
             }
         });

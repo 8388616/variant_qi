@@ -1,7 +1,9 @@
-﻿class TriangleWeiqiRoom
+﻿const { QiTwoPlayerRoomBase, gridGraphGoRules } = require('../common');
+
+class TriangleWeiqiRoom extends QiTwoPlayerRoomBase
 {
     constructor(room, initialSize = 27) {
-        this.room = room;
+        super(room);
         this.boardSize = initialSize;
         this.board = this.createEmptyBoard();
         this.currentPlayer = 1;
@@ -55,114 +57,45 @@
         return [[0, 1], [0, -1], [1, 0], [-1, 0], [1, 1], [-1, -1]];
     }
 
-    countGroupLiberties(board, row, col)
-    {
-        const color = board[row][col];
-        if (color === 0) return 0;
-        const visited = Array(this.boardSize).fill().map(() => []);
-        const queue = [[row, col]];
-        visited[row][col] = true;
-        const liberties = new Set();
-        const dirs = this.getDirs();
-        while (queue.length) {
-            const [r, c] = queue.shift();
-            for (let [dr, dc] of dirs) {
+    _neighbors() {
+        return (r, c) => {
+            const out = [];
+            for (const [dr, dc] of this.getDirs()) {
                 const nr = r + dr, nc = c + dc;
-                if (!this.isValidCoord(nr, nc)) continue;
-                if (board[nr][nc] === 0) {
-                    liberties.add(nr + ',' + nc);
-                } else if (board[nr][nc] === color && !visited[nr][nc]) {
-                    visited[nr][nc] = true;
-                    queue.push([nr, nc]);
-                }
+                if (this.isValidCoord(nr, nc)) out.push([nr, nc]);
             }
-        }
-        return liberties.size;
+            return out;
+        };
+    }
+
+    countGroupLiberties(board, row, col) {
+        return gridGraphGoRules.countGroupLiberties(board, row, col, this._neighbors());
     }
 
     hasLiberty(board, row, col) {
-        return this.countGroupLiberties(board, row, col) > 0;
+        return gridGraphGoRules.countGroupLiberties(board, row, col, this._neighbors()) > 0;
     }
 
     removeGroup(board, row, col, color) {
-        const queue = [[row, col]];
-        board[row][col] = 0;
-        const dirs = this.getDirs();
-        while (queue.length) {
-            const [r, c] = queue.shift();
-            for (let [dr, dc] of dirs) {
-                const nr = r + dr, nc = c + dc;
-                if (this.isValidCoord(nr, nc) && board[nr][nc] === color) {
-                    board[nr][nc] = 0;
-                    queue.push([nr, nc]);
-                }
-            }
-        }
+        gridGraphGoRules.removeGroup(board, row, col, color, this._neighbors());
     }
 
-    tryPlaceStone(boardBefore, row, col, playerVal)
-    {
-        if (!this.isValidCoord(row, col) || boardBefore[row][col] !== 0)
-            return null;
-        let newBoard = this.copyBoard(boardBefore);
-        newBoard[row][col] = playerVal;
-
-        const dirs = this.getDirs();
-        for (let [dr, dc] of dirs)
-        {
-            const nr = row + dr, nc = col + dc;
-            if (this.isValidCoord(nr, nc) && newBoard[nr][nc] === 3 - playerVal)
-            {
-                if (!this.hasLiberty(newBoard, nr, nc))
-                    this.removeGroup(newBoard, nr, nc, 3 - playerVal);
-            }
-        }
-
-        if (!this.hasLiberty(newBoard, row, col))
-            this.removeGroup(newBoard, row, col, playerVal);
-
-        return newBoard;
+    tryPlaceStone(boardBefore, row, col, playerVal) {
+        if (!this.isValidCoord(row, col) || boardBefore[row][col] !== 0) return null;
+        return gridGraphGoRules.tryPlaceStoneNLiberty(
+            boardBefore, row, col, playerVal, (b) => this.copyBoard(b), this._neighbors(), 1
+        );
     }
 
     removeDeadGroups(srcBoard) {
-        let boardCopy = this.copyBoard(srcBoard);
-        let changed = true;
-        const dirs = this.getDirs();
-        while (changed) {
-            changed = false;
-            const visited = Array(this.boardSize).fill().map(() => []);
-            for (let r = 0; r < this.boardSize; r++) {
-                for (let c = 0; c <= r; c++) {
-                    if (boardCopy[r][c] !== 0 && !visited[r][c]) {
-                        const color = boardCopy[r][c];
-                        const queue = [[r, c]];
-                        visited[r][c] = true;
-                        const stones = [[r, c]];
-                        let hasLib = false;
-                        let idx = 0;
-                        while (idx < queue.length) {
-                            const [rr, cc] = queue[idx++];
-                            for (let [dr, dc] of dirs) {
-                                const nr = rr + dr, nc = cc + dc;
-                                if (!this.isValidCoord(nr, nc)) continue;
-                                if (boardCopy[nr][nc] === 0) {
-                                    hasLib = true;
-                                } else if (boardCopy[nr][nc] === color && !visited[nr][nc]) {
-                                    visited[nr][nc] = true;
-                                    queue.push([nr, nc]);
-                                    stones.push([nr, nc]);
-                                }
-                            }
-                        }
-                        if (!hasLib) {
-                            for (const [rr, cc] of stones) boardCopy[rr][cc] = 0;
-                            changed = true;
-                        }
-                    }
-                }
-            }
-        }
-        return boardCopy;
+        return gridGraphGoRules.removeDeadAndDying(
+            srcBoard,
+            this.boardSize,
+            this.boardSize,
+            (b) => this.copyBoard(b),
+            this._neighbors(),
+            (r, c) => this.isValidCoord(r, c)
+        );
     }
 
     gridDistance(r1, c1, r2, c2) {
@@ -218,25 +151,6 @@
                 white: !!this.room.getPlayerBySlot('white')
             }
         };
-    }
-
-    assignSlot(ws, requestedSlot) {
-        if (requestedSlot === 'black' && !this.room.getPlayerBySlot('black')) return 'black';
-        if (requestedSlot === 'white' && !this.room.getPlayerBySlot('white')) return 'white';
-        return null;
-    }
-
-    broadcast(data, exclude = null) {
-        const allClients = [...this.room.players.keys(), ...this.room.observers];
-        for (const client of allClients) {
-            if (client !== exclude && client.readyState === 1) {
-                client.send(JSON.stringify(data));
-            }
-        }
-    }
-
-    sendState(ws) {
-        ws.send(JSON.stringify({ type: 'gameState', ...this.getState() }));
     }
 
     startScoreCounting(requester, opponent) {

@@ -1,0 +1,865 @@
+* {
+            box-sizing: border-box;
+            user-select: none;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        html, body {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            overflow-x: hidden;
+        }
+
+        body {
+            background: #2b5e3b;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            font-family: 'Segoe UI', Roboto, sans-serif;
+            padding: 10px;
+        }
+
+        .game-wrapper {
+            background: #d9c8ac;
+            padding: 40px;
+            border-radius: 28px;
+            box-shadow: 0 20px 30px rgba(0,0,0,0.6);
+            border: 2px solid #6b4a2e;
+            width: 100%;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .top-panel {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: space-between;
+            align-items: center;
+            background: #8f6b4f;
+            padding: 12px 20px;
+            border-radius: 40px;
+            color: #f9eed7;
+            font-weight: bold;
+            margin-bottom: 20px;
+            border-bottom: 4px solid #4d2f1b;
+            gap: 10px;
+        }
+
+        .left-group {
+            display: flex;
+            gap: 30px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .side-select {
+            display: flex;
+            gap: 30px;
+            flex-wrap: wrap;
+        }
+
+            .side-select label {
+                font-size: 1.1rem;
+                cursor: pointer;
+                display: inline-flex;
+                align-items: center;
+                gap: 8px;
+                position: relative;
+            }
+
+            .side-select input[type="radio"] {
+                position: absolute;
+                opacity: 0;
+                width: 0;
+                height: 0;
+                margin: 0;
+            }
+
+            .side-select label::before {
+                content: "";
+                display: inline-block;
+                width: 1em;
+                height: 1em;
+                border-radius: 50%;
+                background-color: white;
+                border: 1.5px solid #6b4a2e;
+                transition: all 0.1s ease;
+                box-sizing: border-box;
+            }
+
+            .side-select label.self-radio::before {
+                border-color: #ff3b6f;
+            }
+
+            .side-select label.self-radio.checked-disabled::before {
+                background-color: #ff3b6f;
+                box-shadow: inset 0 0 0 0.15em white;
+            }
+
+            .side-select label.opponent-radio::before {
+                border-color: #999999;
+            }
+
+            .side-select label.opponent-radio.checked-disabled::before {
+                background-color: #999999;
+                box-shadow: inset 0 0 0 0.15em white;
+            }
+
+        .komi-info {
+            background: #3e2e21;
+            padding: 6px 20px;
+            border-radius: 30px;
+            color: #ffd966;
+            font-size: 1rem;
+            white-space: nowrap;
+        }
+
+        .color-status {
+            background: #3e2e21;
+            padding: 6px 16px;
+            border-radius: 30px;
+            color: #ffd966;
+            white-space: nowrap;
+        }
+
+        .board-size-select {
+            background: #3e2e21;
+            color: #ffd966;
+            border: none;
+            padding: 6px 12px;
+            border-radius: 30px;
+            font-weight: bold;
+            font-size: 0.95rem;
+            cursor: pointer;
+        }
+
+        .edit-tool-select {
+            background: #3e2e21;
+            color: #ffd966;
+            border: none;
+            padding: 6px 12px;
+            border-radius: 30px;
+            font-weight: bold;
+            font-size: 0.95rem;
+            cursor: pointer;
+        }
+
+        .edit-clear-btn {
+            background: #b88a4b;
+            border: none;
+            color: white;
+            margin-left: 4px;
+            padding: 4px 12px;
+            border-radius: 20px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            border-bottom: 2px solid #5e3e1e;
+        }
+
+        .edit-clear-btn:active {
+            transform: translateY(2px);
+        }
+
+        .edit-tool-select.hidden, .edit-clear-btn.hidden {
+            display: none;
+        }
+            
+        .replay-panel {
+            margin-top: 15px;
+            background: #3e2e21;
+            border-radius: 20px;
+            padding: 14px;
+            text-align: center;
+        }
+
+        .replay-step-display {
+            color: #ffd966;
+            font-size: 1.1rem;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+
+        .replay-nav {
+            display: flex;
+            gap: 12px;
+            justify-content: center;
+            margin-bottom: 12px;
+        }
+
+        .replay-nav-btn {
+            background: #b88a4b;
+            border: none;
+            color: white;
+            font-weight: bold;
+            padding: 8px 20px;
+            border-radius: 30px;
+            font-size: 0.95rem;
+            border-bottom: 3px solid #5e3e1e;
+            cursor: pointer;
+        }
+
+        .replay-slider {
+            width: 100%;
+            cursor: pointer;
+            accent-color: #b88a4b;
+        }
+
+        .right-buttons {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+        }
+
+        .help-btn, .back-to-lobby-btn {
+            background: none;
+            border: none;
+            color: #fff9c2;
+            font-weight: bold;
+            padding: 0px 8px;
+            cursor: pointer;
+            font-size: 1rem;
+            transition: color 0.2s ease;
+        }
+
+        .rules-modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.5);
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+
+        .rules-content {
+            background: #f9eed7;
+            color: #3e2e21;
+            max-width: 600px;
+            width: 90%;
+            padding: 20px 25px;
+            border-radius: 28px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.3);
+            border: 2px solid #8f6b4f;
+            position: relative;
+        }
+
+            .rules-content h3 {
+                margin-top: 0;
+                text-align: center;
+                color: #5e2b3b;
+            }
+
+            .rules-content p {
+                line-height: 1.5;
+                font-size: 0.95rem;
+            }
+
+            .rules-content .close-rules {
+                position: absolute;
+                top: 10px;
+                right: 15px;
+                font-size: 1.5rem;
+                cursor: pointer;
+                color: #8f6b4f;
+            }
+
+        .main-area {
+            display: flex;
+            gap: 20px;
+            align-items: flex-start;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+
+        .button-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            width: 140px;
+        }
+
+        .ctrl-btn {
+            background: #b88a4b;
+            border: none;
+            color: white;
+            font-weight: bold;
+            padding: 12px 8px;
+            border-radius: 30px;
+            font-size: 1rem;
+            border-bottom: 5px solid #5e3e1e;
+            cursor: pointer;
+            transition: 0.08s;
+            text-align: center;
+        }
+
+            .ctrl-btn:active {
+                border-bottom-width: 2px;
+                transform: translateY(3px);
+            }
+
+        /* 中间：棋盘 + 右侧信息列（同列内底对齐标记与棋盘） */
+        .board-and-info {
+            display: flex;
+            flex-direction: row;
+            align-items: stretch;
+            gap: 40px;
+            flex: 0 1 auto;
+            min-width: 0;
+        }
+
+        .board-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            flex: 0 1 auto;
+            width: 100%;
+            max-width: 600px;
+            min-width: 0;
+            position: relative;
+        }
+
+        .main-area-right {
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-start;
+            width: 280px;
+            max-width: 100%;
+            flex: 0 0 auto;
+            min-width: 0;
+        }
+
+        .main-area-right .info-panel {
+            margin-bottom: 0;
+            width: 100%;
+        }
+
+        .board-mark-outer {
+            position: absolute;
+            left: 100%;
+            margin-left: 6px;
+            bottom: 0;
+            right: auto;
+            top: auto;
+            display: grid;
+            grid-template-rows: 52px;
+            grid-template-columns: max-content;
+            width: max-content;
+            max-width: min(100%, 280px);
+            min-height: 52px;
+            max-height: 52px;
+            z-index: 2;
+            box-sizing: border-box;
+            overflow: hidden;
+        }
+
+        .board-mark-panel[hidden],
+        .board-mark-expand-btn[hidden] {
+            display: none !important;
+        }
+
+        .board-mark-outer > .board-mark-panel,
+        .board-mark-outer > .board-mark-expand-btn {
+            grid-area: 1 / 1;
+            align-self: end;
+            justify-self: start;
+            margin: 0;
+        }
+
+        .board-mark-panel {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            background: rgba(62, 46, 33, 0.92);
+            color: #ffd966;
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 0.82rem;
+            font-weight: bold;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+            width: max-content;
+            max-width: min(100%, 260px);
+            max-height: 52px;
+            box-sizing: border-box;
+        }
+
+        .board-mark-panel label {
+            white-space: nowrap;
+            flex-shrink: 0;
+        }
+
+        .board-mark-select {
+            flex: 0 1 auto;
+            min-width: 0;
+            background: #3e2e21;
+            color: #ffd966;
+            border: 1px solid #c9a450;
+            border-radius: 8px;
+            padding: 2px 4px;
+            font-size: 0.9rem;
+            font-weight: bold;
+            cursor: pointer;
+            width: 3em;
+            max-width: min(200px, 55vw);
+            max-height: 44px;
+        }
+
+        .board-mark-fold-btn {
+            background: transparent;
+            color: #ffd966;
+            border: none;
+            border-radius: 8px;
+            padding: 2px 2px;
+            font-size: 1.1rem;
+            line-height: 1;
+            font-weight: bold;
+            cursor: pointer;
+            font-family: inherit;
+            white-space: nowrap;
+        }
+
+        .board-mark-expand-btn {
+            background: rgba(62, 46, 33, 0.92);
+            color: #ffd966;
+            border: none;
+            border-radius: 10px;
+            padding: 6px 6px;
+            font-size: 0.82rem;
+            font-weight: bold;
+            cursor: pointer;
+            font-family: inherit;
+            white-space: nowrap;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+        }
+
+        .board-mark-fold-btn:active,
+        .board-mark-expand-btn:active {
+            transform: translateY(1px);
+        }
+
+        canvas {
+            display: block;
+            background: #deb887;
+            width: 100%;
+            height: auto;
+            aspect-ratio: 1 / 1;
+            border-radius: 4px;
+            box-shadow: inset 0 0 0 1px #6b4a2e, 0 10px 15px #3a2e1e;
+            max-width: 100%;
+        }
+
+        .info-panel {
+            background: #8f6b4f;
+            padding: 20px 16px;
+            border-radius: 20px;
+            color: #efdfbb;
+            width: 100%;
+            max-width: 280px;
+            border: 1px solid #c9a450;
+            margin: 0 auto;
+            min-height: 200px;
+            display: flex;
+            flex-direction: column;
+            margin-bottom: 20px;
+            border-bottom: 4px solid #4d2f1b;
+        }
+
+        .turn-box {
+            background: #3e2e21;
+            padding: 12px;
+            border-radius: 50px;
+            text-align: center;
+            color: #ffd966;
+            font-size: 1.2rem;
+            margin-bottom: 20px;
+        }
+
+        .score-box {
+            background: #3e2e21;
+            padding: 14px;
+            border-radius: 16px;
+            line-height: 1.6;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }
+
+        .score-title {
+            font-size: 1.3rem;
+            margin-bottom: 10px;
+        }
+
+        .score-content {
+            min-height: 60px;
+        }
+
+        @media (max-width: 700px) {
+            .game-wrapper {
+                padding: 12px;
+            }
+
+            .button-panel {
+                flex-direction: row;
+                flex-wrap: wrap;
+                justify-content: center;
+                width: 100%;
+                margin: 10px 0 0;
+                gap: 10px;
+            }
+
+                .button-panel .ctrl-btn {
+                    width: calc(50% - 10px);
+                    min-width: 120px;
+                }
+
+            .info-panel {
+                max-width: 100%;
+                margin-top: 10px;
+            }
+
+            .top-panel {
+                padding: 10px 12px;
+            }
+
+            .left-group {
+                gap: 15px;
+            }
+
+            .side-select label {
+                font-size: 0.95rem;
+            }
+
+            .komi-info, .color-status {
+                white-space: normal;
+                font-size: 0.9rem;
+            }
+
+            .board-container {
+                max-width: 100%;
+            }
+
+            .board-and-info {
+                display: grid;
+                grid-template-columns: 1fr;
+                grid-template-rows: auto auto;
+                row-gap: 12px;
+                width: 100%;
+            }
+
+            .board-and-info > .board-container {
+                grid-column: 1;
+                grid-row: 1;
+                width: 100%;
+                z-index: 1;
+            }
+
+            .main-area-right {
+                display: contents;
+            }
+
+            .board-mark-outer {
+                position: absolute;
+                right: calc(-10px - 12px);
+                bottom: 0;
+                left: auto !important;
+                top: auto;
+                margin-left: 0 !important;
+                margin-right: 0;
+                width: max-content;
+                max-width: none;
+                z-index: 5;
+                pointer-events: none;
+                overflow: visible;
+                max-height: none;
+                height: auto;
+                min-height: 0;
+                display: flex;
+                flex-direction: column;
+                align-items: flex-end;
+                justify-content: flex-end;
+            }
+
+            .board-mark-outer > .board-mark-panel,
+            .board-mark-outer > .board-mark-expand-btn {
+                pointer-events: auto;
+            }
+
+            .board-mark-panel {
+                flex-direction: row;
+            }
+
+            .board-mark-fold-btn {
+                order: -1;
+            }
+
+            .main-area-right .info-panel {
+                grid-column: 1;
+                grid-row: 2;
+                width: 100%;
+                max-width: 600px;
+                margin-top: 0;
+            }
+        }
+
+.score-confirm-panel {
+    margin-top: 15px;
+    background: #3e2e21;
+    border-radius: 20px;
+    padding: 12px;
+    text-align: center;
+}
+
+    .score-confirm-panel p {
+        margin: 0 0 10px 0;
+        font-size: 0.9rem;
+        color: #ffd98c;
+    }
+
+.score-confirm-buttons {
+    display: flex;
+    gap: 12px;
+    justify-content: center;
+}
+
+    .score-confirm-buttons button {
+        background: #b88a4b;
+        border: none;
+        color: white;
+        padding: 6px 16px;
+        border-radius: 30px;
+        cursor: pointer;
+        font-weight: bold;
+        border-bottom: 2px solid #5e3e1e;
+    }
+
+        .score-confirm-buttons button:active {
+            transform: translateY(2px);
+        }
+
+/* ========== 乌克兰围棋 / 罗斯围棋：底部复合棋子形状选择器 ========== */
+.bottom-palette {
+    margin-top: 25px;
+    background: #8f6b4f;
+    padding: 16px 12px;
+    border-radius: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-bottom: 5px solid #4a3629;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    gap: 20px;
+    flex-wrap: wrap;
+}
+
+.piece-row {
+    display: flex;
+    gap: 15px;
+    flex-wrap: wrap;
+    justify-content: center;
+}
+
+.piece-btn {
+    background: #eace9f;
+    border: 3px solid #8b6b4b;
+    width: 96px;
+    height: 96px;
+    border-radius: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 6px 0 #6b4a2e;
+    transition: 0.07s;
+    cursor: pointer;
+    flex-shrink: 0;
+    padding: 0;
+    opacity: 1;
+}
+
+    .piece-btn.active {
+        border: 4px solid #ffd966;
+        transform: scale(1.05);
+        box-shadow: 0 0 20px gold;
+    }
+
+    .piece-btn.disabled {
+        opacity: 0.4;
+        pointer-events: none;
+        filter: grayscale(0.8);
+    }
+
+.observer-mode .piece-btn {
+    pointer-events: none;
+    opacity: 0.5;
+    filter: grayscale(0.6);
+}
+
+    .observer-mode .piece-btn.active {
+        border: 3px solid #8b6b4b;
+        transform: none;
+        box-shadow: 0 6px 0 #6b4a2e;
+    }
+
+.shape-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 32px);
+    grid-template-rows: repeat(3, 32px);
+    gap: 0px;
+    place-items: center;
+    width: 96px;
+    height: 96px;
+}
+
+.shape-grid .stone {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: #222;
+    border: 2px solid #444;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.6);
+}
+
+.transform-buttons {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+}
+
+.transform-btn {
+    background: #b88a4b;
+    border: none;
+    color: white;
+    font-weight: bold;
+    padding: 8px 16px;
+    border-radius: 30px;
+    cursor: pointer;
+    font-size: 1rem;
+    border-bottom: 3px solid #5e3e1e;
+}
+
+    .transform-btn:active {
+        transform: translateY(2px);
+    }
+
+.touch-device .mobile-actions {
+    display: flex;
+}
+
+.no-touch .mobile-actions {
+    display: none;
+}
+
+@media (max-width: 700px) {
+    .piece-btn {
+        width: 70px;
+        height: 70px;
+    }
+
+    .shape-grid {
+        grid-template-columns: repeat(3, 24px);
+        grid-template-rows: repeat(3, 24px);
+        width: 72px;
+        height: 72px;
+    }
+
+    .shape-grid .stone {
+        width: 20px;
+        height: 20px;
+    }
+
+    .transform-btn {
+        padding: 6px 12px;
+        font-size: 0.8rem;
+    }
+}
+
+/* ========== 三角 / 六角 / 扭棱等非方格棋盘：画布容器（可选类名，由各棋类页面自行挂上） ========== */
+.tri-board-canvas-wrap,
+.hex-board-canvas-wrap,
+.snub-board-canvas-wrap {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    width: 100%;
+}
+
+.tri-board-canvas-wrap canvas,
+.hex-board-canvas-wrap canvas,
+.snub-board-canvas-wrap canvas {
+    max-width: 100%;
+    height: auto;
+}
+
+/* ========== 权重围棋 / 三权重：格内数字与棋子分层时用的辅助（具体绘制在 board.js QiSquareWeiqiCanvas / cellWeight） ========== */
+.qi-cell-inner-label {
+    font-weight: bold;
+    pointer-events: none;
+    user-select: none;
+}
+
+/* ========== 洞 / 中立子 / 雾 / 隐身子等：仅非画布 UI 时用；画布效果见 board.js（holeDrawPit、neutralDrawSmallMarker、fogBlend、invisibleDrawStone） ========== */
+.qi-board-hole-indicator {
+    box-sizing: border-box;
+    border: 2px dashed rgba(180, 40, 40, 0.85);
+    border-radius: 4px;
+}
+
+.qi-board-neutral-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 10px;
+    background: #666;
+    color: #eee;
+    font-size: 0.75rem;
+}
+
+.qi-board-fog-hint {
+    color: #a8c4e8;
+    font-size: 0.9rem;
+}
+
+.qi-board-invisible-hint {
+    color: #b0b0b0;
+    font-size: 0.9rem;
+}
+
+/* 隐身子围棋：打谱视角（与 info-panel 同系，标题样式对齐 turn-box 文字） */
+.replay-perspective-panel {
+    background: #8f6b4f;
+    padding: 14px 16px 16px;
+    border-radius: 20px;
+    border: 1px solid #c9a450;
+    border-bottom: 4px solid #4d2f1b;
+    width: 100%;
+    max-width: 280px;
+    margin: 6px 0 10px;
+    box-sizing: border-box;
+}
+
+.replay-perspective-options {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    align-items: flex-start;
+}
+
+.replay-perspective-label {
+    color: #efdfbb;
+    font-size: 1.0rem;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    line-height: 1.4;
+}
+
+.replay-perspective-label input {
+    flex-shrink: 0;
+}
+
+/* ========== 易位 / 不稳定：上一手方棋子描边为 canvas 绘制（stoneAccent）；零气 / 消除五子：危险环为 stoneDanger ========== */

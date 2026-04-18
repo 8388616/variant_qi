@@ -238,9 +238,10 @@ function computeTerritoryLead(stones, roadCount) {
     return { lead, blackPoints, whitePoints };
 }
 
-class NogridWeiqiRoom {
+const { QiTwoPlayerRoomBase } = require('../common');
+class NogridWeiqiRoom extends QiTwoPlayerRoomBase {
     constructor(room) {
-        this.room = room;
+        super(room);
         this.roadCount = 18;
         this.stones = [];
         this.currentPlayer = 1;
@@ -284,20 +285,6 @@ class NogridWeiqiRoom {
                 white: !!this.room.getPlayerBySlot('white')
             }
         };
-    }
-
-    assignSlot(ws, requestedSlot) {
-        if (requestedSlot === 'black' && !this.room.getPlayerBySlot('black')) return 'black';
-        if (requestedSlot === 'white' && !this.room.getPlayerBySlot('white')) return 'white';
-        return null;
-    }
-
-    broadcast(data, exclude = null) {
-        this.room.broadcast(data, exclude);
-    }
-
-    sendState(ws) {
-        ws.send(JSON.stringify({ type: 'gameState', ...this.getState() }));
     }
 
     getMoveCount() {

@@ -1,7 +1,9 @@
-class StrongMagneticWeiqiRoom
+const { QiTwoPlayerRoomBase, qiProtocol, squareWeiqiRules, applyInitialPositionCompact } = require('../common');
+/** 客户端「显示序号」按 moveCoords 与磁性规则重放，使序号随子移动（见 强磁性围棋.html）。 */
+class StrongMagneticWeiqiRoom extends QiTwoPlayerRoomBase
 {
     constructor(room, initialSize = 19) {
-        this.room = room;
+        super(room);
         this.boardSize = initialSize;
         this.board = Array(this.boardSize).fill().map(() => Array(this.boardSize).fill(0));
         this.currentPlayer = 1;
@@ -22,46 +24,12 @@ class StrongMagneticWeiqiRoom
         this.scoreProposalData = null;
     }
 
-    copyBoard(src) { return src.map(row => row.slice()); }
-    boardToString(board) { return board.map(row => row.join(',')).join(';'); }
-
-    hasLiberty(board, row, col)
-    {
-        const color = board[row][col];
-        if (color === 0) return false;
-        const visited = Array(this.boardSize).fill().map(() => Array(this.boardSize).fill(false));
-        const queue = [[row, col]];
-        visited[row][col] = true;
-        const dirs = [[-1, 0], [1, 0], [0, -1], [0, 1]];
-        while (queue.length) {
-            const [r, c] = queue.shift();
-            for (let [dr, dc] of dirs) {
-                const nr = r + dr, nc = c + dc;
-                if (nr < 0 || nr >= this.boardSize || nc < 0 || nc >= this.boardSize) continue;
-                if (board[nr][nc] === 0) return true;
-                if (board[nr][nc] === color && !visited[nr][nc]) {
-                    visited[nr][nc] = true;
-                    queue.push([nr, nc]);
-                }
-            }
-        }
-        return false;
+    hasLiberty(board, row, col) {
+        return squareWeiqiRules.hasLiberty(board, row, col, this.boardSize);
     }
 
     removeGroup(board, row, col, color) {
-        const queue = [[row, col]];
-        board[row][col] = 0;
-        const dirs = [[-1, 0], [1, 0], [0, -1], [0, 1]];
-        while (queue.length) {
-            const [r, c] = queue.shift();
-            for (let [dr, dc] of dirs) {
-                const nr = r + dr, nc = c + dc;
-                if (nr >= 0 && nr < this.boardSize && nc >= 0 && nc < this.boardSize && board[nr][nc] === color) {
-                    board[nr][nc] = 0;
-                    queue.push([nr, nc]);
-                }
-            }
-        }
+        squareWeiqiRules.removeGroup(board, row, col, color, this.boardSize);
     }
 
     /**
@@ -146,131 +114,28 @@ class StrongMagneticWeiqiRoom
     }
 
     isLibertySurroundedByOpponent(board, libertyRow, libertyCol, opponentColor) {
-        const dirs = [[-1, 0], [1, 0], [0, -1], [0, 1]];
-        for (let [dr, dc] of dirs) {
-            const nr = libertyRow + dr, nc = libertyCol + dc;
-            if (nr >= 0 && nr < this.boardSize && nc >= 0 && nc < this.boardSize && board[nr][nc] === opponentColor) return true;
-        }
-        return false;
+        return squareWeiqiRules.isLibertySurroundedByOpponent(
+            board, libertyRow, libertyCol, opponentColor, this.boardSize
+        );
     }
 
     removeDeadAndDying(srcBoard) {
-        let boardCopy = this.copyBoard(srcBoard);
-        let changed = true;
-        while (changed) {
-            changed = false;
-            const visited = Array(this.boardSize).fill().map(() => Array(this.boardSize).fill(false));
-            for (let r = 0; r < this.boardSize; r++) {
-                for (let c = 0; c < this.boardSize; c++) {
-                    const val = boardCopy[r][c];
-                    if ((val === 1 || val === 2) && !visited[r][c]) {
-                        const color = val;
-                        const queue = [[r, c]];
-                        visited[r][c] = true;
-                        const stones = [[r, c]];
-                        const liberties = new Set();
-                        let idx = 0;
-                        const dirs = [[-1, 0], [1, 0], [0, -1], [0, 1]];
-                        while (idx < queue.length) {
-                            const [rr, cc] = queue[idx++];
-                            for (let [dr, dc] of dirs) {
-                                const nr = rr + dr, nc = cc + dc;
-                                if (nr < 0 || nr >= this.boardSize || nc < 0 || nc >= this.boardSize) continue;
-                                if (boardCopy[nr][nc] === 0) liberties.add(nr + ',' + nc);
-                                else if (boardCopy[nr][nc] === color && !visited[nr][nc]) {
-                                    visited[nr][nc] = true;
-                                    queue.push([nr, nc]);
-                                    stones.push([nr, nc]);
-                                }
-                            }
-                        }
-                        if (liberties.size === 0) {
-                            for (let [rr, cc] of stones) boardCopy[rr][cc] = 0;
-                            changed = true;
-                            continue;
-                        }
-                        if (liberties.size <= 2) {
-                            let allControlled = true;
-                            for (let lib of liberties) {
-                                const [lr, lc] = lib.split(',').map(Number);
-                                if (!this.isLibertySurroundedByOpponent(boardCopy, lr, lc, 3 - color)) {
-                                    allControlled = false;
-                                    break;
-                                }
-                            }
-                            if (allControlled) {
-                                for (let [rr, cc] of stones) boardCopy[rr][cc] = 0;
-                                changed = true;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        return boardCopy;
+        return squareWeiqiRules.removeDeadAndDying(srcBoard, this.boardSize, (b) => this.copyBoard(b));
     }
 
     assignTerritoryWithRange(liveBoard) {
-        const territory = Array(this.boardSize).fill().map(() => Array(this.boardSize).fill(0));
-        for (let r = 0; r < this.boardSize; r++) {
-            for (let c = 0; c < this.boardSize; c++) {
-                if (liveBoard[r][c] !== 0) continue;
-                const maxDist = (r <= 1 || r >= this.boardSize - 2 || c <= 1 || c >= this.boardSize - 2) ? 5 : 4;
-                let blackMin = Infinity, whiteMin = Infinity;
-                const dist = Array(this.boardSize).fill().map(() => Array(this.boardSize).fill(Infinity));
-                dist[r][c] = 0;
-                const queue = [[r, c]];
-                const dirs = [[-1, 0], [1, 0], [0, -1], [0, 1]];
-                let front = 0;
-                while (front < queue.length) {
-                    const [cr, cc] = queue[front++];
-                    const d = dist[cr][cc];
-                    if (d > maxDist) continue;
-                    if (liveBoard[cr][cc] === 1 && d < blackMin) blackMin = d;
-                    if (liveBoard[cr][cc] === 2 && d < whiteMin) whiteMin = d;
-                    for (let [dr, dc] of dirs) {
-                        const nr = cr + dr, nc = cc + dc;
-                        if (nr >= 0 && nr < this.boardSize && nc >= 0 && nc < this.boardSize && liveBoard[nr][nc] !== -1 && dist[nr][nc] === Infinity) {
-                            dist[nr][nc] = d + 1;
-                            queue.push([nr, nc]);
-                        }
-                    }
-                }
-                if (blackMin <= maxDist && whiteMin <= maxDist) {
-                    if (blackMin < whiteMin) territory[r][c] = 1;
-                    else if (whiteMin < blackMin) territory[r][c] = 2;
-                    else territory[r][c] = 3;
-                } else if (blackMin <= maxDist) territory[r][c] = 1;
-                else if (whiteMin <= maxDist) territory[r][c] = 2;
-                else territory[r][c] = 3;
-            }
-        }
-        return territory;
+        return squareWeiqiRules.assignTerritoryWithRange(liveBoard, this.boardSize);
     }
 
     computeScore(liveBoard, territory) {
-        let blackStones = 0, whiteStones = 0, blackTerritory = 0, whiteTerritory = 0, publicTerritory = 0;
-        for (let r = 0; r < this.boardSize; r++) {
-            for (let c = 0; c < this.boardSize; c++) {
-                if (liveBoard[r][c] === 1) blackStones++;
-                else if (liveBoard[r][c] === 2) whiteStones++;
-                else if (liveBoard[r][c] === 0) {
-                    if (territory[r][c] === 1) blackTerritory++;
-                    else if (territory[r][c] === 2) whiteTerritory++;
-                    else if (territory[r][c] === 3) publicTerritory++;
-                }
-            }
-        }
-        const blackTotal = blackStones + blackTerritory + publicTerritory / 2;
-        const whiteTotal = whiteStones + whiteTerritory + publicTerritory / 2;
-        return { blackTotal, whiteTotal };
+        return squareWeiqiRules.computeScore(liveBoard, territory, this.boardSize);
     }
 
     computeLead() {
         const liveBoard = this.removeDeadAndDying(this.board);
         const territory = this.assignTerritoryWithRange(liveBoard);
         const { blackTotal, whiteTotal } = this.computeScore(liveBoard, territory);
-        const KOMI = 3.25;
+        const KOMI = this.boardSize <= 8 ? 4.25 : 3.25;
         return blackTotal - whiteTotal - 2 * KOMI;
     }
 
@@ -278,6 +143,7 @@ class StrongMagneticWeiqiRoom
     {
         return {
             boardSize: this.boardSize,
+            komi: this.boardSize <= 8 ? 4.25 : 3.25,
             board: this.board,
             numberOfHands: 1 + this.historyBoards.length,
             currentPlayer: this.currentPlayer,
@@ -290,25 +156,6 @@ class StrongMagneticWeiqiRoom
                 white: !!this.room.getPlayerBySlot('white')
             }
         };
-    }
-
-    assignSlot(ws, requestedSlot) {
-        if (requestedSlot === 'black' && !this.room.getPlayerBySlot('black')) return 'black';
-        if (requestedSlot === 'white' && !this.room.getPlayerBySlot('white')) return 'white';
-        return null;
-    }
-
-    broadcast(data, exclude = null) {
-        const allClients = [...this.room.players.keys(), ...this.room.observers];
-        for (const client of allClients) {
-            if (client !== exclude && client.readyState === 1) {
-                client.send(JSON.stringify(data));
-            }
-        }
-    }
-
-    sendState(ws) {
-        ws.send(JSON.stringify({ type: 'gameState', ...this.getState() }));
     }
 
     startScoreCounting(requester, opponent) {
@@ -326,164 +173,47 @@ class StrongMagneticWeiqiRoom
 
         switch (msg.type) {
             case 'selectColor':
-                if (slot) return;
-                const newSlot = this.assignSlot(ws, msg.color);
-                if (newSlot) {
-                    room.setPlayerSlot(ws, newSlot);
-                    ws.send(JSON.stringify({ type: 'colorAssigned', color: newSlot }));
-                    this.sendState(ws);
-                    room.broadcast({ type: 'slotOccupied', slot: newSlot }, ws);
-                } else {
-                    ws.send(JSON.stringify({ type: 'error', message: '该颜色已被占用' }));
-                }
+                qiProtocol.selectColor(this, ws, msg);
                 break;
 
             case 'setBoardSize':
-                if (!slot && !this.room.players.size)
-                    this.setBoardSize(msg.size, ws);
+                qiProtocol.setBoardSizeWeiqiObserver(this, ws, msg, slot);
                 break;
 
             case 'move':
-                if (this.gameOver) return;
-                if (!slot || slot !== (this.currentPlayer === 1 ? 'black' : 'white')) return;
-                const { row, col } = msg;
-                if (row < 0 || row >= this.boardSize || col < 0 || col >= this.boardSize) return;
-                if (this.board[row][col] !== 0) {
-                    return;
-                }
-                const playerVal = this.currentPlayer === 1 ? 1 : 2;
-                const newBoard = this.tryPlaceStone(this.board, row, col, playerVal);
-                if (!newBoard) {
-                    ws.send(JSON.stringify({ type: 'error', message: '无效落子' }));
-                    return;
-                }
-                const newBoardStr = this.boardToString(newBoard);
-                if (this.historyBoardSet.has(newBoardStr))
-                {
-                    ws.send(JSON.stringify({ type: 'error', message: '禁全同。' }));
-                    return;
-                }
-                this.historyBoards.push(this.copyBoard(newBoard));
-                this.historyBoardSet.add(newBoardStr);
-                this.historyMarkers.push(this.copyMarkers(this.lastMoveMarkers));
-                this.moveHistory.push(slot);
-                this.moveCoords.push({ type: 'move', player: slot, row, col });
-                this.board = newBoard;
-                this.lastMoveMarkers = [{ row, col, color: playerVal }];
-                this.currentPlayer = this.currentPlayer === 1 ? 2 : 1;
-                this.passCounter = 0;
-                this.broadcast({ type: 'broadcast', action: 'move', ...this.getState() });
+                qiProtocol.weiqiMove(this, ws, msg, slot);
                 break;
 
             case 'pass':
-                if (this.gameOver) return;
-                if (!slot || slot !== (this.currentPlayer === 1 ? 'black' : 'white')) return;
-                this.historyBoards.push(this.copyBoard(this.board));
-                this.historyMarkers.push(this.copyMarkers(this.lastMoveMarkers));
-                this.moveHistory.push(slot);
-                this.moveCoords.push({ type: 'pass', player: slot });
-                this.currentPlayer = this.currentPlayer === 1 ? 2 : 1;
-                this.passCounter++;
-                this.lastMoveMarkers = [];
-                this.broadcast({ type: 'broadcast', action: 'pass', ...this.getState() });
-                if (this.passCounter >= 2) {
-                    const blackPlayer = room.getPlayerBySlot('black');
-                    const whitePlayer = room.getPlayerBySlot('white');
-                    if (blackPlayer && whitePlayer) {
-                        this.startScoreCounting(blackPlayer, whitePlayer);
-                    } else {
-                        this.gameOver = true;
-                        this.broadcast({ type: 'broadcast', action: 'endAgreed', ...this.getState() });
-                    }
-                }
+                qiProtocol.weiqiPass(this, ws, slot);
                 break;
 
             case 'requestUndo':
-                if (!slot || this.gameOver)
-                    return;
-                let steps = 0;
-                for (let i = this.moveHistory.length - 1; i >= 0; i--)
-                {
-                    steps++;
-                    if (this.moveHistory[i] === slot)
-                        break;
-                }
-                if (steps === 0 || steps > this.historyBoards.length)
-                {
-                    ws.send(JSON.stringify({ type: 'error', message: '无法悔棋。' }));
-                    return;
-                }
-                const opponentSlot = slot === 'black' ? 'white' : 'black';
-                const opponent = room.getPlayerBySlot(opponentSlot);
-                if (!opponent)
-                    this.performUndo(steps, ws);
-                else
-                {
-                    this.pendingUndo = { requester: ws, steps };
-                    opponent.send(JSON.stringify({ type: 'undoRequest' }));
-                }
+                qiProtocol.weiqiRequestUndo(this, ws, slot);
                 break;
 
             case 'undoResponse':
-                if (this.pendingUndo)
-                {
-                    if (msg.accept)
-                        this.performUndo(this.pendingUndo.steps, this.pendingUndo.requester);
-                    else
-                        this.pendingUndo.requester.send(JSON.stringify({ type: 'error', message: '对方拒绝悔棋。' }));
-                }
-                this.pendingUndo = null;
+                qiProtocol.weiqiUndoResponse(this, ws, msg);
                 break;
 
             case 'resign':
-                if (!slot || this.gameOver) return;
-                this.gameOver = true;
-                this.winner = slot === 'black' ? 'white' : 'black';
-                this.broadcast({ type: 'broadcast', action: 'resign', player: slot, winner: this.winner, ...this.getState() });
+                qiProtocol.resign(this, ws, slot);
                 break;
 
             case 'requestNewGame':
-                if (!slot) return;
-                const newGameOpponent = room.getPlayerBySlot(slot === 'black' ? 'white' : 'black');
-                if (!newGameOpponent) {
-                    this.resetGame();
-                } else {
-                    this.pendingNewGame = ws;
-                    newGameOpponent.send(JSON.stringify({ type: 'newGameRequest' }));
-                }
+                qiProtocol.requestNewGame(this, ws, slot);
                 break;
 
             case 'newGameResponse':
-                if (this.pendingNewGame && msg.accept) {
-                    this.resetGame();
-                } else if (this.pendingNewGame && !msg.accept) {
-                    this.pendingNewGame.send(JSON.stringify({ type: 'error', message: '对方拒绝开始新局' }));
-                }
-                this.pendingNewGame = null;
+                qiProtocol.newGameResponse(this, ws, msg, { newGameDeniedMsg: '对方拒绝开始新局' });
                 break;
 
             case 'requestDraw':
-                if (!slot || this.gameOver) return;
-                const drawOpponent = room.getPlayerBySlot(slot === 'black' ? 'white' : 'black');
-                if (!drawOpponent) {
-                    this.gameOver = true;
-                    this.winner = 'draw';
-                    this.broadcast({ type: 'broadcast', action: 'drawAgreed', ...this.getState() });
-                } else {
-                    this.pendingDraw = ws;
-                    drawOpponent.send(JSON.stringify({ type: 'drawRequest' }));
-                }
+                qiProtocol.requestDraw(this, ws, slot);
                 break;
 
             case 'drawResponse':
-                if (this.pendingDraw && msg.accept) {
-                    this.gameOver = true;
-                    this.winner = 'draw';
-                    this.broadcast({ type: 'broadcast', action: 'drawAgreed', ...this.getState() });
-                } else if (this.pendingDraw && !msg.accept) {
-                    this.pendingDraw.send(JSON.stringify({ type: 'error', message: '对方拒绝和棋。' }));
-                }
-                this.pendingDraw = null;
+                qiProtocol.drawResponse(this, ws, msg);
                 break;
 
             case 'requestEnd':
@@ -527,21 +257,15 @@ class StrongMagneticWeiqiRoom
                 break;
 
             case 'exportRecord':
-                ws.send(JSON.stringify({ type: 'gameRecord', data: this.exportRecord() }));
+                qiProtocol.exportRecord(this, ws);
                 break;
 
             case 'importRecord':
-                if (this.room.getPlayerBySlot('black') || this.room.getPlayerBySlot('white')) {
-                    ws.send(JSON.stringify({ type: 'error', message: '已有玩家入座，无法导入棋谱' }));
-                    return;
-                }
-                this.importRecord(msg.data, ws);
+                qiProtocol.importRecord(this, ws, msg, { importBlockedMsg: '已有玩家入座，无法导入棋谱' });
                 break;
 
             case 'resetRoom':
-                if (this.room.getPlayerBySlot('black') || this.room.getPlayerBySlot('white')) return;
-                this.resetToEmpty();
-                this.broadcast({ type: 'roomReset', ...this.getState() });
+                qiProtocol.resetRoomToEmpty(this, ws);
                 break;
 
             default:
@@ -594,21 +318,20 @@ class StrongMagneticWeiqiRoom
         this.gameOver = false;
         this.winner = null;
         this.passCounter = 0;
-        // 必须先广播 newGameStarted：broadcast 只遍历 players 与 observers。
-        // 若先清空 players，原对局连接不在任何集合里，会收不到消息，客户端局面/路数 UI 不会更新。
-        this.broadcast({ type: 'newGameStarted', ...this.getState(), slots: { black: false, white: false } });
-        const toRelease = [...this.room.players.entries()];
-        for (const [client, slot] of toRelease) {
-            this.room.players.delete(client);
+        for (const [client, slot] of this.room.players.entries())
+        {
             this.room.slotOccupancy.delete(slot);
+            this.room.players.delete(client);
+            this.room.observers.add(client);
             client.send(JSON.stringify({ type: 'slotReleased', slot }));
         }
+        this.broadcast({ type: 'newGameStarted', ...this.getState(), slots: { black: false, white: false } });
     }
 
     setBoardSize(newSize, requesterWs)
     {
         if (!Number.isInteger(newSize) || newSize < 7 || newSize > 21) {
-            requesterWs.send(JSON.stringify({ type: 'error', message: '棋盘大小无效。' }));
+            requesterWs.send(JSON.stringify({ type: 'error', message: '棋盘大小无效' }));
             return false;
         }
         const hasAnyStone = this.board.some(row => row.some(v => v !== 0));
@@ -630,9 +353,9 @@ class StrongMagneticWeiqiRoom
             gameType: '强磁性围棋',
             gameId: 'strong-magnetism-weiqi',
             boardSize: this.boardSize,
-            komi: 3.25,
+            komi: this.boardSize <= 8 ? 4.25 : 3.25,
             players: { black: null, white: null },
-            initialPosition: { black: [], white: [] },
+            initialPosition: [],
             moves: this.moveCoords.map(m => {
                 const p = m.player === 'black' ? 'B' : 'W';
                 return m.type === 'pass' ? p + 'p' : p + m.row + ',' + m.col;
@@ -685,26 +408,7 @@ class StrongMagneticWeiqiRoom
         this.boardSize = newSize;
         this.resetToEmpty();
 
-        if (data.initialPosition) {
-            if (Array.isArray(data.initialPosition.black)) {
-                for (const pos of data.initialPosition.black) {
-                    if (Array.isArray(pos) && pos.length === 2) {
-                        const [r, c] = pos;
-                        if (r >= 0 && r < this.boardSize && c >= 0 && c < this.boardSize)
-                            this.board[r][c] = 1;
-                    }
-                }
-            }
-            if (Array.isArray(data.initialPosition.white)) {
-                for (const pos of data.initialPosition.white) {
-                    if (Array.isArray(pos) && pos.length === 2) {
-                        const [r, c] = pos;
-                        if (r >= 0 && r < this.boardSize && c >= 0 && c < this.boardSize)
-                            this.board[r][c] = 2;
-                    }
-                }
-            }
-        }
+        applyInitialPositionCompact(this.board, this.boardSize, data.initialPosition);
 
         const rawMoves = data.moves || [];
         const moves = rawMoves.map(StrongMagneticWeiqiRoom.parseMove);
@@ -757,7 +461,7 @@ class StrongMagneticWeiqiRoom
             type: 'importSuccess',
             ...this.getState(),
             replayData: {
-                initialPosition: data.initialPosition || { black: [], white: [] },
+                initialPosition: data.initialPosition || [],
                 moves: this.moveCoords.map(m => ({ ...m }))
             }
         });

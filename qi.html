@@ -189,11 +189,31 @@
             flex-direction: column;
         }
 
+        .catalog-import-btn {
+            position: absolute;
+            top: 14px;
+            right: 28px;
+            z-index: 2;
+            background: none;
+            border: none;
+            color: #ffd98c;
+            font-weight: bold;
+            padding: 0;
+            cursor: pointer;
+            font-size: 1rem;
+            transition: color 0.2s ease;
+        }
+
+            .catalog-import-btn:hover {
+                color: #fff2c9;
+            }
+
         .catalog-title-wrapper {
             display: flex;
             align-items: baseline;
             margin: 0 0 16px 8px;
             gap: 12px;
+            padding-right: 120px;
         }
 
         .catalog-title {
@@ -318,7 +338,14 @@
                 max-height: none;
             }
 
+            .catalog-import-btn {
+                top: 10px;
+                right: 8px;
+            }
 
+            .catalog-title-wrapper {
+                padding-right: 100px;
+            }
 
             .games-scroll {
                 column-width: auto;
@@ -543,6 +570,7 @@
         </div>
 
         <div class="games-catalog">
+            <button type="button" class="catalog-import-btn" id="lobbyImportRecordBtn" title="导入棋谱">导入棋谱</button>
             <div class="catalog-title-wrapper">
                 <div class="catalog-title">创建房间</div>
                 <div class="random-level-hint">
@@ -553,6 +581,8 @@
             <div class="games-scroll" id="gamesScroll"></div>
         </div>
     </div>
+
+    <input type="file" id="lobbyImportFileInput" accept=".json,application/json" style="display:none;" aria-hidden="true">
 
     <div id="createModal" class="modal-mask">
         <div class="modal-panel">
@@ -576,7 +606,7 @@
             { id: 'weight-weiqi', name: '权重围棋', randomLevel: 2, path: 'weight-weiqi', enabled: true, category: '围棋' },
             { id: 'triweight-weiqi', name: '三权重围棋', randomLevel: 2, path: 'triweight-weiqi', enabled: true, category: '围棋' },
             { id: 'hole-weiqi', name: '洞围棋', randomLevel: 2, path: 'hole-weiqi', enabled: true, category: '围棋' },
-            { id: 'russian-weiqi', name: '俄罗斯围棋', randomLevel: 4, path: 'ukrainian-weiqi', enabled: false, category: '围棋' },
+            { id: 'russian-weiqi', name: '俄罗斯围棋', randomLevel: 4, path: 'russian-weiqi', enabled: true, category: '围棋' },
             { id: 'ukrainian-weiqi', name: '乌克兰围棋', randomLevel: 0, path: 'ukrainian-weiqi', enabled: true, category: '围棋' },
             { id: 'rus-weiqi', name: '罗斯围棋', randomLevel: 0, path: 'rus-weiqi', enabled: true, category: '围棋' },
             { id: 'mirror-image-weiqi', name: '镜像围棋', randomLevel: 4, path: 'mirror-image-weiqi', enabled: true, category: '围棋' },
@@ -589,6 +619,7 @@
             { id: 'sync-weiqi', name: '同步围棋', randomLevel: 3, path: 'sync-weiqi', enabled: true, category: '围棋' },
             { id: 'invisible-stone-weiqi', name: '隐身子围棋', randomLevel: 3, path: 'invisible-stone-weiqi', enabled: true, category: '围棋' },
             { id: 'ghost-weiqi', name: '幽灵围棋', randomLevel: 3, path: 'ghost-weiqi', enabled: false, category: '围棋' },
+            { id: 'renju-weiqi', name: '连珠围棋', randomLevel: 0, path: 'renju-weiqi', enabled: false, category: '围棋' },
             { id: 'no-weiqi', name: '不围棋', randomLevel: 0, path: 'no-weiqi', enabled: true, category: '围棋' },
 
             // 五子棋类
@@ -606,7 +637,10 @@
             { id: 'pentagon-weiqi', name: '五角围棋', randomLevel: 0, path: 'pentagon-weiqi', enabled: false, category: '废案' },
             { id: 'big-small-circle-weiqi', name: '大小圆围棋', randomLevel: 0, path: 'big-small-circle-weiqi', enabled: false, category: '废案' },
             { id: 'triliberty-weiqi', name: '三气围棋', randomLevel: 0, path: 'triliberty-weiqi', enabled: true, category: '废案' },
+            { id: 'quadriliberty-weiqi', name: '四气围棋', randomLevel: 0, path: 'quadriliberty-weiqi', enabled: true, category: '废案' },
+            { id: 'various-liberty-weiqi', name: '异气围棋', randomLevel: 0, path: 'various-liberty-weiqi', enabled: true, category: '废案' },
             { id: 'neutral-stone-weiqi', name: '中立子围棋', randomLevel: 2, path: 'neutral-stone-weiqi', enabled: true, category: '废案' },
+            { id: 'forbidden-zone-weiqi', name: '禁区围棋', randomLevel: 2, path: 'forbidden-zone-weiqi', enabled: true, category: '废案' },
             { id: 'medium-magnetism-weiqi', name: '中磁性围棋', randomLevel: 0, path: 'medium-magnetism-weiqi', enabled: true, category: '废案' },
             { id: 'strong-magnetism-weiqi', name: '强磁性围棋', randomLevel: 0, path: 'strong-magnetism-weiqi', enabled: true, category: '废案' },
             { id: 'front-back-weiqi', name: '正反面围棋', randomLevel: 0, path: 'front-back-weiqi', enabled: true, category: '废案' },
@@ -619,6 +653,51 @@
         let pendingGame = null;
         let activeTooltip = null;
         const API_BASE = `${location.protocol}//${location.hostname}`;
+
+        /** 与 qi.js 中 sessionStorage 键一致：大厅导入成功后由游戏页在 joined 时发送 importRecord */
+        const QI_LOBBY_PENDING_IMPORT_KEY = 'qiLobbyPendingImport';
+
+        async function lobbyImportRecordFromFile(file) {
+            let data;
+            try {
+                data = JSON.parse(await file.text());
+            } catch (e) {
+                alert('棋谱文件解析失败');
+                return;
+            }
+            const gameId = data && data.gameId;
+            if (!gameId || typeof gameId !== 'string') {
+                alert('无法识别棋类或该棋类未开放');
+                return;
+            }
+            const game = GAMES_DATA.find(g => g.id === gameId);
+            if (!game || !game.enabled) {
+                alert('无法识别棋类或该棋类未开放');
+                return;
+            }
+            try {
+                const res = await fetch(`${API_BASE}/qi/create`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ game: game.id, password: null })
+                });
+                const result = await res.json();
+                if (!result.success) {
+                    alert('创建房间失败：' + (result.error || '未知错误'));
+                    return;
+                }
+                const roomId = String(result.roomId);
+                sessionStorage.setItem(`roomPassword_${roomId}`, '');
+                sessionStorage.setItem(QI_LOBBY_PENDING_IMPORT_KEY, JSON.stringify({
+                    record: data,
+                    expectedGameId: gameId,
+                    expectedRoomId: roomId
+                }));
+                window.location.href = `/qi/${game.path}/${roomId}`;
+            } catch (err) {
+                alert('网络错误，请稍后重试');
+            }
+        }
 
         async function fetchAllRooms()
         {
@@ -647,7 +726,11 @@
                 container.innerHTML = '<div class="empty-rooms">暂无房间</div>';
                 return;
             }
-            rooms.sort((a, b) => a.roomId - b.roomId);
+            rooms.sort((a, b) => {
+                const playerDiff = (b.playerCount || 0) - (a.playerCount || 0);
+                if (playerDiff !== 0) return playerDiff;
+                return a.roomId - b.roomId;
+            });
             const html = rooms.map(room => `
                             <div class="room-item" data-room-id="${room.roomId}" data-game-id="${room.gameId}" data-game-path="${room.gamePath}" data-has-password="${room.hasPassword}">
                                 <div class="room-info">
@@ -785,6 +868,17 @@
         }
 
         document.getElementById('refreshRoomsBtn').addEventListener('click', refreshRoomList);
+
+        const lobbyImportBtn = document.getElementById('lobbyImportRecordBtn');
+        const lobbyImportInput = document.getElementById('lobbyImportFileInput');
+        if (lobbyImportBtn && lobbyImportInput) {
+            lobbyImportBtn.addEventListener('click', () => lobbyImportInput.click());
+            lobbyImportInput.addEventListener('change', (e) => {
+                const file = e.target.files && e.target.files[0];
+                e.target.value = '';
+                if (file) lobbyImportRecordFromFile(file);
+            });
+        }
 
         const modal = document.getElementById('createModal');
         document.getElementById('confirmCreateBtn').addEventListener('click', () => {

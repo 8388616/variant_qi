@@ -1,6 +1,8 @@
-class SnubQuadrangleWeiqiRoom {
+const { QiTwoPlayerRoomBase, gridGraphGoRules } = require('../common');
+
+class SnubQuadrangleWeiqiRoom extends QiTwoPlayerRoomBase {
     constructor(room, initialLanes = 7) {
-        this.room = room;
+        super(room);
         this.boardLanes = initialLanes;
         this._allocBoard();
         this.currentPlayer = 1;
@@ -97,158 +99,51 @@ class SnubQuadrangleWeiqiRoom {
         return s;
     }
 
+    _nb() {
+        return (r, c) => this.getNeighbors(r, c);
+    }
+
     countGroupLiberties(board, row, col) {
-        const color = board[row][col];
-        if (color !== 1 && color !== 2) return 0;
-        const visited = Array(this.gridW).fill().map(() => Array(this.gridH).fill(false));
-        const queue = [[row, col]];
-        visited[row][col] = true;
-        const liberties = new Set();
-        while (queue.length) {
-            const [r, c] = queue.shift();
-            for (const [nr, nc] of this.getNeighbors(r, c)) {
-                if (board[nr][nc] === 0)
-                    liberties.add(nr + ',' + nc);
-                else if (board[nr][nc] === color && !visited[nr][nc]) {
-                    visited[nr][nc] = true;
-                    queue.push([nr, nc]);
-                }
-            }
-        }
-        return liberties.size;
+        return gridGraphGoRules.countGroupLiberties(board, row, col, this._nb());
     }
 
     removeGroup(board, row, col, color) {
-        const queue = [[row, col]];
-        board[row][col] = 0;
-        while (queue.length) {
-            const [r, c] = queue.shift();
-            for (const [nr, nc] of this.getNeighbors(r, c)) {
-                if (nr >= 0 && nr < this.gridW && nc >= 0 && nc < this.gridH && board[nr][nc] === color) {
-                    board[nr][nc] = 0;
-                    queue.push([nr, nc]);
-                }
-            }
-        }
+        gridGraphGoRules.removeGroup(board, row, col, color, this._nb());
     }
 
     tryPlaceStone(boardBefore, row, col, playerVal) {
         if (!this.isValidVertex(row, col) || boardBefore[row][col] !== 0) return null;
-        const newBoard = this.copyBoard(boardBefore);
-        newBoard[row][col] = playerVal;
-        const enemyColor = 3 - playerVal;
-        const checkedEnemy = new Set();
-
-        for (const [nr, nc] of this.getNeighbors(row, col)) {
-            if (newBoard[nr][nc] === enemyColor) {
-                const key = `${nr},${nc}`;
-                if (!checkedEnemy.has(key)) {
-                    checkedEnemy.add(key);
-                    if (this.countGroupLiberties(newBoard, nr, nc) < 1)
-                        this.removeGroup(newBoard, nr, nc, enemyColor);
-                }
-            }
-        }
-
-        if (this.countGroupLiberties(newBoard, row, col) < 1)
-            this.removeGroup(newBoard, row, col, playerVal);
-
-        return newBoard;
+        return gridGraphGoRules.tryPlaceStoneNLiberty(
+            boardBefore, row, col, playerVal, (b) => this.copyBoard(b), this._nb(), 1
+        );
     }
 
     removeDeadAndDying(srcBoard) {
-        let boardCopy = this.copyBoard(srcBoard);
-        let changed = true;
-        while (changed) {
-            changed = false;
-            const visited = Array(this.gridW).fill().map(() => Array(this.gridH).fill(false));
-            for (let r = 0; r < this.gridW; r++) {
-                for (let c = 0; c < this.gridH; c++) {
-                    if (!this.isValidVertex(r, c)) continue;
-                    const val = boardCopy[r][c];
-                    if ((val === 1 || val === 2) && !visited[r][c]) {
-                        const color = val;
-                        const queue = [[r, c]];
-                        visited[r][c] = true;
-                        const stones = [[r, c]];
-                        const liberties = new Set();
-                        let idx = 0;
-                        while (idx < queue.length) {
-                            const [rr, cc] = queue[idx++];
-                            for (const [nr, nc] of this.getNeighbors(rr, cc)) {
-                                if (boardCopy[nr][nc] === 0) liberties.add(nr + ',' + nc);
-                                else if (boardCopy[nr][nc] === color && !visited[nr][nc]) {
-                                    visited[nr][nc] = true;
-                                    queue.push([nr, nc]);
-                                    stones.push([nr, nc]);
-                                }
-                            }
-                        }
-                        if (liberties.size === 0) {
-                            for (const [rr, cc] of stones) boardCopy[rr][cc] = 0;
-                            changed = true;
-                            continue;
-                        }
-                    }
-                }
-            }
-        }
-        return boardCopy;
+        return gridGraphGoRules.removeDeadAndDying(
+            srcBoard,
+            this.gridW,
+            this.gridH,
+            (b) => this.copyBoard(b),
+            this._nb(),
+            (r, c) => this.isValidVertex(r, c)
+        );
     }
 
     assignTerritoryWithRange(liveBoard) {
-        const territory = Array(this.gridW).fill().map(() => Array(this.gridH).fill(0));
-        for (let r = 0; r < this.gridW; r++) {
-            for (let c = 0; c < this.gridH; c++) {
-                if (!this.isValidVertex(r, c) || liveBoard[r][c] !== 0) continue;
-                const maxDist = (r <= 1 || r >= this.gridW - 2 || c <= 1 || c >= this.gridH - 2) ? 5 : 4;
-                let blackMin = Infinity, whiteMin = Infinity;
-                const dist = Array(this.gridW).fill().map(() => Array(this.gridH).fill(Infinity));
-                dist[r][c] = 0;
-                const queue = [[r, c]];
-                let front = 0;
-                while (front < queue.length) {
-                    const [cr, cc] = queue[front++];
-                    const d = dist[cr][cc];
-                    if (d > maxDist) continue;
-                    if (liveBoard[cr][cc] === 1 && d < blackMin) blackMin = d;
-                    if (liveBoard[cr][cc] === 2 && d < whiteMin) whiteMin = d;
-                    for (const [nr, nc] of this.getNeighbors(cr, cc)) {
-                        if (liveBoard[nr][nc] !== -1 && dist[nr][nc] === Infinity) {
-                            dist[nr][nc] = d + 1;
-                            queue.push([nr, nc]);
-                        }
-                    }
-                }
-                if (blackMin <= maxDist && whiteMin <= maxDist) {
-                    if (blackMin < whiteMin) territory[r][c] = 1;
-                    else if (whiteMin < blackMin) territory[r][c] = 2;
-                    else territory[r][c] = 3;
-                } else if (blackMin <= maxDist) territory[r][c] = 1;
-                else if (whiteMin <= maxDist) territory[r][c] = 2;
-                else territory[r][c] = 3;
-            }
-        }
-        return territory;
+        return gridGraphGoRules.assignTerritoryWithRange(
+            liveBoard,
+            this.gridW,
+            this.gridH,
+            this._nb(),
+            (r, c) => this.isValidVertex(r, c)
+        );
     }
 
     computeScore(liveBoard, territory) {
-        let blackStones = 0, whiteStones = 0, blackTerritory = 0, whiteTerritory = 0, publicTerritory = 0;
-        for (let r = 0; r < this.gridW; r++) {
-            for (let c = 0; c < this.gridH; c++) {
-                if (!this.isValidVertex(r, c)) continue;
-                if (liveBoard[r][c] === 1) blackStones++;
-                else if (liveBoard[r][c] === 2) whiteStones++;
-                else if (liveBoard[r][c] === 0) {
-                    if (territory[r][c] === 1) blackTerritory++;
-                    else if (territory[r][c] === 2) whiteTerritory++;
-                    else if (territory[r][c] === 3) publicTerritory++;
-                }
-            }
-        }
-        const blackTotal = blackStones + blackTerritory + publicTerritory / 2;
-        const whiteTotal = whiteStones + whiteTerritory + publicTerritory / 2;
-        return { blackTotal, whiteTotal };
+        return gridGraphGoRules.computeScore(
+            liveBoard, territory, this.gridW, this.gridH,
+            (r, c) => this.isValidVertex(r, c)
+        );
     }
 
     computeLead() {
@@ -276,25 +171,6 @@ class SnubQuadrangleWeiqiRoom {
                 white: !!this.room.getPlayerBySlot('white')
             }
         };
-    }
-
-    assignSlot(ws, requestedSlot) {
-        if (requestedSlot === 'black' && !this.room.getPlayerBySlot('black')) return 'black';
-        if (requestedSlot === 'white' && !this.room.getPlayerBySlot('white')) return 'white';
-        return null;
-    }
-
-    broadcast(data, exclude = null) {
-        const allClients = [...this.room.players.keys(), ...this.room.observers];
-        for (const client of allClients) {
-            if (client !== exclude && client.readyState === 1) {
-                client.send(JSON.stringify(data));
-            }
-        }
-    }
-
-    sendState(ws) {
-        ws.send(JSON.stringify({ type: 'gameState', ...this.getState() }));
     }
 
     startScoreCounting(requester, opponent) {

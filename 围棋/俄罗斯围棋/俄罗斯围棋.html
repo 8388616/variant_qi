@@ -3,51 +3,47 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=2.0, user-scalable=yes">
-    <title>罗斯围棋</title>
+    <title>俄罗斯围棋</title>
     <link rel="stylesheet" href="/qi/qi.css">
     <style>
-        @media (min-width: 701px) {
-            .main-area-right .info-panel {
-                margin-left: auto;
-                margin-right: auto;
-            }
+        .score-box {
+            position: relative;
         }
-
-        @media (max-width: 700px) and (hover: none) and (pointer: coarse) {
-            .game-wrapper {
-                display: flex;
-                flex-direction: column;
+        .russian-compound-score-tools {
+            position: absolute;
+            inset: 14px;
+            display: flex;
+            flex-direction: row;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            z-index: 3;
+        }
+        .russian-compound-score-tools .compound-preview-host {
+            flex-shrink: 0;
+            background: #eace9f;
+            border: 3px solid #8b6b4b;
+            border-radius: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 4px 0 #6b4a2e;
+            padding: 2px;         
+        }
+        .russian-compound-score-tools .transform-buttons {
+            flex-direction: column;
+            gap: 8px;
+        }
+        @media (max-width: 700px) {
+            .russian-compound-score-tools .compound-preview-host .shape-grid {
+                grid-template-columns: repeat(3, 24px);
+                grid-template-rows: repeat(3, 24px);
+                width: 72px;
+                height: 72px;
             }
-
-            .main-area,
-            .main-area > .board-and-info {
-                display: contents;
-            }
-
-            .main-area > .button-panel {
-                margin-bottom: 20px;
-            }
-
-            .main-area > .board-and-info > .board-container {
-                order: 1;
-            }
-
-            .bottom-palette {
-                order: 2;
-            }
-
-            .main-area > .board-and-info > .main-area-right {
-                order: 3;
-                display: block;
-                width: 100%;
-                max-width: 100%;
-                margin-top: 14px;
-            }
-
-            .main-area > .board-and-info > .main-area-right > .info-panel {
-                width: 100%;
-                max-width: 100%;
-                margin-top: 0;
+            .russian-compound-score-tools .compound-preview-host .shape-grid .stone {
+                width: 20px;
+                height: 20px;
             }
         }
     </style>
@@ -60,7 +56,7 @@
                     <label id="labelBlack"><input type="radio" name="color" value="black" id="radioBlack"> ⚫ 黑方</label>
                     <label id="labelWhite"><input type="radio" name="color" value="white" id="radioWhite"> ⚪ 白方</label>
                 </div>
-                <div class="komi-info" id="komiInfo">黑贴白2.25点</div>
+                <div class="komi-info" id="komiInfo">黑贴白3.25点</div>
                 <div class="color-status" id="colorStatus">观战</div>
                 <select id="boardSizeSelect" class="board-size-select" style="display: none;">
                     <option value="7">7路</option>
@@ -92,14 +88,11 @@
         <div id="rulesModal" class="rules-modal">
             <div class="rules-content">
                 <span class="close-rules" id="closeRulesBtn">&times;</span>
-                <h3>罗斯围棋</h3>
+                <h3>俄罗斯围棋</h3>
                 <p>
                     基本规则同围棋。<br />
-                    使用复合棋子，每个复合棋子由三个单棋子组成（两枚己方、一枚对方，形状中第二个点为对方）。可选的复合棋子在棋盘下方。可以旋转、翻折。<br /><br />
-                    同一方不可以连续两步使用相同的形状。<br /><br />
-                    导出棋谱中每坐标用 + 表示己方、- 表示对方。<br /><br />
-                    单击右键旋转，长按右键翻折，滑动鼠标滚轮切换形状。<br /><br /><br />
-                    <font color="gray"><i>复合棋子中，两枚己方的棋子代表俄罗斯和白俄罗斯。</i></font><br />
+                    使用复合棋子，每个复合棋子由三个单棋子组成。每步随机选择一个复合棋子。可以旋转、翻折。<br /><br />
+                    单击右键旋转，长按右键翻折。<br />
                 </p>
             </div>
         </div>
@@ -133,6 +126,15 @@
                     <div class="info-panel">
                         <div class="turn-box" id="turnDisplay">　</div>
                         <div class="score-box">
+                            <div class="russian-compound-score-tools" id="scoreCompoundRow">
+                                <div class="compound-preview-host" id="compoundPreviewHost" aria-hidden="true">
+                                    <div class="shape-grid" id="compoundShapeGrid"></div>
+                                </div>
+                                <div class="transform-buttons" id="compoundTransformButtons">
+                                    <button class="transform-btn" id="rotateBtn">↻ 旋转</button>
+                                    <button class="transform-btn" id="flipBtn">⇄ 翻折</button>
+                                </div>
+                            </div>
                             <div class="score-title" id="scoreTitle">　</div>
                             <div class="score-content">
                                 <div id="scoreBoard">　</div>
@@ -160,31 +162,40 @@
                 </div>
             </div>
         </div>
-
-        <div class="bottom-palette">
-            <div class="piece-row" id="shapeSelector"></div>
-            <div class="transform-buttons">
-                <button class="transform-btn" id="rotateBtn">↻ 旋转</button>
-                <button class="transform-btn" id="flipBtn">⇄ 翻折</button>
-            </div>
-        </div>
     </div>
     <input type="file" id="importFileInput" accept=".json" style="display:none;">
 
     <script src="/qi/qi.js"></script>
     <script>
         const SHAPE_LIST = [
-            [[-1, -1], [0, 0], [1, 1]],
             [[-1, -1], [-1, 0], [1, 1]],
+            [[-1, -1], [-1, 1], [1, -1]],
+            [[-1, -1], [-1, 1], [1, 0]],
+            [[-1, -1], [0, 0], [1, 1]],
+            [[-1, -1], [1, -1], [-1, 1]],
+            [[-1, -1], [-1, 0], [1, 1]],
+            [[-1, -1], [-1, 1], [1, -1]],
+            [[-1, -1], [-1, 1], [1, 0]],
+            [[-1, -1], [0, 0], [1, 1]],
+            [[-1, -1], [1, -1], [-1, 1]],
+            [[-1, -1], [-1, 0], [1, 1]],
+            [[-1, -1], [-1, 1], [1, -1]],
+            [[-1, -1], [-1, 1], [1, 0]],
+            [[-1, -1], [0, 0], [1, 1]],
+            [[-1, -1], [1, -1], [-1, 1]],
+            [[0, -1], [0, 0], [1, 1]],
             [[-1, -1], [-1, 0], [1, 0]],
-            [[-1, -1], [0, 1], [1, 0]],
-            [[1, -1], [-1, -1], [-1, 1]]
+            [[0, -1], [-1, 0], [0, 1]],
+            [[0, -1], [0, 0], [1, 1]],
+            [[-1, -1], [-1, 0], [1, 0]],
+            [[0, -1], [-1, 0], [0, 1]],
+            [[0, -1], [0, 0], [0, 1]],
+            [[0, -1], [0, 0], [-1, 0]],
         ];
-        const SHAPE_STONE_OWNERS = ['self', 'opp', 'self'];
 
         var ps = {
             BOARD_SIZE: 19,
-            KOMI: 2.25,
+            KOMI: 3.25,
             PADDING: 0,
             CELL_SIZE: 0,
             numberOfHands: 1,
@@ -220,7 +231,7 @@
             liveReplayBoards: [],
             liveReplayMarkers: [],
             liveReplayStepPlayers: [],
-            liveReplayLastUsedAtStep: [],
+            liveReplayNextShapeAtStep: [],
             liveViewStep: 0,
             liveFollowLatest: true,
             userBoardMarks: Object.create(null),
@@ -228,18 +239,15 @@
             hoverCol: -1,
             isHoverValid: false,
             board: [],
-            lastUsedShapeByColor: { 1: -1, 2: -1 },
-            replayLastUsedAtStep: [],
-            tryPlayShapeByStep: [-1],
-            replayLastUsedSnapshot: { 1: -1, 2: -1 },
-            tryPlayLastUsedShapeByColor: { 1: -1, 2: -1 },
             currentShapeIndex: 0,
             rotation: 0,
             flipped: false,
             hasPreview: false,
             pendingPreviewRow: -1,
             pendingPreviewCol: -1,
-            _needCompoundShapeHint: false
+            _needCompoundShapeHint: false,
+            _prevSyncedNextShape: null,
+            _savedCompoundBeforeTryPlay: null
         };
         (function initSquareGeometry() {
             const g = QiSquareWeiqiCanvas.computePaddingAndCell(ps.BOARD_SIZE);
@@ -325,25 +333,6 @@
             return transformed.map(([dr, dc]) => [refRow + dr, refCol + dc]);
         }
 
-        function inferShapeIndexFromStones(stones) {
-            if (!stones || stones.length !== 3) return -1;
-            const norm = (arr) => [...arr].map(([r, c]) => `${r},${c}`).sort().join('|');
-            const target = norm(stones);
-            for (let shapeIdx = 0; shapeIdx < SHAPE_LIST.length; shapeIdx++) {
-                for (let rot = 0; rot < 4; rot++) {
-                    for (const flip of [false, true]) {
-                        for (let refR = 0; refR < ps.BOARD_SIZE; refR++) {
-                            for (let refC = 0; refC < ps.BOARD_SIZE; refC++) {
-                                const coords = generatePlacementCoords(shapeIdx, rot, flip, refR, refC);
-                                if (norm(coords) === target) return shapeIdx;
-                            }
-                        }
-                    }
-                }
-            }
-            return -1;
-        }
-
         function countGroupLiberties(brd, row, col) {
             return R().countGroupLiberties(brd, row, col, ps.BOARD_SIZE);
         }
@@ -359,100 +348,44 @@
                 if (r < 0 || r >= ps.BOARD_SIZE || c < 0 || c >= ps.BOARD_SIZE) return null;
                 if (boardBefore[r][c] !== 0) return null;
             }
-
             const newBoard = deepCopyBoard(boardBefore);
-            const owners = SHAPE_STONE_OWNERS;
+            for (let [r, c] of coords) newBoard[r][c] = playerVal;
             const affectedEnemy = new Set();
-            const affectedFriend = new Set();
-            for (let i = 0; i < coords.length; i++) 
-            {
-                const [r, c] = coords[i];
-                if (owners[i] === 'opp')
-                {   
-                    newBoard[r][c] = 3 - playerVal;
-                    affectedEnemy.add(`${r},${c}`);
-                }
-                else if (owners[i] === 'self')
-                {
-                    newBoard[r][c] = playerVal;
-                    affectedFriend.add(`${r},${c}`);
-                }    
-            }
-
-
             const dirs = [[-1, 0], [1, 0], [0, -1], [0, 1]];
             for (let [r, c] of coords) {
                 for (let [dr, dc] of dirs) {
                     const nr = r + dr, nc = c + dc;
-                    if (nr >= 0 && nr < ps.BOARD_SIZE && nc >= 0 && nc < ps.BOARD_SIZE) 
-                    {
-                        if (newBoard[r][c] === playerVal && newBoard[nr][nc] === 3 - playerVal) 
+                    if (nr >= 0 && nr < ps.BOARD_SIZE && nc >= 0 && nc < ps.BOARD_SIZE && newBoard[nr][nc] === 3 - playerVal)
                         affectedEnemy.add(`${nr},${nc}`);
-                        else if (newBoard[r][c] === 3 - playerVal && newBoard[nr][nc] === playerVal) 
-                            affectedFriend.add(`${nr},${nc}`);
                 }
             }
-            }
-
             for (let key of affectedEnemy) {
                 const [r, c] = key.split(',').map(Number);
                 if (newBoard[r][c] === 3 - playerVal && countGroupLiberties(newBoard, r, c) === 0)
                     removeGroup(newBoard, r, c, 3 - playerVal);
             }
-
-            for (let [r, c] of affectedFriend) {
+            for (let [r, c] of coords) {
                 if (newBoard[r][c] === playerVal && countGroupLiberties(newBoard, r, c) === 0)
                     removeGroup(newBoard, r, c, playerVal);
             }
-
             return newBoard;
         }
 
-        function tryPlaceStonesAt(boardBefore, stoneCoords, playerVal, stoneOwners) {
-            if (!stoneCoords || stoneCoords.length !== 3) return null;
-            if (!stoneOwners || stoneOwners.length !== 3) return null;
-            let oppN = 0;
-            for (const o of stoneOwners) { if (o === 'opp') oppN++; }
-            if (oppN !== 1) return null;
-
-            for (let i = 0; i < stoneCoords.length; i++) {
-                const [r, c] = stoneCoords[i];
+        function tryPlaceStonesAt(boardBefore, stoneCoords, playerVal) {
+            if (!stoneCoords || stoneCoords.length === 0) return null;
+            for (let [r, c] of stoneCoords) {
                 if (r < 0 || r >= ps.BOARD_SIZE || c < 0 || c >= ps.BOARD_SIZE) return null;
                 if (boardBefore[r][c] !== 0) return null;
             }
-
             const newBoard = deepCopyBoard(boardBefore);
+            for (let [r, c] of stoneCoords) newBoard[r][c] = playerVal;
             const affectedEnemy = new Set();
-            const affectedFriend = new Set();
-            for (let i = 0; i < stoneCoords.length; i++) 
-            {
-                const [r, c] = stoneCoords[i];
-                if (stoneOwners[i] === 'opp')
-                {   
-                    newBoard[r][c] = 3 - playerVal;
-                    affectedEnemy.add(`${r},${c}`);
-                }
-                else if (stoneOwners[i] === 'self')
-                {
-                    newBoard[r][c] = playerVal;
-                    affectedFriend.add(`${r},${c}`);
-                }    
-            }
-
-
             const dirs = [[-1, 0], [1, 0], [0, -1], [0, 1]];
-            for (let [r, c] of stoneCoords)
-            {
-                for (let [dr, dc] of dirs)
-                {
+            for (let [r, c] of stoneCoords) {
+                for (let [dr, dc] of dirs) {
                     const nr = r + dr, nc = c + dc;
-                    if (nr >= 0 && nr < ps.BOARD_SIZE  && nc >= 0 && nc < ps.BOARD_SIZE )
-                    {
-                        if (newBoard[r][c] === playerVal && newBoard[nr][nc] === 3 - playerVal)
-                            affectedEnemy.add(`${nr},${nc}`);
-                        else if (newBoard[r][c] === 3 - playerVal && newBoard[nr][nc] === playerVal)
-                            affectedFriend.add(`${nr},${nc}`);             
-                    }    
+                    if (nr >= 0 && nr < ps.BOARD_SIZE && nc >= 0 && nc < ps.BOARD_SIZE && newBoard[nr][nc] === 3 - playerVal)
+                        affectedEnemy.add(`${nr},${nc}`);
                 }
             }
             for (let key of affectedEnemy) {
@@ -460,7 +393,7 @@
                 if (newBoard[r][c] === 3 - playerVal && countGroupLiberties(newBoard, r, c) === 0)
                     removeGroup(newBoard, r, c, 3 - playerVal);
             }
-            for (let [r, c] of affectedFriend) {
+            for (let [r, c] of stoneCoords) {
                 if (newBoard[r][c] === playerVal && countGroupLiberties(newBoard, r, c) === 0)
                     removeGroup(newBoard, r, c, playerVal);
             }
@@ -488,41 +421,16 @@
 
         function isPlacementValid(refRow, refCol) {
             if (ps.tryPlayMode && ps.replayMode) {
-                if (ps.waitingScoreConfirm) return false;
+                if (ps.gameOver || ps.waitingScoreConfirm) return false;
             } else if (!ps.isMyTurn || ps.gameOver || ps.waitingScoreConfirm) return false;
             return compoundPlacementCellsFree(refRow, refCol);
-        }
-
-        /** 底部复合子配色：执黑与观战为黑方视角；执白为白方视角；打谱试下时随当前轮行棋方切换。 */
-        function compoundPalettePlayerVal() {
-            if (ps.tryPlayMode && ps.replayMode) return ps.tryPlayCurrentPlayer;
-            return ps.mySlot === 'white' ? 2 : 1;
-        }
-
-        function computeTryPlayLastUsedAfterNTrialMoves(n) {
-            const base = { ...ps.replayLastUsedSnapshot };
-            const basePlayer = ps.tryPlayBaseStep === 0 ? 1 : (3 - ps.replayStepPlayers[ps.tryPlayBaseStep]);
-            for (let i = 1; i <= n; i++) {
-                const si = ps.tryPlayShapeByStep[i];
-                if (si === undefined) continue;
-                const pv = (i % 2 === 1) ? basePlayer : (3 - basePlayer);
-                if (si < 0) base[pv] = -1;
-                else base[pv] = si;
-            }
-            return base;
-        }
-
-        function refreshTryPlayLastUsedShapeByColor() {
-            if (!ps.tryPlayMode || !ps.replayMode) return;
-            ps.tryPlayLastUsedShapeByColor = computeTryPlayLastUsedAfterNTrialMoves(ps.tryPlayStep);
         }
 
         function isUserBoardMarkVisibleAt(r, c) {
             if (ps.showEstimateActive) return false;
             if (r < 0 || r >= ps.BOARD_SIZE || c < 0 || c >= ps.BOARD_SIZE) return false;
             if (ps.board[r][c] !== 0) return false;
-            const canPreview = ps.tryPlayMode && ps.replayMode ? !ps.waitingScoreConfirm
-                : (!ps.gameOver && (ps.isMyTurn || (ps.tryPlayMode && ps.replayMode)));
+            const canPreview = ps.tryPlayMode && ps.replayMode ? (!ps.gameOver && !ps.waitingScoreConfirm) : (!ps.gameOver && ps.isMyTurn);
             if (canPreview) {
                 let previewRow = -1, previewCol = -1, previewActive = false;
                 if (isMouseDevice && ps.hoverRow >= 0 && ps.hoverCol >= 0 && compoundPlacementCellsFree(ps.hoverRow, ps.hoverCol)) {
@@ -536,7 +444,7 @@
                 }
                 if (previewActive) {
                     const coords = generatePlacementCoords(ps.currentShapeIndex, ps.rotation, ps.flipped, previewRow, previewCol);
-                if (coords && coords.some(([cr, cc]) => cr === r && cc === c)) return false;
+                    if (coords && coords.some(([cr, cc]) => cr === r && cc === c)) return false;
                 }
             }
             return true;
@@ -617,7 +525,7 @@
                 d.moveNumbersOnStones(ctx, nums, ps.board, ps.BOARD_SIZE, ps.PADDING, cellSize);
             }
 
-            const canPreview = ps.tryPlayMode && ps.replayMode ? !ps.waitingScoreConfirm : (!ps.gameOver && ps.isMyTurn);
+            const canPreview = ps.tryPlayMode && ps.replayMode ? (!ps.gameOver && !ps.waitingScoreConfirm) : (!ps.gameOver && ps.isMyTurn);
             if (canPreview) {
                 let previewRow = -1, previewCol = -1, previewActive = false;
                 if (isMouseDevice && ps.hoverRow >= 0 && ps.hoverCol >= 0 && compoundPlacementCellsFree(ps.hoverRow, ps.hoverCol)) {
@@ -632,16 +540,13 @@
                 if (previewActive) {
                     const coords = generatePlacementCoords(ps.currentShapeIndex, ps.rotation, ps.flipped, previewRow, previewCol);
                     if (coords) {
-                        const pv = compoundPalettePlayerVal();
-                        const selfColor = pv === 1 ? '#222' : '#ddd';
-                        const oppColor = pv === 1 ? '#ddd' : '#222';
+                        const pv = ps.tryPlayMode ? ps.tryPlayCurrentPlayer : (ps.mySlot === 'black' ? 1 : 2);
                         ctx.globalAlpha = 0.45;
-                        for (let idx = 0; idx < coords.length; idx++) {
-                            const [r, c] = coords[idx];
+                        for (let [r, c] of coords) {
                             if (r >= 0 && r < ps.BOARD_SIZE && c >= 0 && c < ps.BOARD_SIZE && ps.board[r][c] === 0) {
                                 ctx.beginPath();
                                 ctx.arc(ps.PADDING + c * cellSize, ps.PADDING + r * cellSize, cellSize * 0.44, 0, 2 * Math.PI);
-                                ctx.fillStyle = SHAPE_STONE_OWNERS[idx] === 'opp' ? oppColor : selfColor;
+                                ctx.fillStyle = pv === 1 ? '#222' : '#ddd';
                                 ctx.fill();
                             }
                         }
@@ -653,12 +558,11 @@
             if (ps.showEstimateActive && ps.cachedLiveBoard && ps.cachedTerritory) {
                 d.estimateOverlay(ctx, ps.board, ps.BOARD_SIZE, ps.PADDING, cellSize, ps.cachedLiveBoard, ps.cachedTerritory);
             }
+            updateCompoundScoreChromeVisibility();
         }
 
         function rebuildCompoundLive(moveCoords) {
             let curBoard = C().initBoardArray(ps.BOARD_SIZE);
-            let lu = { 1: -1, 2: -1 };
-            const liveReplayLastUsedAtStep = [{ 1: -1, 2: -1 }];
             const liveReplayBoards = [deepCopyBoard(curBoard)];
             const liveReplayMarkers = [[]];
             const liveReplayStepPlayers = [0];
@@ -666,38 +570,22 @@
                 const playerVal = move.player === 'black' ? 1 : 2;
                 liveReplayStepPlayers.push(playerVal);
                 if (move.type === 'move' && move.stones) {
-                    const owners = move.stoneOwners && move.stoneOwners.length === 3
-                        ? move.stoneOwners
-                        : ['self', 'opp', 'self'];
-                    const nb = tryPlaceStonesAt(curBoard, move.stones.map(([r, c]) => [r, c]), playerVal, owners);
+                    const nb = tryPlaceStonesAt(curBoard, move.stones.map(([r, c]) => [r, c]), playerVal);
                     if (nb) curBoard = nb;
-                    let si = move.shapeIndex;
-                    if (typeof si !== 'number' || si < 0) {
-                        si = inferShapeIndexFromStones(move.stones.map(([r, c]) => [r, c]));
-                    }
-                    lu[playerVal] = si >= 0 ? si : -1;
                     liveReplayBoards.push(deepCopyBoard(curBoard));
-                    liveReplayMarkers.push(move.stones.map(([r, c], j) => ({
-                        row: r, col: c,
-                        color: owners[j] === 'opp' ? (3 - playerVal) : playerVal
-                    })));
+                    liveReplayMarkers.push(move.stones.map(([r, c]) => ({ row: r, col: c, color: playerVal })));
                 } else if (move.type === 'pass') {
-                    lu[playerVal] = -1;
                     liveReplayBoards.push(deepCopyBoard(curBoard));
                     liveReplayMarkers.push([]);
                 }
-                liveReplayLastUsedAtStep.push({ ...lu });
             }
             ps.liveReplayBoards = liveReplayBoards;
             ps.liveReplayMarkers = liveReplayMarkers;
             ps.liveReplayStepPlayers = liveReplayStepPlayers;
-            ps.liveReplayLastUsedAtStep = liveReplayLastUsedAtStep;
         }
 
         function buildCompoundReplayFromData(data) {
             let curBoard = C().initBoardArray(ps.BOARD_SIZE);
-            let lu = { 1: -1, 2: -1 };
-            const replayLastUsedAtStep = [{ 1: -1, 2: -1 }];
             if (data.initialPosition && Array.isArray(data.initialPosition)) {
                 QiWeiqiSquarePageRuntime.applyInitialPositionCompact(curBoard, ps.BOARD_SIZE, data.initialPosition);
             }
@@ -708,142 +596,80 @@
                 const playerVal = move.player === 'black' ? 1 : 2;
                 replayStepPlayers.push(playerVal);
                 if (move.type === 'move' && move.stones) {
-                    const owners = move.stoneOwners && move.stoneOwners.length === 3
-                        ? move.stoneOwners
-                        : ['self', 'opp', 'self'];
-                    const nb = tryPlaceStonesAt(curBoard, move.stones.map(([r, c]) => [r, c]), playerVal, owners);
+                    const nb = tryPlaceStonesAt(curBoard, move.stones.map(([r, c]) => [r, c]), playerVal);
                     if (nb) curBoard = nb;
                     replayBoards.push(deepCopyBoard(curBoard));
-                    replayMarkers.push(move.stones.map(([r, c], j) => ({
-                        row: r, col: c,
-                        color: owners[j] === 'opp' ? (3 - playerVal) : playerVal
-                    })));
-                    let si = move.shapeIndex;
-                    if (typeof si !== 'number' || si < 0) {
-                        si = inferShapeIndexFromStones(move.stones.map(([r, c]) => [r, c]));
-                    }
-                    lu[playerVal] = si >= 0 ? si : -1;
+                    replayMarkers.push(move.stones.map(([r, c]) => ({ row: r, col: c, color: playerVal })));
                 } else if (move.type === 'pass') {
                     replayBoards.push(deepCopyBoard(curBoard));
                     replayMarkers.push([]);
-                    lu[playerVal] = -1;
                 }
-                replayLastUsedAtStep.push({ ...lu });
             }
             return {
                 replayBoards,
                 replayMarkers,
                 replayStepPlayers,
-                replayTotalSteps: replayBoards.length - 1,
-                replayLastUsedAtStep
+                replayTotalSteps: replayBoards.length - 1
             };
         }
 
-        function updateShapeColors() {
-            const isWhite = compoundPalettePlayerVal() === 2;
-            const selfColor = isWhite ? '#ffffff' : '#222222';
-            const oppColor = isWhite ? '#222222' : '#ffffff';
-            const selfBorder = isWhite ? '1px solid #ccc' : '1px solid #444';
-            const oppBorder = isWhite ? '1px solid #444' : '1px solid #ccc';
-            document.querySelectorAll('.piece-btn .stone').forEach(stone => {
-                const owner = stone.getAttribute('data-owner');
-                if (owner === 'self') {
-                    stone.style.background = selfColor;
-                    stone.style.border = selfBorder;
-                } else {
-                    stone.style.background = oppColor;
-                    stone.style.border = oppBorder;
-                }
-            });
+        function compoundPreviewStoneIsWhite() {
+            if (ps.tryPlayMode && ps.replayMode) return ps.tryPlayCurrentPlayer === 2;
+            return ps.currentPlayer === 2;
         }
 
-        function updateShapeAvailability() {
-            const buttons = document.querySelectorAll('.piece-btn');
-            let disabledShape = -1;
-            if (ps.tryPlayMode && ps.replayMode) {
-                const playerVal = compoundPalettePlayerVal();
-                disabledShape = ps.tryPlayLastUsedShapeByColor[playerVal] ?? -1;
-            } else if (!ps.replayMode && ps.liveReplayBoards.length > 0) {
-                const total = Math.max(0, ps.liveReplayBoards.length - 1);
-                if (ps.liveViewStep < total && ps.liveReplayLastUsedAtStep && ps.liveReplayLastUsedAtStep[ps.liveViewStep]) {
-                    const nextP = ps.liveViewStep === 0 ? 1 : (3 - ps.liveReplayStepPlayers[ps.liveViewStep]);
-                    disabledShape = ps.liveReplayLastUsedAtStep[ps.liveViewStep][nextP] ?? -1;
-                } else {
-                    disabledShape = ps.lastUsedShapeByColor[ps.currentPlayer] ?? -1;
+        function renderCompoundShapeGrid() {
+            const grid = document.getElementById('compoundShapeGrid');
+            if (!grid) return;
+            grid.innerHTML = '';
+            let idx = ps.currentShapeIndex;
+            if (idx < 0 || idx >= SHAPE_LIST.length) idx = 0;
+            const transformed = transformCoords(SHAPE_LIST[idx], ps.rotation, ps.flipped);
+            const isWhite = compoundPreviewStoneIsWhite();
+            const stoneBg = isWhite ? '#ffffff' : '#222222';
+            const stoneBorder = isWhite ? '2px solid #ccc' : '2px solid #444';
+            for (let r = -1; r <= 1; r++) {
+                for (let c = -1; c <= 1; c++) {
+                    const cell = document.createElement('div');
+                    cell.style.width = '32px';
+                    cell.style.height = '32px';
+                    cell.style.display = 'flex';
+                    cell.style.alignItems = 'center';
+                    cell.style.justifyContent = 'center';
+                    if (transformed.some(([rr, cc]) => rr === r && cc === c)) {
+                        const stone = document.createElement('div');
+                        stone.className = 'stone';
+                        stone.style.width = '28px';
+                        stone.style.height = '28px';
+                        stone.style.borderRadius = '50%';
+                        stone.style.background = stoneBg;
+                        stone.style.border = stoneBorder;
+                        stone.style.boxShadow = '0 2px 4px rgba(0,0,0,0.6)';
+                        cell.appendChild(stone);
+                    }
+                    grid.appendChild(cell);
                 }
-            } else {
-                const playerVal = compoundPalettePlayerVal();
-                disabledShape = ps.lastUsedShapeByColor[playerVal] ?? -1;
             }
-            buttons.forEach((btn, idx) => {
-                if (disabledShape === idx) btn.classList.add('disabled');
-                else btn.classList.remove('disabled');
-            });
         }
 
-        function applyShapeIndexToButtons() {
-            document.querySelectorAll('.piece-btn').forEach((b, i) => {
-                b.classList.toggle('active', i === ps.currentShapeIndex);
-            });
+        function isDisplayTextMeaningful(text) {
+            if (!text) return false;
+            const compact = String(text).replace(/\u3000/g, '').trim();
+            return compact.length > 0;
         }
 
-        function createShapeButtons(setLiveViewStepFn) {
-            const container = document.getElementById('shapeSelector');
-            container.innerHTML = '';
-            SHAPE_LIST.forEach((shape, idx) => {
-                const btn = document.createElement('div');
-                btn.className = 'piece-btn' + (idx === 0 ? ' active' : '');
-                btn.dataset.shapeIndex = idx;
-                const grid = document.createElement('div');
-                grid.className = 'shape-grid';
-                for (let r = -1; r <= 1; r++) {
-                    for (let c = -1; c <= 1; c++) {
-                        const cell = document.createElement('div');
-                        cell.style.width = '32px';
-                        cell.style.height = '32px';
-                        cell.style.display = 'flex';
-                        cell.style.alignItems = 'center';
-                        cell.style.justifyContent = 'center';
-                        const posIndex = shape.findIndex(([rr, cc]) => rr === r && cc === c);
-                        if (posIndex !== -1) {
-                            const stone = document.createElement('div');
-                            stone.className = 'stone';
-                            stone.setAttribute('data-owner', posIndex === 1 ? 'opponent' : 'self');
-                            cell.appendChild(stone);
-                        }
-                        grid.appendChild(cell);
-                    }
-                }
-                btn.appendChild(grid);
-                container.appendChild(btn);
-                btn.addEventListener('click', () => {
-                    if (btn.classList.contains('disabled')) return;
-                    if (!ps.replayMode && setLiveViewStepFn && ps.liveReplayBoards.length > 0) {
-                        const total = Math.max(0, ps.liveReplayBoards.length - 1);
-                        if (ps.liveViewStep < total) {
-                            setLiveViewStepFn(total);
-                            const tot = Math.max(0, ps.liveReplayBoards.length - 1);
-                            if (tot === 0) ps.currentPlayer = 1;
-                            else ps.currentPlayer = 3 - ps.liveReplayStepPlayers[tot];
-                            const lastMover = 3 - ps.currentPlayer;
-                            const lastShape = ps.lastUsedShapeByColor[lastMover] ?? -1;
-                            ps.currentShapeIndex = lastShape >= 0 ? (lastShape + 1) % SHAPE_LIST.length : 0;
-                            applyShapeIndexToButtons();
-                            updateShapeAvailability();
-                            updateShapeColors();
-                            refreshPreview();
-                            drawCompoundBoard();
-                            return;
-                        }
-                    }
-                    document.querySelectorAll('.piece-btn').forEach(b => b.classList.remove('active'));
-                    btn.classList.add('active');
-                    ps.currentShapeIndex = idx;
-                    refreshPreview();
-                    drawCompoundBoard();
-                });
-            });
-            updateShapeColors();
+        function updateCompoundScoreChromeVisibility() {
+            const row = document.getElementById('scoreCompoundRow');
+            if (!row) return;
+            const scoreContent = row.closest('.score-box')?.querySelector('.score-content');
+            const titleHasText = isDisplayTextMeaningful(scoreTitle?.textContent);
+            const contentHasText = isDisplayTextMeaningful(scoreContent?.textContent);
+            const hide = ps.gameOver
+                || ps.showEstimateActive
+                || (ps.replayMode && !ps.tryPlayMode)
+                || titleHasText
+                || contentHasText;
+            row.style.display = hide ? 'none' : '';
         }
 
         function refreshPreview() {
@@ -857,17 +683,20 @@
         }
 
         function setBottomPaletteObserverMode(on) {
+            if (!bottomPalette) return;
             if (on) bottomPalette.classList.add('observer-mode');
             else bottomPalette.classList.remove('observer-mode');
         }
 
         document.getElementById('rotateBtn').onclick = () => {
             ps.rotation = (ps.rotation + 1) % 4;
+            renderCompoundShapeGrid();
             refreshPreview();
             drawCompoundBoard();
         };
         document.getElementById('flipBtn').onclick = () => {
             ps.flipped = !ps.flipped;
+            renderCompoundShapeGrid();
             refreshPreview();
             drawCompoundBoard();
         };
@@ -875,7 +704,7 @@
         let _page = null;
 
         const page = QiWeiqiSquarePageRuntime.create(ps, domPage, {
-            recordDownloadPrefix: '罗斯围棋',
+            recordDownloadPrefix: '俄罗斯围棋',
             minLib: 1,
             maxWeakLiberties: 2,
             gameType,
@@ -892,7 +721,6 @@
                 ps.replayMarkers = built.replayMarkers;
                 ps.replayStepPlayers = built.replayStepPlayers;
                 ps.replayTotalSteps = built.replayTotalSteps;
-                ps.replayLastUsedAtStep = built.replayLastUsedAtStep || [];
                 ps.replayMode = true;
                 const slider = document.getElementById('replaySlider');
                 slider.max = ps.replayTotalSteps;
@@ -903,35 +731,25 @@
                 if (!isPlacementValid(row, col)) return false;
                 const playerVal = ps.tryPlayCurrentPlayer;
                 const usedIdx = ps.currentShapeIndex;
-                const nBefore = ps.tryPlayStep;
-                const luBefore = computeTryPlayLastUsedAfterNTrialMoves(nBefore);
-                if (luBefore[playerVal] === usedIdx) {
-                    alert('不能连续两次使用相同的形状');
-                    return false;
-                }
                 const newBoard = tryPlaceShape(ps.board, usedIdx, ps.rotation, ps.flipped, row, col, playerVal);
                 if (!newBoard) return false;
                 if (ps.tryPlayStep < ps.tryPlayTotalSteps) {
                     ps.tryPlayBoards.length = ps.tryPlayStep + 1;
                     ps.tryPlayMarkers.length = ps.tryPlayStep + 1;
-                    ps.tryPlayShapeByStep.length = ps.tryPlayStep + 1;
                 }
                 const coords = generatePlacementCoords(usedIdx, ps.rotation, ps.flipped, row, col);
-                const markers = coords.map(([r, c], i) => ({
-                    row: r, col: c,
-                    color: SHAPE_STONE_OWNERS[i] === 'opp' ? (3 - playerVal) : playerVal
-                }));
+                const markers = coords.map(([r, c]) => ({ row: r, col: c, color: playerVal }));
                 ps.tryPlayBoards.push(deepCopyBoard(newBoard));
                 ps.tryPlayMarkers.push(markers);
-                ps.tryPlayShapeByStep.push(usedIdx);
                 ps.tryPlayTotalSteps = ps.tryPlayBoards.length - 1;
                 ps.tryPlayStep = ps.tryPlayTotalSteps;
                 ps.tryPlayCurrentPlayer = 3 - ps.tryPlayCurrentPlayer;
                 ps.board = deepCopyBoard(newBoard);
                 ps.lastMoveMarkers = markers;
-                ps.currentShapeIndex = (usedIdx + 1) % SHAPE_LIST.length;
-                applyShapeIndexToButtons();
-                refreshTryPlayLastUsedShapeByColor();
+                ps.currentShapeIndex = Math.floor(Math.random() * SHAPE_LIST.length);
+                ps.rotation = 0;
+                ps.flipped = false;
+                renderCompoundShapeGrid();
                 const slider = document.getElementById('replaySlider');
                 slider.max = ps.tryPlayTotalSteps;
                 slider.value = ps.tryPlayStep;
@@ -943,24 +761,27 @@
             enterTryPlay() {
                 _page.clearMobileMovePreview();
                 ps.tryPlayMode = true;
+                ps._savedCompoundBeforeTryPlay = {
+                    idx: ps.currentShapeIndex,
+                    rot: ps.rotation,
+                    flip: ps.flipped
+                };
                 ps.tryPlayBaseStep = ps.replayStep;
                 ps.tryPlayBoards = [deepCopyBoard(ps.board)];
                 ps.tryPlayMarkers = [ps.lastMoveMarkers.map(m => ({ ...m }))];
-                ps.tryPlayShapeByStep = [-1];
-                ps.replayLastUsedSnapshot = (ps.replayLastUsedAtStep && ps.replayLastUsedAtStep[ps.replayStep])
-                    ? { ...ps.replayLastUsedAtStep[ps.replayStep] }
-                    : { 1: ps.lastUsedShapeByColor[1] ?? -1, 2: ps.lastUsedShapeByColor[2] ?? -1 };
-                refreshTryPlayLastUsedShapeByColor();
                 if (ps.replayStep === 0) ps.tryPlayCurrentPlayer = 1;
                 else ps.tryPlayCurrentPlayer = ps.replayStepPlayers[ps.replayStep] === 1 ? 2 : 1;
                 ps.tryPlayStep = 0;
                 ps.tryPlayTotalSteps = 0;
+                ps.currentShapeIndex = Math.floor(Math.random() * SHAPE_LIST.length);
+                ps.rotation = 0;
+                ps.flipped = false;
                 const slider = document.getElementById('replaySlider');
                 slider.min = 0;
                 slider.max = 0;
                 slider.value = 0;
                 setBottomPaletteObserverMode(false);
-                updateShapeColors();
+                renderCompoundShapeGrid();
                 _page.updateTryPlayDisplay();
                 _page.updateReplayUI();
             },
@@ -969,46 +790,23 @@
                 ps.tryPlayMode = false;
                 ps.tryPlayBoards = [];
                 ps.tryPlayMarkers = [];
-                ps.tryPlayShapeByStep = [-1];
                 ps.tryPlayStep = 0;
                 ps.tryPlayTotalSteps = 0;
+                if (ps._savedCompoundBeforeTryPlay) {
+                    ps.currentShapeIndex = ps._savedCompoundBeforeTryPlay.idx;
+                    ps.rotation = ps._savedCompoundBeforeTryPlay.rot;
+                    ps.flipped = ps._savedCompoundBeforeTryPlay.flip;
+                    ps._savedCompoundBeforeTryPlay = null;
+                }
                 const slider = document.getElementById('replaySlider');
                 slider.min = 0;
                 slider.max = ps.replayTotalSteps;
                 _page.setReplayStep(ps.tryPlayBaseStep);
-                updateShapeAvailability();
-                updateShapeColors();
+                renderCompoundShapeGrid();
                 _page.updateReplayUI();
-            },
-            updateTryPlayDisplay() {
-                const stepDisplay = document.getElementById('replayStepDisplay');
-                if (ps.tryPlayMode) {
-                    stepDisplay.innerText = `试下 ${ps.tryPlayStep} / ${ps.tryPlayTotalSteps}`;
-                    const emoji = ps.tryPlayCurrentPlayer === 1 ? '⚫' : '⚪';
-                    domPage.turnDisplay.innerText = `${emoji} 试下`;
-                    updateShapeColors();
-                    updateShapeAvailability();
-                }
-            },
-            setTryPlayStep(step) {
-                _page.clearMobileMovePreview();
-                if (step < 0) step = 0;
-                if (step > ps.tryPlayTotalSteps) step = ps.tryPlayTotalSteps;
-                ps.tryPlayStep = step;
-                ps.board = deepCopyBoard(ps.tryPlayBoards[step]);
-                ps.lastMoveMarkers = ps.tryPlayMarkers[step].map(m => ({ ...m }));
-                const basePlayer = ps.tryPlayBaseStep === 0 ? 1 : (3 - ps.replayStepPlayers[ps.tryPlayBaseStep]);
-                ps.tryPlayCurrentPlayer = step % 2 === 0 ? basePlayer : (3 - basePlayer);
-                document.getElementById('replaySlider').value = step;
-                refreshTryPlayLastUsedShapeByColor();
-                _page.updateTryPlayDisplay();
-                if (ps.showEstimateActive) _page.showEstimate();
-                else drawCompoundBoard();
             },
             syncState(state) {
                 const pv = ps.mySlot === 'black' ? 1 : (ps.mySlot === 'white' ? 2 : null);
-                let oldLuMy = -1;
-                if (pv !== null && ps.lastUsedShapeByColor) oldLuMy = ps.lastUsedShapeByColor[pv] ?? -1;
                 const incomingMoveLen = (state.moveCoords && state.moveCoords.length) || 0;
                 const prevSyncedLen = ps._syncMoveCoordsLen;
                 const incomingNH = state.numberOfHands || 1;
@@ -1030,25 +828,11 @@
                 }
                 ps.numberOfHands = state.numberOfHands || 1;
                 ps.currentPlayer = state.currentPlayer;
+                ps._serverCurrentPlayer = state.currentPlayer;
+                ps._serverNextShapeIndex = state.nextShapeIndex != null ? state.nextShapeIndex : ps._serverNextShapeIndex;
+                ps.liveReplayNextShapeAtStep = state.nextShapeSnapshots || [];
                 ps.gameOver = state.gameOver || false;
                 ps.winner = state.winner || null;
-                ps.lastUsedShapeByColor = state.lastUsedShapeByColor || { 1: -1, 2: -1 };
-                let newLuMy = -1;
-                if (pv !== null) newLuMy = ps.lastUsedShapeByColor[pv] ?? -1;
-                if (pv !== null && oldLuMy !== newLuMy) {
-                    if (newLuMy >= 0) ps.currentShapeIndex = (newLuMy + 1) % SHAPE_LIST.length;
-                    else if (newLuMy === -1 && oldLuMy !== -1) ps.currentShapeIndex = 0;
-                    applyShapeIndexToButtons();
-                }
-                if (ps._needCompoundShapeHint && pv !== null) {
-                    const luHint = ps.lastUsedShapeByColor[pv] ?? -1;
-                    if (luHint >= 0) {
-                        ps.currentShapeIndex = (luHint + 1) % SHAPE_LIST.length;
-                        applyShapeIndexToButtons();
-                    }
-                    updateShapeAvailability();
-                    ps._needCompoundShapeHint = false;
-                }
                 if (state.moveCoords) {
                     ps.moveLog = state.moveCoords.map(m => {
                         if (m.type === 'move' && m.stones)
@@ -1097,8 +881,38 @@
                 }
                 _page.updateReplayUI();
                 ps._syncMoveCoordsLen = incomingMoveLen;
-                updateShapeAvailability();
-                updateShapeColors();
+                if (state.nextShapeIndex != null) {
+                    if (!ps.replayMode && ps.liveReplayBoards.length) {
+                        const liveTotal = Math.max(0, ps.liveReplayBoards.length - 1);
+                        const snaps = ps.liveReplayNextShapeAtStep;
+                        if (ps.liveViewStep < liveTotal && snaps && snaps.length > ps.liveViewStep) {
+                            const idx = snaps[ps.liveViewStep];
+                            ps.currentPlayer = ps.liveViewStep === 0 ? 1 : (3 - ps.liveReplayStepPlayers[ps.liveViewStep]);
+                            if (ps._prevSyncedNextShape !== idx) {
+                                ps.rotation = 0;
+                                ps.flipped = false;
+                            }
+                            ps._prevSyncedNextShape = idx;
+                            ps.currentShapeIndex = idx;
+                        } else {
+                            if (ps._prevSyncedNextShape !== state.nextShapeIndex) {
+                                ps.rotation = 0;
+                                ps.flipped = false;
+                            }
+                            ps._prevSyncedNextShape = state.nextShapeIndex;
+                            ps.currentShapeIndex = state.nextShapeIndex;
+                            ps.currentPlayer = state.currentPlayer;
+                        }
+                    } else {
+                        if (ps._prevSyncedNextShape !== state.nextShapeIndex) {
+                            ps.rotation = 0;
+                            ps.flipped = false;
+                        }
+                        ps._prevSyncedNextShape = state.nextShapeIndex;
+                        ps.currentShapeIndex = state.nextShapeIndex;
+                    }
+                }
+                renderCompoundShapeGrid();
                 setBottomPaletteObserverMode(!(ps.mySlot && !ps.gameOver && !ps.replayMode));
             }
         });
@@ -1108,14 +922,6 @@
             mobileTwoStepPlacing,
             clearMobileMovePreview,
             drawBoard,
-            connectWebSocket,
-            initBoardArray,
-            updateBoardGeometry,
-            syncState,
-            getClosestIntersection,
-            canvasCoordsFromClient,
-            applyUserBoardMark,
-            tryPlayMove,
             updateTurn,
             showEstimate,
             clearEstimate,
@@ -1128,27 +934,57 @@
             updateReplayUI,
             enterTryPlay,
             exitTryPlay,
+            tryPlayMove,
             setTryPlayStep,
             updateTryPlayDisplay,
+            connectWebSocket,
+            initBoardArray,
+            updateBoardGeometry,
+            syncState,
+            getClosestIntersection,
+            canvasCoordsFromClient,
+            applyUserBoardMark,
             setLiveViewStep: baseSetLiveViewStep
         } = page;
 
-        function setLiveViewStep(step) {
-            baseSetLiveViewStep(step);
-            updateShapeAvailability();
-            updateShapeColors();
+        function applyRussianLiveViewCompoundUi() {
+            if (ps.replayMode) return;
+            const snaps = ps.liveReplayNextShapeAtStep;
+            const total = Math.max(0, (ps.liveReplayBoards && ps.liveReplayBoards.length) ? ps.liveReplayBoards.length - 1 : 0);
+            if (ps.liveViewStep < total && snaps && snaps.length > ps.liveViewStep) {
+                const idx = snaps[ps.liveViewStep];
+                ps.currentPlayer = ps.liveViewStep === 0 ? 1 : (3 - ps.liveReplayStepPlayers[ps.liveViewStep]);
+                if (idx != null) {
+                    if (ps._prevSyncedNextShape !== idx) {
+                        ps.rotation = 0;
+                        ps.flipped = false;
+                    }
+                    ps._prevSyncedNextShape = idx;
+                    ps.currentShapeIndex = idx;
+                }
+            } else if (ps._serverNextShapeIndex != null) {
+                const idx = ps._serverNextShapeIndex;
+                if (ps._prevSyncedNextShape !== idx) {
+                    ps.rotation = 0;
+                    ps.flipped = false;
+                }
+                ps._prevSyncedNextShape = idx;
+                ps.currentShapeIndex = idx;
+                if (ps._serverCurrentPlayer != null) ps.currentPlayer = ps._serverCurrentPlayer;
+            }
+            renderCompoundShapeGrid();
         }
 
-        createShapeButtons(setLiveViewStep);
+        function setLiveViewStep(step) {
+            baseSetLiveViewStep(step);
+            applyRussianLiveViewCompoundUi();
+        }
 
         function commitCompoundMove(row, col) {
             if (ps.gameOver || !ps.isMyTurn || ps.waitingScoreConfirm) return false;
             const playerVal = ps.mySlot === 'black' ? 1 : 2;
-            if (ps.lastUsedShapeByColor[playerVal] === ps.currentShapeIndex) {
-                alert('不能连续两次使用相同的形状');
+            if (!isPlacementValid(row, col)) 
                 return false;
-            }
-            if (!isPlacementValid(row, col)) return false;
             const usedIdx = ps.currentShapeIndex;
             ps.ws.send(JSON.stringify({
                 type: 'move',
@@ -1158,9 +994,6 @@
                 row,
                 col
             }));
-            ps.currentShapeIndex = (usedIdx + 1) % SHAPE_LIST.length;
-            applyShapeIndexToButtons();
-            updateShapeAvailability();
             return true;
         }
 
@@ -1217,26 +1050,22 @@
                 ps._needCompoundShapeHint = false;
                 ps.rotation = 0;
                 ps.flipped = false;
-                ps.currentShapeIndex = 0;
+                ps._prevSyncedNextShape = null;
                 ps.hasPreview = false;
                 ps.pendingPreviewRow = -1;
                 ps.pendingPreviewCol = -1;
-                document.querySelectorAll('.piece-btn').forEach((b, i) => {
-                    b.classList.toggle('active', i === 0);
-                });
             },
             onRoomReset() {
                 ps._needCompoundShapeHint = false;
                 ps.rotation = 0;
                 ps.flipped = false;
-                ps.currentShapeIndex = 0;
+                ps._prevSyncedNextShape = null;
                 ps.hasPreview = false;
-                document.querySelectorAll('.piece-btn').forEach((b, i) => {
-                    b.classList.toggle('active', i === 0);
-                });
             }
         });
         const handleMessage = _weiqiBindings.handleMessage;
+        const updateRecordButtons = _weiqiBindings.updateRecordButtons;
+        const updateRadioStyles = _weiqiBindings.updateRadioStyles;
 
         let suppressCanvasClickAfterLongMark = false;
 
@@ -1385,6 +1214,7 @@
                 pressTimer = setTimeout(() => {
                     ps.flipped = !ps.flipped;
                     isLongPress = true;
+                    renderCompoundShapeGrid();
                     refreshPreview();
                     drawCompoundBoard();
                     pressTimer = null;
@@ -1398,6 +1228,7 @@
                     pressTimer = null;
                     if (!isLongPress && ps.isMyTurn) {
                         ps.rotation = (ps.rotation + 1) % 4;
+                        renderCompoundShapeGrid();
                         refreshPreview();
                         drawCompoundBoard();
                     }
@@ -1410,6 +1241,7 @@
                 e.preventDefault();
                 const delta = e.deltaY > 0 ? 1 : -1;
                 const buttons = document.querySelectorAll('.piece-btn');
+                if (!buttons.length) return;
                 let nextIdx = ps.currentShapeIndex;
                 do {
                     nextIdx = (nextIdx + delta + buttons.length) % buttons.length;
@@ -1475,7 +1307,7 @@
         }
 
         function setPreviewTouch(row, col) {
-            const ok = ps.tryPlayMode && ps.replayMode ? !ps.waitingScoreConfirm : (ps.isMyTurn && !ps.gameOver && !ps.waitingScoreConfirm);
+            const ok = ps.tryPlayMode && ps.replayMode ? (!ps.gameOver && !ps.waitingScoreConfirm) : (ps.isMyTurn && !ps.gameOver && !ps.waitingScoreConfirm);
             if (!ok) { clearPreviewTouch(); return; }
             if (row < 0 || row >= ps.BOARD_SIZE || col < 0 || col >= ps.BOARD_SIZE) { clearPreviewTouch(); return; }
             if (compoundPlacementCellsFree(row, col)) {
