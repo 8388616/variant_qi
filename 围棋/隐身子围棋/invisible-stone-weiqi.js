@@ -1,4 +1,4 @@
-const { QiTwoPlayerRoomBase, squareWeiqiRules, encodeInitialPositionCompact, applyInitialPositionCompact } = require('../common');
+const { QiTwoPlayerRoomBase, qiMatchTimeControl, squareWeiqiRules, encodeInitialPositionCompact, applyInitialPositionCompact } = require('../common');
 class InvisibleStoneWeiqiRoom extends QiTwoPlayerRoomBase {
     constructor(room, initialSize = 19) {
         super(room);
@@ -24,6 +24,164 @@ class InvisibleStoneWeiqiRoom extends QiTwoPlayerRoomBase {
         this.scoreProposalData = null;
         this.moveCoords = [];
         this.plainWeiqiStartHand = null;
+        this.recordResultText = null;
+        this.slotJoinedAt = { black: null, white: null };
+        this.tcNego = null;
+        this.tcSettings = null;
+        this.tcClock = null;
+        this._clockInterval = null;
+        this.matchStarted = false;
+    }
+
+    _stopClockTicker() {
+        if (this._clockInterval) {
+            clearInterval(this._clockInterval);
+            this._clockInterval = null;
+        }
+    }
+
+    _broadcastClock() {
+        if (!this.tcClock || !this.tcClock.timed || this.gameOver) return;
+        this.broadcastFlat({ type: 'clockUpdate', clock: qiMatchTimeControl.snapshotForClient(this.tcClock) });
+    }
+
+    _startClockTicker() {
+        this._stopClockTicker();
+        if (!this.tcClock || !this.tcClock.timed) return;
+        this._clockInterval = setInterval(() => {
+            if (!this.tcClock || !this.tcClock.timed || this.gameOver) {
+                this._stopClockTicker();
+                return;
+            }
+            if (this.pendingScore) return;
+            const { lostSlot, winnerSlot } = qiMatchTimeControl.drain(this.tcClock, Date.now());
+            if (lostSlot) {
+                this._stopClockTicker();
+                this.gameOver = true;
+                this.winner = winnerSlot;
+                this.setTimeLossResultText(lostSlot);
+                this.broadcastState('timeLoss', { player: lostSlot, winner: winnerSlot });
+                return;
+            }
+            this._broadcastClock();
+        }, 1000);
+    }
+
+    _firstPickerSlot() {
+        const tb = this.slotJoinedAt.black;
+        const tw = this.slotJoinedAt.white;
+        if (tb == null || tw == null) return 'black';
+        return tb <= tw ? 'black' : 'white';
+    }
+
+    _maybeBeginTimeNegotiation() {
+        if (this.moveHistory.length > 0 || this.gameOver) return;
+        if (!this.room.getPlayerBySlot('black') || !this.room.getPlayerBySlot('white')) return;
+        if (this.tcNego !== null || this.tcSettings !== null) return;
+        const first = this._firstPickerSlot();
+        this.tcNego = { phase: 'propose', proposal: null, waitingSlot: first, lastProposerSlot: null };
+        this.room.getPlayerBySlot(first)?.send(JSON.stringify({ type: 'timeControlNegotiation', mode: 'propose' }));
+        const other = first === 'black' ? 'white' : 'black';
+        this.room.getPlayerBySlot(other)?.send(JSON.stringify({ type: 'timeControlWaitPeer', text: '等待对方设置限时规则...' }));
+    }
+
+    afterColorAssigned(slot) {
+        this.slotJoinedAt[slot] = Date.now();
+        this._maybeBeginTimeNegotiation();
+    }
+
+    _sendRespondDialog(toSlot, proposal) {
+        const ws = this.room.getPlayerBySlot(toSlot);
+        if (!ws) return;
+        ws.send(JSON.stringify({
+            type: 'timeControlNegotiation',
+            mode: 'respond',
+            proposal: { ok: true, timed: proposal.timed, mainMinutes: proposal.mainMinutes, byoyomiSeconds: proposal.byoyomiSeconds, maxTimeouts: proposal.maxTimeouts }
+        }));
+    }
+
+    _finalizeTimeControl(valid) {
+        this.tcSettings = valid.timed
+            ? { timed: true, mainMinutes: valid.mainMinutes, byoyomiSeconds: valid.byoyomiSeconds, maxTimeouts: valid.maxTimeouts }
+            : { timed: false };
+        this.tcNego = null;
+        this.matchStarted = true;
+        const now = Date.now();
+        this.tcClock = qiMatchTimeControl.createClock(this.tcSettings, now);
+        if (this.tcClock.timed) {
+            qiMatchTimeControl.setActiveSlot(this.tcClock, this.currentPlayer === 1 ? 'black' : 'white', now);
+            this._startClockTicker();
+            this._broadcastClock();
+        } else {
+            this.tcClock = null;
+        }
+        this.broadcastFlat({ type: 'timeControlAgreed', settings: this.tcSettings, clock: this.tcClock ? qiMatchTimeControl.snapshotForClient(this.tcClock) : null });
+    }
+
+    _handleTimeControlSubmit(ws, msg) {
+        const slot = this.room.getSlotByWs(ws);
+        if (!slot || !this.tcNego) return;
+        const v = qiMatchTimeControl.validateProposal(msg);
+        if (!v.ok) {
+            ws.send(JSON.stringify({ type: 'error', message: v.error }));
+            return;
+        }
+        if (this.tcNego.phase === 'propose') {
+            if (slot !== this.tcNego.waitingSlot) return;
+            this.tcNego.proposal = v;
+            this.tcNego.lastProposerSlot = slot;
+            this.tcNego.phase = 'respond';
+            const other = slot === 'black' ? 'white' : 'black';
+            this.tcNego.waitingSlot = other;
+            this.room.getPlayerBySlot(slot)?.send(JSON.stringify({ type: 'timeControlWaitPeer', text: '等待对方确认...' }));
+            this._sendRespondDialog(other, v);
+            return;
+        }
+        if (this.tcNego.phase === 'respond') {
+            if (slot !== this.tcNego.waitingSlot) return;
+            this.tcNego.proposal = v;
+            this.tcNego.lastProposerSlot = slot;
+            const other = slot === 'black' ? 'white' : 'black';
+            this.tcNego.waitingSlot = other;
+            this.room.getPlayerBySlot(slot)?.send(JSON.stringify({ type: 'timeControlWaitPeer', text: '等待对方确认...' }));
+            this._sendRespondDialog(other, v);
+        }
+    }
+
+    _handleTimeControlAccept(ws) {
+        const slot = this.room.getSlotByWs(ws);
+        if (!slot || !this.tcNego || this.tcNego.phase !== 'respond') return;
+        if (slot !== this.tcNego.waitingSlot) return;
+        const prop = this.tcNego.proposal;
+        if (!prop || prop.ok !== true) return;
+        this._finalizeTimeControl(prop);
+    }
+
+    _timeAllowsPlay(slot) {
+        if (this.gameOver) return false;
+        if (!this.matchStarted) return false;
+        if (this.tcNego || this.tcSettings === null) return false;
+        if (!this.tcClock || !this.tcClock.timed) return true;
+        return slot === (this.currentPlayer === 1 ? 'black' : 'white');
+    }
+
+    _drainClockBeforeMove(slot) {
+        if (!this.tcClock || !this.tcClock.timed || this.gameOver) return true;
+        if (slot !== (this.currentPlayer === 1 ? 'black' : 'white')) return true;
+        const { lostSlot, winnerSlot } = qiMatchTimeControl.drain(this.tcClock, Date.now());
+        if (!lostSlot) return true;
+        this._stopClockTicker();
+        this.gameOver = true;
+        this.winner = winnerSlot;
+        this.setTimeLossResultText(lostSlot);
+        this.broadcastState('timeLoss', { player: lostSlot, winner: winnerSlot });
+        return false;
+    }
+
+    _syncClockAfterTurnChange() {
+        if (!this.tcClock || !this.tcClock.timed || this.gameOver) return;
+        qiMatchTimeControl.setActiveSlot(this.tcClock, this.currentPlayer === 1 ? 'black' : 'white', Date.now());
+        this._broadcastClock();
     }
 
     emptyBoard() {
@@ -159,15 +317,49 @@ class InvisibleStoneWeiqiRoom extends QiTwoPlayerRoomBase {
         return blackTotal - whiteTotal - 2 * KOMI;
     }
 
-    buildViewBoard(slot) {
-        // 观战者不在 room.players 中，getSlotByWs 为 undefined（不是 null），须与黑白方区分
+    onResignResolved(resignSlot) {
+        this.recordResultText = resignSlot === 'black' ? '白中盘胜' : '黑中盘胜';
+    }
+
+    onDrawResolved() {
+        this.recordResultText = '和胜';
+    }
+
+    setScoreResultTextByLead(lead) {
+        if (!Number.isFinite(lead) || lead === 0) {
+            this.recordResultText = '和胜';
+            return;
+        }
+        this.recordResultText = `${lead > 0 ? '黑' : '白'}胜${Math.abs(lead).toFixed(2)}点`;
+    }
+
+    setTimeLossResultText(lostSlot) {
+        if (lostSlot === 'black') this.recordResultText = '黑超时白胜';
+        else if (lostSlot === 'white') this.recordResultText = '白超时黑胜';
+    }
+
+    static parseResultTextToWinner(resultText) {
+        if (!resultText || typeof resultText !== 'string') return null;
+        if (resultText === '和胜' || resultText === 'draw' || resultText === '平局') return 'draw';
+        if (resultText.includes('白胜')) return 'white';
+        if (resultText.includes('黑胜')) return 'black';
+        if (resultText === 'black' || resultText === 'white' || resultText === 'draw') return resultText;
+        return null;
+    }
+
+    /**
+     * @param {boolean} gameOver 终局后全员可见完整盘面，不再遮蔽隐身子
+     */
+    buildViewBoardFromState(board, inv, slot, gameOver) {
+        if (gameOver)
+            return this.copyBoard(board);
         const isSpectator = slot !== 'black' && slot !== 'white';
         const out = this.emptyBoard();
         for (let r = 0; r < this.boardSize; r++) {
             for (let c = 0; c < this.boardSize; c++) {
-                const v = this.board[r][c];
+                const v = board[r][c];
                 if (v === 0) continue;
-                if (this.invisible[r][c]) {
+                if (inv[r][c]) {
                     if (isSpectator) {
                         continue;
                     } else if (slot === 'black') {
@@ -183,16 +375,21 @@ class InvisibleStoneWeiqiRoom extends QiTwoPlayerRoomBase {
         return out;
     }
 
-    buildInvisibleTint(slot) {
+    buildViewBoard(slot) {
+        return this.buildViewBoardFromState(this.board, this.invisible, slot, this.gameOver);
+    }
+
+    buildInvisibleTintFromState(board, inv, slot, gameOver) {
         const list = [];
+        if (gameOver) return list;
         if (slot !== 'black' && slot !== 'white') return list;
         for (let r = 0; r < this.boardSize; r++) {
             for (let c = 0; c < this.boardSize; c++) {
-                if (this.board[r][c] === 0) continue;
-                if (!this.invisible[r][c]) continue;
-                if (slot === 'black' && this.board[r][c] === 1) {
+                if (board[r][c] === 0) continue;
+                if (!inv[r][c]) continue;
+                if (slot === 'black' && board[r][c] === 1) {
                     list.push({ row: r, col: c });
-                } else if (slot === 'white' && this.board[r][c] === 2) {
+                } else if (slot === 'white' && board[r][c] === 2) {
                     list.push({ row: r, col: c });
                 }
             }
@@ -200,8 +397,102 @@ class InvisibleStoneWeiqiRoom extends QiTwoPlayerRoomBase {
         return list;
     }
 
+    buildInvisibleTint(slot) {
+        return this.buildInvisibleTintFromState(this.board, this.invisible, slot, this.gameOver);
+    }
+
+    /** 与客户端 liveReplay 逐步 tint 一致：每步为 "row,col" 字符串数组 */
+    buildInvisibleTintKeyStringsFromState(board, inv, slot, gameOver) {
+        if (gameOver) return [];
+        if (slot !== 'black' && slot !== 'white') return [];
+        const list = [];
+        for (let r = 0; r < this.boardSize; r++) {
+            for (let c = 0; c < this.boardSize; c++) {
+                if (board[r][c] === 0) continue;
+                if (!inv[r][c]) continue;
+                if (slot === 'black' && board[r][c] === 1)
+                    list.push(`${r},${c}`);
+                else if (slot === 'white' && board[r][c] === 2)
+                    list.push(`${r},${c}`);
+            }
+        }
+        return list;
+    }
+
+    /** 逐步「本座位可见」盘面，供前端打谱条与中途进房使用（不依赖向对手下发完整手顺）。 */
+    buildReplayViewBoardsForSlot(slot) {
+        const gameOver = this.gameOver;
+        const out = [];
+        let board = this.copyBoard(this.openingBoard);
+        let inv = this.emptyInvisible();
+        out.push(this.buildViewBoardFromState(board, inv, slot, gameOver));
+        for (let i = 0; i < this.historyBoards.length; i++) {
+            board = this.copyBoard(this.historyBoards[i]);
+            inv = this.copyInvisible(this.historyInvisible[i]);
+            out.push(this.buildViewBoardFromState(board, inv, slot, gameOver));
+        }
+        return out;
+    }
+
+    buildReplayInvisibleTintKeyStringsForSlot(slot) {
+        const gameOver = this.gameOver;
+        const out = [];
+        let board = this.copyBoard(this.openingBoard);
+        let inv = this.emptyInvisible();
+        out.push(this.buildInvisibleTintKeyStringsFromState(board, inv, slot, gameOver));
+        for (let i = 0; i < this.historyBoards.length; i++) {
+            board = this.copyBoard(this.historyBoards[i]);
+            inv = this.copyInvisible(this.historyInvisible[i]);
+            out.push(this.buildInvisibleTintKeyStringsFromState(board, inv, slot, gameOver));
+        }
+        return out;
+    }
+
+    /** 盘上仍为隐身状态（未显形）的隐身子枚数，双方各计（与视角无关）。 */
+    countInvisibleOn(board, inv) {
+        let black = 0;
+        let white = 0;
+        for (let r = 0; r < this.boardSize; r++) {
+            for (let c = 0; c < this.boardSize; c++) {
+                if (!inv[r][c]) continue;
+                const v = board[r][c];
+                if (v === 1) black++;
+                else if (v === 2) white++;
+            }
+        }
+        return { black, white };
+    }
+
+    getInvisibleStoneCounts() {
+        return this.countInvisibleOn(this.board, this.invisible);
+    }
+
+    /**
+     * 与 numberOfHands 对齐：第 0 项为开局（含让子初始局面），第 k 项为第 k 手结束后。
+     * 供客户端打谱式前进后退与进度条使用（不依赖被遮蔽的 moveCoords）。
+     */
+    buildInvisibleStoneCountsTimeline() {
+        const out = [];
+        let board = this.copyBoard(this.openingBoard);
+        let inv = this.emptyInvisible();
+        out.push(this.countInvisibleOn(board, inv));
+        for (let i = 0; i < this.historyBoards.length; i++) {
+            board = this.copyBoard(this.historyBoards[i]);
+            inv = this.copyInvisible(this.historyInvisible[i]);
+            out.push(this.countInvisibleOn(board, inv));
+        }
+        return out;
+    }
+
     filterMoveCoordsForSlot(slot) {
+        if (this.gameOver)
+            return this.moveCoords.map(m => ({ ...m }));
         return this.moveCoords.map(m => {
+            if (m.type === 'pass' && m.reason === 'hitInvisible') {
+                if (slot === m.player)
+                    return { ...m };
+                return { type: 'pass', player: m.player, reason: 'hitInvisible' };
+            }
             if (m.type !== 'move') return { ...m };
             if (slot === m.player)
                 return { ...m };
@@ -213,6 +504,8 @@ class InvisibleStoneWeiqiRoom extends QiTwoPlayerRoomBase {
 
     /** 对方与观战者不显示落在隐身子上的最后一手标记 */
     filterLastMoveMarkers(slot) {
+        if (this.gameOver)
+            return this.lastMoveMarkers.map(m => ({ row: m.row, col: m.col, color: m.color }));
         const isSpectator = slot !== 'black' && slot !== 'white';
         if (!this.lastMoveMarkers.length) return [];
         return this.lastMoveMarkers.filter(m => {
@@ -241,11 +534,29 @@ class InvisibleStoneWeiqiRoom extends QiTwoPlayerRoomBase {
             winner: this.winner,
             moveCoords: this.filterMoveCoordsForSlot(slot),
             plainWeiqiStartHand: this.plainWeiqiStartHand,
+            invisibleStoneCounts: this.getInvisibleStoneCounts(),
+            invisibleStoneCountsTimeline: this.buildInvisibleStoneCountsTimeline(),
+            replayViewBoards: this.buildReplayViewBoardsForSlot(slot),
+            replayViewInvisibleTints: this.buildReplayInvisibleTintKeyStringsForSlot(slot),
+            /** 完整手顺；对局中向对方/观战者不下发隐身子坐标（与 filterMoveCoordsForSlot 一致）。终局后全员下发完整手顺。 */
+            replaySync: {
+                initialPosition: encodeInitialPositionCompact(this.openingBoard, this.boardSize),
+                plainWeiqiStartHand: this.plainWeiqiStartHand,
+                moves: (this.gameOver ? this.moveCoords : this.filterMoveCoordsForSlot(slot)).map(m => ({ ...m }))
+            },
             komi: 4.25,
             slots: {
                 black: !!this.room.getPlayerBySlot('black'),
                 white: !!this.room.getPlayerBySlot('white')
-            }
+            },
+            matchTime: {
+                negotiation: this.tcNego,
+                settings: this.tcSettings,
+                clock: this.tcClock && this.tcClock.timed
+                    ? qiMatchTimeControl.snapshotForClient(this.tcClock)
+                    : (this.tcSettings && this.tcSettings.timed === false ? { timed: false, ruleLine: '本局不限时' } : null)
+            },
+            matchStarted: this.matchStarted
         };
     }
 
@@ -272,6 +583,7 @@ class InvisibleStoneWeiqiRoom extends QiTwoPlayerRoomBase {
     }
 
     startScoreCounting(requester, opponent) {
+        if (this.tcClock && this.tcClock.timed) qiMatchTimeControl.setPaused(this.tcClock, true);
         this.revealAllInvisible();
         this.plainWeiqiStartHand = this.moveHistory.length + 1;
         if (this.historyInvisible.length > 0)
@@ -295,10 +607,19 @@ class InvisibleStoneWeiqiRoom extends QiTwoPlayerRoomBase {
                 const newSlot = this.assignSlot(ws, msg.color);
                 if (newSlot) {
                     room.setPlayerSlot(ws, newSlot);
+                    this.afterColorAssigned(newSlot);
                     ws.send(JSON.stringify({ type: 'colorAssigned', color: newSlot }));
                     this.sendState(ws);
                     room.broadcast({ type: 'slotOccupied', slot: newSlot }, ws);
                 }
+                break;
+
+            case 'timeControlSubmit':
+                this._handleTimeControlSubmit(ws, msg);
+                break;
+
+            case 'timeControlAccept':
+                this._handleTimeControlAccept(ws, msg);
                 break;
 
             case 'setBoardSize':
@@ -307,8 +628,8 @@ class InvisibleStoneWeiqiRoom extends QiTwoPlayerRoomBase {
                 break;
 
             case 'move': {
-                if (this.gameOver) return;
-                if (!slot || slot !== (this.currentPlayer === 1 ? 'black' : 'white')) return;
+                if (!this._timeAllowsPlay(slot)) return;
+                if (!this._drainClockBeforeMove(slot)) return;
                 const row = msg.row, col = msg.col;
                 if (row < 0 || row >= this.boardSize || col < 0 || col >= this.boardSize) return;
 
@@ -334,6 +655,7 @@ class InvisibleStoneWeiqiRoom extends QiTwoPlayerRoomBase {
                         this.lastMoveMarkers = [];
                         this.currentPlayer = 3 - this.currentPlayer;
                         this.passCounter = 0;
+                        this._syncClockAfterTurnChange();
                         this.broadcastState('invisibleReveal', { reason: 'hitPass', row, col });
                     }
                     return;
@@ -389,12 +711,13 @@ class InvisibleStoneWeiqiRoom extends QiTwoPlayerRoomBase {
                 this.currentPlayer = 3 - this.currentPlayer;
                 this.passCounter = 0;
                 this.broadcastState('move');
+                this._syncClockAfterTurnChange();
                 break;
             }
 
             case 'pass':
-                if (this.gameOver) return;
-                if (!slot || slot !== (this.currentPlayer === 1 ? 'black' : 'white')) return;
+                if (!this._timeAllowsPlay(slot)) return;
+                if (!this._drainClockBeforeMove(slot)) return;
                 this.historyBoards.push(this.copyBoard(this.board));
                 this.historyInvisible.push(this.copyInvisible(this.invisible));
                 this.historyMarkers.push(this.copyMarkers(this.lastMoveMarkers));
@@ -404,6 +727,7 @@ class InvisibleStoneWeiqiRoom extends QiTwoPlayerRoomBase {
                 this.passCounter++;
                 this.lastMoveMarkers = [];
                 this.broadcastState('pass');
+                this._syncClockAfterTurnChange();
                 if (this.passCounter >= 2) {
                     const blackPlayer = room.getPlayerBySlot('black');
                     const whitePlayer = room.getPlayerBySlot('white');
@@ -448,6 +772,7 @@ class InvisibleStoneWeiqiRoom extends QiTwoPlayerRoomBase {
                 if (!slot || this.gameOver) return;
                 this.gameOver = true;
                 this.winner = slot === 'black' ? 'white' : 'black';
+                this.onResignResolved(slot);
                 this.broadcastState('resign', { player: slot, winner: this.winner });
                 break;
 
@@ -474,6 +799,7 @@ class InvisibleStoneWeiqiRoom extends QiTwoPlayerRoomBase {
                 if (!drawOpponent) {
                     this.gameOver = true;
                     this.winner = 'draw';
+                    this.onDrawResolved();
                     this.broadcastState('drawAgreed');
                 } else {
                     this.pendingDraw = ws;
@@ -485,6 +811,7 @@ class InvisibleStoneWeiqiRoom extends QiTwoPlayerRoomBase {
                 if (this.pendingDraw && msg.accept) {
                     this.gameOver = true;
                     this.winner = 'draw';
+                    this.onDrawResolved();
                     this.broadcastState('drawAgreed');
                 } else if (this.pendingDraw && !msg.accept) {
                     this.pendingDraw.send(JSON.stringify({ type: 'error', message: '对方拒绝和棋。' }));
@@ -518,11 +845,13 @@ class InvisibleStoneWeiqiRoom extends QiTwoPlayerRoomBase {
                             const lead = this.scoreProposalData.lead;
                             this.gameOver = true;
                             this.winner = lead > 0 ? 'black' : (lead < 0 ? 'white' : 'draw');
+                            this.setScoreResultTextByLead(lead);
                             this.broadcast({ type: 'scoreAgreed', winner: this.winner, lead });
                             this.pendingScore = null;
                             this.scoreProposalData = null;
                         }
                     } else {
+                        if (this.tcClock && this.tcClock.timed) qiMatchTimeControl.setPaused(this.tcClock, false);
                         this.broadcast({ type: 'scoreRejected' });
                         this.pendingScore = null;
                         this.scoreProposalData = null;
@@ -531,7 +860,7 @@ class InvisibleStoneWeiqiRoom extends QiTwoPlayerRoomBase {
                 break;
 
             case 'exportRecord':
-                ws.send(JSON.stringify({ type: 'gameRecord', data: this.exportRecord() }));
+                ws.send(JSON.stringify({ type: 'gameRecord', data: this.exportRecord(ws) }));
                 break;
 
             case 'importRecord':
@@ -612,6 +941,13 @@ class InvisibleStoneWeiqiRoom extends QiTwoPlayerRoomBase {
         this.passCounter = 0;
         this.moveCoords = [];
         this.plainWeiqiStartHand = null;
+        this.recordResultText = null;
+        this.slotJoinedAt = { black: null, white: null };
+        this.tcNego = null;
+        this.tcSettings = null;
+        this.tcClock = null;
+        this.matchStarted = false;
+        this._stopClockTicker();
         for (let [client, s] of this.room.players.entries()) {
             this.room.slotOccupancy.delete(s);
             this.room.players.delete(client);
@@ -623,6 +959,7 @@ class InvisibleStoneWeiqiRoom extends QiTwoPlayerRoomBase {
             if (client.readyState !== 1) continue;
             client.send(JSON.stringify({ type: 'newGameStarted', ...this.getStateForClient(client), slots: { black: false, white: false } }));
         }
+        this.broadcastFlat({ type: 'timeControlReset', reason: 'resetRoom' });
     }
 
     setBoardSize(newSize, requesterWs) {
@@ -639,7 +976,26 @@ class InvisibleStoneWeiqiRoom extends QiTwoPlayerRoomBase {
         return true;
     }
 
-    exportRecord() {
+    serializeMoveForExport(m) {
+        const p = m.player === 'black' ? 'B' : 'W';
+        if (m.type === 'pass') {
+            if (m.reason === 'hitInvisible') {
+                if (typeof m.revealRow === 'number' && typeof m.revealCol === 'number')
+                    return `${p}ph${m.revealRow},${m.revealCol}`;
+                return `${p}ph`;
+            }
+            return p + 'p';
+        }
+        if (m.type === 'move' && m.concealed)
+            return p + 'i';
+        const inv = m.invisible ? 'i' : '';
+        return p + m.row + ',' + m.col + inv;
+    }
+
+    /** 对局未结束时按座位过滤手顺，避免向对方/观战者导出隐身子坐标 */
+    exportRecord(ws) {
+        const slot = this.room.getSlotByWs(ws);
+        const movesSrc = this.gameOver ? this.moveCoords : this.filterMoveCoordsForSlot(slot);
         return {
             format: 'muzei',
             version: 1,
@@ -650,17 +1006,11 @@ class InvisibleStoneWeiqiRoom extends QiTwoPlayerRoomBase {
             players: { black: null, white: null },
             initialPosition: encodeInitialPositionCompact(this.openingBoard, this.boardSize),
             plainWeiqiStartHand: this.plainWeiqiStartHand,
-            moves: this.moveCoords.map(m => {
-                const p = m.player === 'black' ? 'B' : 'W';
-                if (m.type === 'pass') {
-                    if (m.reason === 'hitInvisible')
-                        return `${p}ph${m.revealRow},${m.revealCol}`;
-                    return p + 'p';
-                }
-                const inv = m.invisible ? 'i' : '';
-                return p + m.row + ',' + m.col + inv;
-            }),
-            result: this.gameOver ? this.winner : null
+            moves: movesSrc.map(m => this.serializeMoveForExport(m)),
+            timeControl: (this.tcSettings && this.tcSettings.timed)
+                ? `S${this.tcSettings.mainMinutes || 0},${this.tcSettings.byoyomiSeconds || 0},${this.tcSettings.maxTimeouts || 0}`
+                : null,
+            result: this.gameOver ? (this.recordResultText || this.winner || null) : null
         };
     }
 
@@ -686,6 +1036,13 @@ class InvisibleStoneWeiqiRoom extends QiTwoPlayerRoomBase {
         this.pendingScore = null;
         this.scoreProposalData = null;
         this.plainWeiqiStartHand = null;
+        this.recordResultText = null;
+        this.slotJoinedAt = { black: null, white: null };
+        this.tcNego = null;
+        this.tcSettings = null;
+        this.tcClock = null;
+        this.matchStarted = false;
+        this._stopClockTicker();
     }
 
     static parseMove(entry) {
@@ -693,7 +1050,12 @@ class InvisibleStoneWeiqiRoom extends QiTwoPlayerRoomBase {
             const player = entry[0] === 'B' ? 'black' : 'white';
             if (entry[1] === 'p') {
                 if (entry[2] === 'h') {
-                    const coords = entry.substring(3).split(',').map(Number);
+                    const rest = entry.substring(3);
+                    if (!rest)
+                        return { type: 'pass', player, reason: 'hitInvisible' };
+                    const coords = rest.split(',').map(Number);
+                    if (!Number.isFinite(coords[0]) || !Number.isFinite(coords[1]))
+                        return { type: 'pass', player, reason: 'hitInvisible' };
                     return {
                         type: 'pass',
                         player,
@@ -704,6 +1066,9 @@ class InvisibleStoneWeiqiRoom extends QiTwoPlayerRoomBase {
                 }
                 return { type: 'pass', player };
             }
+            /** Bi/Wi/Bx/Wx：棋谱占位，导入时视为虚着 */
+            if (entry.length === 2 && (entry[1] === 'i' || entry[1] === 'x'))
+                return { type: 'pass', player };
             let s = entry;
             let invisible = false;
             if (s.endsWith('i')) {
@@ -796,6 +1161,12 @@ class InvisibleStoneWeiqiRoom extends QiTwoPlayerRoomBase {
             } else if (move.type === 'pass') {
                 importHand++;
                 if (move.reason === 'hitInvisible') {
+                    if (typeof move.revealRow !== 'number' || typeof move.revealCol !== 'number') {
+                        this.resetToEmpty();
+                        requesterWs.send(JSON.stringify({ type: 'error', message: '棋谱缺少试入隐子坐标，无法完整导入' }));
+                        this.broadcastPerClientReset();
+                        return;
+                    }
                     this.invisible[move.revealRow][move.revealCol] = false;
                     const v = this.board[move.revealRow][move.revealCol];
                     const ps = v === 1 ? 'black' : 'white';
@@ -822,9 +1193,29 @@ class InvisibleStoneWeiqiRoom extends QiTwoPlayerRoomBase {
             }
         }
 
-        if (data.result) {
+        if (data.timeControl === null) {
+            this.tcSettings = { timed: false };
+            this.matchStarted = true;
+        } else if (typeof data.timeControl === 'string') {
+            const m = /^S(\d+),(\d+),(\d+)$/.exec(data.timeControl.trim());
+            if (m) {
+                this.tcSettings = {
+                    timed: true,
+                    mainMinutes: parseInt(m[1], 10) || 0,
+                    byoyomiSeconds: parseInt(m[2], 10) || 0,
+                    maxTimeouts: parseInt(m[3], 10) || 0
+                };
+                this.matchStarted = true;
+            }
+        }
+
+        if (data.result || data.resultText) {
             this.gameOver = true;
-            this.winner = data.result;
+            const importedResultText = data.resultText != null ? String(data.resultText) : String(data.result);
+            this.recordResultText = importedResultText;
+            this.winner = InvisibleStoneWeiqiRoom.parseResultTextToWinner(importedResultText);
+            if (!this.winner && (data.result === 'black' || data.result === 'white' || data.result === 'draw'))
+                this.winner = data.result;
         }
 
         const allClients = [...this.room.players.keys(), ...this.room.observers];
@@ -855,9 +1246,15 @@ class InvisibleStoneWeiqiRoom extends QiTwoPlayerRoomBase {
         if (this.pendingDraw === ws) this.pendingDraw = null;
         if (this.pendingEnd && (this.pendingEnd.requester === ws || this.pendingEnd.opponent === ws)) this.pendingEnd = null;
         if (this.pendingScore && (this.pendingScore.requester === ws || this.pendingScore.opponent === ws)) {
+            if (this.tcClock && this.tcClock.timed) qiMatchTimeControl.setPaused(this.tcClock, false);
             this.pendingScore = null;
             this.scoreProposalData = null;
         }
+        if (this.tcNego) {
+            this.tcNego = null;
+            this.broadcastFlat({ type: 'timeControlReset', reason: 'playerLeft' });
+        }
+        if (slot) this.slotJoinedAt[slot] = null;
     }
 }
 

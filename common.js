@@ -1,9 +1,5 @@
 'use strict';
 
-/**
- * 双人对弈房间公共逻辑（仅 Node 使用；勿作为静态文件暴露给浏览器）。
- * 从各变种目录引用：require('../common')
- */
 
 function copyBoard(src) {
     return src.map(row => row.slice());
@@ -14,8 +10,8 @@ function boardToString(board) {
 }
 
 /**
- * 紧凑棋谱初始局面：字符串数组，如 ["B3,3","W15,15","N0,6","H2,2"]
- * 前缀 B/W/N/H，后为 row,col（与着手坐标串格式一致，无空格）
+ * 紧凑棋谱初始局面：字符串数组，如 ["B3,3","W15,15","N0,6","H2,2","I4,4","M5,5"]
+ * 前缀 B/W/N/H/I/M，后为 row,col（与着手坐标串格式一致，无空格）
  */
 function encodeInitialPositionCompact(board, boardSize) {
     const out = [];
@@ -24,8 +20,10 @@ function encodeInitialPositionCompact(board, boardSize) {
             const v = board[r][c];
             if (v === 1) out.push(`B${r},${c}`);
             else if (v === 2) out.push(`W${r},${c}`);
-            else if (v === 3) out.push(`N${r},${c}`);
+            else if (v === 10000) out.push(`N${r},${c}`);
             else if (v === -1) out.push(`H${r},${c}`);
+            else if (v === -2) out.push(`I${r},${c}`);
+            else if (v === -3) out.push(`M${r},${c}`);
         }
     }
     return out;
@@ -36,7 +34,7 @@ function applyInitialPositionCompact(board, boardSize, initialPosition) {
     for (const s of initialPosition) {
         if (typeof s !== 'string' || s.length < 3) continue;
         const prefix = s[0];
-        if (prefix !== 'B' && prefix !== 'W' && prefix !== 'N' && prefix !== 'H') continue;
+        if (prefix !== 'B' && prefix !== 'W' && prefix !== 'N' && prefix !== 'H' && prefix !== 'I' && prefix !== 'M') continue;
         const comma = s.indexOf(',');
         if (comma <= 1) continue;
         const r = parseInt(s.slice(1, comma), 10);
@@ -45,16 +43,434 @@ function applyInitialPositionCompact(board, boardSize, initialPosition) {
         if (r < 0 || r >= boardSize || c < 0 || c >= boardSize) continue;
         if (prefix === 'B') board[r][c] = 1;
         else if (prefix === 'W') board[r][c] = 2;
-        else if (prefix === 'N') board[r][c] = 3;
+        else if (prefix === 'N') board[r][c] = 10000;
         else if (prefix === 'H') board[r][c] = -1;
+        else if (prefix === 'I') board[r][c] = -2;
+        else if (prefix === 'M') board[r][c] = -3;
     }
 }
+
+/**
+ * 标准围棋对弈限时：主时间（分）+ 读秒（秒）+ 可超时次数。
+ * 双方主时间独立；主时间用完后进入读秒；读秒用尽消耗一次超时并重新读秒；超时次数用尽后再超时判负。
+ */
+const qiMatchTimeControl = {
+    /**
+     * @param {object} msg 客户端提交：timed false 或 unlimited true 表示不限时；否则 mainMinutes / byoyomiSeconds / maxTimeouts（整数）
+     * @returns {{ ok: true, timed: false } | { ok: true, timed: true, mainMinutes: number, byoyomiSeconds: number, maxTimeouts: number } | { ok: false, error: string }}
+     */
+    validateProposal(msg) {
+        const unlimited = msg.timed === false || msg.unlimited === true || msg.unlimited === '1';
+        if (unlimited) return { ok: true, timed: false };
+        const mainMinutes = parseInt(String(msg.mainMinutes ?? msg.mainMin ?? ''), 10);
+        const byoyomiSeconds = parseInt(String(msg.byoyomiSeconds ?? msg.byoSec ?? ''), 10);
+        const maxTimeouts = parseInt(String(msg.maxTimeouts ?? msg.periods ?? ''), 10);
+        if (!Number.isFinite(mainMinutes) || !Number.isFinite(byoyomiSeconds) || !Number.isFinite(maxTimeouts)) {
+            return { ok: false, error: '限时对局请填写主时间、读秒与超时次数。' };
+        }
+        if (mainMinutes < 1 || mainMinutes > 120) return { ok: false, error: '主时间须在 1～120 分钟之间。' };
+        if (byoyomiSeconds < 0 || byoyomiSeconds > 180) return { ok: false, error: '读秒须在 0～180 秒之间。' };
+        if (maxTimeouts < 0 || maxTimeouts > 20) return { ok: false, error: '超时次数须在 0～20 之间。' };
+        return {
+            ok: true,
+            timed: true,
+            mainMinutes,
+            byoyomiSeconds,
+            maxTimeouts
+        };
+    },
+
+    /**
+     * @param {{ timed: boolean, mainMinutes?: number, byoyomiSeconds?: number, maxTimeouts?: number }} settings
+     */
+    createClock(settings, nowMs) {
+        const t = nowMs != null ? nowMs : Date.now();
+        if (!settings || !settings.timed) {
+            return {
+                timed: false,
+                activeSlot: 'black',
+                lastUpdateMs: t,
+                black: { mainMs: 0, inByo: false, byoMs: 0, timeoutsUsed: 0 },
+                white: { mainMs: 0, inByo: false, byoMs: 0, timeoutsUsed: 0 },
+                mainMinutes: 0,
+                byoyomiSeconds: 0,
+                maxTimeouts: 0
+            };
+        }
+        const mainMs = settings.mainMinutes * 60 * 1000;
+        return {
+            timed: true,
+            activeSlot: 'black',
+            lastUpdateMs: t,
+            mainMinutes: settings.mainMinutes,
+            byoyomiSeconds: settings.byoyomiSeconds,
+            maxTimeouts: settings.maxTimeouts,
+            black: { mainMs, inByo: false, byoMs: 0, timeoutsUsed: 0 },
+            white: { mainMs, inByo: false, byoMs: 0, timeoutsUsed: 0 }
+        };
+    },
+
+    /**
+     * 将 elapsed 毫秒扣在 clock[slot]（黑/白）上；可能触发判负。
+     * @returns {{ lostSlot: string|null, winnerSlot: string|null }}
+     */
+    applyElapsedToSlot(clock, slot, elapsed) {
+        const p = clock[slot];
+        if (!p) return { lostSlot: null, winnerSlot: null };
+        let elapsedLeft = elapsed;
+        const byoMsFull = clock.byoyomiSeconds * 1000;
+        for (;;) {
+            if (elapsedLeft <= 0 && !(p.inByo && p.byoMs <= 0)) break;
+            if (!p.inByo) {
+                if (p.mainMs > 0) {
+                    const take = Math.min(elapsedLeft, p.mainMs);
+                    p.mainMs -= take;
+                    elapsedLeft -= take;
+                    continue;
+                }
+                p.inByo = true;
+                p.mainMs = 0;
+                if (clock.byoyomiSeconds <= 0) {
+                    return { lostSlot: slot, winnerSlot: slot === 'black' ? 'white' : 'black' };
+                }
+                p.byoMs = byoMsFull;
+                continue;
+            }
+            if (p.byoMs > 0) {
+                const take = Math.min(elapsedLeft, p.byoMs);
+                p.byoMs -= take;
+                elapsedLeft -= take;
+            }
+            if (p.byoMs <= 0) {
+                if (p.timeoutsUsed < clock.maxTimeouts) {
+                    p.timeoutsUsed++;
+                    p.byoMs = byoMsFull;
+                    continue;
+                }
+                return { lostSlot: slot, winnerSlot: slot === 'black' ? 'white' : 'black' };
+            }
+            break;
+        }
+        return { lostSlot: null, winnerSlot: null };
+    },
+
+    /**
+     * 同步围棋：每「一手」窗口内双方并行扣时；一方提交后该方暂停扣时，另一方继续。
+     * @returns {{ lostSlot: string|null, winnerSlot: string|null }}
+     */
+    drainSyncClock(clock, nowMs) {
+        if (!clock || !clock.timed || !clock.syncMode) {
+            if (clock) clock.lastUpdateMs = nowMs;
+            return { lostSlot: null, winnerSlot: null };
+        }
+        if (clock.pauseCount) {
+            clock.lastUpdateMs = nowMs;
+            return { lostSlot: null, winnerSlot: null };
+        }
+        let elapsed = nowMs - clock.lastUpdateMs;
+        if (elapsed < 0) elapsed = 0;
+        if (clock.blackRunning) {
+            const r = this.applyElapsedToSlot(clock, 'black', elapsed);
+            if (r.lostSlot) {
+                clock.lastUpdateMs = nowMs;
+                return r;
+            }
+        }
+        if (clock.whiteRunning) {
+            const r = this.applyElapsedToSlot(clock, 'white', elapsed);
+            if (r.lostSlot) {
+                clock.lastUpdateMs = nowMs;
+                return r;
+            }
+        }
+        clock.lastUpdateMs = nowMs;
+        return { lostSlot: null, winnerSlot: null };
+    },
+
+    /** 同步围棋：一方落子/虚着提交后调用（先 drain 再冻结该方）。 */
+    commitSyncSide(clock, slot, nowMs) {
+        const t = nowMs != null ? nowMs : Date.now();
+        if (!clock || !clock.timed || !clock.syncMode) return { lostSlot: null, winnerSlot: null };
+        const r = this.drainSyncClock(clock, t);
+        if (r.lostSlot) return r;
+        if (slot === 'black') clock.blackRunning = false;
+        else if (slot === 'white') clock.whiteRunning = false;
+        clock.lastUpdateMs = t;
+        return { lostSlot: null, winnerSlot: null };
+    },
+
+    /** 同步围棋：双方均提交并结算后，下一手窗口开始（读秒方重置到满读秒）。 */
+    openSyncMoveWindow(clock, nowMs) {
+        if (!clock || !clock.syncMode || !clock.timed) return;
+        const t = nowMs != null ? nowMs : Date.now();
+        if (clock.byoyomiSeconds > 0) {
+            const full = clock.byoyomiSeconds * 1000;
+            if (clock.black && clock.black.inByo) clock.black.byoMs = full;
+            if (clock.white && clock.white.inByo) clock.white.byoMs = full;
+        }
+        clock.blackRunning = true;
+        clock.whiteRunning = true;
+        clock.lastUpdateMs = t;
+    },
+
+    createSyncClock(settings, nowMs) {
+        const c = this.createClock(settings, nowMs);
+        if (!c.timed) return c;
+        c.syncMode = true;
+        c.blackRunning = true;
+        c.whiteRunning = true;
+        return c;
+    },
+
+    /**
+     * 消耗 activeSlot 一方自 lastUpdateMs 至 nowMs 的时间；可能触发判负。
+     * @returns {{ lostSlot: string|null, winnerSlot: string|null }}
+     */
+    drain(clock, nowMs) {
+        if (!clock || !clock.timed) {
+            if (clock) clock.lastUpdateMs = nowMs;
+            return { lostSlot: null, winnerSlot: null };
+        }
+        if (clock.syncMode) {
+            return this.drainSyncClock(clock, nowMs);
+        }
+        if (clock.pauseCount) {
+            clock.lastUpdateMs = nowMs;
+            return { lostSlot: null, winnerSlot: null };
+        }
+        let elapsed = nowMs - clock.lastUpdateMs;
+        if (elapsed < 0) elapsed = 0;
+        const slot = clock.activeSlot;
+        const r = this.applyElapsedToSlot(clock, slot, elapsed);
+        if (r.lostSlot) {
+            clock.lastUpdateMs = nowMs;
+            return r;
+        }
+        clock.lastUpdateMs = nowMs;
+        return { lostSlot: null, winnerSlot: null };
+    },
+
+    setActiveSlot(clock, slot, nowMs) {
+        if (!clock) return;
+        if (clock.timed && clock.byoyomiSeconds > 0) {
+            const full = clock.byoyomiSeconds * 1000;
+            if (clock.black && clock.black.inByo) clock.black.byoMs = full;
+            if (clock.white && clock.white.inByo) clock.white.byoMs = full;
+        }
+        clock.activeSlot = slot;
+        clock.lastUpdateMs = nowMs != null ? nowMs : Date.now();
+    },
+
+    /** 数子等待等：暂停扣时（仍保留 lastUpdateMs） */
+    setPaused(clock, paused) {
+        if (!clock) return;
+        if (paused) {
+            clock.pauseCount = (clock.pauseCount || 0) + 1;
+        } else {
+            clock.pauseCount = Math.max(0, (clock.pauseCount || 0) - 1);
+            if (clock.pauseCount === 0 && clock.timed) clock.lastUpdateMs = Date.now();
+        }
+    },
+
+    /**
+     * 客户端展示用快照（当前思考方剩余显示）
+     * @returns {{ serverNow: number, timed: boolean, activeSlot: string, black: object, white: object, ruleLine: string }}
+     */
+    snapshotForClient(clock) {
+        if (!clock) {
+            return { serverNow: Date.now(), timed: false, activeSlot: 'black', black: null, white: null, ruleLine: '' };
+        }
+        const now = Date.now();
+        const c = {
+            timed: clock.timed,
+            activeSlot: clock.activeSlot,
+            mainMinutes: clock.mainMinutes,
+            byoyomiSeconds: clock.byoyomiSeconds,
+            maxTimeouts: clock.maxTimeouts,
+            serverNow: now,
+            black: clock.black ? { ...clock.black } : null,
+            white: clock.white ? { ...clock.white } : null,
+            ruleLine: this.formatRuleLine(clock)
+        };
+        if (!clock.timed) return c;
+        if (clock.syncMode) {
+            c.syncMode = true;
+            c.blackRunning = !!clock.blackRunning;
+            c.whiteRunning = !!clock.whiteRunning;
+            const b = clock.black;
+            const w = clock.white;
+            c.display = {
+                syncMode: true,
+                blackLive: c.blackRunning,
+                whiteLive: c.whiteRunning,
+                blackCountdownMs: b.inByo ? b.byoMs : b.mainMs,
+                whiteCountdownMs: w.inByo ? w.byoMs : w.mainMs
+            };
+            return c;
+        }
+        const slot = clock.activeSlot;
+        const p = clock[slot];
+        let displayMs = 0;
+        if (!p.inByo) displayMs = p.mainMs;
+        else displayMs = p.byoMs;
+        c.display = {
+            slot,
+            countdownMs: displayMs,
+            timeoutsRemaining: Math.max(0, clock.maxTimeouts - p.timeoutsUsed),
+            timeoutsTotal: clock.maxTimeouts
+        };
+        return c;
+    },
+
+    formatRuleLine(clock) {
+        if (!clock || !clock.timed) return '本局不限时';
+        const m = Math.max(0, clock.mainMinutes | 0);
+        const h = Math.floor(m / 60);
+        const mm = m % 60;
+        const head = h > 0 ? `${String(h).padStart(2, '0')}:${String(mm).padStart(2, '0')}:00` : `${String(mm).padStart(2, '0')}:00`;
+        return `${head} ${clock.byoyomiSeconds}秒${clock.maxTimeouts}次`;
+    },
+
+    formatCountdown(ms) {
+        if (!Number.isFinite(ms) || ms < 0) ms = 0;
+        const totalSec = Math.floor(ms / 1000);
+        const h = Math.floor(totalSec / 3600);
+        const m = Math.floor((totalSec % 3600) / 60);
+        const s = totalSec % 60;
+        if (h > 0)
+            return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+        return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+    }
+};
 
 function assignBlackWhiteSlot(room, requestedSlot) {
     if (requestedSlot === 'black' && !room.getPlayerBySlot('black')) return 'black';
     if (requestedSlot === 'white' && !room.getPlayerBySlot('white')) return 'white';
     return null;
 }
+
+function parseQiRecordResultWinner(resultText) {
+    if (typeof resultText !== 'string') return null;
+    if (resultText === 'black' || resultText === 'white' || resultText === 'draw') return resultText;
+    if (resultText === '和胜' || resultText === '平局') return 'draw';
+    if (resultText.includes('白胜')) return 'white';
+    if (resultText.includes('黑胜')) return 'black';
+    return null;
+}
+
+function encodeCompactTimeControl(tcSettings) {
+    if (!tcSettings || tcSettings.timed !== true) return null;
+    const mainMinutes = parseInt(String(tcSettings.mainMinutes ?? 0), 10) || 0;
+    const byoyomiSeconds = parseInt(String(tcSettings.byoyomiSeconds ?? 0), 10) || 0;
+    const maxTimeouts = parseInt(String(tcSettings.maxTimeouts ?? 0), 10) || 0;
+    return `S${mainMinutes},${byoyomiSeconds},${maxTimeouts}`;
+}
+
+function decodeCompactTimeControl(timeControl) {
+    if (timeControl === null) return { enabled: false };
+    if (typeof timeControl !== 'string') return null;
+    const m = /^S(\d+),(\d+),(\d+)$/.exec(timeControl.trim());
+    if (!m) return null;
+    return {
+        enabled: true,
+        mainMinutes: parseInt(m[1], 10) || 0,
+        byoyomiSeconds: parseInt(m[2], 10) || 0,
+        maxTimeouts: parseInt(m[3], 10) || 0
+    };
+}
+
+function normalizeQiRecordForExport(self, record) {
+    if (!record || typeof record !== 'object') return record;
+    const out = { ...record };
+    if (typeof out.timeControl === 'string') {
+        const parsed = decodeCompactTimeControl(out.timeControl);
+        out.timeControl = parsed && parsed.enabled === true
+            ? encodeCompactTimeControl({
+                timed: true,
+                mainMinutes: parsed.mainMinutes,
+                byoyomiSeconds: parsed.byoyomiSeconds,
+                maxTimeouts: parsed.maxTimeouts
+            })
+            : null;
+    } 
+    else if (out.timeControl === null)
+        out.timeControl = null;
+    else
+        out.timeControl = encodeCompactTimeControl(self && self.tcSettings ? self.tcSettings : null);
+    const rawResult = out.result;
+    if (self && self.gameOver) {
+        if (typeof self.recordResultText === 'string' && self.recordResultText.length > 0) {
+            out.result = self.recordResultText;
+            return out;
+        }
+        const winner = self.winner;
+        if (winner === 'draw') out.result = '和胜';
+        else if (winner === 'black') out.result = '黑胜';
+        else if (winner === 'white') out.result = '白胜';
+        else if (typeof rawResult === 'string') {
+            const parsed = parseQiRecordResultWinner(rawResult);
+            if (parsed === 'draw') out.result = '和胜';
+            else if (parsed === 'black') out.result = '黑胜';
+            else if (parsed === 'white') out.result = '白胜';
+        }
+        return out;
+    }
+    if (typeof rawResult === 'string') {
+        const parsed = parseQiRecordResultWinner(rawResult);
+        if (parsed === 'draw') out.result = '和胜';
+        else if (parsed === 'black') out.result = '黑胜';
+        else if (parsed === 'white') out.result = '白胜';
+    }
+    return out;
+}
+
+function normalizeQiRecordForImport(data) {
+    if (!data || typeof data !== 'object') return data;
+    const out = { ...data };
+    if (Object.prototype.hasOwnProperty.call(out, 'timeControl')) {
+        out.timeControl = decodeCompactTimeControl(out.timeControl);
+    } else {
+        out.timeControl = null;
+    }
+    if (typeof out.result === 'string') {
+        out.resultText = out.result;
+        const parsed = parseQiRecordResultWinner(out.result);
+        if (parsed) out.result = parsed;
+    }
+    return out;
+}
+
+/** 方格五子棋：连五判定与棋盘是否已满（与前端 qi.js 中同名逻辑保持一致） */
+const squareWuziqiRules = {
+    checkFiveInRow(board, row, col, colorVal, boardSize) {
+        if (board[row][col] !== colorVal) return false;
+        const directions = [[1, 0], [0, 1], [1, 1], [1, -1]];
+        for (let [dx, dy] of directions) {
+            let count = 1;
+            for (let step = 1; step < 5; step++) {
+                const nr = row + dx * step;
+                const nc = col + dy * step;
+                if (nr < 0 || nr >= boardSize || nc < 0 || nc >= boardSize || board[nr][nc] !== colorVal) break;
+                count++;
+            }
+            for (let step = 1; step < 5; step++) {
+                const nr = row - dx * step;
+                const nc = col - dy * step;
+                if (nr < 0 || nr >= boardSize || nc < 0 || nc >= boardSize || board[nr][nc] !== colorVal) break;
+                count++;
+            }
+            if (count >= 5) return true;
+        }
+        return false;
+    },
+
+    isBoardFull(board, boardSize) {
+        for (let r = 0; r < boardSize; r++)
+            for (let c = 0; c < boardSize; c++)
+                if (board[r][c] === 0) return false;
+        return true;
+    }
+};
 
 class QiTwoPlayerRoomBase {
     constructor(room) {
@@ -100,13 +516,15 @@ const qiProtocol = {
             ws.send(JSON.stringify({ type: 'colorAssigned', color: newSlot }));
             self.sendState(ws);
             room.broadcast({ type: 'slotOccupied', slot: newSlot }, ws);
+            if (typeof self.afterColorAssigned === 'function') self.afterColorAssigned(ws, newSlot);
         } else {
             ws.send(JSON.stringify({ type: 'error', message: occupiedMsg }));
         }
     },
 
     exportRecord(self, ws) {
-        ws.send(JSON.stringify({ type: 'gameRecord', data: self.exportRecord() }));
+        const raw = self.exportRecord();
+        ws.send(JSON.stringify({ type: 'gameRecord', data: normalizeQiRecordForExport(self, raw) }));
     },
 
     importRecord(self, ws, msg, opts = {}) {
@@ -115,7 +533,7 @@ const qiProtocol = {
             ws.send(JSON.stringify({ type: 'error', message: blockedMsg }));
             return;
         }
-        self.importRecord(msg.data, ws);
+        self.importRecord(normalizeQiRecordForImport(msg.data), ws);
     },
 
     /** 观战且无人入座时清空房间（需实现 resetToEmpty） */
@@ -125,16 +543,25 @@ const qiProtocol = {
         self.broadcast({ type: 'roomReset', ...self.getState() });
     },
 
-    resign(self, ws, slot) {
+    resign(self, ws, slot, opts = {}) {
         if (!slot || self.gameOver) return;
         self.gameOver = true;
         self.winner = slot === 'black' ? 'white' : 'black';
-        self.broadcast({ type: 'broadcast', action: 'resign', player: slot, winner: self.winner, ...self.getState() });
+        if (typeof self.onResignResolved === 'function') self.onResignResolved(slot, self.winner);
+        if (typeof opts.broadcastPerClient === 'function') {
+            opts.broadcastPerClient('resign', { player: slot, winner: self.winner });
+        } else {
+            self.broadcast({ type: 'broadcast', action: 'resign', player: slot, winner: self.winner, ...self.getState() });
+        }
     },
 
     requestNewGame(self, ws, slot) {
-        if (!slot) return;
         const room = self.room;
+        if (!room.getPlayerBySlot('black') && !room.getPlayerBySlot('white')) {
+            self.resetGame();
+            return;
+        }
+        if (!slot) return;
         const newGameOpponent = room.getPlayerBySlot(slot === 'black' ? 'white' : 'black');
         if (!newGameOpponent) {
             self.resetGame();
@@ -154,36 +581,68 @@ const qiProtocol = {
         self.pendingNewGame = null;
     },
 
-    requestDraw(self, ws, slot) {
+    requestDraw(self, ws, slot, opts = {}) {
         if (!slot || self.gameOver) return;
         const room = self.room;
         const drawOpponent = room.getPlayerBySlot(slot === 'black' ? 'white' : 'black');
         if (!drawOpponent) {
             self.gameOver = true;
             self.winner = 'draw';
-            self.broadcast({ type: 'broadcast', action: 'drawAgreed', ...self.getState() });
+            if (typeof self.onDrawResolved === 'function') self.onDrawResolved();
+            if (typeof opts.broadcastPerClient === 'function') {
+                opts.broadcastPerClient('drawAgreed');
+            } else {
+                self.broadcast({ type: 'broadcast', action: 'drawAgreed', ...self.getState() });
+            }
         } else {
             self.pendingDraw = ws;
             drawOpponent.send(JSON.stringify({ type: 'drawRequest' }));
         }
     },
 
-    drawResponse(self, ws, msg) {
+    drawResponse(self, ws, msg, opts = {}) {
         if (self.pendingDraw && msg.accept) {
             self.gameOver = true;
             self.winner = 'draw';
-            self.broadcast({ type: 'broadcast', action: 'drawAgreed', ...self.getState() });
+            if (typeof self.onDrawResolved === 'function') self.onDrawResolved();
+            if (typeof opts.broadcastPerClient === 'function') {
+                opts.broadcastPerClient('drawAgreed');
+            } else {
+                self.broadcast({ type: 'broadcast', action: 'drawAgreed', ...self.getState() });
+            }
         } else if (self.pendingDraw && !msg.accept) {
             self.pendingDraw.send(JSON.stringify({ type: 'error', message: '对方拒绝和棋。' }));
         }
         self.pendingDraw = null;
     },
 
+    requestEnd(self, ws, slot) {
+        if (!slot) return;
+        const room = self.room;
+        const endOpponent = room.getPlayerBySlot(slot === 'black' ? 'white' : 'black');
+        if (!endOpponent) {
+            self.startScoreCounting(ws, ws);
+        } else {
+            self.pendingEnd = { requester: ws, opponent: endOpponent };
+            endOpponent.send(JSON.stringify({ type: 'requestEnd' }));
+        }
+    },
+
+    endResponse(self, ws, msg, opts = {}) {
+        const denyMsg = opts.endDeniedMsg ?? '对方拒绝数子。';
+        if (self.pendingEnd && msg.accept) {
+            self.startScoreCounting(self.pendingEnd.requester, self.pendingEnd.opponent);
+        } else if (self.pendingEnd && !msg.accept) {
+            self.pendingEnd.requester.send(JSON.stringify({ type: 'error', message: denyMsg }));
+        }
+        self.pendingEnd = null;
+    },
+
     /**
      * 五子棋类：historyBoards 存落子前棋盘，悔棋时 pop 恢复。
      * currentPlayer 为 1/2。
      */
-    undoGomokuHistory(self, ws, msg, slot) {
+    undoWuziqiHistory(self, ws, msg, slot) {
         if (!slot || self.gameOver) return;
         const room = self.room;
         const isMyTurn = (slot === 'black' && self.currentPlayer === 1) || (slot === 'white' && self.currentPlayer === 2);
@@ -210,7 +669,7 @@ const qiProtocol = {
         }
     },
 
-    undoResponseGomokuHistory(self, ws, msg) {
+    undoResponseWuziqiHistory(self, ws, msg) {
         if (self.pendingUndo && msg.accept) {
             const steps = self.pendingUndo.steps;
             if (self.historyBoards.length >= steps) {
@@ -253,7 +712,7 @@ const qiProtocol = {
      * lastMoveMarkers/moveHistory/moveCoords/passCounter、pendingUndo、tryPlaceStone、
      * copyBoard/boardToString/copyMarkers、broadcast/getState、performUndo、startScoreCounting。
      */
-    weiqiMove(self, ws, msg, slot) {
+    weiqiMove(self, ws, msg, slot, opts = {}) {
         if (self.gameOver) return;
         if (!slot || slot !== (self.currentPlayer === 1 ? 'black' : 'white')) return;
         const { row, col } = msg;
@@ -267,6 +726,7 @@ const qiProtocol = {
             ws.send(JSON.stringify({ type: 'error', message: '禁全同。' }));
             return;
         }
+        if (typeof opts.beforeCommit === 'function' && opts.beforeCommit() === false) return;
         self.historyBoards.push(self.copyBoard(newBoard));
         self.historyBoardSet.add(newBoardStr);
         self.historyMarkers.push(self.copyMarkers(self.lastMoveMarkers));
@@ -279,10 +739,11 @@ const qiProtocol = {
         self.broadcast({ type: 'broadcast', action: 'move', ...self.getState() });
     },
 
-    weiqiPass(self, ws, slot) {
+    weiqiPass(self, ws, slot, opts = {}) {
         const room = self.room;
         if (self.gameOver) return;
         if (!slot || slot !== (self.currentPlayer === 1 ? 'black' : 'white')) return;
+        if (typeof opts.beforeCommit === 'function' && opts.beforeCommit() === false) return;
         self.historyBoards.push(self.copyBoard(self.board));
         self.historyMarkers.push(self.copyMarkers(self.lastMoveMarkers));
         self.moveHistory.push(slot);
@@ -366,9 +827,36 @@ const squareWeiqiRules = {
         }
         return liberties.size;
     },
+    
+    hasLiberty(board, row, col, boardSize) 
+    {
+        const color = board[row][col];
+        if (color === 0)
+            return false;
 
-    hasLiberty(board, row, col, boardSize) {
-        return this.countGroupLiberties(board, row, col, boardSize) > 0;
+        const visited = Array(boardSize).fill().map(() => Array(boardSize).fill(false));
+        const queue = [[row, col]];
+        const dirs = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+        visited[row][col] = true;
+        while (queue.length) 
+        {
+            const [r, c] = queue.shift();
+            for (const [dr, dc] of dirs) 
+            {
+                const nr = r + dr;
+                const nc = c + dc;
+                if (nr < 0 || nr >= boardSize || nc < 0 || nc >= boardSize)
+                    continue;
+                if (board[nr][nc] === 0)
+                    return true;
+                if (board[nr][nc] === color && !visited[nr][nc])
+                {
+                    visited[nr][nc] = true;
+                    queue.push([nr, nc]); 
+                }
+            }
+        }
+        return false;
     },
 
     removeGroup(board, row, col, color, boardSize) {
@@ -397,20 +885,19 @@ const squareWeiqiRules = {
         const newBoard = copyBoardFn(boardBefore);
         newBoard[row][col] = playerVal;
 
-        const enemyColor = 3 - playerVal;
         const dirs = [[-1, 0], [1, 0], [0, -1], [0, 1]];
         const checkedEnemy = new Set();
 
         for (const [dr, dc] of dirs) {
             const nr = row + dr;
             const nc = col + dc;
-            if (nr >= 0 && nr < boardSize && nc >= 0 && nc < boardSize && newBoard[nr][nc] === enemyColor) {
+            if (nr >= 0 && nr < boardSize && nc >= 0 && nc < boardSize && newBoard[nr][nc] === 3 - playerVal) 
+            {
                 const key = `${nr},${nc}`;
                 if (!checkedEnemy.has(key)) {
                     checkedEnemy.add(key);
-                    if (this.countGroupLiberties(newBoard, nr, nc, boardSize) < minLib) {
-                        this.removeGroup(newBoard, nr, nc, enemyColor, boardSize);
-                    }
+                    if (this.countGroupLiberties(newBoard, nr, nc, boardSize) < minLib) 
+                        this.removeGroup(newBoard, nr, nc, 3 - playerVal, boardSize);
                 }
             }
         }
@@ -691,7 +1178,7 @@ const squareWeiqiRules = {
  * 二维数组棋盘 + 每点邻接由 getNeighbors(r,c) 给出（扭棱四角、三角围棋等）。
  * board[r][c]：0 空，1 黑，2 白；-1 可表示无效格（仅不参与落子，形势 BFS 不可穿）。
  */
-const gridGraphGoRules = {
+const gridGraphWeiqiRules = {
     countGroupLiberties(board, row, col, getNeighbors) {
         const color = board[row][col];
         if (color === 0) 
@@ -879,7 +1366,7 @@ const gridGraphGoRules = {
 /**
  * 一维顶点棋盘 + 邻接表 neighbors[v]（六角、五角围棋等）。
  */
-const vertexGraphGoRules = {
+const vertexGraphWeiqiRules = {
     hasLiberty(boardState, start, neighbors) {
         const color = boardState[start];
         if (color === 0) return false;
@@ -998,7 +1485,9 @@ module.exports = {
     assignBlackWhiteSlot,
     QiTwoPlayerRoomBase,
     qiProtocol,
+    qiMatchTimeControl,
     squareWeiqiRules,
-    gridGraphGoRules,
-    vertexGraphGoRules
+    gridGraphWeiqiRules,
+    vertexGraphWeiqiRules,
+    squareWuziqiRules
 };

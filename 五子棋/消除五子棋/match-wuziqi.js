@@ -1,4 +1,8 @@
-const { QiTwoPlayerRoomBase } = require('../common');
+const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWuziqiRules } = require('../common');
+
+const MATCH_BLACK_WIN_SCORE = 22;
+const MATCH_WHITE_WIN_SCORE = 20;
+
 class MatchWuziqiRoom extends QiTwoPlayerRoomBase {
     constructor(room) {
         super(room);
@@ -8,7 +12,8 @@ class MatchWuziqiRoom extends QiTwoPlayerRoomBase {
         this.historyBoards = [];
         this.lastMoveMarkers = [];
         this.moveHistory = []; // only placements, for hand index
-        this.recordActions = []; // placements + removals, for record import/export
+        /** 棋谱：仅字符串数组。"B5,5" 落子；"B5,5,7,8" 落子后移除对手 (7,8) */
+        this.recordMoves = [];
         this.gameOver = false;
         this.winner = null;
         this.blackScore = 0;
@@ -19,9 +24,184 @@ class MatchWuziqiRoom extends QiTwoPlayerRoomBase {
         this.pendingNewGame = null;
         this.pendingUndo = null;
         this.pendingDraw = null;
+        this.matchStarted = false;
+        this.slotJoinedAt = { black: null, white: null };
+        this.tcNego = null;
+        this.tcSettings = null;
+        this.tcClock = null;
+        this._clockInterval = null;
     }
     getCurrentSlot() { return this.currentPlayer === 1 ? 'black' : 'white'; }
     getOpponentVal(v) { return v === 1 ? 2 : 1; }
+
+    _stopClockTicker() {
+        if (this._clockInterval) {
+            clearInterval(this._clockInterval);
+            this._clockInterval = null;
+        }
+    }
+
+    _broadcastClock() {
+        if (!this.tcClock || !this.tcClock.timed || this.gameOver) return;
+        this.broadcast({ type: 'clockUpdate', clock: qiMatchTimeControl.snapshotForClient(this.tcClock) });
+    }
+
+    _startClockTicker() {
+        this._stopClockTicker();
+        if (!this.tcClock || !this.tcClock.timed) return;
+        this._clockInterval = setInterval(() => {
+            if (!this.tcClock || !this.tcClock.timed || this.gameOver) {
+                this._stopClockTicker();
+                return;
+            }
+            const { lostSlot, winnerSlot } = qiMatchTimeControl.drain(this.tcClock, Date.now());
+            if (lostSlot) {
+                this._stopClockTicker();
+                this.gameOver = true;
+                this.winner = winnerSlot;
+                this.broadcast({ type: 'broadcast', action: 'timeLoss', player: lostSlot, winner: winnerSlot, ...this.getState() });
+                return;
+            }
+            this._broadcastClock();
+        }, 1000);
+    }
+
+    _firstPickerSlot() {
+        const tb = this.slotJoinedAt.black;
+        const tw = this.slotJoinedAt.white;
+        if (tb == null || tw == null) return 'black';
+        return tb <= tw ? 'black' : 'white';
+    }
+
+    _maybeBeginTimeNegotiation() {
+        if (this.moveHistory.length > 0 || this.gameOver) return;
+        if (!this.room.getPlayerBySlot('black') || !this.room.getPlayerBySlot('white')) return;
+        if (this.tcNego !== null || this.tcSettings !== null) return;
+        const first = this._firstPickerSlot();
+        this.tcNego = { phase: 'propose', proposal: null, waitingSlot: first, lastProposerSlot: null };
+        const ws1 = this.room.getPlayerBySlot(first);
+        const other = first === 'black' ? 'white' : 'black';
+        const ws2 = this.room.getPlayerBySlot(other);
+        if (ws1) ws1.send(JSON.stringify({ type: 'timeControlNegotiation', mode: 'propose' }));
+        if (ws2) ws2.send(JSON.stringify({ type: 'timeControlWaitPeer', text: '对方正在选择限时规则…' }));
+    }
+
+    _finalizeTimeControl(valid) {
+        this.tcSettings = valid.timed
+            ? { timed: true, mainMinutes: valid.mainMinutes, byoyomiSeconds: valid.byoyomiSeconds, maxTimeouts: valid.maxTimeouts }
+            : { timed: false };
+        this.tcNego = null;
+        this.matchStarted = true;
+        this.tcClock = qiMatchTimeControl.createClock(this.tcSettings, Date.now());
+        if (this.tcClock && this.tcClock.timed) {
+            qiMatchTimeControl.setActiveSlot(this.tcClock, this.getCurrentSlot(), Date.now());
+            this._startClockTicker();
+            this._broadcastClock();
+        } else {
+            this.tcClock = null;
+        }
+        this.broadcast({ type: 'timeControlAgreed', settings: this.tcSettings, clock: this.tcClock ? qiMatchTimeControl.snapshotForClient(this.tcClock) : null });
+        this.broadcast({ type: 'gameState', ...this.getState() });
+    }
+
+    _clearTimeNegotiation() {
+        this.tcNego = null;
+        this.broadcast({ type: 'timeControlReset' });
+    }
+
+    _handleTimeControlSubmit(ws, msg) {
+        const slot = this.room.getSlotByWs(ws);
+        if (!slot || !this.tcNego) return;
+        const v = qiMatchTimeControl.validateProposal(msg);
+        if (!v.ok) {
+            ws.send(JSON.stringify({ type: 'error', message: v.error }));
+            return;
+        }
+        if (slot !== this.tcNego.waitingSlot) return;
+        this.tcNego.proposal = v;
+        this.tcNego.lastProposerSlot = slot;
+        this.tcNego.phase = 'respond';
+        const other = slot === 'black' ? 'white' : 'black';
+        this.tcNego.waitingSlot = other;
+        const selfWs = this.room.getPlayerBySlot(slot);
+        const peerWs = this.room.getPlayerBySlot(other);
+        if (selfWs) selfWs.send(JSON.stringify({ type: 'timeControlWaitPeer', text: '正在等对方确认' }));
+        if (peerWs) {
+            peerWs.send(JSON.stringify({
+                type: 'timeControlNegotiation',
+                mode: 'respond',
+                proposal: {
+                    ok: true,
+                    timed: v.timed,
+                    mainMinutes: v.mainMinutes,
+                    byoyomiSeconds: v.byoyomiSeconds,
+                    maxTimeouts: v.maxTimeouts
+                }
+            }));
+        }
+    }
+
+    _handleTimeControlAccept(ws) {
+        const slot = this.room.getSlotByWs(ws);
+        if (!slot || !this.tcNego || this.tcNego.phase !== 'respond') return;
+        if (slot !== this.tcNego.waitingSlot) return;
+        const prop = this.tcNego.proposal;
+        if (!prop || prop.ok !== true) return;
+        this._finalizeTimeControl(prop);
+    }
+
+    _timeAllowsPlay(slot) {
+        if (!slot || this.gameOver) return false;
+        if (!this.matchStarted) return false;
+        if (slot !== this.getCurrentSlot()) return false;
+        if (!this.tcClock || !this.tcClock.timed) return true;
+        if (this.tcClock.paused) return false;
+        return this.tcClock.activeSlot === slot;
+    }
+
+    _drainClockBeforeAction(slot) {
+        if (!this.tcClock || !this.tcClock.timed || this.gameOver) return true;
+        const now = Date.now();
+        qiMatchTimeControl.setActiveSlot(this.tcClock, slot, now);
+        const { lostSlot, winnerSlot } = qiMatchTimeControl.drain(this.tcClock, now);
+        if (lostSlot) {
+            this._stopClockTicker();
+            this.gameOver = true;
+            this.winner = winnerSlot;
+            this.broadcast({ type: 'broadcast', action: 'timeLoss', player: lostSlot, winner: winnerSlot, ...this.getState() });
+            return false;
+        }
+        this._broadcastClock();
+        return true;
+    }
+
+    _syncClockAfterTurnChange(previousSlot) {
+        if (!this.tcClock || !this.tcClock.timed || this.gameOver) return;
+        const nextSlot = this.getCurrentSlot();
+        if (nextSlot === previousSlot) {
+            this._broadcastClock();
+            return;
+        }
+        qiMatchTimeControl.setActiveSlot(this.tcClock, nextSlot, Date.now());
+        this._broadcastClock();
+    }
+
+    afterColorAssigned(_ws, slot) {
+        if (slot === 'black' || slot === 'white') this.slotJoinedAt[slot] = Date.now();
+        this._maybeBeginTimeNegotiation();
+    }
+
+    /** 仅在一方完整回合结束（轮到对方行棋）时根据积分判定胜负 */
+    checkWinByScoreIfTurnEnded() {
+        if (this.gameOver) return;
+        if (this.blackScore >= MATCH_BLACK_WIN_SCORE) {
+            this.gameOver = true;
+            this.winner = 'black';
+        } else if (this.whiteScore >= MATCH_WHITE_WIN_SCORE) {
+            this.gameOver = true;
+            this.winner = 'white';
+        }
+    }
 
     createSnapshot() {
         return {
@@ -29,7 +209,7 @@ class MatchWuziqiRoom extends QiTwoPlayerRoomBase {
             currentPlayer: this.currentPlayer,
             lastMoveMarkers: this.lastMoveMarkers.map(m => ({ ...m })),
             moveHistory: this.moveHistory.map(m => ({ ...m })),
-            recordActions: this.recordActions.map(a => ({ ...a })),
+            recordMoves: this.recordMoves.slice(),
             gameOver: this.gameOver,
             winner: this.winner,
             blackScore: this.blackScore,
@@ -45,7 +225,7 @@ class MatchWuziqiRoom extends QiTwoPlayerRoomBase {
         this.currentPlayer = snap.currentPlayer;
         this.lastMoveMarkers = (snap.lastMoveMarkers || []).map(m => ({ ...m }));
         this.moveHistory = (snap.moveHistory || []).map(m => ({ ...m }));
-        this.recordActions = (snap.recordActions || []).map(a => ({ ...a }));
+        this.recordMoves = (snap.recordMoves || []).slice();
         this.gameOver = !!snap.gameOver;
         this.winner = snap.winner ?? null;
         this.blackScore = snap.blackScore || 0;
@@ -103,10 +283,7 @@ class MatchWuziqiRoom extends QiTwoPlayerRoomBase {
     }
 
     isBoardFull() {
-        for (let r = 0; r < this.BOARD_SIZE; r++)
-            for (let c = 0; c < this.BOARD_SIZE; c++)
-                if (this.board[r][c] === 0) return false;
-        return true;
+        return squareWuziqiRules.isBoardFull(this.board, this.BOARD_SIZE);
     }
 
     getState() {
@@ -122,7 +299,13 @@ class MatchWuziqiRoom extends QiTwoPlayerRoomBase {
             whiteScore: this.whiteScore,
             pendingRemoval: this.pendingRemoval,
             recentClearedStones: this.recentClearedStones,
-            actions: this.recordActions.map(a => ({ ...a })),
+            matchStarted: this.matchStarted,
+            matchTime: {
+                negotiation: this.tcNego,
+                settings: this.tcSettings,
+                clock: this.tcClock ? qiMatchTimeControl.snapshotForClient(this.tcClock) : null
+            },
+            moves: this.recordMoves.slice(),
             moveHistory: this.moveHistory.map(m => ({ player: m.player, row: m.row, col: m.col })),
             slots: {
                 black: !!this.room.getPlayerBySlot('black'),
@@ -135,6 +318,27 @@ class MatchWuziqiRoom extends QiTwoPlayerRoomBase {
         return this.moveHistory.length;
     }
 
+    /**
+     * @returns {{ player: 'black'|'white', place: {row:number,col:number}, remove: {row:number,col:number}|null }|null}
+     */
+    parseMoveRecordString(s) {
+        if (typeof s !== 'string' || s.length < 3) return null;
+        const ch = s[0];
+        if (ch !== 'B' && ch !== 'W') return null;
+        const player = ch === 'B' ? 'black' : 'white';
+        const parts = s.substring(1).split(',').map(Number);
+        if (parts.length !== 2 && parts.length !== 4) return null;
+        if (!parts.every(x => Number.isFinite(x))) return null;
+        const row = parts[0];
+        const col = parts[1];
+        if (row < 0 || row >= this.BOARD_SIZE || col < 0 || col >= this.BOARD_SIZE) return null;
+        if (parts.length === 2) return { player, place: { row, col }, remove: null };
+        const rr = parts[2];
+        const rc = parts[3];
+        if (rr < 0 || rr >= this.BOARD_SIZE || rc < 0 || rc >= this.BOARD_SIZE) return null;
+        return { player, place: { row, col }, remove: { row: rr, col: rc } };
+    }
+
     exportRecord() {
         return {
             format: 'muzei',
@@ -142,8 +346,7 @@ class MatchWuziqiRoom extends QiTwoPlayerRoomBase {
             gameType: '消除五子棋',
             gameId: 'match-wuziqi',
             boardSize: this.BOARD_SIZE,
-            actions: this.recordActions.map(a => ({ ...a })),
-            moves: this.moveHistory.map(m => `${m.player[0].toUpperCase()}${m.row},${m.col}`), // legacy compatibility
+            moves: this.recordMoves.slice(),
             result: this.gameOver ? this.winner : null,
             blackScore: this.blackScore,
             whiteScore: this.whiteScore
@@ -156,7 +359,7 @@ class MatchWuziqiRoom extends QiTwoPlayerRoomBase {
         this.historyBoards = [];
         this.lastMoveMarkers = [];
         this.moveHistory = [];
-        this.recordActions = [];
+        this.recordMoves = [];
         this.gameOver = false;
         this.winner = null;
         this.blackScore = 0;
@@ -167,6 +370,11 @@ class MatchWuziqiRoom extends QiTwoPlayerRoomBase {
         this.pendingNewGame = null;
         this.pendingUndo = null;
         this.pendingDraw = null;
+        this.matchStarted = false;
+        this.tcNego = null;
+        this.tcSettings = null;
+        this.tcClock = null;
+        this._stopClockTicker();
     }
 
     setBoardSize(newSize, requesterWs) {
@@ -201,151 +409,112 @@ class MatchWuziqiRoom extends QiTwoPlayerRoomBase {
         this.BOARD_SIZE = newSize;
         this.resetToEmpty();
 
-        let actions = [];
-        if (Array.isArray(data.actions)) {
-            actions = data.actions.map(a => ({ ...a }));
-        } else if (Array.isArray(data.moves)) {
-            actions = data.moves.map((entry) => {
-                if (typeof entry === 'string') {
-                    const player = entry[0] === 'B' ? 'black' : 'white';
-                    const [row, col] = entry.substring(1).split(',').map(Number);
-                    return { type: 'place', player, row, col };
-                }
-                return entry;
-            });
-        } else {
-            requesterWs.send(JSON.stringify({ type: 'error', message: '棋谱缺少 actions 或 moves。' }));
+        if (!Array.isArray(data.moves)) {
+            requesterWs.send(JSON.stringify({ type: 'error', message: '棋谱缺少 moves。' }));
             return;
         }
 
-        for (let i = 0; i < actions.length; i++) {
-            const a = actions[i] || {};
-            const type = a.type || 'place';
-            const row = Number(a.row);
-            const col = Number(a.col);
-            const player = a.player;
-            if (!Number.isInteger(row) || !Number.isInteger(col) || row < 0 || row >= this.BOARD_SIZE || col < 0 || col >= this.BOARD_SIZE) {
+        for (let i = 0; i < data.moves.length; i++) {
+            const parsed = this.parseMoveRecordString(data.moves[i]);
+            if (!parsed) {
                 this.resetToEmpty();
-                requesterWs.send(JSON.stringify({ type: 'error', message: `棋谱回放失败：第${i + 1}条坐标无效。` }));
+                requesterWs.send(JSON.stringify({ type: 'error', message: `棋谱回放失败：第${i + 1}手格式无效。` }));
                 this.broadcast({ type: 'roomReset', ...this.getState() });
                 return;
             }
-            if (player !== 'black' && player !== 'white') {
+            const { player, place: { row, col }, remove } = parsed;
+            const expect = this.getCurrentSlot();
+            if (player !== expect) {
                 this.resetToEmpty();
-                requesterWs.send(JSON.stringify({ type: 'error', message: `棋谱回放失败：第${i + 1}条玩家无效。` }));
+                requesterWs.send(JSON.stringify({ type: 'error', message: `棋谱回放失败：第${i + 1}手行棋方与局面不符。` }));
+                this.broadcast({ type: 'roomReset', ...this.getState() });
+                return;
+            }
+            if (this.pendingRemoval) {
+                this.resetToEmpty();
+                requesterWs.send(JSON.stringify({ type: 'error', message: `棋谱回放失败：第${i + 1}手应先完成移除。` }));
+                this.broadcast({ type: 'roomReset', ...this.getState() });
+                return;
+            }
+            if (this.board[row][col] !== 0) {
+                this.resetToEmpty();
+                requesterWs.send(JSON.stringify({ type: 'error', message: `棋谱回放失败：第${i + 1}手落子点非空。` }));
                 this.broadcast({ type: 'roomReset', ...this.getState() });
                 return;
             }
 
-            if (type === 'place') {
-                const expect = this.getCurrentSlot();
-                if (player !== expect) {
-                    this.resetToEmpty();
-                    requesterWs.send(JSON.stringify({ type: 'error', message: `棋谱回放失败：第${i + 1}条落子方与回合不符。` }));
-                    this.broadcast({ type: 'roomReset', ...this.getState() });
-                    return;
-                }
-                if (this.pendingRemoval) {
-                    this.resetToEmpty();
-                    requesterWs.send(JSON.stringify({ type: 'error', message: `棋谱回放失败：第${i + 1}条应先移除对手棋子。` }));
-                    this.broadcast({ type: 'roomReset', ...this.getState() });
-                    return;
-                }
-                if (this.board[row][col] !== 0) {
-                    this.resetToEmpty();
-                    requesterWs.send(JSON.stringify({ type: 'error', message: `棋谱回放失败：第${i + 1}条落子点非空。` }));
-                    this.broadcast({ type: 'roomReset', ...this.getState() });
-                    return;
-                }
+            const playerVal = player === 'black' ? 1 : 2;
+            this.board[row][col] = playerVal;
+            this.lastMoveMarkers = [{ row, col, color: playerVal }];
+            this.moveHistory.push({ player, row, col });
 
-                const playerVal = player === 'black' ? 1 : 2;
-                this.board[row][col] = playerVal;
-                this.lastMoveMarkers = [{ row, col, color: playerVal }];
-                this.moveHistory.push({ player, row, col });
-                this.recordActions.push({ type: 'place', player, row, col, hand: this.moveHistory.length });
+            const { gain, removed } = this.resolveScoringAfterPlacement(row, col, playerVal);
+            if (player === 'black') this.blackScore += gain;
+            else this.whiteScore += gain;
+            this.recentClearedStones = removed;
+            this.recentClearedOwner = removed.length > 0 ? player : null;
 
-                const { gain, removed } = this.resolveScoringAfterPlacement(row, col, playerVal);
-                if (player === 'black') this.blackScore += gain;
-                else this.whiteScore += gain;
-                this.recentClearedStones = removed;
-                this.recentClearedOwner = removed.length > 0 ? player : null;
-
-                if (this.blackScore >= 32) {
-                    this.gameOver = true;
-                    this.winner = 'black';
-                    break;
-                }
-                if (this.whiteScore >= 30) {
-                    this.gameOver = true;
-                    this.winner = 'white';
-                    break;
-                }
-
-                if (gain > 0) {
-                    const opponentVal = this.getOpponentVal(playerVal);
-                    const canRemove = Math.min(1, this.countStones(opponentVal));
-                    if (canRemove > 0) {
-                        this.pendingRemoval = {
-                            player,
-                            remaining: canRemove,
-                            total: canRemove,
-                            removed: 0,
-                            hand: this.moveHistory.length
-                        };
-                    } else {
-                        this.currentPlayer = this.currentPlayer === 1 ? 2 : 1;
-                    }
+            let turnEnded = false;
+            if (gain > 0) {
+                const opponentVal = this.getOpponentVal(playerVal);
+                const canRemove = Math.min(1, this.countStones(opponentVal));
+                if (canRemove > 0) {
+                    this.pendingRemoval = {
+                        player,
+                        remaining: canRemove,
+                        total: canRemove,
+                        removed: 0,
+                        hand: this.moveHistory.length
+                    };
                 } else {
                     this.currentPlayer = this.currentPlayer === 1 ? 2 : 1;
-                }
-                if (!this.pendingRemoval && this.isBoardFull()) {
-                    this.gameOver = true;
-                    this.winner = 'draw';
-                    break;
-                }
-            } else if (type === 'remove') {
-                if (!this.pendingRemoval) {
-                    this.resetToEmpty();
-                    requesterWs.send(JSON.stringify({ type: 'error', message: `棋谱回放失败：第${i + 1}条移除动作时机错误。` }));
-                    this.broadcast({ type: 'roomReset', ...this.getState() });
-                    return;
-                }
-                if (player !== this.pendingRemoval.player) {
-                    this.resetToEmpty();
-                    requesterWs.send(JSON.stringify({ type: 'error', message: `棋谱回放失败：第${i + 1}条移除方错误。` }));
-                    this.broadcast({ type: 'roomReset', ...this.getState() });
-                    return;
-                }
-                const playerVal = player === 'black' ? 1 : 2;
-                const opponentVal = this.getOpponentVal(playerVal);
-                if (this.board[row][col] !== opponentVal) {
-                    this.resetToEmpty();
-                    requesterWs.send(JSON.stringify({ type: 'error', message: `棋谱回放失败：第${i + 1}条移除点不是对手棋子。` }));
-                    this.broadcast({ type: 'roomReset', ...this.getState() });
-                    return;
-                }
-
-                this.board[row][col] = 0;
-                this.pendingRemoval.remaining -= 1;
-                this.pendingRemoval.removed += 1;
-                this.recordActions.push({
-                    type: 'remove',
-                    player,
-                    row,
-                    col,
-                    hand: this.pendingRemoval.hand,
-                    index: this.pendingRemoval.removed
-                });
-                if (this.pendingRemoval.remaining <= 0) {
-                    this.pendingRemoval = null;
-                    this.currentPlayer = this.currentPlayer === 1 ? 2 : 1;
+                    turnEnded = true;
                 }
             } else {
+                this.currentPlayer = this.currentPlayer === 1 ? 2 : 1;
+                turnEnded = true;
+            }
+
+            if (turnEnded) this.checkWinByScoreIfTurnEnded();
+
+            if (!this.gameOver && !this.pendingRemoval && this.isBoardFull()) {
+                this.checkWinByScoreIfTurnEnded();
+                if (!this.gameOver) {
+                    this.gameOver = true;
+                    this.winner = 'draw';
+                }
+            }
+
+            if (remove) {
+                if (!this.pendingRemoval) {
+                    this.resetToEmpty();
+                    requesterWs.send(JSON.stringify({ type: 'error', message: `棋谱回放失败：第${i + 1}手不应包含移除坐标。` }));
+                    this.broadcast({ type: 'roomReset', ...this.getState() });
+                    return;
+                }
+                const rr = remove.row;
+                const rc = remove.col;
+                const opponentVal = this.getOpponentVal(playerVal);
+                if (this.board[rr][rc] !== opponentVal) {
+                    this.resetToEmpty();
+                    requesterWs.send(JSON.stringify({ type: 'error', message: `棋谱回放失败：第${i + 1}手移除点不是对手棋子。` }));
+                    this.broadcast({ type: 'roomReset', ...this.getState() });
+                    return;
+                }
+                this.board[rr][rc] = 0;
+                this.pendingRemoval.remaining -= 1;
+                this.pendingRemoval.removed += 1;
+                if (this.pendingRemoval.remaining <= 0) {
+                    this.pendingRemoval = null;
+                }
+            } else if (this.pendingRemoval) {
                 this.resetToEmpty();
-                requesterWs.send(JSON.stringify({ type: 'error', message: `棋谱回放失败：第${i + 1}条动作类型无效。` }));
+                requesterWs.send(JSON.stringify({ type: 'error', message: `棋谱回放失败：第${i + 1}手缺少移除坐标（应与本手落子合并为一条）。` }));
                 this.broadcast({ type: 'roomReset', ...this.getState() });
                 return;
             }
+
+            if (this.gameOver) break;
         }
 
         if (data.result && !this.gameOver) {
@@ -353,6 +522,7 @@ class MatchWuziqiRoom extends QiTwoPlayerRoomBase {
             this.winner = data.result;
         }
 
+        this.recordMoves = data.moves.map(s => String(s));
         this.historyBoards = [];
         this.broadcast({
             type: 'importSuccess',
@@ -360,58 +530,47 @@ class MatchWuziqiRoom extends QiTwoPlayerRoomBase {
             boardSize: this.BOARD_SIZE,
             replayData: {
                 boardSize: this.BOARD_SIZE,
-                actions: this.recordActions.map(a => ({ ...a }))
+                moves: this.recordMoves.slice()
             }
         });
     }
 
     handleMessage(ws, msg) {
         const slot = this.room.getSlotByWs(ws);
-        const room = this.room;
 
         switch (msg.type) {
-            case 'selectColor': {
-                if (slot) return;
-                const newSlot = this.assignSlot(ws, msg.color);
-                if (newSlot) {
-                    room.setPlayerSlot(ws, newSlot);
-                    ws.send(JSON.stringify({ type: 'colorAssigned', color: newSlot }));
-                    this.sendState(ws);
-                    room.broadcast({ type: 'slotOccupied', slot: newSlot }, ws);
-                } else {
-                    ws.send(JSON.stringify({ type: 'error', message: '该颜色已被占用。' }));
-                }
+            case 'selectColor':
+                qiProtocol.selectColor(this, ws, msg);
                 break;
-            }
 
-            case 'setBoardSize': {
-                if (slot) break;
-                const n = parseInt(String(msg.size ?? ''), 10);
-                this.setBoardSize(n, ws);
+            case 'timeControlSubmit':
+                this._handleTimeControlSubmit(ws, msg);
                 break;
-            }
+
+            case 'timeControlAccept':
+                this._handleTimeControlAccept(ws, msg);
+                break;
+
+            case 'setBoardSize':
+                qiProtocol.setBoardSizeObserverOnly(this, ws, msg, slot);
+                break;
 
             case 'exportRecord':
-                ws.send(JSON.stringify({ type: 'gameRecord', data: this.exportRecord() }));
+                qiProtocol.exportRecord(this, ws);
                 break;
 
             case 'importRecord':
-                if (this.room.getPlayerBySlot('black') || this.room.getPlayerBySlot('white')) {
-                    ws.send(JSON.stringify({ type: 'error', message: '已有玩家入座，无法导入棋谱。' }));
-                    return;
-                }
-                this.importRecord(msg.data, ws);
+                qiProtocol.importRecord(this, ws, msg);
                 break;
 
             case 'resetRoom':
-                if (this.room.getPlayerBySlot('black') || this.room.getPlayerBySlot('white')) return;
-                this.resetToEmpty();
-                this.broadcast({ type: 'roomReset', ...this.getState() });
+                qiProtocol.resetRoomToEmpty(this, ws);
                 break;
 
             case 'move': {
                 if (this.gameOver || this.pendingRemoval) return;
-                if (!slot || slot !== this.getCurrentSlot()) return;
+                if (!this._timeAllowsPlay(slot)) return;
+                if (!this._drainClockBeforeAction(slot)) return;
                 const { row, col } = msg;
                 if (row < 0 || row >= this.BOARD_SIZE || col < 0 || col >= this.BOARD_SIZE) return;
                 if (this.board[row][col] !== 0) return;
@@ -425,7 +584,6 @@ class MatchWuziqiRoom extends QiTwoPlayerRoomBase {
                 this.board[row][col] = playerVal;
                 this.lastMoveMarkers = [{ row, col, color: playerVal }];
                 this.moveHistory.push({ player: slot, row, col });
-                this.recordActions.push({ type: 'place', player: slot, row, col, hand: this.moveHistory.length });
 
                 const { gain, removed } = this.resolveScoringAfterPlacement(row, col, playerVal);
                 if (slot === 'black') this.blackScore += gain;
@@ -433,19 +591,11 @@ class MatchWuziqiRoom extends QiTwoPlayerRoomBase {
                 this.recentClearedStones = removed;
                 this.recentClearedOwner = removed.length > 0 ? slot : null;
 
-                if (this.blackScore >= 32) {
-                    this.gameOver = true;
-                    this.winner = 'black';
-                    this.broadcast({ type: 'broadcast', action: 'move', ...this.getState() });
-                    return;
-                }
-                if (this.whiteScore >= 30) {
-                    this.gameOver = true;
-                    this.winner = 'white';
-                    this.broadcast({ type: 'broadcast', action: 'move', ...this.getState() });
-                    return;
-                }
+                const pushPlaceOnly = () => {
+                    this.recordMoves.push(`${slot === 'black' ? 'B' : 'W'}${row},${col}`);
+                };
 
+                const beforeSlot = this.getCurrentSlot();
                 if (gain > 0) {
                     const opponentVal = this.getOpponentVal(playerVal);
                     const canRemove = Math.min(1, this.countStones(opponentVal));
@@ -453,16 +603,29 @@ class MatchWuziqiRoom extends QiTwoPlayerRoomBase {
                         this.pendingRemoval = { player: slot, remaining: canRemove, total: canRemove, removed: 0, hand: this.moveHistory.length };
                     } else {
                         this.currentPlayer = this.currentPlayer === 1 ? 2 : 1;
+                        this.checkWinByScoreIfTurnEnded();
+                        pushPlaceOnly();
                     }
                 } else {
                     this.currentPlayer = this.currentPlayer === 1 ? 2 : 1;
+                    this.checkWinByScoreIfTurnEnded();
+                    pushPlaceOnly();
                 }
 
                 if (!this.pendingRemoval && this.isBoardFull()) {
-                    this.gameOver = true;
-                    this.winner = 'draw';
+                    this.checkWinByScoreIfTurnEnded();
+                    if (!this.gameOver) {
+                        this.gameOver = true;
+                        this.winner = 'draw';
+                    }
+                    this._stopClockTicker();
                     this.broadcast({ type: 'broadcast', action: 'move', ...this.getState() });
                     return;
+                }
+                if (this.gameOver) {
+                    this._stopClockTicker();
+                } else {
+                    this._syncClockAfterTurnChange(beforeSlot);
                 }
                 this.broadcast({ type: 'broadcast', action: 'move', ...this.getState() });
                 break;
@@ -471,6 +634,8 @@ class MatchWuziqiRoom extends QiTwoPlayerRoomBase {
             case 'removeOpponent': {
                 if (this.gameOver || !this.pendingRemoval) return;
                 if (!slot || slot !== this.pendingRemoval.player) return;
+                if (!this._timeAllowsPlay(slot)) return;
+                if (!this._drainClockBeforeAction(slot)) return;
                 const row = msg.row;
                 const col = msg.col;
                 if (row < 0 || row >= this.BOARD_SIZE || col < 0 || col >= this.BOARD_SIZE) return;
@@ -481,19 +646,13 @@ class MatchWuziqiRoom extends QiTwoPlayerRoomBase {
                 this.board[row][col] = 0;
                 this.pendingRemoval.remaining -= 1;
                 this.pendingRemoval.removed += 1;
-                this.recordActions.push({
-                    type: 'remove',
-                    player: slot,
-                    row,
-                    col,
-                    hand: this.pendingRemoval.hand,
-                    index: this.pendingRemoval.removed
-                });
 
                 if (this.pendingRemoval.remaining <= 0) {
+                    const pl = this.moveHistory[this.pendingRemoval.hand - 1];
+                    this.recordMoves.push(`${pl.player === 'black' ? 'B' : 'W'}${pl.row},${pl.col},${row},${col}`);
                     this.pendingRemoval = null;
-                    this.currentPlayer = this.currentPlayer === 1 ? 2 : 1;
                 }
+                this._broadcastClock();
                 this.broadcast({ type: 'broadcast', action: 'remove', ...this.getState() });
                 break;
             }
@@ -508,7 +667,7 @@ class MatchWuziqiRoom extends QiTwoPlayerRoomBase {
                     return;
                 }
                 const opponentSlot = slot === 'black' ? 'white' : 'black';
-                const opponent = room.getPlayerBySlot(opponentSlot);
+                const opponent = this.room.getPlayerBySlot(opponentSlot);
                 if (!opponent) {
                     for (let i = 0; i < steps; i++) this.restoreSnapshot(this.historyBoards.pop());
                     this.lastMoveMarkers = [];
@@ -526,6 +685,10 @@ class MatchWuziqiRoom extends QiTwoPlayerRoomBase {
                     if (this.historyBoards.length >= steps) {
                         for (let i = 0; i < steps; i++) this.restoreSnapshot(this.historyBoards.pop());
                         this.lastMoveMarkers = [];
+                        if (this.tcClock && this.tcClock.timed && !this.gameOver) {
+                            qiMatchTimeControl.setActiveSlot(this.tcClock, this.getCurrentSlot(), Date.now());
+                            this._broadcastClock();
+                        }
                         this.broadcast({ type: 'broadcast', action: 'undoAccept', ...this.getState() });
                     }
                 } else if (this.pendingUndo && !msg.accept) {
@@ -535,56 +698,25 @@ class MatchWuziqiRoom extends QiTwoPlayerRoomBase {
                 break;
 
             case 'resign':
-                if (!slot || this.gameOver) return;
-                this.gameOver = true;
-                this.winner = slot === 'black' ? 'white' : 'black';
-                this.broadcast({ type: 'broadcast', action: 'resign', player: slot, winner: this.winner, ...this.getState() });
+                qiProtocol.resign(this, ws, slot);
+                if (this.gameOver) this._stopClockTicker();
                 break;
 
-            case 'requestNewGame': {
-                if (!slot) return;
-                const newGameOpponent = room.getPlayerBySlot(slot === 'black' ? 'white' : 'black');
-                if (!newGameOpponent) {
-                    this.resetGame();
-                } else {
-                    this.pendingNewGame = ws;
-                    newGameOpponent.send(JSON.stringify({ type: 'newGameRequest' }));
-                }
+            case 'requestNewGame':
+                qiProtocol.requestNewGame(this, ws, slot);
                 break;
-            }
 
             case 'newGameResponse':
-                if (this.pendingNewGame && msg.accept) {
-                    this.resetGame();
-                } else if (this.pendingNewGame && !msg.accept) {
-                    this.pendingNewGame.send(JSON.stringify({ type: 'error', message: '对方拒绝开始新局。' }));
-                }
-                this.pendingNewGame = null;
+                qiProtocol.newGameResponse(this, ws, msg);
                 break;
 
-            case 'requestDraw': {
-                if (!slot || this.gameOver) return;
-                const drawOpponent = room.getPlayerBySlot(slot === 'black' ? 'white' : 'black');
-                if (!drawOpponent) {
-                    this.gameOver = true;
-                    this.winner = 'draw';
-                    this.broadcast({ type: 'broadcast', action: 'drawAgreed', ...this.getState() });
-                } else {
-                    this.pendingDraw = ws;
-                    drawOpponent.send(JSON.stringify({ type: 'drawRequest' }));
-                }
+            case 'requestDraw':
+                qiProtocol.requestDraw(this, ws, slot);
                 break;
-            }
 
             case 'drawResponse':
-                if (this.pendingDraw && msg.accept) {
-                    this.gameOver = true;
-                    this.winner = 'draw';
-                    this.broadcast({ type: 'broadcast', action: 'drawAgreed', ...this.getState() });
-                } else if (this.pendingDraw && !msg.accept) {
-                    this.pendingDraw.send(JSON.stringify({ type: 'error', message: '对方拒绝和棋。' }));
-                }
-                this.pendingDraw = null;
+                qiProtocol.drawResponse(this, ws, msg);
+                if (this.gameOver) this._stopClockTicker();
                 break;
 
             default:
@@ -598,7 +730,7 @@ class MatchWuziqiRoom extends QiTwoPlayerRoomBase {
         this.historyBoards = [];
         this.lastMoveMarkers = [];
         this.moveHistory = [];
-        this.recordActions = [];
+        this.recordMoves = [];
         this.gameOver = false;
         this.winner = null;
         this.blackScore = 0;
@@ -606,6 +738,11 @@ class MatchWuziqiRoom extends QiTwoPlayerRoomBase {
         this.pendingRemoval = null;
         this.recentClearedStones = [];
         this.recentClearedOwner = null;
+        this.matchStarted = false;
+        this.tcNego = null;
+        this.tcSettings = null;
+        this.tcClock = null;
+        this._stopClockTicker();
         for (const [client, slot] of this.room.players.entries()) {
             this.room.slotOccupancy.delete(slot);
             this.room.players.delete(client);
@@ -617,7 +754,11 @@ class MatchWuziqiRoom extends QiTwoPlayerRoomBase {
 
     onPlayerLeave(ws) {
         const slot = this.room.getSlotByWs(ws);
-        if (slot) this.room.broadcast({ type: 'playerLeft', slot });
+        if (slot) {
+            this.room.broadcast({ type: 'playerLeft', slot });
+            this.slotJoinedAt[slot] = null;
+            if (!this.matchStarted) this._clearTimeNegotiation();
+        }
     }
 }
 

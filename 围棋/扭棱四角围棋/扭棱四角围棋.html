@@ -49,12 +49,12 @@
             <div class="button-panel">
                 <button class="ctrl-btn" id="newGameBtn">新局</button>
                 <button class="ctrl-btn" id="estimateBtn">形势判断</button>
-                <button class="ctrl-btn" id="tryPlayBtn" style="display:none;">试下</button>
-                <button class="ctrl-btn" id="passBtn">虚着</button>
-                <button class="ctrl-btn" id="undoBtn">悔棋</button>
-                <button class="ctrl-btn" id="resignBtn">认输</button>
-                <button class="ctrl-btn" id="drawBtn">和棋</button>
-                <button class="ctrl-btn" id="endReqBtn">申请数子</button>
+                <button class="ctrl-btn" id="tryPlayBtn">试下</button>
+                <button class="ctrl-btn" id="passBtn" style="display:none;">虚着</button>
+                <button class="ctrl-btn" id="undoBtn" style="display:none;">悔棋</button>
+                <button class="ctrl-btn" id="resignBtn" style="display:none;">认输</button>
+                <button class="ctrl-btn" id="drawBtn" style="display:none;">和棋</button>
+                <button class="ctrl-btn" id="endReqBtn" style="display:none;">申请数子</button>
                 <button class="ctrl-btn" id="importBtn">导入棋谱</button>
                 <button class="ctrl-btn" id="exportBtn" style="display:none;">导出棋谱</button>
             </div>
@@ -77,28 +77,47 @@
                             <div class="score-title" id="scoreTitle">　</div>
                             <div class="score-content">
                                 <div id="scoreBoard">　</div>
-                                <div id="leadInfo" style="margin-top:12px; color:#ffb870;">　</div>
-                            </div>
-                        </div>
-
-                        <div id="scoreConfirmPanel" class="score-confirm-panel" style="display: none;">
-                            <p id="scoreConfirmText">黑胜0点，是否同意该结果？</p>
-                            <div class="score-confirm-buttons">
-                                <button id="scoreConfirmYes">确定</button>
-                                <button id="scoreConfirmNo">取消</button>
+                                <div id="leadInfo" style="margin-top:6px; color:#ffb870;">　</div>
                             </div>
                         </div>
 
                         <div id="replayPanel" class="replay-panel">
-                            <div class="replay-step-display" id="replayStepDisplay">0 / 0</div>
                             <div class="replay-nav">
-                                <button class="replay-nav-btn" id="replayBackBtn">◀ 后退</button>
-                                <button class="replay-nav-btn" id="replayForwardBtn">前进 ▶</button>
+                                <button class="replay-nav-btn" id="replayBackBtn">◀</button>
+                                <div class="replay-step-display" id="replayStepDisplay">0 / 0</div>
+                                <button class="replay-nav-btn" id="replayForwardBtn">▶</button>
                             </div>
                             <input type="range" id="replaySlider" min="0" max="0" value="0" class="replay-slider">
                         </div>
                     </div>
+                    <div id="goTimerPanel" class="go-timer-panel" hidden>
+                        <div class="go-timer-block go-timer-black" data-go-timer="black">
+                            <div class="go-timer-title">⚫ 黑方</div>
+                            <div class="go-timer-line2">
+                                <span class="go-timer-count">—</span>
+                                <span class="go-timer-over">—</span>
+                            </div>
+                            <div class="go-timer-rule">　</div>
+                        </div>
+                        <div class="go-timer-block go-timer-white" data-go-timer="white">
+                            <div class="go-timer-title">⚪ 白方</div>
+                            <div class="go-timer-line2">
+                                <span class="go-timer-count">—</span>
+                                <span class="go-timer-over">—</span>
+                            </div>
+                            <div class="go-timer-rule">　</div>
+                        </div>
+                    </div>
                 </div>
+            </div>
+        </div>
+    </div>
+    <div id="scoreConfirmPanel" class="qi-time-control-modal score-confirm-modal" style="display: none;">
+        <div class="qi-time-control-dialog score-confirm-dialog">
+            <p id="scoreConfirmText"></p>
+            <div class="score-confirm-buttons">
+                <button id="scoreConfirmYes" type="button">确定</button>
+                <button id="scoreConfirmNo" type="button">取消</button>
             </div>
         </div>
     </div>
@@ -175,6 +194,8 @@
         let ws;
         let isMyTurn = false;
         let slots = { black: false, white: false };
+        let matchStarted = false;
+        let matchStartedOnce = false;
         let reconnectTimer = null;
 
         let replayMode = false;
@@ -241,7 +262,7 @@
         const isMouseDevice = window.matchMedia('(hover: hover) and (pointer: fine)').matches;
 
         function mobileTwoStepPlacing() {
-            return !isMouseDevice && BOARD_LANES > 9;
+            return !isMouseDevice && BOARD_LANES >= 5;
         }
         function clearMobileMovePreview() {
             hoverRow = -1;
@@ -757,6 +778,19 @@
                 drawBoard();
                 return;
             }
+            if (matchStartedOnce === undefined) matchStartedOnce = false;
+            if (matchStarted) matchStartedOnce = true;
+            const bothSelected = !!(slots && slots.black && slots.white);
+            const hasStoneOnBoard = board.some((row, r) => row.some((v, c) => Snub.isValidVertex(r, c, GRID_W, GRID_H) && (v === 1 || v === 2)));
+            const matchReady = !!(matchStarted || matchStartedOnce);
+            if (bothSelected && matchReady) matchStartedOnce = true;
+            if (numberOfHands > 1 || hasStoneOnBoard) matchStartedOnce = true;
+            if (!matchStarted) {
+                turnDisplay.innerText = bothSelected ? '等待双方确认限时规则' : '等待双方入座';
+                isMyTurn = false;
+                drawBoard();
+                return;
+            }
             const total = liveReplayBoards.length > 0 ? liveReplayBoards.length - 1 : 0;
             if (liveReplayBoards.length === 0) {
                 const emptyBoard = !board.some(row => row.some(v => v === 1 || v === 2));
@@ -767,7 +801,8 @@
                 const p = liveReplayStepPlayers[total];
                 turnDisplay.innerText = `${p === 1 ? '⚫' : '⚪'} 第${total}手`;
             }
-            isMyTurn = (mySlot !== null) && ((mySlot === 'black' && currentPlayer === 1) || (mySlot === 'white' && currentPlayer === 2));
+            isMyTurn = !!(matchStarted && (mySlot !== null)
+                && ((mySlot === 'black' && currentPlayer === 1) || (mySlot === 'white' && currentPlayer === 2)));
             drawBoard();
         }
 
@@ -809,9 +844,7 @@
         }
 
         function showScoreConfirm(lead) {
-            const absLead = Math.abs(lead).toFixed(1);
-            const winnerText = lead > 0 ? `黑胜${absLead}点` : (lead < 0 ? `白胜${absLead}点` : '和棋');
-            scoreConfirmText.innerText = `${winnerText}，是否同意该结果？`;
+            QiSquareWeiqiCanvas.fillScoreConfirmText(scoreConfirmText, lead);
             scoreConfirmPanel.style.display = 'block';
         }
 
@@ -830,18 +863,17 @@
             replayStepPlayers = [0];
 
             let curBoard = initGridBoard();
-            if (data.initialPosition) {
-                if (Array.isArray(data.initialPosition.black)) {
-                    for (const pos of data.initialPosition.black) {
-                        if (Array.isArray(pos) && pos.length === 2)
-                            curBoard[pos[0]][pos[1]] = 1;
-                    }
-                }
-                if (Array.isArray(data.initialPosition.white)) {
-                    for (const pos of data.initialPosition.white) {
-                        if (Array.isArray(pos) && pos.length === 2)
-                            curBoard[pos[0]][pos[1]] = 2;
-                    }
+            if (Array.isArray(data.initialPosition)) {
+                for (const s of data.initialPosition) {
+                    if (typeof s !== 'string' || s.length < 4) continue;
+                    const p = s[0];
+                    if (p !== 'B' && p !== 'W') continue;
+                    const comma = s.indexOf(',');
+                    if (comma <= 1) continue;
+                    const r = parseInt(s.slice(1, comma), 10);
+                    const c = parseInt(s.slice(comma + 1), 10);
+                    if (!Number.isInteger(r) || !Number.isInteger(c) || !isValidCoord(r, c)) continue;
+                    curBoard[r][c] = p === 'B' ? 1 : 2;
                 }
             }
             replayBoards.push(deepCopyBoard(curBoard));
@@ -913,19 +945,14 @@
             const gameButtonIds = ['passBtn', 'undoBtn', 'resignBtn', 'drawBtn', 'endReqBtn'];
             const replayPanel = document.getElementById('replayPanel');
             const tryPlayBtn = document.getElementById('tryPlayBtn');
-            if (replayMode) {
-                for (const id of gameButtonIds)
-                    document.getElementById(id).style.display = 'none';
-                replayPanel.style.display = '';
-                tryPlayBtn.style.display = '';
-                tryPlayBtn.innerText = tryPlayMode ? '试下结束' : '试下';
-            } else {
-                for (const id of gameButtonIds)
-                    document.getElementById(id).style.display = '';
-                replayPanel.style.display = '';
-                tryPlayBtn.style.display = 'none';
-                tryPlayBtn.innerText = '试下';
-            }
+            const isPlayer = !!mySlot;
+            const started = !!(matchStarted || (matchTime && matchTime.settings));
+            const showMatchButtons = isPlayer && started && !replayMode;
+            for (const id of gameButtonIds)
+                document.getElementById(id).style.display = showMatchButtons ? '' : 'none';
+            replayPanel.style.display = '';
+            tryPlayBtn.style.display = showMatchButtons ? 'none' : '';
+            tryPlayBtn.innerText = tryPlayMode ? '试下结束' : '试下';
         }
 
         // ======================== 试下模式 ========================
@@ -1084,28 +1111,22 @@
         // ======================== WebSocket ========================
         function connectWebSocket()
         {
-            if (reconnectTimer)
-                clearTimeout(reconnectTimer);
-            const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-            const wsUrl = `${protocol}//${location.host}/qi/ws?game=${gameType}&room=${roomId}`;
-            ws = new WebSocket(wsUrl);
-            ws.onopen = () =>
-            {
-                ws.send(JSON.stringify({ type: 'join', password: roomPassword, requestedSlot: null }));
-            };
-            ws.onmessage = (e) => {
-                const msg = JSON.parse(e.data);
-                handleMessage(msg);
-            };
-            ws.onclose = (event) => {
-                if (event.code === 1008 && event.reason.includes('房间不存在')) {
-                    alert('房间不存在，请返回大厅');
-                    window.location.href = '/qi';
-                    return;
-                }
-                colorStatus.innerText = '连接断开，重连中...';
-                reconnectTimer = setTimeout(connectWebSocket, 2000);
-            };
+            ws = QiSquareWeiqiCanvas.connectWeiqiRoomWebSocket({
+                gameType,
+                roomId,
+                roomPassword,
+                onMessage: handleMessage,
+                colorStatus,
+                connectWebSocket,
+                clearReconnectTimer: () => {
+                    if (reconnectTimer) {
+                        clearTimeout(reconnectTimer);
+                        reconnectTimer = null;
+                    }
+                },
+                getReconnectTimer: () => reconnectTimer,
+                setReconnectTimer: (id) => { reconnectTimer = id; }
+            });
         }
 
         function applyBoardDimensions(lanes, gw, gh) {
@@ -1141,6 +1162,11 @@
             currentPlayer = state.currentPlayer;
             gameOver = state.gameOver || false;
             winner = state.winner || null;
+            if (state.matchStarted !== undefined) {
+                matchStarted = !!state.matchStarted;
+                if (matchStarted) matchStartedOnce = true;
+                else if ((state.numberOfHands || 1) <= 1) matchStartedOnce = false;
+            }
             if (state.moveCoords)
                 moveLog = state.moveCoords.map(m => m.type === 'move' ? { row: m.row, col: m.col } : null);
             if (state.slots)
@@ -1188,250 +1214,109 @@
             updateReplayUI();
         }
 
-        function handleMessage(msg)
-        {
-            switch (msg.type)
-            {
-                case 'joined':
-                    sessionStorage.removeItem(`roomPassword_${roomId}`);
-                    if (msg.state && msg.state.boardLanes != null && msg.state.gridWidth != null && msg.state.gridHeight != null) {
-                        if (msg.state.boardLanes !== BOARD_LANES || msg.state.gridWidth !== GRID_W || msg.state.gridHeight !== GRID_H) {
-                            applyBoardDimensions(msg.state.boardLanes, msg.state.gridWidth, msg.state.gridHeight);
-                            const sizeSelect = document.getElementById('boardSizeSelect');
-                            if (sizeSelect) sizeSelect.value = BOARD_LANES;
-                        }
-                    } else if (msg.state && msg.state.boardSize != null && msg.state.boardSize !== BOARD_LANES) {
-                        const lanes = msg.state.boardSize;
-                        applyBoardDimensions(lanes, 3 * lanes - 2, 3 * lanes - 2);
-                        const sizeSelect = document.getElementById('boardSizeSelect');
-                        if (sizeSelect) sizeSelect.value = BOARD_LANES;
-                    }
-                    if (msg.role === 'player')
-                    {
-                        mySlot = msg.slot;
-                        colorStatus.innerText = `已选择: ${mySlot === 'black' ? '黑方' : '白方'}`;
-                        if (msg.state)
-                            syncState(msg.state);
-
-                    }
-                    else
-                    {
-                        mySlot = null;
-                        colorStatus.innerText = '观战';
-                        if (msg.state)
-                            syncState(msg.state);
-                    }
-                    updateRadioStyles();
-                    break;
-                case 'slotOccupied':
-                    if (msg.slot === 'black')
-                        slots.black = true;
-                    else if (msg.slot === 'white')
-                        slots.white = true;
-                    updateRadioStyles();
-                    break;
-                case 'slotReleased':
-                    if (msg.slot === 'black')
-                        slots.black = false;
-                    else if (msg.slot === 'white')
-                        slots.white = false;
-                    if (mySlot === msg.slot) {
-                        mySlot = null;
-                        colorStatus.innerText = '观战';
-                    }
-                    updateRadioStyles();
-                    break;
-                case 'colorAssigned':
-                    mySlot = msg.color;
-                    colorStatus.innerText = `已选择: ${mySlot === 'black' ? '黑方' : '白方'}`;
-                    if (mySlot === 'black')
-                        slots.black = true;
-                    else
-                        slots.white = true;
-                    updateRadioStyles();
-                    break;
-                case 'gameState':
-                    syncState(msg);
-                    updateRadioStyles();
-                    break;
-                case 'broadcast':
-                    if (msg.action === 'move' || msg.action === 'pass' || msg.action === 'undoAccept' || msg.action === 'drawAgreed' || msg.action === 'resign')
-                    {
-                        const wasOver = gameOver;
-                        syncState(msg);
-                        if (msg.gameOver && !wasOver)
-                        {
-                            if (msg.winner === 'black') alert('黑胜。');
-                            else if (msg.winner === 'white') alert('白胜。');
-                            else if (msg.winner === 'draw') alert('和棋。');
-                        }
-                        else if (msg.action === 'drawAgreed' && !wasOver)
-                            alert('和棋。');
-                        else if (msg.action === 'resign' && !wasOver)
-                            alert(`${msg.player === 'black' ? '黑方' : '白方'}认输`);
-                    }
-                    break;
-                case 'newGameStarted':
-                    exitReplayMode();
-                    clearEstimate();
-                    hideScoreConfirm();
-                    waitingScoreConfirm = false;
-                    iRejected = false;
-                    mySlot = null;
-                    colorStatus.innerText = '未选择阵营';
-                    slots = { black: false, white: false };
-                    scoreTitle.innerText = '　';
-                    syncState(msg);
-                    updateRadioStyles();
-                    break;
-                case 'newGameRequest':
-                    if (confirm('对方请求开始新的一局，是否同意？'))
-                        ws.send(JSON.stringify({ type: 'newGameResponse', accept: true }));
-                    else
-                        ws.send(JSON.stringify({ type: 'newGameResponse', accept: false }));
-                    break;
-                case 'undoRequest':
-                    if (confirm('对方请求悔棋，是否同意？'))
-                        ws.send(JSON.stringify({ type: 'undoResponse', accept: true }));
-                    else
-                        ws.send(JSON.stringify({ type: 'undoResponse', accept: false }));
-                    break;
-                case 'drawRequest':
-                    if (confirm('对方申请和棋，是否同意？'))
-                        ws.send(JSON.stringify({ type: 'drawResponse', accept: true }));
-                    else
-                        ws.send(JSON.stringify({ type: 'drawResponse', accept: false }));
-                    break;
-                case 'scoreProposal':
-                    {
-                        const lead = msg.lead;
-                        clearMobileMovePreview();
-                        waitingScoreConfirm = true;
-                        iRejected = false;
-                        if (!showEstimateActive) {
-                            showEstimateActive = true;
-                            showEstimate();
-                        } else {
-                            showEstimate();
-                        }
-                        showScoreConfirm(lead);
-                    }
-                    break;
-                case 'scoreAgreed':
-                    gameOver = true;
-                    winner = msg.winner;
-                    const finalLead = msg.lead;
-                    const finalWinnerText = finalLead > 0 ? `黑胜${finalLead.toFixed(1)}点` : (finalLead < 0 ? `白胜${(-finalLead).toFixed(1)}点` : '和棋');
-                    scoreTitle.innerText = finalWinnerText;
-                    turnDisplay.innerText = '对局结束';
-                    if (showEstimateActive) {
-                        showEstimateActive = false;
-                        clearEstimate();
-                    }
-                    hideScoreConfirm();
-                    waitingScoreConfirm = false;
-                    iRejected = false;
-                    clearMobileMovePreview();
-                    updateTurn();
-                    break;
-                case 'scoreRejected':
-                    clearMobileMovePreview();
-                    if (iRejected)
-                        iRejected = false;
-                    else 
-                        alert('对方拒绝数子结果，对局继续');
-                    if (showEstimateActive) {
-                        showEstimateActive = false;
-                        clearEstimate();
-                    }
-                    hideScoreConfirm();
-                    waitingScoreConfirm = false;
-                    break;
-                case 'requestEnd':
-                    if (confirm('对方申请数子，是否同意？'))
-                        ws.send(JSON.stringify({ type: 'endResponse', accept: true }));
-                    else
-                        ws.send(JSON.stringify({ type: 'endResponse', accept: false }));
-                    break;
-                case 'gameRecord':
-                    downloadRecord(msg.data);
-                    break;
-                case 'importSuccess':
-                    syncState(msg);
-                    {
-                        const importSizeSelect = document.getElementById('boardSizeSelect');
-                        if (importSizeSelect && msg.boardLanes != null) importSizeSelect.value = msg.boardLanes;
-                    }
-                    clearEstimate();
-                    hideScoreConfirm();
-                    waitingScoreConfirm = false;
-                    if (msg.replayData) enterReplayMode(msg.replayData);
-                    updateRadioStyles();
-                    break;
-                case 'roomReset':
-                    exitReplayMode();
-                    syncState(msg);
-                    clearEstimate();
-                    hideScoreConfirm();
-                    waitingScoreConfirm = false;
-                    updateRadioStyles();
-                    break;
-                case 'boardSizeChanged':
-                    syncState(msg);
-                    break;
-                case 'error':
-                    if (msg.message === '密码错误') {
-                        sessionStorage.removeItem(`roomPassword_${roomId}`);
-                        window.location.href = `/qi?game=${gameType}&room=${roomId}&needPassword=1`;
-                    } else alert(msg.message);
-                    break;
-                default: console.log('未知消息', msg);
-            }
-        }
-
-        function updateRecordButtons() {
-            const importBtn = document.getElementById('importBtn');
-            const exportBtn = document.getElementById('exportBtn');
-            if (replayMode) {
-                importBtn.style.display = 'none';
-                exportBtn.style.display = 'none';
-            } else {
-                const hasAnyStone = board.some((row, r) => row.some((v, c) => Snub.isValidVertex(r, c, GRID_W, GRID_H) && (v === 1 || v === 2)));
-                const noPlayers = !slots.black && !slots.white;
-                if (noPlayers && !hasAnyStone) {
-                    importBtn.style.display = '';
-                    exportBtn.style.display = 'none';
-                } else {
-                    importBtn.style.display = 'none';
-                    exportBtn.style.display = '';
-                }
-            }
-        }
-
-        function updateRadioStyles()
-        {
-            labelBlack.classList.remove('self-radio', 'opponent-radio', 'checked-disabled');
-            labelWhite.classList.remove('self-radio', 'opponent-radio', 'checked-disabled');
-            if (slots.black) {
-                labelBlack.classList.add(mySlot === 'black' ? 'self-radio' : 'opponent-radio');
-                labelBlack.classList.add('checked-disabled');
-                radioBlack.disabled = true;
-                radioBlack.checked = true;
-            } else {
-                radioBlack.disabled = false;
-                radioBlack.checked = false;
-            }
-            if (slots.white) {
-                labelWhite.classList.add(mySlot === 'white' ? 'self-radio' : 'opponent-radio');
-                labelWhite.classList.add('checked-disabled');
-                radioWhite.disabled = true;
-                radioWhite.checked = true;
-            } else {
-                radioWhite.disabled = false;
-                radioWhite.checked = false;
-            }
-            updateRecordButtons();
-        }
+        let updateRecordButtons = () => {};
+        let updateRadioStyles = () => {};
+        let handleMessage = () => {};
+        const _weiqiBindings = QiBoardRoomClient.createWeiqiMessageBindings({
+            roomId,
+            gameType,
+            pageState: {
+                get mySlot() { return mySlot; },
+                set mySlot(v) { mySlot = v; },
+                get slots() { return slots; },
+                set slots(v) { slots = v; },
+                get matchStarted() { return matchStarted; },
+                set matchStarted(v) { matchStarted = !!v; if (matchStarted) matchStartedOnce = true; },
+                get matchStartedOnce() { return matchStartedOnce; },
+                set matchStartedOnce(v) { matchStartedOnce = !!v; },
+                get isMyTurn() { return isMyTurn; },
+                set isMyTurn(v) { isMyTurn = v; },
+                get gameOver() { return gameOver; },
+                set gameOver(v) { gameOver = v; },
+                get waitingScoreConfirm() { return waitingScoreConfirm; },
+                set waitingScoreConfirm(v) { waitingScoreConfirm = v; },
+                get showEstimateActive() { return showEstimateActive; },
+                set showEstimateActive(v) { showEstimateActive = v; },
+                get replayMode() { return replayMode; },
+                set replayMode(v) { replayMode = v; },
+                get tryPlayMode() { return tryPlayMode; },
+                set tryPlayMode(v) { tryPlayMode = v; },
+                get tryPlayStep() { return tryPlayStep; },
+                set tryPlayStep(v) { tryPlayStep = v; },
+                get replayStep() { return replayStep; },
+                set replayStep(v) { replayStep = v; },
+                get liveViewStep() { return liveViewStep; },
+                set liveViewStep(v) { liveViewStep = v; },
+                get ws() { return ws; },
+                set ws(v) { ws = v; },
+                get showMoveNumbers() { return showMoveNumbers; },
+                set showMoveNumbers(v) { showMoveNumbers = v; }
+            },
+            drawBoard,
+            exitTryPlay,
+            enterTryPlay,
+            setTryPlayStep,
+            setReplayStep,
+            setLiveViewStep,
+            getWs: () => ws,
+            getBoardSize: () => BOARD_LANES,
+            setBoardSize: (n) => {
+                const lanes = Number(n);
+                applyBoardDimensions(lanes, 3 * lanes - 2, 3 * lanes - 2);
+            },
+            getKomi: () => KOMI,
+            setKomi: () => {},
+            // 公共 updateRecordButtons 需要二维棋盘，传入过滤 -1 的兼容视图。
+            getBoard: () => board.map((row, r) => row.map((v, c) => (
+                Snub.isValidVertex(r, c, GRID_W, GRID_H) ? v : 0
+            ))),
+            setBoard: (b) => { board = b; },
+            getSlots: () => slots,
+            setSlots: (s) => { slots = s; },
+            getMySlot: () => mySlot,
+            setMySlot: (s) => { mySlot = s; },
+            getGameOver: () => gameOver,
+            setGameOver: (v) => { gameOver = v; },
+            getWinner: () => winner,
+            setWinner: (w) => { winner = w; },
+            getReplayMode: () => replayMode,
+            getShowEstimateActive: () => showEstimateActive,
+            setShowEstimateActive: (v) => { showEstimateActive = v; },
+            getWaitingScoreConfirm: () => waitingScoreConfirm,
+            setWaitingScoreConfirm: (v) => { waitingScoreConfirm = v; },
+            getIRejected: () => iRejected,
+            setIRejected: (v) => { iRejected = v; },
+            colorStatus,
+            scoreTitle,
+            turnDisplay,
+            labelBlack,
+            labelWhite,
+            radioBlack,
+            radioWhite,
+            syncState,
+            updateBoardGeometry: rebuildLayout,
+            initBoardArray: () => initGridBoard(),
+            exitReplayMode,
+            clearEstimate,
+            hideScoreConfirm,
+            showEstimate,
+            clearMobileMovePreview,
+            downloadRecord,
+            enterReplayMode,
+            updateTurn,
+            showScoreConfirm,
+            onNewGameStarted: () => {
+                colorStatus.innerText = '未选择阵营';
+            },
+            onBoardSizeChanged: (msg) => {
+                syncState(msg);
+            },
+            isMouseDevice,
+            standardWeiqiMatchTime: true
+        });
+        handleMessage = _weiqiBindings.handleMessage;
+        updateRecordButtons = _weiqiBindings.updateRecordButtons;
+        updateRadioStyles = _weiqiBindings.updateRadioStyles;
 
         function commitMove(row, col) {
             if (gameOver) return false;
@@ -1609,6 +1494,16 @@
                     if (isHoverValid) { isHoverValid = false; hoverRow = -1; hoverCol = -1; drawBoard(); }
                     return;
                 }
+                const canHover = tryPlayMode || (!gameOver && isMyTurn);
+                if (!canHover) {
+                    if (isHoverValid || hoverRow >= 0 || hoverCol >= 0) {
+                        isHoverValid = false;
+                        hoverRow = -1;
+                        hoverCol = -1;
+                        drawBoard();
+                    }
+                    return;
+                }
                 const rect = canvas.getBoundingClientRect();
                 const scale = 600 / rect.width;
                 const x = (e.clientX - rect.left) * scale;
@@ -1626,97 +1521,6 @@
                 }
             });
         }
-
-        document.getElementById('newGameBtn').onclick = () => {
-            if (replayMode) {
-                ws.send(JSON.stringify({ type: 'resetRoom' }));
-                return;
-            }
-            if (!mySlot) { alert('只有对局者可以开始新局'); return; }
-            const opponentSlot = mySlot === 'black' ? 'white' : 'black';
-            const hasOpponent = slots[opponentSlot];
-            if (hasOpponent) {
-                if (confirm('确定向对方申请开始新局吗？')) ws.send(JSON.stringify({ type: 'requestNewGame' }));
-            } else {
-                if (confirm('确定开始新局吗？')) ws.send(JSON.stringify({ type: 'requestNewGame' }));
-            }
-        };
-        document.getElementById('estimateBtn').onclick = () => {
-            showEstimateActive = !showEstimateActive;
-            if (showEstimateActive) showEstimate();
-            else clearEstimate();
-        };
-        document.getElementById('tryPlayBtn').onclick = () => {
-            if (tryPlayMode) exitTryPlay();
-            else enterTryPlay();
-        };
-        document.getElementById('showNumbersCheck').onchange = (e) => {
-            showMoveNumbers = e.target.checked;
-            drawBoard();
-        };
-        document.getElementById('passBtn').onclick = () => {
-            if (!isMyTurn) return;
-            ws.send(JSON.stringify({ type: 'pass' }));
-        };
-        document.getElementById('undoBtn').onclick = () => {
-            if (!mySlot) { alert('只有对局者可以悔棋'); return; }
-            const opponentSlot = mySlot === 'black' ? 'white' : 'black';
-            const hasOpponent = slots[opponentSlot];
-            if (hasOpponent) {
-                if (confirm('确定向对方申请悔棋吗？')) ws.send(JSON.stringify({ type: 'requestUndo' }));
-            } else {
-                if (confirm('确定悔棋吗？')) ws.send(JSON.stringify({ type: 'requestUndo' }));
-            }
-        };
-        document.getElementById('resignBtn').onclick = () => {
-            if (!mySlot) { alert('只有对局者可以认输'); return; }
-            if (confirm('确定认输吗？')) ws.send(JSON.stringify({ type: 'resign' }));
-        };
-        document.getElementById('drawBtn').onclick = () => {
-            if (!ps.mySlot) { alert('只有对局者可以申请和棋'); return; }
-            const opponentSlot = ps.mySlot === 'black' ? 'white' : 'black';
-            const hasOpponent = ps.slots[opponentSlot];
-            if (hasOpponent) {
-                if (confirm('确定向对方申请和棋吗？')) ps.ws.send(JSON.stringify({ type: 'requestDraw' }));
-            } else {
-                if (confirm('确定和棋吗？')) ps.ws.send(JSON.stringify({ type: 'requestDraw' }));
-            }
-        };
-        document.getElementById('endReqBtn').onclick = () => {
-            if (!mySlot) { alert('只有对局者可以申请数子'); return; }
-            ws.send(JSON.stringify({ type: 'requestEnd' }));
-        };
-        document.getElementById('exportBtn').onclick = () => {
-            ws.send(JSON.stringify({ type: 'exportRecord' }));
-        };
-        document.getElementById('importBtn').onclick = () => {
-            document.getElementById('importFileInput').click();
-        };
-        document.getElementById('importFileInput').onchange = (e) =>
-        {
-            const file = e.target.files[0];
-            if (!file) return;
-            const reader = new FileReader();
-            reader.onload = (ev) => {
-                try {
-                    const data = JSON.parse(ev.target.result);
-                    ws.send(JSON.stringify({ type: 'importRecord', data }));
-                } catch (err) {
-                    alert('棋谱文件解析失败');
-                }
-            };
-            reader.readAsText(file);
-            e.target.value = '';
-        };
-        document.getElementById('boardSizeSelect').addEventListener('change', (e) =>
-        {
-            const newSize = parseInt(e.target.value, 10);
-            if (ws && ws.readyState === WebSocket.OPEN)
-                ws.send(JSON.stringify({ type: 'setBoardSize', size: newSize }));
-        });
-        document.getElementById('backToLobbyBtn').onclick = () => { window.location.href = '/qi'; };
-        radioBlack.onchange = function () { if (this.checked && !this.disabled) ws.send(JSON.stringify({ type: 'selectColor', color: 'black' })); };
-        radioWhite.onchange = function () { if (this.checked && !this.disabled) ws.send(JSON.stringify({ type: 'selectColor', color: 'white' })); };
 
         // 数子确认按钮事件
         if (scoreConfirmYes)
@@ -1736,37 +1540,6 @@
                 waitingScoreConfirm = false;
             };
         }
-
-        document.getElementById('replayBackBtn').onclick = () => {
-            if (replayMode) {
-                if (tryPlayMode) setTryPlayStep(tryPlayStep - 1);
-                else setReplayStep(replayStep - 1);
-            } else {
-                setLiveViewStep(liveViewStep - 1);
-            }
-        };
-        document.getElementById('replayForwardBtn').onclick = () => {
-            if (replayMode) {
-                if (tryPlayMode) setTryPlayStep(tryPlayStep + 1);
-                else setReplayStep(replayStep + 1);
-            } else {
-                setLiveViewStep(liveViewStep + 1);
-            }
-        };
-        document.getElementById('replaySlider').addEventListener('input', (e) => {
-            const val = parseInt(e.target.value, 10);
-            if (replayMode) {
-                if (tryPlayMode) setTryPlayStep(val);
-                else setReplayStep(val);
-            } else {
-                setLiveViewStep(val);
-            }
-        });
-
-        const modal = document.getElementById('rulesModal');
-        document.getElementById('helpBtn').onclick = () => modal.style.display = 'flex';
-        document.getElementById('closeRulesBtn').onclick = () => modal.style.display = 'none';
-        modal.onclick = (e) => { if (e.target === modal) modal.style.display = 'none'; };
 
         connectWebSocket();
     </script>

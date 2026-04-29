@@ -49,7 +49,7 @@
                 <h3>隐身子围棋</h3>
                 <p>
                     基本规则同围棋。<br /><br />
-                    每第3的倍数手为隐身子，仅己方可见。<br /><br />
+                    每第3的倍数手棋为隐身子，仅己方可见。<br /><br />
                     隐身子在参与提子时显形。<br /><br />
                     落子在对方隐身子上时无效，该隐身子显形，此手视为弃权。<br /><br />
                     双方同意申请数子后，所有隐身子显形并进行数子；即便不同意数子结果而续弈也不再产生新的隐身子。<br />
@@ -96,28 +96,47 @@
                             <div class="score-title" id="scoreTitle">　</div>
                             <div class="score-content">
                                 <div id="scoreBoard">　</div>
-                                <div id="leadInfo" style="margin-top:12px; color:#ffb870;">　</div>
-                            </div>
-                        </div>
-
-                        <div id="scoreConfirmPanel" class="score-confirm-panel" style="display: none;">
-                            <p id="scoreConfirmText">黑胜0点，是否同意该结果？</p>
-                            <div class="score-confirm-buttons">
-                                <button id="scoreConfirmYes">确定</button>
-                                <button id="scoreConfirmNo">取消</button>
+                                <div id="leadInfo" style="margin-top:6px; color:#ffb870;">　</div>
                             </div>
                         </div>
 
                         <div id="replayPanel" class="replay-panel">
-                            <div class="replay-step-display" id="replayStepDisplay">0 / 0</div>
                             <div class="replay-nav">
-                                <button class="replay-nav-btn" id="replayBackBtn">◀ 后退</button>
-                                <button class="replay-nav-btn" id="replayForwardBtn">前进 ▶</button>
+                                <button class="replay-nav-btn" id="replayBackBtn">◀</button>
+                                <div class="replay-step-display" id="replayStepDisplay">0 / 0</div>
+                                <button class="replay-nav-btn" id="replayForwardBtn">▶</button>
                             </div>
                             <input type="range" id="replaySlider" min="0" max="0" value="0" class="replay-slider">
                         </div>
                     </div>
+                    <div id="goTimerPanel" class="go-timer-panel" hidden>
+                        <div class="go-timer-block go-timer-black" data-go-timer="black">
+                            <div class="go-timer-title">⚫ 黑方</div>
+                            <div class="go-timer-line2">
+                                <span class="go-timer-count">—</span>
+                                <span class="go-timer-over">—</span>
+                            </div>
+                            <div class="go-timer-rule">　</div>
+                        </div>
+                        <div class="go-timer-block go-timer-white" data-go-timer="white">
+                            <div class="go-timer-title">⚪ 白方</div>
+                            <div class="go-timer-line2">
+                                <span class="go-timer-count">—</span>
+                                <span class="go-timer-over">—</span>
+                            </div>
+                            <div class="go-timer-rule">　</div>
+                        </div>
+                    </div>
                 </div>
+            </div>
+        </div>
+    </div>
+    <div id="scoreConfirmPanel" class="qi-time-control-modal score-confirm-modal" style="display: none;">
+        <div class="qi-time-control-dialog score-confirm-dialog">
+            <p id="scoreConfirmText">黑胜0点，是否同意该结果？</p>
+            <div class="score-confirm-buttons">
+                <button id="scoreConfirmYes">确定</button>
+                <button id="scoreConfirmNo">取消</button>
             </div>
         </div>
     </div>
@@ -166,6 +185,7 @@
             liveReplayBoards: [],
             liveReplayMarkers: [],
             liveReplayStepPlayers: [],
+            liveReplayInvisibleTints: [],
             liveViewStep: 0,
             liveFollowLatest: true,
             userBoardMarks: Object.create(null),
@@ -173,7 +193,10 @@
             hoverCol: -1,
             isHoverValid: false,
             invisibleTintKeys: new Set(),
-            plainWeiqiStartHand: null
+            plainWeiqiStartHand: null,
+            serverInvisibleStoneCounts: null,
+            invisibleStoneCountsTimeline: null,
+            replayInvisibleCounts: null
         };
         (function initSquareGeometry() {
             const g = QiSquareWeiqiCanvas.computePaddingAndCell(ps.BOARD_SIZE);
@@ -237,6 +260,8 @@
             colorStatus
         };
 
+        let page;
+
         function emptyInvisibleGrid(sz) {
             return Array(sz).fill().map(() => Array(sz).fill(false));
         }
@@ -292,6 +317,55 @@
             }
         }
 
+        function countInvisibleStonesOnGrid(truthBoard, invGrid, size) {
+            let black = 0;
+            let white = 0;
+            for (let r = 0; r < size; r++) {
+                for (let c = 0; c < size; c++) {
+                    if (!invGrid[r][c]) continue;
+                    const v = truthBoard[r][c];
+                    if (v === 1) black++;
+                    else if (v === 2) white++;
+                }
+            }
+            return { black, white };
+        }
+
+        function shouldShowInvisibleStoneScoreLine() {
+            const started = !!(ps.matchStarted || ps.matchStartedOnce || ps.numberOfHands > 1);
+            if (!started) return false;
+            if (ps.showEstimateActive) return false;
+            if (ps.waitingScoreConfirm) return false;
+            if (ps.gameOver) return false;
+            if (ps.replayMode && ps.tryPlayMode) return false;
+            return true;
+        }
+
+        function getCurrentInvisibleStoneCounts() {
+            if (ps.replayMode && !ps.tryPlayMode) {
+                const arr = ps.replayInvisibleCounts;
+                if (arr && ps.replayStep >= 0 && ps.replayStep < arr.length)
+                    return arr[ps.replayStep];
+                return { black: 0, white: 0 };
+            }
+            const tl = ps.invisibleStoneCountsTimeline;
+            if (tl && tl.length && ps.liveViewStep >= 0 && ps.liveViewStep < tl.length)
+                return tl[ps.liveViewStep];
+            if (ps.serverInvisibleStoneCounts)
+                return ps.serverInvisibleStoneCounts;
+            return { black: 0, white: 0 };
+        }
+
+        function refreshInvisibleStoneScoreLine() {
+            if (!shouldShowInvisibleStoneScoreLine()) {
+                if (ps.showEstimateActive || ps.waitingScoreConfirm) return;
+                scoreBoard.innerText = '　';
+                return;
+            }
+            const c = getCurrentInvisibleStoneCounts();
+            scoreBoard.innerText = `隐身子数量　黑:${c.black} 白:${c.white}`;
+        }
+
         function buildReplayView(step) {
             const truth = ps.replayTruthBoards[step];
             const inv = ps.replayInvisibleGrids[step];
@@ -328,6 +402,143 @@
             return { display, tint };
         }
 
+        /** 与服务器 InvisibleStoneWeiqiRoom.buildViewBoard 一致（当前座位的可见棋盘）。 */
+        function buildClientViewBoard(truthBoard, inv, slot) {
+            const size = truthBoard.length;
+            const out = page.initBoardArray(size);
+            const isSpectator = slot !== 'black' && slot !== 'white';
+            for (let r = 0; r < size; r++) {
+                for (let c = 0; c < size; c++) {
+                    const v = truthBoard[r][c];
+                    if (v === 0) continue;
+                    if (inv[r][c]) {
+                        if (isSpectator) continue;
+                        if (slot === 'black') {
+                            if (v === 1) out[r][c] = v;
+                        } else {
+                            if (v === 2) out[r][c] = v;
+                        }
+                    } else {
+                        out[r][c] = v;
+                    }
+                }
+            }
+            return out;
+        }
+
+        /** 与服务器 buildInvisibleTint 一致，返回 "row,col" 字符串列表（便于逐步恢复 Set）。 */
+        function buildClientInvisibleTintKeysList(truthBoard, inv, slot) {
+            const list = [];
+            if (slot !== 'black' && slot !== 'white') return list;
+            const size = truthBoard.length;
+            for (let r = 0; r < size; r++) {
+                for (let c = 0; c < size; c++) {
+                    if (truthBoard[r][c] === 0) continue;
+                    if (!inv[r][c]) continue;
+                    if (slot === 'black' && truthBoard[r][c] === 1) list.push(`${r},${c}`);
+                    else if (slot === 'white' && truthBoard[r][c] === 2) list.push(`${r},${c}`);
+                }
+            }
+            return list;
+        }
+
+        /** 与服务器 filterLastMoveMarkers 一致（inv 为当前局面隐身子网格）。 */
+        function filterLiveLastMoveMarkers(markers, inv, slot) {
+            if (!markers || !markers.length) return [];
+            const isSpectator = slot !== 'black' && slot !== 'white';
+            return markers.filter(m => {
+                const { row, col, color } = m;
+                if (row < 0 || row >= ps.BOARD_SIZE || col < 0 || col >= ps.BOARD_SIZE) return true;
+                if (!inv[row][col]) return true;
+                if (isSpectator) return false;
+                const blackStone = color === 1;
+                if (blackStone && slot === 'white') return false;
+                if (!blackStone && slot === 'black') return false;
+                return true;
+            }).map(m => ({ row: m.row, col: m.col, color: m.color }));
+        }
+
+        /**
+         * 用完整手顺重建 live 进度数据（中途进房时无法靠「多次 push 当前局面」得到历史）。
+         */
+        function rebuildLiveReplayFromReplaySync(replaySync) {
+            const size = ps.BOARD_SIZE;
+            const pwsh = replaySync.plainWeiqiStartHand != null ? replaySync.plainWeiqiStartHand : null;
+            let curBoard = page.initBoardArray(size);
+            let curInv = emptyInvisibleGrid(size);
+            if (replaySync.initialPosition && Array.isArray(replaySync.initialPosition)) {
+                QiWeiqiSquarePageRuntime.applyInitialPositionCompact(curBoard, size, replaySync.initialPosition);
+            }
+            const liveReplayBoards = [];
+            const liveReplayMarkers = [];
+            const liveReplayStepPlayers = [0];
+            const liveReplayInvisibleTints = [];
+            const slot = ps.mySlot;
+
+            function pushStep(lastMarkersRaw) {
+                liveReplayBoards.push(page.deepCopyBoard(buildClientViewBoard(curBoard, curInv, slot)));
+                liveReplayMarkers.push(filterLiveLastMoveMarkers(lastMarkersRaw, curInv, slot).map(m => ({ ...m })));
+                liveReplayInvisibleTints.push(buildClientInvisibleTintKeysList(curBoard, curInv, slot));
+            }
+
+            pushStep([]);
+
+            let plyIndex = 0;
+            for (const move of replaySync.moves || []) {
+                const playerVal = move.player === 'black' ? 1 : 2;
+                const enemyVal = 3 - playerVal;
+                liveReplayStepPlayers.push(playerVal);
+                let lastMarkersRaw = [];
+                if (move.type === 'move') {
+                    if (move.concealed) {
+                        plyIndex++;
+                        pushStep([]);
+                        continue;
+                    }
+                    plyIndex++;
+                    const nextHand = plyIndex;
+                    const { row, col } = move;
+                    if (typeof row !== 'number' || typeof col !== 'number') {
+                        pushStep([]);
+                        continue;
+                    }
+                    if (curBoard[row][col] !== 0) {
+                        if (curBoard[row][col] === enemyVal && curInv[row][col]) {
+                            curInv[row][col] = false;
+                            lastMarkersRaw = [];
+                        }
+                    } else {
+                        const oldBoard = page.deepCopyBoard(curBoard);
+                        const newBoard = page.tryPlaceStone(curBoard, row, col, playerVal);
+                        if (newBoard) {
+                            curBoard = newBoard;
+                            const removed = removedStonesForCapture(oldBoard, curBoard, size, row, col, playerVal);
+                            for (const { row: rr, col: cc } of removed) curInv[rr][cc] = false;
+                            const wantInv =
+                                (pwsh == null || nextHand < pwsh) &&
+                                nextHand >= 3 &&
+                                nextHand % 3 === 0;
+                            if (wantInv && curBoard[row][col] === playerVal) curInv[row][col] = true;
+                            revealParticipatingInvisibleForCapture(removed, curBoard, curInv);
+                            lastMarkersRaw = [{ row, col, color: playerVal }];
+                        }
+                    }
+                } else if (move.type === 'pass') {
+                    plyIndex++;
+                    if (move.reason === 'hitInvisible' && typeof move.revealRow === 'number' && typeof move.revealCol === 'number') {
+                        curInv[move.revealRow][move.revealCol] = false;
+                    }
+                    lastMarkersRaw = [];
+                }
+                pushStep(lastMarkersRaw);
+            }
+
+            ps.liveReplayBoards = liveReplayBoards;
+            ps.liveReplayMarkers = liveReplayMarkers;
+            ps.liveReplayStepPlayers = liveReplayStepPlayers;
+            ps.liveReplayInvisibleTints = liveReplayInvisibleTints;
+        }
+
         /** 与对弈时 filterLastMoveMarkers 一致：不显示落在对方隐身子上的最后一手标记 */
         function filterReplayLastMoveMarkers(markers, step) {
             if (!markers || !markers.length) return [];
@@ -355,6 +566,43 @@
                 ps.liveReplayBoards = [page.deepCopyBoard(state.board)];
                 ps.liveReplayMarkers = [[]];
                 ps.liveReplayStepPlayers = [0];
+                ps.liveReplayInvisibleTints = [[]];
+                return;
+            }
+
+            const rvb = state.replayViewBoards;
+            if (Array.isArray(rvb) && rvb.length === nh) {
+                ps.liveReplayBoards = rvb.map(b => page.deepCopyBoard(b));
+                ps.liveReplayStepPlayers = [0];
+                for (let i = 0; i < coords.length; i++) {
+                    const m = coords[i];
+                    const pv = m && m.player === 'white' ? 2 : 1;
+                    ps.liveReplayStepPlayers.push(pv);
+                }
+                const markers = [[]];
+                for (let i = 0; i < coords.length; i++) {
+                    const m = coords[i];
+                    let mk = [];
+                    if (m.type === 'move' && typeof m.row === 'number' && !m.concealed) {
+                        const pv = m.player === 'white' ? 2 : 1;
+                        mk = [{ row: m.row, col: m.col, color: pv }];
+                    }
+                    markers.push(mk);
+                }
+                if (markers.length > 0)
+                    markers[markers.length - 1] = (state.lastMoveMarkers || []).map(m => ({ ...m }));
+                ps.liveReplayMarkers = markers;
+                const rvt = state.replayViewInvisibleTints;
+                if (Array.isArray(rvt) && rvt.length === nh)
+                    ps.liveReplayInvisibleTints = rvt.map(x => (Array.isArray(x) ? x.slice() : []));
+                else
+                    ps.liveReplayInvisibleTints = new Array(nh).fill(null);
+                return;
+            }
+
+            const rs = state.replaySync;
+            if (rs && Array.isArray(rs.moves) && rs.moves.length === nh - 1) {
+                rebuildLiveReplayFromReplaySync(rs);
                 return;
             }
 
@@ -388,9 +636,8 @@
                 ps.liveReplayBoards[li] = page.deepCopyBoard(state.board);
                 ps.liveReplayMarkers[li] = (state.lastMoveMarkers || []).map(m => ({ ...m }));
             }
+            ps.liveReplayInvisibleTints = new Array(ps.liveReplayBoards.length).fill(null);
         }
-
-        let page;
 
         const variantOpts = {
             recordDownloadPrefix: '隐身子围棋',
@@ -434,7 +681,7 @@
                         if (v !== 1 && v !== 2) continue;
                         const cx = ps.PADDING + cc * cellSize;
                         const cy = ps.PADDING + rr * cellSize;
-                        QiWeiqiSquarePageRuntime.invisibleDrawStone(ctx, cx, cy, stoneRadius, v === 1, 0.45);
+                        QiWeiqiSquarePageRuntime.invisibleDrawStone(ctx, cx, cy, stoneRadius, v === 1, 0.6);
                     }
                 }
                 if (!lowerLastMoveMarker) {
@@ -467,6 +714,7 @@
                     ps.liveReplayBoards = [];
                     ps.liveReplayMarkers = [];
                     ps.liveReplayStepPlayers = [];
+                    ps.liveReplayInvisibleTints = [];
                     ps.liveViewStep = 0;
                     page.updateBoardGeometry();
                     const sizeSelect = document.getElementById('boardSizeSelect');
@@ -476,6 +724,8 @@
                 ps.currentPlayer = state.currentPlayer;
                 ps.gameOver = state.gameOver || false;
                 ps.winner = state.winner || null;
+                if (state.matchStarted !== undefined)
+                    ps.matchStarted = !!state.matchStarted;
                 if (state.moveCoords) {
                     ps.moveLog = state.moveCoords.map(m => {
                         if (m.type !== 'move') return null;
@@ -487,6 +737,10 @@
                     ps.slots = state.slots;
                 if ('plainWeiqiStartHand' in state)
                     ps.plainWeiqiStartHand = state.plainWeiqiStartHand;
+                if (state.invisibleStoneCounts)
+                    ps.serverInvisibleStoneCounts = state.invisibleStoneCounts;
+                if (state.invisibleStoneCountsTimeline)
+                    ps.invisibleStoneCountsTimeline = state.invisibleStoneCountsTimeline;
 
                 if (state.useServerBoard && !ps.replayMode) {
                     ps.board = page.deepCopyBoard(state.board);
@@ -617,6 +871,12 @@
                 }
 
                 ps.replayTotalSteps = ps.replayTruthBoards.length - 1;
+                ps.replayInvisibleCounts = [];
+                for (let i = 0; i < ps.replayTruthBoards.length; i++) {
+                    ps.replayInvisibleCounts.push(
+                        countInvisibleStonesOnGrid(ps.replayTruthBoards[i], ps.replayInvisibleGrids[i], size)
+                    );
+                }
                 ps.replayMode = true;
 
                 const slider = document.getElementById('replaySlider');
@@ -639,12 +899,14 @@
                 ps.replayTotalSteps = 0;
                 ps.replayTruthBoards = [];
                 ps.replayInvisibleGrids = [];
+                ps.replayInvisibleCounts = null;
                 ps.replayPerspective = 'both';
                 const perspBoth = document.getElementById('replayPerspBoth');
                 if (perspBoth) perspBoth.checked = true;
                 const perspRow = document.getElementById('replayPerspectiveRow');
                 if (perspRow) perspRow.style.display = 'none';
                 page.updateReplayUI();
+                refreshInvisibleStoneScoreLine();
             },
             setReplayStep(step) {
                 page.clearMobileMovePreview();
@@ -674,6 +936,7 @@
 
                 if (ps.showEstimateActive) page.showEstimate();
                 else page.drawBoard();
+                refreshInvisibleStoneScoreLine();
             },
             updateReplayUI() {
                 const gameButtonIds = ['passBtn', 'undoBtn', 'resignBtn', 'drawBtn', 'endReqBtn'];
@@ -703,6 +966,33 @@
         };
 
         page = QiWeiqiSquarePageRuntime.create(ps, domPage, variantOpts);
+
+        const origApplyLiveViewBoard = page.applyLiveViewBoard;
+        page.applyLiveViewBoard = function () {
+            origApplyLiveViewBoard();
+            const row = ps.liveReplayInvisibleTints && ps.liveReplayInvisibleTints[ps.liveViewStep];
+            if (!ps.replayMode && Array.isArray(row))
+                ps.invisibleTintKeys = new Set(row);
+        };
+
+        (function wrapInvisibleStoneScoreRefresh() {
+            const wrap = (name) => {
+                const o = page[name];
+                if (typeof o !== 'function') return;
+                page[name] = function (...args) {
+                    const r = o.apply(this, args);
+                    refreshInvisibleStoneScoreLine();
+                    return r;
+                };
+            };
+            wrap('updateTurn');
+            wrap('clearEstimate');
+            wrap('showEstimate');
+            wrap('setLiveViewStep');
+            wrap('setTryPlayStep');
+            wrap('enterTryPlay');
+            wrap('exitTryPlay');
+        })();
 
         const {
             mobileTwoStepPlacing,
@@ -740,6 +1030,13 @@
         const _weiqiBindings = QiBoardRoomClient.createWeiqiMessageBindings({
             roomId,
             gameType,
+            pageState: ps,
+            drawBoard,
+            exitTryPlay,
+            enterTryPlay,
+            setTryPlayStep,
+            setReplayStep,
+            setLiveViewStep,
             getWs: () => ps.ws,
             getBoardSize: () => ps.BOARD_SIZE,
             setBoardSize: (n) => { ps.BOARD_SIZE = n; },
@@ -780,7 +1077,9 @@
             downloadRecord,
             enterReplayMode,
             updateTurn,
+            updateReplayUI,
             showScoreConfirm,
+            standardWeiqiMatchTime: true,
             onNewGameStarted: () => {
                 ps.userBoardMarks = Object.create(null);
                 ps.plainWeiqiStartHand = null;
@@ -792,7 +1091,8 @@
             onImportSuccessBeforeSync: (msg, prevBoardSize) => {
                 if (msg.boardSize && msg.boardSize !== prevBoardSize)
                     ps.userBoardMarks = Object.create(null);
-            }
+            },
+            isMouseDevice
         });
         const handleMessage = _weiqiBindings.handleMessage;
         const updateRecordButtons = _weiqiBindings.updateRecordButtons;
@@ -964,3 +1264,4 @@
     </script>
 </body>
 </html>
+

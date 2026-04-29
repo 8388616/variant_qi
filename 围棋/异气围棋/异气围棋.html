@@ -117,7 +117,6 @@
             }
         }
 
-        /* 参照乌克兰围棋：手机端背包在棋盘下方、信息面板上方 */
         @media (max-width: 700px) and (hover: none) and (pointer: coarse) {
             .game-wrapper {
                 display: flex;
@@ -142,15 +141,26 @@
                 margin-top: 14px;
             }
 
-            .main-area > .board-and-info > .main-area-right {
+            .main-area > .board-and-info > .palette-stack-aside {
+                display: contents;
+            }
+
+            .main-area > .board-and-info > .palette-stack-aside > #goTimerPanel {
                 order: 3;
+                width: 100%;
+                max-width: 100%;
+                margin-top: 14px;
+            }
+
+            .main-area > .board-and-info > .palette-stack-aside > .main-area-right {
+                order: 4;
                 display: block;
                 width: 100%;
                 max-width: 100%;
                 margin-top: 14px;
             }
 
-            .main-area > .board-and-info > .main-area-right > .info-panel {
+            .main-area > .board-and-info > .palette-stack-aside > .main-area-right > .info-panel {
                 width: 100%;
                 max-width: 100%;
                 margin-top: 0;
@@ -166,6 +176,24 @@
 
             .vl-bag-col.vl-black-side {
                 order: 2;
+            }
+
+            /* 手机端背包棋子为桌面约 80%，电脑端不受影响 */
+            #whiteBagRow .vl-bag-slot-btn,
+            #blackBagRow .vl-bag-slot-btn {
+                width: calc(32px * 0.8);
+                height: calc(32px * 0.8);
+            }
+            #whiteBagRow .vl-bag-stone,
+            #blackBagRow .vl-bag-stone {
+                width: calc(28px * 0.8);
+                height: calc(28px * 0.8);
+            }
+            #whiteBagRow .vl-bag-lv,
+            #blackBagRow .vl-bag-lv {
+                font-size: calc(12px * 0.8);
+                left: calc(5px * 0.8);
+                top: calc(3px * 0.8);
             }
         }
     </style>
@@ -213,7 +241,7 @@
                 <h3>异气围棋</h3>
                 <p>
                     基本规则同围棋。<br /><br />
-                    棋子有一气、二气、三气、四气四种，最小气数分别为1、2、3、4。每片棋至少要有n口气才能留在棋盘上，其中n为这片棋的气数平均值。<br /><br />
+                    棋子有一气、二气、三气、四气四种，最小气数分别为1、2、3、4。每片棋至少要有n口气才能留在棋盘上，其中n为这片棋中所有棋子的最小气数平均值。<br /><br />
                     双方各有容量为8的背包。开局时背包里有每种其中各2枚。每手棋可以从背包中选一枚棋子落子。<br /><br />           
                     每手棋结束后，若背包未满，则会依次补充一枚一气、二气、三气、四气棋子。<br />
                 </p>
@@ -224,16 +252,16 @@
             <div class="button-panel">
                 <button class="ctrl-btn" id="newGameBtn">新局</button>
                 <button class="ctrl-btn" id="estimateBtn">形势判断</button>
-                <button class="ctrl-btn" id="tryPlayBtn" style="display:none;">试下</button>
-                <button class="ctrl-btn" id="passBtn">虚着</button>
-                <button class="ctrl-btn" id="undoBtn">悔棋</button>
-                <button class="ctrl-btn" id="resignBtn">认输</button>
-                <button class="ctrl-btn" id="drawBtn">和棋</button>
-                <button class="ctrl-btn" id="endReqBtn">申请数子</button>
+                <button class="ctrl-btn" id="tryPlayBtn">试下</button>
+                <button class="ctrl-btn" id="passBtn" style="display:none;">虚着</button>
+                <button class="ctrl-btn" id="undoBtn" style="display:none;">悔棋</button>
+                <button class="ctrl-btn" id="resignBtn" style="display:none;">认输</button>
+                <button class="ctrl-btn" id="drawBtn" style="display:none;">和棋</button>
+                <button class="ctrl-btn" id="endReqBtn" style="display:none;">申请数子</button>
                 <button class="ctrl-btn" id="importBtn">导入棋谱</button>
                 <button class="ctrl-btn" id="exportBtn" style="display:none;">导出棋谱</button>
             </div>
-            <div class="board-and-info">
+            <div class="board-and-info board-and-info--palette-stack">
                 <div class="board-container">
                     <canvas id="goBoard" width="600" height="600"></canvas>
                     <div class="board-mark-outer" id="boardMarkOuter">
@@ -245,6 +273,21 @@
                         <button type="button" class="board-mark-expand-btn" id="boardMarkExpandBtn" title="展开标记">›</button>
                     </div>
                 </div>
+                <div class="bottom-palette vl-bags-wrap">
+                    <div class="vl-bags-row">
+                        <div class="vl-bag-col vl-white-side">
+                            <div class="vl-bag-frame">
+                                <div class="vl-bag-inner" id="whiteBagRow"></div>
+                            </div>
+                        </div>
+                        <div class="vl-bag-col vl-black-side">
+                            <div class="vl-bag-frame">
+                                <div class="vl-bag-inner" id="blackBagRow"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="palette-stack-aside">
                 <div class="main-area-right">
                     <div class="info-panel">
                         <div class="turn-box" id="turnDisplay">　</div>
@@ -252,43 +295,48 @@
                             <div class="score-title" id="scoreTitle">　</div>
                             <div class="score-content">
                                 <div id="scoreBoard">　</div>
-                                <div id="leadInfo" style="margin-top:12px; color:#ffb870;">　</div>
-                            </div>
-                        </div>
-
-                        <div id="scoreConfirmPanel" class="score-confirm-panel" style="display: none;">
-                            <p id="scoreConfirmText">黑胜0点，是否同意该结果？</p>
-                            <div class="score-confirm-buttons">
-                                <button id="scoreConfirmYes">确定</button>
-                                <button id="scoreConfirmNo">取消</button>
+                                <div id="leadInfo" style="margin-top:6px; color:#ffb870;">　</div>
                             </div>
                         </div>
 
                         <div id="replayPanel" class="replay-panel">
-                            <div class="replay-step-display" id="replayStepDisplay">0 / 0</div>
                             <div class="replay-nav">
-                                <button class="replay-nav-btn" id="replayBackBtn">◀ 后退</button>
-                                <button class="replay-nav-btn" id="replayForwardBtn">前进 ▶</button>
+                                <button class="replay-nav-btn" id="replayBackBtn">◀</button>
+                                <div class="replay-step-display" id="replayStepDisplay">0 / 0</div>
+                                <button class="replay-nav-btn" id="replayForwardBtn">▶</button>
                             </div>
                             <input type="range" id="replaySlider" min="0" max="0" value="0" class="replay-slider">
                         </div>
                     </div>
                 </div>
+                <div id="goTimerPanel" class="go-timer-panel" hidden>
+                    <div class="go-timer-block go-timer-black" data-go-timer="black">
+                        <div class="go-timer-title">⚫ 黑方</div>
+                        <div class="go-timer-line2">
+                            <span class="go-timer-count">—</span>
+                            <span class="go-timer-over">—</span>
+                        </div>
+                        <div class="go-timer-rule">　</div>
+                    </div>
+                    <div class="go-timer-block go-timer-white" data-go-timer="white">
+                        <div class="go-timer-title">⚪ 白方</div>
+                        <div class="go-timer-line2">
+                            <span class="go-timer-count">—</span>
+                            <span class="go-timer-over">—</span>
+                        </div>
+                        <div class="go-timer-rule">　</div>
+                    </div>
+                </div>
+                </div>
             </div>
         </div>
-
-        <div class="bottom-palette vl-bags-wrap">
-            <div class="vl-bags-row">
-                <div class="vl-bag-col vl-white-side">
-                    <div class="vl-bag-frame">
-                        <div class="vl-bag-inner" id="whiteBagRow"></div>
-                    </div>
-                </div>
-                <div class="vl-bag-col vl-black-side">
-                    <div class="vl-bag-frame">
-                        <div class="vl-bag-inner" id="blackBagRow"></div>
-                    </div>
-                </div>
+    </div>
+    <div id="scoreConfirmPanel" class="qi-time-control-modal score-confirm-modal" style="display: none;">
+        <div class="qi-time-control-dialog score-confirm-dialog">
+            <p id="scoreConfirmText">黑胜0点，是否同意该结果？</p>
+            <div class="score-confirm-buttons">
+                <button id="scoreConfirmYes">确定</button>
+                <button id="scoreConfirmNo">取消</button>
             </div>
         </div>
     </div>
@@ -304,6 +352,25 @@
 
         function initLevelBoard(size) {
             return Array(size).fill().map(() => Array(size).fill(0));
+        }
+
+        function normalizeLevelBoard(rawLevelBoard, boardSize) {
+            const normalized = initLevelBoard(boardSize);
+            if (!Array.isArray(rawLevelBoard)) return normalized;
+            for (let r = 0; r < boardSize; r++) {
+                if (!Array.isArray(rawLevelBoard[r])) continue;
+                for (let c = 0; c < boardSize; c++) {
+                    const value = rawLevelBoard[r][c];
+                    if (Number.isFinite(value)) normalized[r][c] = value;
+                }
+            }
+            return normalized;
+        }
+
+        function safeLevelAt(levelBoard, r, c) {
+            const row = Array.isArray(levelBoard) ? levelBoard[r] : null;
+            const value = Array.isArray(row) ? row[c] : 0;
+            return Number.isFinite(value) ? value : 0;
         }
 
         function deepCopy2d(a) {
@@ -770,7 +837,7 @@
                 for (let r = 0; r < ps.BOARD_SIZE; r++) {
                     for (let c = 0; c < ps.BOARD_SIZE; c++) {
                         if (ps.board[r][c] === 0) continue;
-                        const lv = ps.levelBoard[r][c];
+                        const lv = safeLevelAt(ps.levelBoard, r, c);
                         if (lv <= 1) continue;
                         const x = ps.PADDING + c * cellSize;
                         const y = ps.PADDING + r * cellSize;
@@ -847,9 +914,11 @@
         };
         page.syncState = function (state) {
             const wasMyTurn = ps.isMyTurn;
+            const incomingSize = Number.isInteger(state.boardSize) ? state.boardSize : ps.BOARD_SIZE;
+            ps.levelBoard = normalizeLevelBoard(state.levelBoard || ps.levelBoard, incomingSize);
             origSyncState(state);
             if (ps.replayMode) {
-                if (state.levelBoard) ps.levelBoard = deepCopy2d(state.levelBoard);
+                ps.levelBoard = normalizeLevelBoard(state.levelBoard || ps.levelBoard, ps.BOARD_SIZE);
                 if (state.blackBag) ps.blackBag = [...state.blackBag];
                 if (state.whiteBag) ps.whiteBag = [...state.whiteBag];
             } else {
@@ -896,6 +965,13 @@
         const _weiqiBindings = QiBoardRoomClient.createWeiqiMessageBindings({
             roomId,
             gameType,
+            pageState: ps,
+            drawBoard,
+            exitTryPlay,
+            enterTryPlay,
+            setTryPlayStep,
+            setReplayStep,
+            setLiveViewStep,
             getWs: () => ps.ws,
             getBoardSize: () => ps.BOARD_SIZE,
             setBoardSize: (n) => { ps.BOARD_SIZE = n; },
@@ -936,7 +1012,10 @@
             downloadRecord,
             enterReplayMode,
             updateTurn,
-            showScoreConfirm
+            updateReplayUI,
+            showScoreConfirm,
+            isMouseDevice,
+            standardWeiqiMatchTime: true
         });
         const handleMessage = _weiqiBindings.handleMessage;
         const updateRecordButtons = _weiqiBindings.updateRecordButtons;

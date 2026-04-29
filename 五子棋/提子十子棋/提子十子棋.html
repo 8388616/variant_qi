@@ -1,0 +1,595 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=2.0, user-scalable=yes">
+    <title>提子十子棋</title>
+    <link rel="stylesheet" href="/qi/qi.css">
+</head>
+<body>
+    <div class="game-wrapper">
+        <div class="top-panel">
+            <div class="left-group">
+                <div class="side-select">
+                    <label id="labelBlack"><input type="radio" name="color" value="black" id="radioBlack"> ⚫ 黑方</label>
+                    <label id="labelWhite"><input type="radio" name="color" value="white" id="radioWhite"> ⚪ 白方</label>
+                </div>
+                <div class="color-status" id="colorStatus">未选择阵营</div>
+                <select id="boardSizeSelect" class="board-size-select" style="display: none;">
+                    <option value="7">7路</option>
+                    <option value="8">8路</option>
+                    <option value="9">9路</option>
+                    <option value="10">10路</option>
+                    <option value="11">11路</option>
+                    <option value="12">12路</option>
+                    <option value="13">13路</option>
+                    <option value="14">14路</option>
+                    <option value="15">15路</option>
+                    <option value="16">16路</option>
+                    <option value="17">17路</option>
+                    <option value="18">18路</option>
+                    <option value="19" selected>19路</option>
+                    <option value="20">20路</option>
+                    <option value="21">21路</option>
+                </select>
+                <label style="cursor:pointer; display:inline-flex; align-items:center; gap:5px; font-size:0.95rem;">
+                    <input type="checkbox" id="showNumbersCheck"> 显示序号
+                </label>
+            </div>
+            <div class="right-buttons">
+                <button class="help-btn" id="helpBtn">说明</button>
+                <button class="back-to-lobby-btn" id="backToLobbyBtn">返回大厅</button>
+            </div>
+        </div>
+
+        <div id="rulesModal" class="rules-modal">
+            <div class="rules-content">
+                <span class="close-rules" id="closeRulesBtn">&times;</span>
+                <h3>提子十子棋</h3>
+                <p>
+                    基本规则同五子棋，但连成十子获胜。<br><br>
+                    允许提子，允许自杀，禁全同。<br><br>
+                    先判定胜负，后结算提子。</p>
+            </div>
+        </div>
+
+        <div class="main-area">
+            <div class="button-panel">
+                <button class="ctrl-btn" id="newGameBtn">新局</button>
+                <button class="ctrl-btn" id="undoBtn" style="display:none;">悔棋</button>
+                <button class="ctrl-btn" id="resignBtn" style="display:none;">认输</button>
+                <button class="ctrl-btn" id="drawBtn" style="display:none;">和棋</button>
+                <button class="ctrl-btn" id="tryPlayBtn">试下</button>
+                <button class="ctrl-btn" id="importBtn">导入棋谱</button>
+                <button class="ctrl-btn" id="exportBtn" style="display:none;">导出棋谱</button>
+            </div>
+            <div class="board-and-info">
+                <div class="board-container">
+                    <canvas id="goBoard" width="600" height="600"></canvas>
+                    <div class="board-mark-outer" id="boardMarkOuter">
+                        <div class="board-mark-panel" id="boardMarkPanel" hidden title="右键或长按空点放置标记；再次放置可清除">
+                            <label for="boardMarkSelect">标记</label>
+                            <select id="boardMarkSelect" class="board-mark-select" aria-label="棋盘标记符号"></select>
+                            <button type="button" class="board-mark-fold-btn" id="boardMarkFoldBtn" title="收起">‹</button>
+                        </div>
+                        <button type="button" class="board-mark-expand-btn" id="boardMarkExpandBtn" title="展开标记">›</button>
+                    </div>
+                </div>
+                <div class="main-area-right">
+                    <div class="info-panel">
+                        <div class="turn-box" id="turnDisplay">　</div>
+                        <div class="score-box">
+                            <div class="score-title" id="scoreTitle">　</div>
+                            <div class="score-content">
+                                <div id="scoreBoard">　</div>
+                                <div id="leadInfo" style="margin-top:6px; color:#ffb870;">　</div>
+                            </div>
+                        </div>
+                        <div id="replayPanel" class="replay-panel">
+                            <div class="replay-nav">
+                                <button class="replay-nav-btn" id="replayBackBtn">◀</button>
+                                <div class="replay-step-display" id="replayStepDisplay">0 / 0</div>
+                                <button class="replay-nav-btn" id="replayForwardBtn">▶</button>
+                            </div>
+                            <input type="range" id="replaySlider" min="0" max="0" value="0" class="replay-slider">
+                        </div>
+                    </div>
+                    <div id="goTimerPanel" class="go-timer-panel" hidden>
+                        <div class="go-timer-block go-timer-black" data-go-timer="black">
+                            <div class="go-timer-title">⚫ 黑方</div>
+                            <div class="go-timer-line2">
+                                <span class="go-timer-count">—</span>
+                                <span class="go-timer-over">—</span>
+                            </div>
+                            <div class="go-timer-rule">　</div>
+                        </div>
+                        <div class="go-timer-block go-timer-white" data-go-timer="white">
+                            <div class="go-timer-title">⚪ 白方</div>
+                            <div class="go-timer-line2">
+                                <span class="go-timer-count">—</span>
+                                <span class="go-timer-over">—</span>
+                            </div>
+                            <div class="go-timer-rule">　</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <input type="file" id="importFileInput" accept=".json" style="display:none;">
+
+    <script src="/qi/qi.js"></script>
+    <script>
+        function checkTenInRow(board, row, col, colorVal, boardSize) {
+            if (board[row][col] !== colorVal) return false;
+            const directions = [[1, 0], [0, 1], [1, 1], [1, -1]];
+            for (const [dx, dy] of directions) {
+                let count = 1;
+                for (let step = 1; step < 10; step++) {
+                    const nr = row + dx * step;
+                    const nc = col + dy * step;
+                    if (nr < 0 || nr >= boardSize || nc < 0 || nc >= boardSize || board[nr][nc] !== colorVal) break;
+                    count++;
+                }
+                for (let step = 1; step < 10; step++) {
+                    const nr = row - dx * step;
+                    const nc = col - dy * step;
+                    if (nr < 0 || nr >= boardSize || nc < 0 || nc >= boardSize || board[nr][nc] !== colorVal) break;
+                    count++;
+                }
+                if (count >= 10) return true;
+            }
+            return false;
+        }
+
+        function buildCaptureQiziqiReplaySnapshots(moves, boardSize, initBoardArray, deepCopyBoard) {
+            const history = [];
+            for (const raw of moves || []) {
+                const p = QiWeiqiSquarePageRuntime.parseWuziqiRecordMoveEntry(raw);
+                if (!p) return null;
+                history.push(p);
+            }
+            const snaps = [];
+            let board = initBoardArray(boardSize);
+            let cur = 1;
+            snaps.push({
+                board: deepCopyBoard(board),
+                lastMoveMarkers: [],
+                currentPlayer: 1,
+                gameOver: false,
+                winner: null
+            });
+            for (const m of history) {
+                const pv = m.player === 'black' ? 1 : 2;
+                const placed = deepCopyBoard(board);
+                placed[m.row][m.col] = pv;
+                let finalBoard = placed;
+                let go = false;
+                let win = null;
+                if (checkTenInRow(placed, m.row, m.col, pv, boardSize)) {
+                    go = true;
+                    win = m.player;
+                } else {
+                    finalBoard = QiWeiqiSquarePageRuntime.tryPlaceStoneNLiberty(
+                        board, m.row, m.col, pv, boardSize, deepCopyBoard, 1
+                    );
+                }
+                board = deepCopyBoard(finalBoard);
+                const markers = [{ row: m.row, col: m.col, color: pv }];
+                let nextCur = cur;
+                if (go) nextCur = cur;
+                else if (QiWeiqiSquarePageRuntime.isWuziqiBoardFull(board, boardSize)) {
+                    go = true;
+                    win = 'draw';
+                    nextCur = cur === 1 ? 2 : 1;
+                } else {
+                    nextCur = cur === 1 ? 2 : 1;
+                }
+                snaps.push({
+                    board: deepCopyBoard(board),
+                    lastMoveMarkers: markers.map(x => ({ ...x })),
+                    currentPlayer: nextCur,
+                    gameOver: go,
+                    winner: go ? win : null
+                });
+                cur = nextCur;
+                if (go) break;
+            }
+            return snaps;
+        }
+
+        const ps = {
+            BOARD_SIZE: 19,
+            KOMI: 0,
+            PADDING: 0,
+            CELL_SIZE: 0,
+            numberOfHands: 1,
+            currentPlayer: 1,
+            mySlot: null,
+            gameOver: false,
+            winner: null,
+            lastMoveMarkers: [],
+            showEstimateActive: false,
+            cachedLiveBoard: null,
+            cachedTerritory: null,
+            waitingScoreConfirm: false,
+            iRejected: false,
+            ws: null,
+            isMyTurn: false,
+            slots: { black: false, white: false },
+            reconnectTimer: null,
+            replayMode: false,
+            replayBoards: [],
+            replayMarkers: [],
+            replayStepPlayers: [],
+            replayStep: 0,
+            replayTotalSteps: 0,
+            showMoveNumbers: false,
+            moveLog: [],
+            tryPlayMode: false,
+            tryPlayBaseStep: 0,
+            tryPlayBoards: [],
+            tryPlayMarkers: [],
+            tryPlayCurrentPlayer: 1,
+            tryPlayStep: 0,
+            tryPlayTotalSteps: 0,
+            liveReplayBoards: [],
+            liveReplayMarkers: [],
+            liveReplayStepPlayers: [],
+            liveViewStep: 0,
+            liveFollowLatest: true,
+            userBoardMarks: Object.create(null),
+            hoverRow: -1,
+            hoverCol: -1,
+            isHoverValid: false
+        };
+        (function initSquareGeometry() {
+            const g = QiSquareWeiqiCanvas.computePaddingAndCell(ps.BOARD_SIZE);
+            ps.PADDING = g.padding;
+            ps.CELL_SIZE = g.cellSize;
+            ps.board = Array(ps.BOARD_SIZE).fill().map(() => Array(ps.BOARD_SIZE).fill(0));
+        })();
+
+        const pathMatch = window.location.pathname.match(/^\/qi\/([^/]+)\/(\d+)$/);
+        if (!pathMatch) { alert('无效的房间链接'); throw new Error('Invalid room URL'); }
+        const gameType = pathMatch[1];
+        const roomId = pathMatch[2];
+        let roomPassword = sessionStorage.getItem(`roomPassword_${roomId}`) || null;
+
+        const BOARD_MARK_CHAR_LIST = (() => {
+            const a = [];
+            a.push('?', '!');
+            for (let i = 0; i < 26; i++) a.push(String.fromCharCode(65 + i));
+            a.push('△', '▽', '♡', '○', '◇', '□', '☆', '×', '🚩');
+            return a;
+        })();
+
+        const canvas = document.getElementById('goBoard');
+        const ctx = canvas.getContext('2d');
+        const turnDisplay = document.getElementById('turnDisplay');
+        const colorStatus = document.getElementById('colorStatus');
+        const radioBlack = document.getElementById('radioBlack');
+        const radioWhite = document.getElementById('radioWhite');
+        const labelBlack = document.getElementById('labelBlack');
+        const labelWhite = document.getElementById('labelWhite');
+        const scoreTitle = document.getElementById('scoreTitle');
+        const scoreBoard = document.getElementById('scoreBoard');
+        const leadInfo = document.getElementById('leadInfo');
+        const boardMarkSelect = document.getElementById('boardMarkSelect');
+
+        QiSquareWeiqiCanvas.initBoardMarkSelectDom(boardMarkSelect, BOARD_MARK_CHAR_LIST);
+        QiSquareWeiqiCanvas.initBoardMarkFoldDom(
+            document.getElementById('boardMarkPanel'),
+            document.getElementById('boardMarkFoldBtn'),
+            document.getElementById('boardMarkExpandBtn')
+        );
+
+        const isMouseDevice = window.matchMedia('(hover: hover) and (pointer: fine)').matches;
+
+        const domPage = {
+            turnDisplay,
+            scoreTitle,
+            scoreBoard,
+            leadInfo,
+            scoreConfirmPanel: null,
+            scoreConfirmText: null,
+            komiInfo: null,
+            canvas,
+            ctx,
+            boardMarkSelect,
+            colorStatus
+        };
+
+        let page;
+        page = QiWeiqiSquarePageRuntime.create(ps, domPage, {
+            recordDownloadPrefix: '提子十子棋',
+            komiInfoText: '',
+            gameType,
+            roomId,
+            roomPassword,
+            isMouseDevice,
+            replayGameButtonIds: ['undoBtn', 'resignBtn', 'drawBtn'],
+            tryPlaceStone: (b, r, c, pv) => QiWeiqiSquarePageRuntime.tryPlaceStoneNLiberty(
+                b, r, c, pv, ps.BOARD_SIZE, QiSquareWeiqiCanvas.deepCopyBoard, 1
+            ),
+            enterReplayMode(data) {
+                const bs = data.boardSize != null ? Number(data.boardSize) : ps.BOARD_SIZE;
+                const snaps = buildCaptureQiziqiReplaySnapshots(
+                    data.moves, bs, () => page.initBoardArray(bs), QiSquareWeiqiCanvas.deepCopyBoard
+                );
+                if (!snaps || snaps.length === 0) return;
+                if (bs !== ps.BOARD_SIZE) {
+                    ps.BOARD_SIZE = bs;
+                    ps.board = page.initBoardArray(bs);
+                    page.updateBoardGeometry();
+                    const bsEl = document.getElementById('boardSizeSelect');
+                    if (bsEl) bsEl.value = String(bs);
+                }
+                ps.replayBoards = snaps.map(s => QiSquareWeiqiCanvas.deepCopyBoard(s.board));
+                ps.replayMarkers = snaps.map(s => (s.lastMoveMarkers || []).map(m => ({ ...m })));
+                ps.replayStepPlayers = snaps.map((_, i) => (i === 0 ? 0 : (i % 2 === 1 ? 1 : 2)));
+                ps.replayTotalSteps = ps.replayBoards.length - 1;
+                ps.replayMode = true;
+                const slider = document.getElementById('replaySlider');
+                slider.max = ps.replayTotalSteps;
+                page.setReplayStep(ps.replayTotalSteps);
+                page.updateReplayUI();
+            },
+            tryPlayMove(row, col) {
+                if (ps.board[row][col] !== 0) return false;
+                const playerVal = ps.tryPlayCurrentPlayer;
+                const placed = QiSquareWeiqiCanvas.deepCopyBoard(ps.board);
+                placed[row][col] = playerVal;
+                let newBoard = placed;
+                if (!checkTenInRow(placed, row, col, playerVal, ps.BOARD_SIZE)) {
+                    newBoard = QiWeiqiSquarePageRuntime.tryPlaceStoneNLiberty(
+                        ps.board, row, col, playerVal, ps.BOARD_SIZE, QiSquareWeiqiCanvas.deepCopyBoard, 1
+                    );
+                }
+                if (!newBoard) return false;
+                if (ps.tryPlayStep < ps.tryPlayTotalSteps) {
+                    ps.tryPlayBoards.length = ps.tryPlayStep + 1;
+                    ps.tryPlayMarkers.length = ps.tryPlayStep + 1;
+                }
+                ps.tryPlayBoards.push(QiSquareWeiqiCanvas.deepCopyBoard(newBoard));
+                ps.tryPlayMarkers.push([{ row, col, color: playerVal }]);
+                ps.tryPlayTotalSteps = ps.tryPlayBoards.length - 1;
+                ps.tryPlayStep = ps.tryPlayTotalSteps;
+                ps.tryPlayCurrentPlayer = 3 - ps.tryPlayCurrentPlayer;
+                ps.board = QiSquareWeiqiCanvas.deepCopyBoard(newBoard);
+                ps.lastMoveMarkers = [{ row, col, color: playerVal }];
+                ps.gameOver = false;
+                ps.winner = null;
+                if (checkTenInRow(placed, row, col, playerVal, ps.BOARD_SIZE)) {
+                    ps.gameOver = true;
+                    ps.winner = playerVal === 1 ? 'black' : 'white';
+                }
+                const slider = document.getElementById('replaySlider');
+                slider.max = ps.tryPlayTotalSteps;
+                slider.value = ps.tryPlayStep;
+                page.updateTryPlayDisplay();
+                page.drawBoard();
+                return true;
+            }
+        });
+
+        const _sync0 = page.syncState;
+        page.syncState = function (state) {
+            if (!state.moveCoords && state.moveHistory) {
+                state.moveCoords = state.moveHistory.map(m => ({ type: 'move', player: m.player, row: m.row, col: m.col }));
+            }
+            _sync0(state);
+        };
+
+        const {
+            mobileTwoStepPlacing,
+            clearMobileMovePreview,
+            drawBoard,
+            updateTurn,
+            downloadRecord,
+            enterReplayMode,
+            exitReplayMode,
+            setReplayStep,
+            updateReplayUI,
+            enterTryPlay,
+            exitTryPlay,
+            tryPlayMove,
+            setTryPlayStep,
+            updateTryPlayDisplay,
+            setLiveViewStep,
+            connectWebSocket,
+            initBoardArray,
+            updateBoardGeometry,
+            commitMove,
+            getClosestIntersection,
+            canvasCoordsFromClient,
+            applyUserBoardMark
+        } = page;
+
+        const _weiqiBindings = QiBoardRoomClient.createWeiqiMessageBindings({
+            standardWeiqiMatchTime: true,
+            roomId,
+            gameType,
+            pageState: ps,
+            drawBoard,
+            exitTryPlay,
+            enterTryPlay,
+            setTryPlayStep,
+            setReplayStep,
+            setLiveViewStep,
+            getWs: () => ps.ws,
+            getBoardSize: () => ps.BOARD_SIZE,
+            setBoardSize: (n) => { ps.BOARD_SIZE = n; },
+            getKomi: () => ps.KOMI,
+            setKomi: (n) => { ps.KOMI = n; },
+            getBoard: () => ps.board,
+            setBoard: (b) => { ps.board = b; },
+            getSlots: () => ps.slots,
+            setSlots: (s) => { ps.slots = s; },
+            getMySlot: () => ps.mySlot,
+            setMySlot: (s) => { ps.mySlot = s; },
+            getGameOver: () => ps.gameOver,
+            setGameOver: (v) => { ps.gameOver = v; },
+            getWinner: () => ps.winner,
+            setWinner: (w) => { ps.winner = w; },
+            getReplayMode: () => ps.replayMode,
+            getShowEstimateActive: () => ps.showEstimateActive,
+            setShowEstimateActive: (v) => { ps.showEstimateActive = v; },
+            getWaitingScoreConfirm: () => ps.waitingScoreConfirm,
+            setWaitingScoreConfirm: (v) => { ps.waitingScoreConfirm = v; },
+            getIRejected: () => ps.iRejected,
+            setIRejected: (v) => { ps.iRejected = v; },
+            colorStatus,
+            scoreTitle,
+            turnDisplay,
+            labelBlack,
+            labelWhite,
+            radioBlack,
+            radioWhite,
+            syncState: page.syncState,
+            updateBoardGeometry,
+            initBoardArray,
+            exitReplayMode,
+            clearEstimate: () => {},
+            hideScoreConfirm: () => {},
+            showEstimate: () => {},
+            clearMobileMovePreview,
+            downloadRecord,
+            enterReplayMode,
+            updateTurn,
+            updateReplayUI,
+            showScoreConfirm: () => {},
+            isMouseDevice
+        });
+        const handleMessage = _weiqiBindings.handleMessage;
+
+        let suppressCanvasClickAfterLongMark = false;
+
+        canvas.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            const { x, y } = canvasCoordsFromClient(e.clientX, e.clientY);
+            const { row, col } = getClosestIntersection(x, y);
+            applyUserBoardMark(row, col);
+        });
+
+        const LONG_MARK_MS = 500;
+        const LONG_MARK_MOVE_CANCEL = 14;
+        let longMarkTimer = null;
+        let longMarkStart = null;
+
+        canvas.addEventListener('touchstart', (e) => {
+            if (e.touches.length !== 1) return;
+            const t = e.touches[0];
+            longMarkStart = { x: t.clientX, y: t.clientY };
+            longMarkTimer = setTimeout(() => {
+                longMarkTimer = null;
+                if (!longMarkStart) return;
+                const { x, y } = canvasCoordsFromClient(longMarkStart.x, longMarkStart.y);
+                const { row, col } = getClosestIntersection(x, y);
+                applyUserBoardMark(row, col);
+                suppressCanvasClickAfterLongMark = true;
+                setTimeout(() => { suppressCanvasClickAfterLongMark = false; }, 450);
+                longMarkStart = null;
+            }, LONG_MARK_MS);
+        }, { passive: true });
+
+        canvas.addEventListener('touchmove', (e) => {
+            if (!longMarkTimer || !longMarkStart || e.touches.length !== 1) return;
+            const t = e.touches[0];
+            const dx = t.clientX - longMarkStart.x;
+            const dy = t.clientY - longMarkStart.y;
+            if (dx * dx + dy * dy > LONG_MARK_MOVE_CANCEL * LONG_MARK_MOVE_CANCEL) {
+                clearTimeout(longMarkTimer);
+                longMarkTimer = null;
+            }
+        }, { passive: true });
+
+        function clearLongMarkTouch() {
+            if (longMarkTimer) {
+                clearTimeout(longMarkTimer);
+                longMarkTimer = null;
+            }
+            longMarkStart = null;
+        }
+        canvas.addEventListener('touchend', clearLongMarkTouch);
+        canvas.addEventListener('touchcancel', clearLongMarkTouch);
+
+        canvas.addEventListener('click', (e) => {
+            if (suppressCanvasClickAfterLongMark) {
+                e.preventDefault();
+                return;
+            }
+            const rect = canvas.getBoundingClientRect();
+            const scale = 600 / rect.width;
+            const x = (e.clientX - rect.left) * scale;
+            const y = (e.clientY - rect.top) * scale;
+            const { row, col } = getClosestIntersection(x, y);
+            const m2 = mobileTwoStepPlacing();
+            if (ps.tryPlayMode && ps.replayMode) {
+                if (row < 0 || col < 0) {
+                    if (m2) { clearMobileMovePreview(); drawBoard(); }
+                    return;
+                }
+                if (ps.board[row][col] !== 0) return;
+                if (m2) {
+                    if (ps.hoverRow === row && ps.hoverCol === col && ps.isHoverValid) {
+                        clearMobileMovePreview();
+                        tryPlayMove(row, col);
+                    } else {
+                        ps.hoverRow = row;
+                        ps.hoverCol = col;
+                        ps.isHoverValid = true;
+                        drawBoard();
+                    }
+                    return;
+                }
+                tryPlayMove(row, col);
+                return;
+            }
+            const ltLive = ps.liveReplayBoards.length > 0 ? ps.liveReplayBoards.length - 1 : 0;
+            if (!ps.replayMode && ps.liveReplayBoards.length && ps.liveViewStep < ltLive) return;
+            if (ps.gameOver) return;
+            if (!ps.isMyTurn) return;
+            if (row < 0 || col < 0) {
+                if (m2) { clearMobileMovePreview(); drawBoard(); }
+                return;
+            }
+            if (ps.board[row][col] !== 0) return;
+            if (m2) {
+                if (ps.hoverRow === row && ps.hoverCol === col && ps.isHoverValid) {
+                    clearMobileMovePreview();
+                    commitMove(row, col);
+                    drawBoard();
+                } else {
+                    ps.hoverRow = row;
+                    ps.hoverCol = col;
+                    ps.isHoverValid = true;
+                    drawBoard();
+                }
+                return;
+            }
+            commitMove(row, col);
+        });
+
+        if (isMouseDevice) {
+            canvas.addEventListener('mousemove', (e) => {
+                const rect = canvas.getBoundingClientRect();
+                const scale = 600 / rect.width;
+                const x = (e.clientX - rect.left) * scale;
+                const y = (e.clientY - rect.top) * scale;
+                const { row, col } = getClosestIntersection(x, y);
+                ps.hoverRow = row; ps.hoverCol = col;
+                ps.isHoverValid = (row >= 0 && col >= 0 && ps.board[row][col] === 0);
+                drawBoard();
+            });
+            canvas.addEventListener('mouseleave', () => {
+                ps.isHoverValid = false;
+                ps.hoverRow = -1; ps.hoverCol = -1;
+                drawBoard();
+            });
+        }
+
+        connectWebSocket(handleMessage);
+    </script>
+</body>
+</html>

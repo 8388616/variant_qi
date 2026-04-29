@@ -123,7 +123,7 @@ function generatePentBoardData(n) {
     return { vertexCount: V, neighbors };
 }
 
-const { QiTwoPlayerRoomBase, vertexGraphGoRules } = require('../common');
+const { QiTwoPlayerRoomBase, vertexGraphWeiqiRules } = require('../common');
 class PentagonWeiqiRoom extends QiTwoPlayerRoomBase {
     constructor(room, initialLanes = 5) {
         super(room);
@@ -155,19 +155,19 @@ class PentagonWeiqiRoom extends QiTwoPlayerRoomBase {
     boardToString(board) { return board.join(','); }
 
     hasLiberty(boardState, start) {
-        return vertexGraphGoRules.hasLiberty(boardState, start, this.neighbors);
+        return vertexGraphWeiqiRules.hasLiberty(boardState, start, this.neighbors);
     }
 
     removeGroup(boardState, start) {
-        vertexGraphGoRules.removeGroup(boardState, start, this.neighbors);
+        vertexGraphWeiqiRules.removeGroup(boardState, start, this.neighbors);
     }
 
     tryPlaceStone(boardBefore, vertex, playerVal) {
-        return vertexGraphGoRules.tryPlaceStone(boardBefore, vertex, playerVal, this.neighbors);
+        return vertexGraphWeiqiRules.tryPlaceStone(boardBefore, vertex, playerVal, this.neighbors);
     }
 
     removeDeadAndDying(srcBoard) {
-        return vertexGraphGoRules.removeDeadAndDying(
+        return vertexGraphWeiqiRules.removeDeadAndDying(
             srcBoard, this.neighbors, this.vertexCount, (b) => this.copyBoard(b)
         );
     }

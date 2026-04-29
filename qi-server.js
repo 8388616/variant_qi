@@ -13,7 +13,7 @@ const PORT = 3100;
 Express.use(express.json());
 const ExpressRateLimit = express_rate_limit({
     windowMs: 60 * 1000,
-    max: 300,
+    max: 3000,
     standardHeaders: true,
     legacyHeaders: false
 });
@@ -221,8 +221,6 @@ Express.get('/qi/:game/:roomId', (request, response) => {
         const game = request.params.game;
         if (!/^[a-zA-Z0-9_-]+$/.test(game)) return response.status(400).send('Invalid game');
         let htmlFile = path.join(__dirname, 'public', `${game}.html`);
-        if (!fs.existsSync(htmlFile) && game === 'nogrid-weiqi')
-            htmlFile = path.join(__dirname, '围棋', '无格线围棋', '无格线围棋.html');
         if (fs.existsSync(htmlFile) && fs.existsSync(path.join(__dirname, 'games', `${game}.js`)))
             response.sendFile(htmlFile);
         else

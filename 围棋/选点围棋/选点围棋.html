@@ -17,21 +17,10 @@
                 <div class="komi-info" id="komiInfo">黑贴白2.25点</div>
                 <div class="color-status" id="colorStatus">观战</div>
                 <select id="boardSizeSelect" class="board-size-select" style="display: none;">
-                    <option value="7">7路</option>
-                    <option value="8">8路</option>
-                    <option value="9" selected>9路</option>
-                    <option value="10">10路</option>
-                    <option value="11">11路</option>
-                    <option value="12">12路</option>
-                    <option value="13">13路</option>
-                    <option value="14">14路</option>
-                    <option value="15">15路</option>
-                    <option value="16">16路</option>
-                    <option value="17">17路</option>
-                    <option value="18">18路</option>
-                    <option value="19">19路</option>
-                    <option value="20">20路</option>
-                    <option value="21">21路</option>
+                    <option value="7">7路</option><option value="8">8路</option><option value="9" selected>9路</option><option value="10">10路</option>
+                    <option value="11">11路</option><option value="12">12路</option><option value="13">13路</option><option value="14">14路</option>
+                    <option value="15">15路</option><option value="16">16路</option><option value="17">17路</option><option value="18">18路</option>
+                    <option value="19">19路</option><option value="20">20路</option><option value="21">21路</option>
                 </select>
                 <label style="cursor:pointer; display:inline-flex; align-items:center; gap:5px; font-size:0.95rem;">
                     <input type="checkbox" id="showNumbersCheck"> 显示序号
@@ -42,28 +31,23 @@
                 <button class="back-to-lobby-btn" id="backToLobbyBtn">返回大厅</button>
             </div>
         </div>
-
         <div id="rulesModal" class="rules-modal">
             <div class="rules-content">
                 <span class="close-rules" id="closeRulesBtn">&times;</span>
                 <h3>选点围棋</h3>
-                <p>
-                    基本规则同围棋。<br /><br />
-                    每手棋只能落子在系统随机生成的候选点上。<br />
-                </p>
+                <p>基本规则同围棋。<br /><br />每手棋只能落子在系统随机生成的候选点上。<br /></p>
             </div>
         </div>
-
         <div class="main-area">
             <div class="button-panel">
                 <button class="ctrl-btn" id="newGameBtn">新局</button>
                 <button class="ctrl-btn" id="estimateBtn">形势判断</button>
-                <button class="ctrl-btn" id="tryPlayBtn" style="display:none;">试下</button>
-                <button class="ctrl-btn" id="passBtn">虚着</button>
-                <button class="ctrl-btn" id="undoBtn">悔棋</button>
-                <button class="ctrl-btn" id="resignBtn">认输</button>
-                <button class="ctrl-btn" id="drawBtn">和棋</button>
-                <button class="ctrl-btn" id="endReqBtn">申请数子</button>
+                <button class="ctrl-btn" id="tryPlayBtn">试下</button>
+                <button class="ctrl-btn" id="passBtn" style="display:none;">虚着</button>
+                <button class="ctrl-btn" id="undoBtn" style="display:none;">悔棋</button>
+                <button class="ctrl-btn" id="resignBtn" style="display:none;">认输</button>
+                <button class="ctrl-btn" id="drawBtn" style="display:none;">和棋</button>
+                <button class="ctrl-btn" id="endReqBtn" style="display:none;">申请数子</button>
                 <button class="ctrl-btn" id="importBtn">导入棋谱</button>
                 <button class="ctrl-btn" id="exportBtn" style="display:none;">导出棋谱</button>
             </div>
@@ -86,10 +70,9 @@
                             <div class="score-title" id="scoreTitle">　</div>
                             <div class="score-content">
                                 <div id="scoreBoard">　</div>
-                                <div id="leadInfo" style="margin-top:12px; color:#ffb870;">　</div>
+                                <div id="leadInfo" style="margin-top:6px; color:#ffb870;">　</div>
                             </div>
                         </div>
-
                         <div id="scoreConfirmPanel" class="score-confirm-panel" style="display: none;">
                             <p id="scoreConfirmText">黑胜0点，是否同意该结果？</p>
                             <div class="score-confirm-buttons">
@@ -97,14 +80,31 @@
                                 <button id="scoreConfirmNo">取消</button>
                             </div>
                         </div>
-
                         <div id="replayPanel" class="replay-panel">
-                            <div class="replay-step-display" id="replayStepDisplay">0 / 0</div>
                             <div class="replay-nav">
-                                <button class="replay-nav-btn" id="replayBackBtn">◀ 后退</button>
-                                <button class="replay-nav-btn" id="replayForwardBtn">前进 ▶</button>
+                                <button class="replay-nav-btn" id="replayBackBtn">◀</button>
+                                <div class="replay-step-display" id="replayStepDisplay">0 / 0</div>
+                                <button class="replay-nav-btn" id="replayForwardBtn">▶</button>
                             </div>
                             <input type="range" id="replaySlider" min="0" max="0" value="0" class="replay-slider">
+                        </div>
+                    </div>
+                    <div id="goTimerPanel" class="go-timer-panel" hidden>
+                        <div class="go-timer-block go-timer-black" data-go-timer="black">
+                            <div class="go-timer-title">⚫ 黑方</div>
+                            <div class="go-timer-line2">
+                                <span class="go-timer-count">—</span>
+                                <span class="go-timer-over">—</span>
+                            </div>
+                            <div class="go-timer-rule">　</div>
+                        </div>
+                        <div class="go-timer-block go-timer-white" data-go-timer="white">
+                            <div class="go-timer-title">⚪ 白方</div>
+                            <div class="go-timer-line2">
+                                <span class="go-timer-count">—</span>
+                                <span class="go-timer-over">—</span>
+                            </div>
+                            <div class="go-timer-rule">　</div>
                         </div>
                     </div>
                 </div>
@@ -115,172 +115,83 @@
 
     <script src="/qi/qi.js"></script>
     <script>
-        // ======================== 配置 ========================
-        let BOARD_SIZE = 9;
-        let PADDING = 63 - 2 * BOARD_SIZE;
-        const KOMI = 2.25;
-        let CELL_SIZE = (600 - 2 * PADDING) / (BOARD_SIZE - 1);
-
-        // 路径参数
+        const C = QiSquareWeiqiCanvas, R = QiWeiqiSquarePageRuntime;
+        var ps = {
+            BOARD_SIZE: 9, KOMI: 2.25, PADDING: 0, CELL_SIZE: 0, numberOfHands: 1, currentPlayer: 1, mySlot: null, gameOver: false, winner: null,
+            lastMoveMarkers: [], showEstimateActive: false, cachedLiveBoard: null, cachedTerritory: null, waitingScoreConfirm: false, iRejected: false,
+            ws: null, isMyTurn: false, slots: { black: false, white: false }, reconnectTimer: null,
+            replayMode: false, replayStep: 0, replayTotalSteps: 0, showMoveNumbers: false, moveLog: [],
+            tryPlayMode: false, tryPlayBaseStep: 0, tryPlayBoards: [], tryPlayMarkers: [], tryPlayCurrentPlayer: 1, tryPlayStep: 0, tryPlayTotalSteps: 0,
+            liveReplayBoards: [], liveReplayMarkers: [], liveReplayStepPlayers: [], liveViewStep: 0, liveFollowLatest: true,
+            userBoardMarks: Object.create(null), hoverRow: -1, hoverCol: -1, isHoverValid: false,
+            candidates: [], serverCandidatesSnapshot: [], replaySnapshots: [], replayMovesForNumbers: []
+        };
+        (function () {
+            const g = C.computePaddingAndCell(ps.BOARD_SIZE);
+            ps.PADDING = g.padding; ps.CELL_SIZE = g.cellSize;
+            ps.board = Array(ps.BOARD_SIZE).fill().map(() => Array(ps.BOARD_SIZE).fill(0));
+        })();
         const pathMatch = window.location.pathname.match(/^\/qi\/([^/]+)\/(\d+)$/);
         if (!pathMatch) { alert('无效的房间链接'); throw new Error('Invalid room URL'); }
-        const gameType = pathMatch[1];
-        const roomId = pathMatch[2];
+        const gameType = pathMatch[1], roomId = pathMatch[2];
         let roomPassword = sessionStorage.getItem(`roomPassword_${roomId}`) || null;
-
-        // 全局状态
-        let board = Array(BOARD_SIZE).fill().map(() => Array(BOARD_SIZE).fill(0));
-        let numberOfHands = 1;
-        let currentPlayer = 1;
-        let mySlot = null;
-        let gameOver = false;
-        let winner = null;
-        let lastMoveMarkers = [];
-        let candidates = [];
-        let serverCandidatesSnapshot = [];
-        let showEstimateActive = false;
-        let cachedLiveBoard = null;
-        let cachedTerritory = null;
-        let waitingScoreConfirm = false; // 数子确认等待中
-        let iRejected = false;
-
-        let ws;
-        let isMyTurn = false;
-        let slots = { black: false, white: false };
-        let reconnectTimer = null;
-
-        let replayMode = false;
-        let replaySnapshots = [];
-        let replayMovesForNumbers = [];
-        let replayStep = 0;
-        let replayTotalSteps = 0;
-
-        let showMoveNumbers = false;
-        let moveLog = [];
-
-        let tryPlayMode = false;
-        let tryPlayBaseStep = 0;
-        let tryPlayBoards = [];
-        let tryPlayMarkers = [];
-        let tryPlayCurrentPlayer = 1;
-        let tryPlayStep = 0;
-        let tryPlayTotalSteps = 0;
-
-        // 对弈模式：局面浏览（与打谱共用进度条 UI）
-        let liveReplayBoards = [];
-        let liveReplayMarkers = [];
-        let liveReplayStepPlayers = [];
-        let liveViewStep = 0;
-        let liveFollowLatest = true;
-
-        /** 本地棋盘标记（仅本机显示）坐标键 "r,c" → 标记字符 */
-        let userBoardMarks = Object.create(null);
-
         const BOARD_MARK_CHAR_LIST = (() => {
-            const a = [];
-            a.push('?', '!');
-            for (let i = 0; i < 26; i++) a.push(String.fromCharCode(65 + i));
-            a.push('△', '▽', '♡', '○', '◇', '□', '☆', '×', '🚩');
-            return a;
+            const a = ['?', '!']; for (let i = 0; i < 26; i++) a.push(String.fromCharCode(65 + i));
+            a.push('△', '▽', '♡', '○', '◇', '□', '☆', '×', '🚩'); return a;
         })();
-
-        // DOM
-        const canvas = document.getElementById('goBoard');
-        const ctx = canvas.getContext('2d');
-        const turnDisplay = document.getElementById('turnDisplay');
-        const colorStatus = document.getElementById('colorStatus');
-        const radioBlack = document.getElementById('radioBlack');
-        const radioWhite = document.getElementById('radioWhite');
-        const labelBlack = document.getElementById('labelBlack');
-        const labelWhite = document.getElementById('labelWhite');
-        const scoreTitle = document.getElementById('scoreTitle');
-        const scoreBoard = document.getElementById('scoreBoard');
-        const leadInfo = document.getElementById('leadInfo');
-        const scoreConfirmPanel = document.getElementById('scoreConfirmPanel');
-        const scoreConfirmText = document.getElementById('scoreConfirmText');
-        const scoreConfirmYes = document.getElementById('scoreConfirmYes');
-        const scoreConfirmNo = document.getElementById('scoreConfirmNo');
+        const komiInfo = document.getElementById('komiInfo'), canvas = document.getElementById('goBoard'), ctx = canvas.getContext('2d');
+        const turnDisplay = document.getElementById('turnDisplay'), colorStatus = document.getElementById('colorStatus');
+        const radioBlack = document.getElementById('radioBlack'), radioWhite = document.getElementById('radioWhite');
+        const labelBlack = document.getElementById('labelBlack'), labelWhite = document.getElementById('labelWhite');
+        const scoreTitle = document.getElementById('scoreTitle'), scoreBoard = document.getElementById('scoreBoard'), leadInfo = document.getElementById('leadInfo');
+        const scoreConfirmPanel = document.getElementById('scoreConfirmPanel'), scoreConfirmText = document.getElementById('scoreConfirmText');
+        const scoreConfirmYes = document.getElementById('scoreConfirmYes'), scoreConfirmNo = document.getElementById('scoreConfirmNo');
         const boardMarkSelect = document.getElementById('boardMarkSelect');
-
-        QiSquareWeiqiCanvas.initBoardMarkSelectDom(boardMarkSelect, BOARD_MARK_CHAR_LIST);
-        QiSquareWeiqiCanvas.initBoardMarkFoldDom(
-            document.getElementById('boardMarkPanel'),
-            document.getElementById('boardMarkFoldBtn'),
-            document.getElementById('boardMarkExpandBtn')
-        );
-
-        let hoverRow = -1, hoverCol = -1, isHoverValid = false;
+        C.initBoardMarkSelectDom(boardMarkSelect, BOARD_MARK_CHAR_LIST);
+        C.initBoardMarkFoldDom(document.getElementById('boardMarkPanel'), document.getElementById('boardMarkFoldBtn'), document.getElementById('boardMarkExpandBtn'));
         const isMouseDevice = window.matchMedia('(hover: hover) and (pointer: fine)').matches;
+        const domPage = { turnDisplay, scoreTitle, scoreBoard, leadInfo, scoreConfirmPanel, scoreConfirmText, komiInfo, canvas, ctx, boardMarkSelect, colorStatus };
 
-        /** 手机端、棋盘大于 9 路：第一次点选为预览，第二次点同一交叉点落子（对局与试下均适用） */
-        function mobileTwoStepPlacing() {
-            return !isMouseDevice && BOARD_SIZE > 9;
-        }
-        function clearMobileMovePreview() {
-            hoverRow = -1;
-            hoverCol = -1;
-            isHoverValid = false;
-        }
-
-        function deepCopyBoard(src) { return src.map(row => row.slice()); }
-
-        function boardToString(brd) {
-            return brd.map(row => row.join(',')).join(';');
-        }
-
-        /**
-         * 与 choice-weiqi.js 一致：紧凑串 B3,4@1,1;2,2 或 { player, row, col, candidatesBefore }
-         */
+        function boardToString(brd) { return brd.map(row => row.join(',')).join(';'); }
         function normalizeChoiceRecordMove(entry) {
             if (entry && typeof entry === 'object' && entry.player != null) {
-                const row = Number(entry.row);
-                const col = Number(entry.col);
+                const row = Number(entry.row), col = Number(entry.col);
                 if (!Number.isFinite(row) || !Number.isFinite(col)) return null;
                 const cb = entry.candidatesBefore;
                 if (!Array.isArray(cb) || cb.length < 1) return null;
                 const candidatesBefore = [];
                 for (const c of cb) {
                     if (!c) return null;
-                    const cr = Number(c.row);
-                    const cc = Number(c.col);
+                    const cr = Number(c.row), cc = Number(c.col);
                     if (!Number.isFinite(cr) || !Number.isFinite(cc)) return null;
                     candidatesBefore.push({ row: cr, col: cc });
                 }
                 const pl = entry.player === 'black' || entry.player === 'white' ? entry.player : null;
-                if (!pl) return null;
-                return { player: pl, row, col, candidatesBefore };
+                return pl ? { player: pl, row, col, candidatesBefore } : null;
             }
             if (typeof entry !== 'string') return null;
             const at = entry.indexOf('@');
             if (at === -1) return null;
-            const head = entry.slice(0, at);
-            const tail = entry.slice(at + 1).trim();
+            const head = entry.slice(0, at), tail = entry.slice(at + 1).trim();
             if (head.length < 3 || (head[0] !== 'B' && head[0] !== 'W')) return null;
             const comma = head.indexOf(',');
             if (comma <= 1) return null;
-            const row = Number(head.slice(1, comma));
-            const col = Number(head.slice(comma + 1));
+            const row = Number(head.slice(1, comma)), col = Number(head.slice(comma + 1));
             if (!Number.isFinite(row) || !Number.isFinite(col)) return null;
-            const player = head[0] === 'B' ? 'black' : 'white';
-            const candidatesBefore = [];
+            const player = head[0] === 'B' ? 'black' : 'white', candidatesBefore = [];
             for (const seg of tail.split(';')) {
-                const s = seg.trim();
-                if (!s) continue;
+                const s = seg.trim(); if (!s) continue;
                 const parts = s.split(',');
                 if (parts.length !== 2) return null;
-                const r = Number(parts[0].trim());
-                const c = Number(parts[1].trim());
+                const r = Number(parts[0].trim()), c = Number(parts[1].trim());
                 if (!Number.isFinite(r) || !Number.isFinite(c)) return null;
                 candidatesBefore.push({ row: r, col: c });
             }
-            if (candidatesBefore.length < 1) return null;
-            return { player, row, col, candidatesBefore };
+            return candidatesBefore.length < 1 ? null : { player, row, col, candidatesBefore };
         }
-
         function parseChoiceWeiqiReplayMove(raw) {
             if (typeof raw === 'string') {
-                if (raw.length >= 2 && raw[1] === 'p')
-                    return { type: 'pass', player: raw[0] === 'B' ? 'black' : 'white' };
+                if (raw.length >= 2 && raw[1] === 'p') return { type: 'pass', player: raw[0] === 'B' ? 'black' : 'white' };
                 const m = normalizeChoiceRecordMove(raw);
                 return m ? { type: 'move', ...m } : null;
             }
@@ -293,19 +204,28 @@
             }
             return null;
         }
-
-        /**
-         * 每手落子拆成两步：① 显示本手候选 ② 显示落子后局面；虚着两步均无候选。
-         */
+        function normalizeReplayInitialPayload(initialPosition) {
+            if (!initialPosition) return [];
+            if (Array.isArray(initialPosition)) return initialPosition;
+            if (typeof initialPosition !== 'object') return [];
+            const out = [];
+            for (const pos of initialPosition.black || []) {
+                if (Array.isArray(pos) && pos.length === 2) out.push(`B${pos[0]},${pos[1]}`);
+            }
+            for (const pos of initialPosition.white || []) {
+                if (Array.isArray(pos) && pos.length === 2) out.push(`W${pos[0]},${pos[1]}`);
+            }
+            return out;
+        }
         function buildChoiceWeiqiReplaySnapshotsFromMoves(data) {
             const moves = data.moves || [];
-            let brd = initBoardArray(BOARD_SIZE);
+            let brd = page.initBoardArray(ps.BOARD_SIZE);
             if (data.initialPosition) {
                 if (Array.isArray(data.initialPosition.black)) {
                     for (const pos of data.initialPosition.black) {
                         if (Array.isArray(pos) && pos.length === 2) {
                             const [r, c] = pos;
-                            if (r >= 0 && r < BOARD_SIZE && c >= 0 && c < BOARD_SIZE) brd[r][c] = 1;
+                            if (r >= 0 && r < ps.BOARD_SIZE && c >= 0 && c < ps.BOARD_SIZE) brd[r][c] = 1;
                         }
                     }
                 }
@@ -313,60 +233,36 @@
                     for (const pos of data.initialPosition.white) {
                         if (Array.isArray(pos) && pos.length === 2) {
                             const [r, c] = pos;
-                            if (r >= 0 && r < BOARD_SIZE && c >= 0 && c < BOARD_SIZE) brd[r][c] = 2;
+                            if (r >= 0 && r < ps.BOARD_SIZE && c >= 0 && c < ps.BOARD_SIZE) brd[r][c] = 2;
                         }
                     }
                 }
             }
-            const historySet = new Set();
-            const snapshots = [];
+            const historySet = new Set(), snapshots = [];
             let lastMoveMarkers = [];
-
-            snapshots.push({
-                board: deepCopyBoard(brd),
-                currentPlayer: 1,
-                candidates: [],
-                lastMoveMarkers: []
-            });
-
+            snapshots.push({ board: page.deepCopyBoard(brd), currentPlayer: 1, candidates: [], lastMoveMarkers: [] });
             for (let i = 0; i < moves.length; i++) {
                 const parsed = parseChoiceWeiqiReplayMove(moves[i]);
                 if (!parsed) return null;
-
                 const last = snapshots[snapshots.length - 1];
                 if (parsed.type === 'pass') {
                     const pv = parsed.player === 'black' ? 1 : 2;
                     if (pv !== last.currentPlayer) return null;
-                    snapshots.push({
-                        board: deepCopyBoard(brd),
-                        currentPlayer: pv,
-                        candidates: [],
-                        lastMoveMarkers: lastMoveMarkers.map(m => ({ ...m }))
-                    });
+                    snapshots.push({ board: page.deepCopyBoard(brd), currentPlayer: pv, candidates: [], lastMoveMarkers: lastMoveMarkers.map(m => ({ ...m })) });
                     lastMoveMarkers = [];
-                    snapshots.push({
-                        board: deepCopyBoard(brd),
-                        currentPlayer: 3 - pv,
-                        candidates: [],
-                        lastMoveMarkers: []
-                    });
+                    snapshots.push({ board: page.deepCopyBoard(brd), currentPlayer: 3 - pv, candidates: [], lastMoveMarkers: [] });
                     continue;
                 }
-
                 const m = parsed;
                 const cb = (m.candidatesBefore || []).map(c => ({ row: c.row, col: c.col }));
                 if (cb.length && !cb.some(c => c.row === m.row && c.col === m.col)) return null;
                 const playerVal = m.player === 'black' ? 1 : 2;
                 if (playerVal !== last.currentPlayer) return null;
-
                 snapshots.push({
-                    board: deepCopyBoard(brd),
-                    currentPlayer: playerVal,
-                    candidates: cb.map(c => ({ ...c })),
-                    lastMoveMarkers: lastMoveMarkers.map(x => ({ ...x }))
+                    board: page.deepCopyBoard(brd), currentPlayer: playerVal,
+                    candidates: cb.map(c => ({ ...c })), lastMoveMarkers: lastMoveMarkers.map(x => ({ ...x }))
                 });
-
-                const newBoard = tryPlaceStone(brd, m.row, m.col, playerVal);
+                const newBoard = page.tryPlaceStone(brd, m.row, m.col, playerVal);
                 if (!newBoard) return null;
                 const ns = boardToString(newBoard);
                 if (historySet.has(ns)) return null;
@@ -374,1307 +270,395 @@
                 brd = newBoard;
                 lastMoveMarkers = [{ row: m.row, col: m.col, color: playerVal }];
                 snapshots.push({
-                    board: deepCopyBoard(brd),
-                    currentPlayer: 3 - playerVal,
-                    candidates: [],
+                    board: page.deepCopyBoard(brd), currentPlayer: 3 - playerVal, candidates: [],
                     lastMoveMarkers: lastMoveMarkers.map(x => ({ ...x }))
                 });
             }
             return snapshots;
         }
 
-        // 计算连通块的气的数量（去重空点）
-        function countGroupLiberties(board, row, col) {
-            const color = board[row][col];
-            if (color === 0) return 0;
-            const visited = Array(BOARD_SIZE).fill().map(() => Array(BOARD_SIZE).fill(false));
-            const queue = [[row, col]];
-            visited[row][col] = true;
-            const dirs = [[-1, 0], [1, 0], [0, -1], [0, 1]];
-            const liberties = new Set();
-            while (queue.length) {
-                const [r, c] = queue.shift();
-                for (let [dr, dc] of dirs) {
-                    const nr = r + dr, nc = c + dc;
-                    if (nr < 0 || nr >= BOARD_SIZE || nc < 0 || nc >= BOARD_SIZE) continue;
-                    if (board[nr][nc] === 0) {
-                        liberties.add(nr + ',' + nc);
-                    } else if (board[nr][nc] === color && !visited[nr][nc]) {
-                        visited[nr][nc] = true;
-                        queue.push([nr, nc]);
-                    }
+        function numsChoice() {
+            const nums = Array(ps.BOARD_SIZE).fill().map(() => Array(ps.BOARD_SIZE).fill(0));
+            if (ps.replayMode && ps.tryPlayMode) {
+                for (let i = 1; i <= ps.tryPlayStep; i++) {
+                    const markers = ps.tryPlayMarkers[i];
+                    if (markers?.[0] && ps.board[markers[0].row][markers[0].col] !== 0) nums[markers[0].row][markers[0].col] = i;
                 }
-            }
-            return liberties.size;
-        }
-
-        function removeGroup(board, row, col, color) {
-            const queue = [[row, col]];
-            board[row][col] = 0;
-            const dirs = [[-1, 0], [1, 0], [0, -1], [0, 1]];
-            while (queue.length) {
-                const [r, c] = queue.shift();
-                for (let [dr, dc] of dirs) {
-                    const nr = r + dr, nc = c + dc;
-                    if (nr >= 0 && nr < BOARD_SIZE && nc >= 0 && nc < BOARD_SIZE && board[nr][nc] === color) {
-                        board[nr][nc] = 0;
-                        queue.push([nr, nc]);
-                    }
-                }
-            }
-        }
-
-        function tryPlaceStone(boardBefore, row, col, playerVal)
-        {
-            if (boardBefore[row][col] !== 0) return null;
-            const newBoard = deepCopyBoard(boardBefore);
-            newBoard[row][col] = playerVal;
-            // 1. 移除所有气少于2的敌方棋子
-            for (let i = 0; i < BOARD_SIZE; i++) {
-                for (let j = 0; j < BOARD_SIZE; j++) {
-                    if (newBoard[i][j] === 3 - playerVal && countGroupLiberties(newBoard, i, j) < 1) {
-                        removeGroup(newBoard, i, j, 3 - playerVal);
-                    }
-                }
-            }
-            // 2. 移除所有气少于2的己方棋子（自杀）
-            for (let i = 0; i < BOARD_SIZE; i++) {
-                for (let j = 0; j < BOARD_SIZE; j++) {
-                    if (newBoard[i][j] === playerVal && countGroupLiberties(newBoard, i, j) < 1) {
-                        removeGroup(newBoard, i, j, playerVal);
-                    }
-                }
-            }
-            return newBoard;
-        }
-
-        // ======================== 形势判断========================
-        function isLibertySurroundedByOpponent(board, libertyRow, libertyCol, opponentColor) {
-            const dirs = [[-1, 0], [1, 0], [0, -1], [0, 1]];
-            for (let [dr, dc] of dirs) {
-                const nr = libertyRow + dr, nc = libertyCol + dc;
-                if (nr >= 0 && nr < BOARD_SIZE && nc >= 0 && nc < BOARD_SIZE && board[nr][nc] === opponentColor) return true;
-            }
-            return false;
-        }
-
-        function removeDeadAndDying(srcBoard)
-        {
-            let boardCopy = deepCopyBoard(srcBoard);
-            let changed = true;
-            while (changed) {
-                changed = false;
-                const visited = Array(BOARD_SIZE).fill().map(() => Array(BOARD_SIZE).fill(false));
-                for (let r = 0; r < BOARD_SIZE; r++) {
-                    for (let c = 0; c < BOARD_SIZE; c++) {
-                        const val = boardCopy[r][c];
-                        if ((val === 1 || val === 2) && !visited[r][c]) {
-                            const color = val;
-                            const queue = [[r, c]];
-                            visited[r][c] = true;
-                            const stones = [[r, c]];
-                            const liberties = new Set();
-                            let idx = 0;
-                            const dirs = [[-1, 0], [1, 0], [0, -1], [0, 1]];
-                            while (idx < queue.length) {
-                                const [rr, cc] = queue[idx++];
-                                for (let [dr, dc] of dirs) {
-                                    const nr = rr + dr, nc = cc + dc;
-                                    if (nr < 0 || nr >= BOARD_SIZE || nc < 0 || nc >= BOARD_SIZE) continue;
-                                    if (boardCopy[nr][nc] === 0) liberties.add(nr + ',' + nc);
-                                    else if (boardCopy[nr][nc] === color && !visited[nr][nc])
-                                    {
-                                        visited[nr][nc] = true;
-                                        queue.push([nr, nc]);
-                                        stones.push([nr, nc]);
-                                    }
-                                }
-                            }
-                            if (liberties.size === 0) {
-                                for (let [rr, cc] of stones) boardCopy[rr][cc] = 0;
-                                changed = true;
-                                continue;
-                            }
-                            if (liberties.size <= 2) {
-                                let allControlled = true;
-                                for (let lib of liberties) {
-                                    const [lr, lc] = lib.split(',').map(Number);
-                                    if (!isLibertySurroundedByOpponent(boardCopy, lr, lc, 3 - color)) {
-                                        allControlled = false;
-                                        break;
-                                    }
-                                }
-                                if (allControlled) {
-                                    for (let [rr, cc] of stones) boardCopy[rr][cc] = 0;
-                                    changed = true;
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            return boardCopy;
-        }
-
-        function assignTerritoryWithRange(liveBoard) {
-            const territory = Array(BOARD_SIZE).fill().map(() => Array(BOARD_SIZE).fill(0));
-            for (let r = 0; r < BOARD_SIZE; r++) {
-                for (let c = 0; c < BOARD_SIZE; c++) {
-                    if (liveBoard[r][c] !== 0) continue;
-                    const maxDist = (r <= 1 || r >= BOARD_SIZE - 2 || c <= 1 || c >= BOARD_SIZE - 2) ? 5 : 4;
-                    let blackMin = Infinity, whiteMin = Infinity;
-                    const dist = Array(BOARD_SIZE).fill().map(() => Array(BOARD_SIZE).fill(Infinity));
-                    dist[r][c] = 0;
-                    const queue = [[r, c]];
-                    const dirs = [[-1, 0], [1, 0], [0, -1], [0, 1]];
-                    let front = 0;
-                    while (front < queue.length) {
-                        const [cr, cc] = queue[front++];
-                        const d = dist[cr][cc];
-                        if (d > maxDist) continue;
-                        if (liveBoard[cr][cc] === 1 && d < blackMin) blackMin = d;
-                        if (liveBoard[cr][cc] === 2 && d < whiteMin) whiteMin = d;
-                        for (let [dr, dc] of dirs) {
-                            const nr = cr + dr, nc = cc + dc;
-                            if (nr >= 0 && nr < BOARD_SIZE && nc >= 0 && nc < BOARD_SIZE && liveBoard[nr][nc] !== -1 && dist[nr][nc] === Infinity) {
-                                dist[nr][nc] = d + 1;
-                                queue.push([nr, nc]);
-                            }
-                        }
-                    }
-                    if (blackMin <= maxDist && whiteMin <= maxDist) {
-                        if (blackMin < whiteMin) territory[r][c] = 1;
-                        else if (whiteMin < blackMin) territory[r][c] = 2;
-                        else territory[r][c] = 3;
-                    } else if (blackMin <= maxDist) territory[r][c] = 1;
-                    else if (whiteMin <= maxDist) territory[r][c] = 2;
-                    else territory[r][c] = 3;
-                }
-            }
-            return territory;
-        }
-
-        function computeScore(liveBoard, territory) {
-            let blackStones = 0, whiteStones = 0, blackTerritory = 0, whiteTerritory = 0, publicTerritory = 0;
-            for (let r = 0; r < BOARD_SIZE; r++) {
-                for (let c = 0; c < BOARD_SIZE; c++) {
-                    if (liveBoard[r][c] === 1) blackStones++;
-                    else if (liveBoard[r][c] === 2) whiteStones++;
-                    else if (liveBoard[r][c] === 0) {
-                        if (territory[r][c] === 1) blackTerritory++;
-                        else if (territory[r][c] === 2) whiteTerritory++;
-                        else if (territory[r][c] === 3) publicTerritory++;
-                    }
-                }
-            }
-            const blackTotal = blackStones + blackTerritory + publicTerritory / 2;
-            const whiteTotal = whiteStones + whiteTerritory + publicTerritory / 2;
-            return { blackTotal, whiteTotal };
-        }
-
-        function computeScoreFromBoard(srcBoard) {
-            const liveBoard = removeDeadAndDying(srcBoard);
-            const territory = assignTerritoryWithRange(liveBoard);
-            return computeScore(liveBoard, territory);
-        }
-
-        // 计算当前形势领先（黑方）
-        function computeLead() {
-            const { blackTotal, whiteTotal } = computeScoreFromBoard(board);
-            return blackTotal - whiteTotal - 2 * KOMI;
-        }
-
-        /** 本地标记：仅空点显示；形势判断开启时整盘隐藏（数据仍保留，关闭后恢复） */
-        function isUserBoardMarkVisibleAt(r, c) {
-            if (showEstimateActive) return false;
-            if (r < 0 || r >= BOARD_SIZE || c < 0 || c >= BOARD_SIZE) return false;
-            if (board[r][c] !== 0) return false;
-            if (!tryPlayMode && !gameOver && candidates.length > 0 &&
-                candidates.some(p => p.row === r && p.col === c)) return false;
-            return true;
-        }
-
-        // ======================== 绘制 ========================
-        function computeStoneNumbers() {
-            const nums = Array(BOARD_SIZE).fill().map(() => Array(BOARD_SIZE).fill(0));
-            if (replayMode && tryPlayMode) {
-                for (let i = 1; i <= tryPlayStep; i++) {
-                    const markers = tryPlayMarkers[i];
-                    if (markers && markers.length > 0) {
-                        const m = markers[0];
-                        if (m.row < BOARD_SIZE && m.col < BOARD_SIZE && board[m.row][m.col] !== 0)
-                            nums[m.row][m.col] = i;
-                    }
-                }
-            } else if (replayMode) {
+            } else if (ps.replayMode) {
                 let hand = 0;
-                for (let i = 0; i < replayMovesForNumbers.length; i++) {
-                    const raw = replayMovesForNumbers[i];
+                for (const raw of ps.replayMovesForNumbers) {
                     if (typeof raw === 'string' && raw.length >= 2 && raw[1] === 'p') continue;
-                    if (raw && typeof raw === 'object' && raw.type === 'pass') continue;
+                    if (raw?.type === 'pass') continue;
                     const m = normalizeChoiceRecordMove(raw);
                     if (!m || !Number.isFinite(m.row)) continue;
                     hand++;
-                    if (board[m.row][m.col] !== 0)
-                        nums[m.row][m.col] = hand;
+                    if (ps.board[m.row][m.col] !== 0) nums[m.row][m.col] = hand;
                 }
-            } else if (liveReplayBoards.length && liveViewStep < liveReplayBoards.length - 1) {
-                for (let i = 1; i <= liveViewStep; i++) {
-                    const markers = liveReplayMarkers[i];
-                    if (markers && markers.length > 0) {
-                        const m = markers[0];
-                        if (m.row < BOARD_SIZE && m.col < BOARD_SIZE && board[m.row][m.col] !== 0)
-                            nums[m.row][m.col] = i;
-                    }
+            } else if (ps.liveReplayBoards.length && ps.liveViewStep < ps.liveReplayBoards.length - 1) {
+                for (let i = 1; i <= ps.liveViewStep; i++) {
+                    const markers = ps.liveReplayMarkers[i];
+                    if (markers?.[0] && ps.board[markers[0].row][markers[0].col] !== 0) nums[markers[0].row][markers[0].col] = i;
                 }
             } else {
-                for (let i = 0; i < moveLog.length; i++) {
-                    const m = moveLog[i];
-                    if (m && m.row < BOARD_SIZE && m.col < BOARD_SIZE && board[m.row][m.col] !== 0)
-                        nums[m.row][m.col] = i + 1;
+                for (let i = 0; i < ps.moveLog.length; i++) {
+                    const m = ps.moveLog[i];
+                    if (m && ps.board[m.row][m.col] !== 0) nums[m.row][m.col] = i + 1;
                 }
             }
             return nums;
         }
-
-        function drawBoard() 
-        {
-            const d = QiSquareWeiqiCanvas.draw;
-            const cs = QiSquareWeiqiCanvas.DEFAULT_CANVAS_SIZE;
-            const cellSize = CELL_SIZE;
-            d.clear(ctx, cs);
-            d.grid(ctx, BOARD_SIZE, PADDING, cellSize, cs);
-            d.starPoints(ctx, BOARD_SIZE, PADDING, cellSize);
-            d.coordLabels(ctx, BOARD_SIZE, PADDING, cellSize);
-            const stoneRadius = cellSize * 0.44;
-            const markLenDefault = cellSize * 0.352;
-            const lowerLastMoveMarker = showMoveNumbers || showEstimateActive;
-            if (lowerLastMoveMarker) {
-                d.lastMoveMarkersLower(ctx, lastMoveMarkers, PADDING, cellSize, stoneRadius);
+        function drawBoardChoice() {
+            const d = C.draw, cs = C.DEFAULT_CANVAS_SIZE, z = ps.CELL_SIZE, low = ps.showMoveNumbers || ps.showEstimateActive;
+            d.clear(ctx, cs); d.grid(ctx, ps.BOARD_SIZE, ps.PADDING, z, cs); d.starPoints(ctx, ps.BOARD_SIZE, ps.PADDING, z);
+            d.coordLabels(ctx, ps.BOARD_SIZE, ps.PADDING, z);
+            const sr = z * 0.44, ml = z * 0.352;
+            if (low) d.lastMoveMarkersLower(ctx, ps.lastMoveMarkers, ps.PADDING, z, sr);
+            d.stonesBlackWhite(ctx, ps.board, ps.BOARD_SIZE, ps.PADDING, z, sr, ps.showMoveNumbers);
+            if (!low) d.lastMoveMarkersUpper(ctx, ps.lastMoveMarkers, ps.PADDING, z, ml);
+            d.userBoardMarks(ctx, ps.userBoardMarks, ps.BOARD_SIZE, ps.PADDING, z, (r, c) =>
+                !ps.showEstimateActive && r >= 0 && r < ps.BOARD_SIZE && c >= 0 && c < ps.BOARD_SIZE && ps.board[r][c] === 0
+                && (ps.tryPlayMode || ps.gameOver || !ps.candidates.length || !ps.candidates.some(p => p.row === r && p.col === c)));
+            if (ps.showMoveNumbers) d.moveNumbersOnStones(ctx, numsChoice(), ps.board, ps.BOARD_SIZE, ps.PADDING, z);
+            {
+                const liveTotalRp = ps.liveReplayBoards.length > 0 ? ps.liveReplayBoards.length - 1 : 0;
+                const browsingLive = !ps.replayMode && ps.liveReplayBoards.length > 0 && ps.liveViewStep < liveTotalRp;
+                const showCand = !ps.tryPlayMode && !ps.gameOver && !ps.showEstimateActive && ps.candidates.length > 0 && !browsingLive;
+                if (showCand) {
+                    ctx.globalAlpha = 0.7;
+                    const playerColor = ps.currentPlayer === 1 ? '#222' : '#ddd', sh = z * 0.18;
+                    for (const { row, col } of ps.candidates) {
+                        const x = ps.PADDING + col * z, y = ps.PADDING + row * z;
+                        ctx.fillStyle = playerColor;
+                        ctx.fillRect(x - sh, y - sh, sh * 2, sh * 2);
+                    }
+                    ctx.globalAlpha = 1;
+                }
             }
-            d.stonesBlackWhite(ctx, board, BOARD_SIZE, PADDING, cellSize, stoneRadius, showMoveNumbers);
-            if (!lowerLastMoveMarker) {
-                d.lastMoveMarkersUpper(ctx, lastMoveMarkers, PADDING, cellSize, markLenDefault);
-            }
-            d.userBoardMarks(ctx, userBoardMarks, BOARD_SIZE, PADDING, cellSize, isUserBoardMarkVisibleAt);
-            if (showMoveNumbers) {
-                const nums = computeStoneNumbers();
-                d.moveNumbersOnStones(ctx, nums, board, BOARD_SIZE, PADDING, cellSize);
-            }
-            d.hoverPreviewStone(ctx, hoverRow, hoverCol, board, PADDING, cellSize, {
-                tryPlayMode,
-                tryPlayCurrentPlayer,
-                gameOver,
-                isMyTurn,
-                mySlot,
-                isHoverValid
+            d.hoverPreviewStone(ctx, ps.hoverRow, ps.hoverCol, ps.board, ps.PADDING, z, {
+                tryPlayMode: ps.tryPlayMode, tryPlayCurrentPlayer: ps.tryPlayCurrentPlayer, gameOver: ps.gameOver,
+                isMyTurn: ps.isMyTurn, mySlot: ps.mySlot, isHoverValid: ps.isHoverValid
             });
-            if (showEstimateActive && cachedLiveBoard && cachedTerritory) {
-                d.estimateOverlay(ctx, board, BOARD_SIZE, PADDING, cellSize, cachedLiveBoard, cachedTerritory);
-            }
+            if (ps.showEstimateActive && ps.cachedLiveBoard && ps.cachedTerritory)
+                d.estimateOverlay(ctx, ps.board, ps.BOARD_SIZE, ps.PADDING, z, ps.cachedLiveBoard, ps.cachedTerritory);
         }
 
-        function updateTurn() {
-            if (replayMode) {
-                drawBoard();
-                return;
+        function choiceSync(state) {
+            const incomingMoveLen = (state.moveCoords && state.moveCoords.length) || 0;
+            const prevSyncedLen = ps._syncMoveCoordsLen;
+            const incomingNH = state.numberOfHands || 1;
+            const incomingGO = state.gameOver || false;
+            const sizeWillChange = !!(state.boardSize && state.boardSize !== ps.BOARD_SIZE);
+            const handsChanged = incomingNH !== ps.numberOfHands;
+            const gameOverChanged = incomingGO !== ps.gameOver;
+            const playerChanged = state.currentPlayer !== undefined && state.currentPlayer !== ps.currentPlayer;
+            const moveListChanged = incomingMoveLen !== (prevSyncedLen !== undefined ? prevSyncedLen : -1);
+            if (sizeWillChange || handsChanged || gameOverChanged || playerChanged || moveListChanged) page.clearMobileMovePreview();
+            if (state.boardSize && state.boardSize !== ps.BOARD_SIZE) {
+                ps.BOARD_SIZE = state.boardSize;
+                if (state.komi != null && Number.isFinite(state.komi)) ps.KOMI = state.komi;
+                ps.board = page.initBoardArray(ps.BOARD_SIZE);
+                page.updateBoardGeometry();
+                const sel = document.getElementById('boardSizeSelect'); if (sel) sel.value = ps.BOARD_SIZE;
+            } else if (state.komi != null && Number.isFinite(state.komi) && state.komi !== ps.KOMI) {
+                ps.KOMI = state.komi;
+                if (komiInfo) komiInfo.innerText = `黑贴白${ps.KOMI}点`;
             }
-            const liveTotal = liveReplayBoards.length > 0 ? liveReplayBoards.length - 1 : 0;
-            const browsingLive = liveReplayBoards.length > 0 && liveViewStep < liveTotal;
-            if (browsingLive) {
-                if (liveViewStep === 0) {
-                    turnDisplay.innerText = '初始局面';
-                } else {
-                    const emoji = liveReplayStepPlayers[liveViewStep] === 1 ? '⚫' : '⚪';
-                    turnDisplay.innerText = `${emoji} 第${liveViewStep}手`;
+            ps.numberOfHands = incomingNH;
+            ps.currentPlayer = state.currentPlayer;
+            ps.gameOver = incomingGO;
+            ps.winner = state.winner || null;
+            if (state.matchStarted !== undefined) {
+                ps.matchStarted = !!state.matchStarted;
+                if (ps.matchStarted) ps.matchStartedOnce = true;
+            }
+            if (state.moveCoords) {
+                ps.moveLog = state.moveCoords.map(m => (m.type === 'move') ? { row: m.row, col: m.col } : null);
+            }
+            ps.candidates = (state.candidates || []).map(c => ({ row: c.row, col: c.col }));
+            ps.serverCandidatesSnapshot = ps.candidates.map(c => ({ row: c.row, col: c.col }));
+            if (state.slots) ps.slots = state.slots;
+            if (!ps.replayMode) {
+                const prevTotal = Math.max(0, ps.liveReplayBoards.length - 1);
+                const wasAtEnd = ps.liveFollowLatest || ps.liveViewStep >= prevTotal;
+                page.rebuildLiveReplayFromMoveCoords(state.moveCoords || []);
+                const newTotal = Math.max(0, ps.liveReplayBoards.length - 1);
+                if (newTotal === 0) { ps.liveViewStep = 0; ps.liveFollowLatest = true; }
+                else if (wasAtEnd) { ps.liveViewStep = newTotal; ps.liveFollowLatest = true; }
+                else {
+                    ps.liveViewStep = Math.min(ps.liveViewStep, newTotal);
+                    if (ps.liveViewStep === newTotal) ps.liveFollowLatest = true;
                 }
-                isMyTurn = false;
-                drawBoard();
-                return;
-            }
-            if (gameOver) {
-                turnDisplay.innerText = '对局结束';
-                if (winner === 'black') scoreTitle.innerText = '黑胜';
-                else if (winner === 'white') scoreTitle.innerText = '白胜';
-                else if (winner === 'draw') scoreTitle.innerText = '和棋';
-                else scoreTitle.innerText = '　';
-                isMyTurn = false;
-                drawBoard();
-                return;
-            }
-            const total = liveReplayBoards.length > 0 ? liveReplayBoards.length - 1 : 0;
-            if (liveReplayBoards.length === 0) {
-                const emptyBoard = !board.some(row => row.some(v => v === 1 || v === 2));
-                turnDisplay.innerText = emptyBoard ? '初始局面' : `${currentPlayer === 1 ? '⚫' : '⚪'} 第${numberOfHands}手`;
-            } else if (total === 0) {
-                turnDisplay.innerText = '初始局面';
+                page.applyLiveViewBoard();
+                page.updateLiveReplayPanelUI();
+                const liveTotal = Math.max(0, ps.liveReplayBoards.length - 1);
+                if (liveTotal > 0 && ps.liveViewStep < liveTotal) ps.candidates = [];
+                else if (liveTotal > 0 && ps.liveViewStep >= liveTotal) ps.candidates = ps.serverCandidatesSnapshot.map(c => ({ row: c.row, col: c.col }));
             } else {
-                const p = liveReplayStepPlayers[total];
-                turnDisplay.innerText = `${p === 1 ? '⚫' : '⚪'} 第${total}手`;
+                ps.board = state.board;
+                ps.lastMoveMarkers = state.lastMoveMarkers || [];
             }
-            isMyTurn = (mySlot !== null) && ((mySlot === 'black' && currentPlayer === 1) || (mySlot === 'white' && currentPlayer === 2));
-            drawBoard();
-        }
-
-        function showEstimate()
-        {
-            if (!showEstimateActive) { clearEstimate(); return; }
-            const r = QiSquareWeiqiCanvas.computeWeiqiEstimateCaches(
-                board, removeDeadAndDying, assignTerritoryWithRange, computeScore, KOMI
-            );
-            cachedLiveBoard = r.cachedLiveBoard;
-            cachedTerritory = r.cachedTerritory;
-            QiSquareWeiqiCanvas.fillWeiqiEstimatePanel(scoreTitle, scoreBoard, leadInfo, r.blackTotal, r.whiteTotal, r.lead);
-            drawBoard();
-        }
-
-        function clearEstimate()
-        {
-            cachedLiveBoard = null;
-            cachedTerritory = null;
-            QiSquareWeiqiCanvas.clearWeiqiEstimatePanel(scoreTitle, scoreBoard, leadInfo);
-            drawBoard();
-        }
-
-        function downloadRecord(data) {
-            const now = new Date();
-            const pad = n => n.toString().padStart(2, '0');
-            const dateStr = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
-            const filename = `选点围棋_${data.boardSize}路_${dateStr}.json`;
-            const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = filename;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
-        }
-
-        function showScoreConfirm(lead) {
-            const absLead = Math.abs(lead).toFixed(1);
-            const winnerText = lead > 0 ? `黑胜${absLead}点` : (lead < 0 ? `白胜${absLead}点` : '和棋');
-            scoreConfirmText.innerText = `${winnerText}，是否同意该结果？`;
-            scoreConfirmPanel.style.display = 'block';
-        }
-
-        function hideScoreConfirm() {
-            scoreConfirmPanel.style.display = 'none';
-        }
-
-        // ======================== 打谱模式 ========================
-        function enterReplayMode(data) {
-            if (data.boardSize && data.boardSize !== BOARD_SIZE) {
-                BOARD_SIZE = data.boardSize;
-                updateBoardGeometry();
-                const sizeSelect = document.getElementById('boardSizeSelect');
-                if (sizeSelect) sizeSelect.value = BOARD_SIZE;
+            const hasAnyStone = ps.board.some(row => row.some(v => v !== 0));
+            const hasPlayer = ps.slots.black || ps.slots.white;
+            const sizeSel = document.getElementById('boardSizeSelect');
+            if (sizeSel) {
+                if (!hasAnyStone && !hasPlayer && !ps.gameOver && ps.mySlot === null) sizeSel.style.display = 'inline-block';
+                else sizeSel.style.display = 'none';
             }
-            replayMovesForNumbers = (data.moves || []).slice();
-            const snapshots = buildChoiceWeiqiReplaySnapshotsFromMoves(data);
-            if (!snapshots) {
-                alert('棋谱数据无法重建打谱步序（请确认含候选点的选点围棋棋谱）。');
-                replayMovesForNumbers = [];
-                return;
-            }
-            replaySnapshots = snapshots;
-            replayTotalSteps = replaySnapshots.length - 1;
-            replayMode = true;
-
-            const slider = document.getElementById('replaySlider');
-            slider.min = 0;
-            slider.max = replayTotalSteps;
-            setReplayStep(replayTotalSteps);
-            updateReplayUI();
+            if (ps.showEstimateActive) {
+                ps.cachedLiveBoard = page.removeDeadAndDying(ps.board);
+                ps.cachedTerritory = page.assignTerritoryWithRange(ps.cachedLiveBoard);
+                page.showEstimate();
+            } else page.updateTurn();
+            page.updateReplayUI();
+            ps._syncMoveCoordsLen = incomingMoveLen;
         }
 
-        function exitReplayMode() {
-            clearMobileMovePreview();
-            tryPlayMode = false;
-            tryPlayBoards = [];
-            tryPlayMarkers = [];
-            tryPlayStep = 0;
-            tryPlayTotalSteps = 0;
-            replayMode = false;
-            replaySnapshots = [];
-            replayMovesForNumbers = [];
-            replayStep = 0;
-            replayTotalSteps = 0;
-            updateReplayUI();
-        }
-
-        function setReplayStep(step) {
-            clearMobileMovePreview();
-            if (step < 0) step = 0;
-            if (step > replayTotalSteps) step = replayTotalSteps;
-            replayStep = step;
-            const snap = replaySnapshots[step];
-            board = deepCopyBoard(snap.board);
-            currentPlayer = snap.currentPlayer;
-            candidates = (snap.candidates || []).map(c => ({ row: c.row, col: c.col }));
-            lastMoveMarkers = (snap.lastMoveMarkers || []).map(m => ({ ...m }));
-
-            document.getElementById('replaySlider').value = step;
-            document.getElementById('replayStepDisplay').innerText = `${step} / ${replayTotalSteps}`;
-            turnDisplay.innerText = step === 0 ? '初始局面' : `打谱 ${step} / ${replayTotalSteps}`;
-            isMyTurn = false;
-
-            if (showEstimateActive) showEstimate();
-            else drawBoard();
-        }
-
-        function updateReplayUI() {
-            const gameButtonIds = ['passBtn', 'undoBtn', 'resignBtn', 'drawBtn', 'endReqBtn'];
-            const replayPanel = document.getElementById('replayPanel');
-            const tryPlayBtn = document.getElementById('tryPlayBtn');
-            if (replayMode) {
-                for (const id of gameButtonIds)
-                    document.getElementById(id).style.display = 'none';
-                replayPanel.style.display = '';
-                tryPlayBtn.style.display = '';
-                tryPlayBtn.innerText = tryPlayMode ? '试下结束' : '试下';
-            } else {
-                for (const id of gameButtonIds)
-                    document.getElementById(id).style.display = '';
-                replayPanel.style.display = '';
-                tryPlayBtn.style.display = 'none';
-                tryPlayBtn.innerText = '试下';
-            }
-        }
-
-        // ======================== 试下模式 ========================
-        function enterTryPlay() {
-            clearMobileMovePreview();
-            tryPlayMode = true;
-            tryPlayBaseStep = replayStep;
-            tryPlayBoards = [deepCopyBoard(board)];
-            tryPlayMarkers = [lastMoveMarkers.map(m => ({ ...m }))];
-
-            tryPlayCurrentPlayer = replaySnapshots[replayStep].currentPlayer;
-            tryPlayStep = 0;
-            tryPlayTotalSteps = 0;
-
-            const slider = document.getElementById('replaySlider');
-            slider.min = 0;
-            slider.max = 0;
-            slider.value = 0;
-            updateTryPlayDisplay();
-            updateReplayUI();
-        }
-
-        function exitTryPlay() {
-            clearMobileMovePreview();
-            tryPlayMode = false;
-            tryPlayBoards = [];
-            tryPlayMarkers = [];
-            tryPlayStep = 0;
-            tryPlayTotalSteps = 0;
-
-            const slider = document.getElementById('replaySlider');
-            slider.min = 0;
-            slider.max = replayTotalSteps;
-            setReplayStep(tryPlayBaseStep);
-            updateReplayUI();
-        }
-
-        function tryPlayMove(row, col) {
-            if (board[row][col] !== 0) return false;
-            const playerVal = tryPlayCurrentPlayer;
-            const newBoard = tryPlaceStone(board, row, col, playerVal);
-            if (!newBoard) return false;
-
-            if (tryPlayStep < tryPlayTotalSteps) {
-                tryPlayBoards.length = tryPlayStep + 1;
-                tryPlayMarkers.length = tryPlayStep + 1;
-            }
-
-            tryPlayBoards.push(deepCopyBoard(newBoard));
-            tryPlayMarkers.push([{ row, col, color: playerVal }]);
-            tryPlayTotalSteps = tryPlayBoards.length - 1;
-            tryPlayStep = tryPlayTotalSteps;
-            tryPlayCurrentPlayer = 3 - tryPlayCurrentPlayer;
-
-            board = deepCopyBoard(newBoard);
-            lastMoveMarkers = [{ row, col, color: playerVal }];
-
-            const slider = document.getElementById('replaySlider');
-            slider.max = tryPlayTotalSteps;
-            slider.value = tryPlayStep;
-            updateTryPlayDisplay();
-            if (showEstimateActive) showEstimate();
-            else drawBoard();
-            return true;
-        }
-
-        function setTryPlayStep(step) {
-            clearMobileMovePreview();
-            if (step < 0) step = 0;
-            if (step > tryPlayTotalSteps) step = tryPlayTotalSteps;
-            tryPlayStep = step;
-            board = deepCopyBoard(tryPlayBoards[step]);
-            lastMoveMarkers = tryPlayMarkers[step].map(m => ({ ...m }));
-
-            const snapPlayer = replaySnapshots[tryPlayBaseStep].currentPlayer;
-            tryPlayCurrentPlayer = step % 2 === 0 ? snapPlayer : (3 - snapPlayer);
-
-            document.getElementById('replaySlider').value = step;
-            updateTryPlayDisplay();
-            if (showEstimateActive) showEstimate();
-            else drawBoard();
-        }
-
-        function updateTryPlayDisplay() {
-            const stepDisplay = document.getElementById('replayStepDisplay');
-            if (tryPlayMode) {
-                stepDisplay.innerText = `试下 ${tryPlayStep} / ${tryPlayTotalSteps}`;
-                const emoji = tryPlayCurrentPlayer === 1 ? '⚫' : '⚪';
-                turnDisplay.innerText = `${emoji} 试下`;
-            }
-        }
-
-        function rebuildLiveReplayFromMoveCoords(moveCoords) {
-            const size = BOARD_SIZE;
-            liveReplayBoards = [];
-            liveReplayMarkers = [];
-            liveReplayStepPlayers = [0];
-            let curBoard = initBoardArray(size);
-            liveReplayBoards.push(deepCopyBoard(curBoard));
-            liveReplayMarkers.push([]);
-            for (const move of (moveCoords || [])) {
-                const playerVal = move.player === 'black' ? 1 : 2;
-                liveReplayStepPlayers.push(playerVal);
-                if (move.type === 'move') {
-                    const newBoard = tryPlaceStone(curBoard, move.row, move.col, playerVal);
-                    if (newBoard) curBoard = newBoard;
-                    liveReplayBoards.push(deepCopyBoard(curBoard));
-                    liveReplayMarkers.push([{ row: move.row, col: move.col, color: playerVal }]);
-                } else if (move.type === 'pass') {
-                    liveReplayBoards.push(deepCopyBoard(curBoard));
-                    liveReplayMarkers.push([]);
+        var page;
+        page = R.create(ps, domPage, {
+            recordDownloadPrefix: '选点围棋', minLib: 1, maxWeakLiberties: 2, gameType, roomId, roomPassword, isMouseDevice,
+            drawBoard: drawBoardChoice, syncState: choiceSync,
+            enterReplayMode(data) {
+                if (data.initialPosition && typeof data.initialPosition === 'object' && !Array.isArray(data.initialPosition))
+                    data.initialPosition = normalizeReplayInitialPayload(data.initialPosition);
+                if (data.boardSize && data.boardSize !== ps.BOARD_SIZE) {
+                    ps.BOARD_SIZE = data.boardSize;
+                    page.updateBoardGeometry();
+                    const sel = document.getElementById('boardSizeSelect'); if (sel) sel.value = ps.BOARD_SIZE;
+                }
+                ps.replayMovesForNumbers = (data.moves || []).slice();
+                const snapshots = buildChoiceWeiqiReplaySnapshotsFromMoves(data);
+                if (!snapshots) {
+                    alert('棋谱数据无法重建打谱步序（请确认含候选点的选点围棋棋谱）。');
+                    ps.replayMovesForNumbers = [];
+                    return;
+                }
+                ps.replaySnapshots = snapshots;
+                ps.replayTotalSteps = ps.replaySnapshots.length - 1;
+                ps.replayMode = true;
+                const sl = document.getElementById('replaySlider');
+                sl.min = 0; sl.max = ps.replayTotalSteps;
+                page.setReplayStep(ps.replayTotalSteps);
+                page.updateReplayUI();
+            },
+            exitReplayMode() {
+                page.clearMobileMovePreview();
+                ps.tryPlayMode = false; ps.tryPlayBoards = []; ps.tryPlayMarkers = []; ps.tryPlayStep = 0; ps.tryPlayTotalSteps = 0;
+                ps.replayMode = false; ps.replaySnapshots = []; ps.replayMovesForNumbers = []; ps.replayStep = 0; ps.replayTotalSteps = 0;
+                page.updateReplayUI();
+            },
+            setReplayStep(step) {
+                page.clearMobileMovePreview();
+                if (step < 0) step = 0; if (step > ps.replayTotalSteps) step = ps.replayTotalSteps;
+                ps.replayStep = step;
+                const snap = ps.replaySnapshots[step];
+                ps.board = page.deepCopyBoard(snap.board);
+                ps.currentPlayer = snap.currentPlayer;
+                ps.candidates = (snap.candidates || []).map(c => ({ row: c.row, col: c.col }));
+                ps.lastMoveMarkers = (snap.lastMoveMarkers || []).map(m => ({ ...m }));
+                document.getElementById('replaySlider').value = step;
+                document.getElementById('replayStepDisplay').innerText = `${step} / ${ps.replayTotalSteps}`;
+                turnDisplay.innerText = step === 0 ? '初始局面' : `打谱 ${step} / ${ps.replayTotalSteps}`;
+                ps.isMyTurn = false;
+                if (ps.showEstimateActive) page.showEstimate();
+                else drawBoardChoice();
+            },
+            enterTryPlay() {
+                page.clearMobileMovePreview(); ps.tryPlayMode = true; ps.tryPlayBaseStep = ps.replayStep;
+                ps.tryPlayBoards = [page.deepCopyBoard(ps.board)]; ps.tryPlayMarkers = [ps.lastMoveMarkers.map(m => ({ ...m }))];
+                ps.tryPlayCurrentPlayer = ps.replaySnapshots[ps.replayStep].currentPlayer;
+                ps.tryPlayStep = 0; ps.tryPlayTotalSteps = 0;
+                const sl = document.getElementById('replaySlider'); sl.min = 0; sl.max = 0; sl.value = 0;
+                page.updateTryPlayDisplay(); page.updateReplayUI();
+            },
+            exitTryPlay() {
+                page.clearMobileMovePreview(); ps.tryPlayMode = false; ps.tryPlayBoards = []; ps.tryPlayMarkers = [];
+                ps.tryPlayStep = 0; ps.tryPlayTotalSteps = 0;
+                const sl = document.getElementById('replaySlider'); sl.min = 0; sl.max = ps.replayTotalSteps;
+                page.setReplayStep(ps.tryPlayBaseStep); page.updateReplayUI();
+            },
+            tryPlayMove(row, col) {
+                if (ps.board[row][col] !== 0) return false;
+                const pv = ps.tryPlayCurrentPlayer, nb = page.tryPlaceStone(ps.board, row, col, pv);
+                if (!nb) return false;
+                if (ps.tryPlayStep < ps.tryPlayTotalSteps) {
+                    ps.tryPlayBoards.length = ps.tryPlayStep + 1; ps.tryPlayMarkers.length = ps.tryPlayStep + 1;
+                }
+                ps.tryPlayBoards.push(page.deepCopyBoard(nb)); ps.tryPlayMarkers.push([{ row, col, color: pv }]);
+                ps.tryPlayTotalSteps = ps.tryPlayBoards.length - 1; ps.tryPlayStep = ps.tryPlayTotalSteps;
+                ps.tryPlayCurrentPlayer = 3 - ps.tryPlayCurrentPlayer;
+                ps.board = page.deepCopyBoard(nb); ps.lastMoveMarkers = [{ row, col, color: pv }];
+                const sl = document.getElementById('replaySlider'); sl.max = ps.tryPlayTotalSteps; sl.value = ps.tryPlayStep;
+                page.updateTryPlayDisplay();
+                if (ps.showEstimateActive) page.showEstimate(); else drawBoardChoice();
+                return true;
+            },
+            setTryPlayStep(step) {
+                page.clearMobileMovePreview();
+                if (step < 0) step = 0; if (step > ps.tryPlayTotalSteps) step = ps.tryPlayTotalSteps;
+                ps.tryPlayStep = step;
+                ps.board = page.deepCopyBoard(ps.tryPlayBoards[step]);
+                ps.lastMoveMarkers = ps.tryPlayMarkers[step].map(m => ({ ...m }));
+                const snapPlayer = ps.replaySnapshots[ps.tryPlayBaseStep].currentPlayer;
+                ps.tryPlayCurrentPlayer = step % 2 === 0 ? snapPlayer : (3 - snapPlayer);
+                document.getElementById('replaySlider').value = step; page.updateTryPlayDisplay();
+                if (ps.showEstimateActive) page.showEstimate(); else drawBoardChoice();
+            },
+            updateTryPlayDisplay() {
+                const stepDisplay = document.getElementById('replayStepDisplay');
+                if (ps.tryPlayMode) {
+                    stepDisplay.innerText = `试下 ${ps.tryPlayStep} / ${ps.tryPlayTotalSteps}`;
+                    turnDisplay.innerText = `${ps.tryPlayCurrentPlayer === 1 ? '⚫' : '⚪'} 试下`;
                 }
             }
-        }
+        });
 
-        function applyLiveViewBoard() {
-            if (!liveReplayBoards.length) {
-                board = initBoardArray(BOARD_SIZE);
-                lastMoveMarkers = [];
-                return;
-            }
-            if (liveViewStep < 0) liveViewStep = 0;
-            if (liveViewStep >= liveReplayBoards.length) liveViewStep = liveReplayBoards.length - 1;
-            board = deepCopyBoard(liveReplayBoards[liveViewStep]);
-            lastMoveMarkers = liveReplayMarkers[liveViewStep].map(m => ({ ...m }));
-        }
+        const setLiveViewStep = function (step) {
+            page.clearMobileMovePreview();
+            if (ps.replayMode) return;
+            const total = Math.max(0, ps.liveReplayBoards.length - 1);
+            if (step < 0) step = 0; if (step > total) step = total;
+            ps.liveViewStep = step;
+            ps.liveFollowLatest = step >= total;
+            page.applyLiveViewBoard();
+            page.updateLiveReplayPanelUI();
+            if (total > 0 && step < total) ps.candidates = [];
+            else if (total > 0 && step >= total) ps.candidates = ps.serverCandidatesSnapshot.map(c => ({ row: c.row, col: c.col }));
+            if (ps.showEstimateActive) page.showEstimate();
+            else page.updateTurn();
+        };
 
-        function updateLiveReplayPanelUI() {
-            if (replayMode) return;
-            const total = Math.max(0, liveReplayBoards.length - 1);
-            const slider = document.getElementById('replaySlider');
-            slider.min = 0;
-            slider.max = total;
-            slider.value = liveViewStep;
-            document.getElementById('replayStepDisplay').innerText = `${liveViewStep} / ${total}`;
-        }
-
-        function setLiveViewStep(step) {
-            clearMobileMovePreview();
-            if (replayMode) return;
-            const total = Math.max(0, liveReplayBoards.length - 1);
-            if (step < 0) step = 0;
-            if (step > total) step = total;
-            liveViewStep = step;
-            liveFollowLatest = step >= total;
-            applyLiveViewBoard();
-            updateLiveReplayPanelUI();
-            if (total > 0 && step < total)
-                candidates = [];
-            else if (total > 0 && step >= total)
-                candidates = serverCandidatesSnapshot.map(c => ({ row: c.row, col: c.col }));
-            if (showEstimateActive) showEstimate();
-            else updateTurn();
-        }
-
-        // ======================== WebSocket ========================
-        function connectWebSocket()
-        {
-            ws = QiSquareWeiqiCanvas.connectWeiqiRoomWebSocket({
-                gameType,
-                roomId,
-                roomPassword,
-                onMessage: handleMessage,
-                clearReconnectTimer: () => { if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; } },
-                getReconnectTimer: () => reconnectTimer,
-                setReconnectTimer: (t) => { reconnectTimer = t; },
-                colorStatus,
-                connectWebSocket
-            });
-        }
-
-
-        function initBoardArray(size)
-        {
-            return QiSquareWeiqiCanvas.initBoardArray(size);
-        }
-
-        function updateBoardGeometry()
-        {
-            const g = QiSquareWeiqiCanvas.computePaddingAndCell(BOARD_SIZE);
-            PADDING = g.padding;
-            CELL_SIZE = g.cellSize;
-            drawBoard();
-        }
-
-        function syncState(state)
-        {
-            clearMobileMovePreview();
-            if (state.boardSize && state.boardSize !== BOARD_SIZE)
-            {
-                BOARD_SIZE = state.boardSize;
-                board = initBoardArray(BOARD_SIZE);
-                updateBoardGeometry();
-                const sizeSelect = document.getElementById('boardSizeSelect');
-                if (sizeSelect) sizeSelect.value = BOARD_SIZE;
-            }
-            numberOfHands = state.numberOfHands || 1;
-            currentPlayer = state.currentPlayer;
-            gameOver = state.gameOver || false;
-            winner = state.winner || null;
-            if (state.moveCoords)
-                moveLog = state.moveCoords.map(m => m.type === 'move' ? { row: m.row, col: m.col } : null);
-            candidates = (state.candidates || []).map(c => ({ row: c.row, col: c.col }));
-            serverCandidatesSnapshot = candidates.map(c => ({ row: c.row, col: c.col }));
-            if (state.slots)
-                slots = state.slots;
-
-            if (!replayMode) {
-                const prevTotal = Math.max(0, liveReplayBoards.length - 1);
-                const wasAtEnd = liveFollowLatest || liveViewStep >= prevTotal;
-                rebuildLiveReplayFromMoveCoords(state.moveCoords || []);
-                const newTotal = Math.max(0, liveReplayBoards.length - 1);
-                if (newTotal === 0) {
-                    liveViewStep = 0;
-                    liveFollowLatest = true;
-                } else if (wasAtEnd) {
-                    liveViewStep = newTotal;
-                    liveFollowLatest = true;
-                } else {
-                    liveViewStep = Math.min(liveViewStep, newTotal);
-                    if (liveViewStep === newTotal)
-                        liveFollowLatest = true;
-                }
-                applyLiveViewBoard();
-                updateLiveReplayPanelUI();
-                const liveTotal = Math.max(0, liveReplayBoards.length - 1);
-                if (liveTotal > 0 && liveViewStep < liveTotal)
-                    candidates = [];
-                else if (liveTotal > 0 && liveViewStep >= liveTotal)
-                    candidates = serverCandidatesSnapshot.map(c => ({ row: c.row, col: c.col }));
-            } else {
-                board = state.board;
-                lastMoveMarkers = state.lastMoveMarkers || [];
-            }
-
-            const hasAnyStone = board.some(row => row.some(v => v !== 0));
-            const hasPlayer = slots.black || slots.white;
-            const sizeSelect = document.getElementById('boardSizeSelect');
-            if (!hasAnyStone && !hasPlayer && !gameOver && mySlot === null)
-                sizeSelect.style.display = 'inline-block';
-            else
-                sizeSelect.style.display = 'none';
-
-            if (showEstimateActive)
-            {
-                cachedLiveBoard = removeDeadAndDying(board);
-                cachedTerritory = assignTerritoryWithRange(cachedLiveBoard);
-                showEstimate();
-            } else {
-                updateTurn();
-            }
-            updateReplayUI();
-        }
-
-        function handleMessage(msg)
-        {
-            switch (msg.type)
-            {
-                case 'joined':
-                    sessionStorage.removeItem(`roomPassword_${roomId}`);
-                    if (msg.state && msg.state.boardSize && msg.state.boardSize !== BOARD_SIZE)
-                    {
-                        BOARD_SIZE = msg.state.boardSize;
-                        board = initBoardArray(BOARD_SIZE); 
-                        updateBoardGeometry();
-
-                        const sizeSelect = document.getElementById('boardSizeSelect');
-                        if (sizeSelect)
-                            sizeSelect.value = BOARD_SIZE;
-                    }
-                    if (msg.role === 'player')
-                    {
-                        mySlot = msg.slot;
-                        colorStatus.innerText = `已选择: ${mySlot === 'black' ? '黑方' : '白方'}`;
-                        if (msg.state)
-                            syncState(msg.state);
-
-                    }
-                    else
-                    {
-                        mySlot = null;
-                        colorStatus.innerText = '观战';
-                        if (msg.state)
-                            syncState(msg.state);
-                    }
-                    updateRadioStyles();
-                    break;
-                case 'slotOccupied':
-                    if (msg.slot === 'black')
-                        slots.black = true;
-                    else if (msg.slot === 'white')
-                        slots.white = true;
-                    updateRadioStyles();
-                    break;
-                case 'slotReleased':
-                    if (msg.slot === 'black')
-                        slots.black = false;
-                    else if (msg.slot === 'white')
-                        slots.white = false;
-                    if (mySlot === msg.slot) {
-                        mySlot = null;
-                        colorStatus.innerText = '观战';
-                    }
-                    updateRadioStyles();
-                    break;
-                case 'colorAssigned':
-                    mySlot = msg.color;
-                    colorStatus.innerText = `已选择: ${mySlot === 'black' ? '黑方' : '白方'}`;
-                    if (mySlot === 'black')
-                        slots.black = true;
-                    else
-                        slots.white = true;
-                    updateRadioStyles();
-                    break;
-                case 'gameState':
-                    syncState(msg);
-                    updateRadioStyles();
-                    break;
-                case 'broadcast':
-                    if (msg.action === 'move' || msg.action === 'pass' || msg.action === 'undoAccept' || msg.action === 'drawAgreed' || msg.action === 'resign')
-                    {
-                        const wasOver = gameOver;
-                        syncState(msg);
-                        if (msg.gameOver && !wasOver)
-                        {
-                            if (msg.winner === 'black') alert('黑胜。');
-                            else if (msg.winner === 'white') alert('白胜。');
-                            else if (msg.winner === 'draw') alert('和棋。');
-                        }
-                        else if (msg.action === 'drawAgreed' && !wasOver)
-                            alert('和棋。');
-                        else if (msg.action === 'resign' && !wasOver)
-                            alert(`${msg.player === 'black' ? '黑方' : '白方'}认输`);
-                    }
-                    break;
-                case 'newGameStarted':
-                    exitReplayMode();
-                    clearEstimate();
-                    hideScoreConfirm();
-                    waitingScoreConfirm = false;
-                    iRejected = false;
-                    mySlot = null;
-                    colorStatus.innerText = '未选择阵营';
-                    slots = { black: false, white: false };
-                    scoreTitle.innerText = '　';
-                    syncState(msg);
-                    updateRadioStyles();
-                    break;
-                case 'newGameRequest':
-                    if (confirm('对方请求开始新的一局，是否同意？'))
-                        ws.send(JSON.stringify({ type: 'newGameResponse', accept: true }));
-                    else
-                        ws.send(JSON.stringify({ type: 'newGameResponse', accept: false }));
-                    break;
-                case 'undoRequest':
-                    if (confirm('对方请求悔棋，是否同意？'))
-                        ws.send(JSON.stringify({ type: 'undoResponse', accept: true }));
-                    else
-                        ws.send(JSON.stringify({ type: 'undoResponse', accept: false }));
-                    break;
-                case 'drawRequest':
-                    if (confirm('对方申请和棋，是否同意？'))
-                        ws.send(JSON.stringify({ type: 'drawResponse', accept: true }));
-                    else
-                        ws.send(JSON.stringify({ type: 'drawResponse', accept: false }));
-                    break;
-                case 'scoreProposal':
-                    {
-                        const lead = msg.lead;
-                        clearMobileMovePreview();
-                        waitingScoreConfirm = true;
-                        iRejected = false;
-                        if (!showEstimateActive) {
-                            showEstimateActive = true;
-                            showEstimate();
-                        } else {
-                            showEstimate();
-                        }
-                        showScoreConfirm(lead);
-                    }
-                    break;
-                case 'scoreAgreed':
-                    gameOver = true;
-                    winner = msg.winner;
-                    const finalLead = msg.lead;
-                    const finalWinnerText = finalLead > 0 ? `黑胜${finalLead.toFixed(1)}点` : (finalLead < 0 ? `白胜${(-finalLead).toFixed(1)}点` : '和棋');
-                    scoreTitle.innerText = finalWinnerText;
-                    turnDisplay.innerText = '对局结束';
-                    if (showEstimateActive) {
-                        showEstimateActive = false;
-                        clearEstimate();
-                    }
-                    hideScoreConfirm();
-                    waitingScoreConfirm = false;
-                    iRejected = false;
-                    clearMobileMovePreview();
-                    updateTurn();
-                    break;
-                case 'scoreRejected':
-                    if (iRejected)
-                        iRejected = false;
-                    else 
-                        alert('对方拒绝数子结果，对局继续');
-                    clearMobileMovePreview();
-                    if (showEstimateActive) {
-                        showEstimateActive = false;
-                        clearEstimate();
-                    }
-                    hideScoreConfirm();
-                    waitingScoreConfirm = false;
-                    break;
-                case 'requestEnd':
-                    if (confirm('对方申请数子，是否同意？'))
-                        ws.send(JSON.stringify({ type: 'endResponse', accept: true }));
-                    else
-                        ws.send(JSON.stringify({ type: 'endResponse', accept: false }));
-                    break;
-                case 'gameRecord':
-                    downloadRecord(msg.data);
-                    break;
-                case 'importSuccess':
-                    if (msg.boardSize && msg.boardSize !== BOARD_SIZE) {
-                        BOARD_SIZE = msg.boardSize;
-                        board = initBoardArray(BOARD_SIZE);
-                        updateBoardGeometry();
-                        const importSizeSelect = document.getElementById('boardSizeSelect');
-                        if (importSizeSelect) importSizeSelect.value = msg.boardSize;
-                    }
-                    syncState(msg);
-                    clearEstimate();
-                    hideScoreConfirm();
-                    waitingScoreConfirm = false;
-                    if (msg.replayData)
-                        enterReplayMode({ ...msg.replayData, boardSize: msg.boardSize || msg.replayData.boardSize });
-                    updateRadioStyles();
-                    break;
-                case 'roomReset':
-                    exitReplayMode();
-                    syncState(msg);
-                    clearEstimate();
-                    hideScoreConfirm();
-                    waitingScoreConfirm = false;
-                    updateRadioStyles();
-                    break;
-                case 'boardSizeChanged':
-                    if (msg.boardSize) {
-                        const bs = document.getElementById('boardSizeSelect');
-                        if (bs) bs.value = msg.boardSize;
-                    }
-                    break;
-                case 'error':
-                    if (msg.message === '密码错误') {
-                        sessionStorage.removeItem(`roomPassword_${roomId}`);
-                        window.location.href = `/qi?game=${gameType}&room=${roomId}&needPassword=1`;
-                    } else alert(msg.message);
-                    break;
-                default: console.log('未知消息', msg);
-            }
-        }
-
-        function updateRecordButtons() {
-            const importBtn = document.getElementById('importBtn');
-            const exportBtn = document.getElementById('exportBtn');
-            if (replayMode) {
-                importBtn.style.display = 'none';
-                exportBtn.style.display = 'none';
-            } else {
-                const hasAnyStone = board.some(row => row.some(v => v !== 0));
-                const noPlayers = !slots.black && !slots.white;
-                if (noPlayers && !hasAnyStone) {
-                    importBtn.style.display = '';
-                    exportBtn.style.display = 'none';
-                } else {
-                    importBtn.style.display = 'none';
-                    exportBtn.style.display = '';
-                }
-            }
-        }
-
-        function updateRadioStyles()
-        {
-            labelBlack.classList.remove('self-radio', 'opponent-radio', 'checked-disabled');
-            labelWhite.classList.remove('self-radio', 'opponent-radio', 'checked-disabled');
-            if (slots.black) {
-                labelBlack.classList.add(mySlot === 'black' ? 'self-radio' : 'opponent-radio');
-                labelBlack.classList.add('checked-disabled');
-                radioBlack.disabled = true;
-                radioBlack.checked = true;
-            } else {
-                radioBlack.disabled = false;
-                radioBlack.checked = false;
-            }
-            if (slots.white) {
-                labelWhite.classList.add(mySlot === 'white' ? 'self-radio' : 'opponent-radio');
-                labelWhite.classList.add('checked-disabled');
-                radioWhite.disabled = true;
-                radioWhite.checked = true;
-            } else {
-                radioWhite.disabled = false;
-                radioWhite.checked = false;
-            }
-            updateRecordButtons();
-        }
+        const {
+            mobileTwoStepPlacing, clearMobileMovePreview, drawBoard, updateTurn, showEstimate, clearEstimate, downloadRecord,
+            showScoreConfirm, hideScoreConfirm, enterReplayMode, exitReplayMode, setReplayStep, updateReplayUI,
+            enterTryPlay, exitTryPlay, tryPlayMove, setTryPlayStep, updateTryPlayDisplay, rebuildLiveReplayFromMoveCoords,
+            applyLiveViewBoard, updateLiveReplayPanelUI, connectWebSocket, initBoardArray, updateBoardGeometry,
+            syncState, commitMove: commitMoveBase, getClosestIntersection, canvasCoordsFromClient, applyUserBoardMark
+        } = page;
 
         function commitMove(row, col) {
-            if (gameOver) return false;
-            if (!isMyTurn) return false;
-            if (board[row][col] !== 0) return false;
-            if (candidates.length > 0 && !candidates.some(c => c.row === row && c.col === col)) return false;
-            ws.send(JSON.stringify({ type: 'move', row, col }));
-            return true;
+            if (ps.candidates.length > 0 && !ps.candidates.some(c => c.row === row && c.col === col)) return false;
+            return commitMoveBase(row, col);
         }
 
-        function getClosestIntersection(x, y) {
-            return QiSquareWeiqiCanvas.getClosestIntersection(x, y, BOARD_SIZE, PADDING, CELL_SIZE);
-        }
-
-        function canvasCoordsFromClient(clientX, clientY) {
-            return QiSquareWeiqiCanvas.canvasCoordsFromClient(clientX, clientY, canvas, QiSquareWeiqiCanvas.DEFAULT_CANVAS_SIZE);
-        }
-
-        function getSelectedBoardMark() {
-            if (!boardMarkSelect) return { clear: false, ch: '?' };
-            const v = boardMarkSelect.value;
-            if (v === '') return { clear: true, ch: '' };
-            return { clear: false, ch: v };
-        }
-
-        function applyUserBoardMark(row, col) {
-            if (row < 0 || col < 0 || row >= BOARD_SIZE || col >= BOARD_SIZE) return;
-            if (board[row][col] !== 0) return;
-            const { clear, ch } = getSelectedBoardMark();
-            const key = row + ',' + col;
-            const existing = userBoardMarks[key];
-            if (clear) {
-                if (existing !== undefined) {
-                    delete userBoardMarks[key];
-                    drawBoard();
-                }
-                return;
-            }
-            if (existing === undefined) {
-                userBoardMarks[key] = ch;
-            } else if (existing !== ch) {
-                userBoardMarks[key] = ch;
-            } else {
-                delete userBoardMarks[key];
-            }
-            drawBoard();
-        }
+        const _weiqiBindings = QiBoardRoomClient.createWeiqiMessageBindings({
+            roomId, gameType, pageState: ps, drawBoard, exitTryPlay, enterTryPlay, setTryPlayStep, setReplayStep, setLiveViewStep,
+            getWs: () => ps.ws, getBoardSize: () => ps.BOARD_SIZE, setBoardSize: (n) => { ps.BOARD_SIZE = n; },
+            getKomi: () => ps.KOMI, setKomi: (n) => { ps.KOMI = n; if (komiInfo) komiInfo.innerText = `黑贴白${ps.KOMI}点`; },
+            getBoard: () => ps.board, setBoard: (b) => { ps.board = b; }, getSlots: () => ps.slots, setSlots: (s) => { ps.slots = s; },
+            getMySlot: () => ps.mySlot, setMySlot: (s) => { ps.mySlot = s; }, getGameOver: () => ps.gameOver, setGameOver: (v) => { ps.gameOver = v; },
+            getWinner: () => ps.winner, setWinner: (w) => { ps.winner = w; }, getReplayMode: () => ps.replayMode,
+            getShowEstimateActive: () => ps.showEstimateActive, setShowEstimateActive: (v) => { ps.showEstimateActive = v; },
+            getWaitingScoreConfirm: () => ps.waitingScoreConfirm, setWaitingScoreConfirm: (v) => { ps.waitingScoreConfirm = v; },
+            getIRejected: () => ps.iRejected, setIRejected: (v) => { ps.iRejected = v; },
+            colorStatus, scoreTitle, turnDisplay, labelBlack, labelWhite, radioBlack, radioWhite, syncState, updateBoardGeometry, initBoardArray,
+            exitReplayMode, clearEstimate, hideScoreConfirm, showEstimate, clearMobileMovePreview, downloadRecord, enterReplayMode, updateTurn, updateReplayUI,
+            showScoreConfirm, isMouseDevice, standardWeiqiMatchTime: true, onNewGameStarted: () => { colorStatus.innerText = '未选择阵营'; }
+        });
+        (function wrapReplayNewGame() {
+            const b = document.getElementById('newGameBtn'); if (!b) return;
+            const p = b.onclick;
+            b.onclick = () => { if (ps.replayMode) { if (ps.ws && ps.ws.readyState === WebSocket.OPEN) ps.ws.send(JSON.stringify({ type: 'resetRoom' })); return; } if (typeof p === 'function') p(); };
+        })();
+        const handleMessage = _weiqiBindings.handleMessage;
 
         let suppressCanvasClickAfterLongMark = false;
-
         canvas.addEventListener('contextmenu', (e) => {
             e.preventDefault();
             const { x, y } = canvasCoordsFromClient(e.clientX, e.clientY);
             const { row, col } = getClosestIntersection(x, y);
             applyUserBoardMark(row, col);
         });
-
-        const LONG_MARK_MS = 500;
-        const LONG_MARK_MOVE_CANCEL = 14;
-        let longMarkTimer = null;
-        let longMarkStart = null;
-
+        const LONG_MARK_MS = 500, LONG_MARK_MOVE_CANCEL = 14;
+        let longMarkTimer = null, longMarkStart = null;
         canvas.addEventListener('touchstart', (e) => {
             if (e.touches.length !== 1) return;
-            const t = e.touches[0];
-            longMarkStart = { x: t.clientX, y: t.clientY };
+            const t = e.touches[0]; longMarkStart = { x: t.clientX, y: t.clientY };
             longMarkTimer = setTimeout(() => {
-                longMarkTimer = null;
-                if (!longMarkStart) return;
+                longMarkTimer = null; if (!longMarkStart) return;
                 const { x, y } = canvasCoordsFromClient(longMarkStart.x, longMarkStart.y);
                 const { row, col } = getClosestIntersection(x, y);
-                applyUserBoardMark(row, col);
-                suppressCanvasClickAfterLongMark = true;
-                setTimeout(() => { suppressCanvasClickAfterLongMark = false; }, 450);
-                longMarkStart = null;
+                applyUserBoardMark(row, col); suppressCanvasClickAfterLongMark = true;
+                setTimeout(() => { suppressCanvasClickAfterLongMark = false; }, 450); longMarkStart = null;
             }, LONG_MARK_MS);
         }, { passive: true });
-
         canvas.addEventListener('touchmove', (e) => {
             if (!longMarkTimer || !longMarkStart || e.touches.length !== 1) return;
             const t = e.touches[0];
-            const dx = t.clientX - longMarkStart.x;
-            const dy = t.clientY - longMarkStart.y;
-            if (dx * dx + dy * dy > LONG_MARK_MOVE_CANCEL * LONG_MARK_MOVE_CANCEL) {
-                clearTimeout(longMarkTimer);
-                longMarkTimer = null;
-            }
+            const dx = t.clientX - longMarkStart.x, dy = t.clientY - longMarkStart.y;
+            if (dx * dx + dy * dy > LONG_MARK_MOVE_CANCEL * LONG_MARK_MOVE_CANCEL) { clearTimeout(longMarkTimer); longMarkTimer = null; }
         }, { passive: true });
-
         function clearLongMarkTouch() {
-            if (longMarkTimer) {
-                clearTimeout(longMarkTimer);
-                longMarkTimer = null;
-            }
+            if (longMarkTimer) { clearTimeout(longMarkTimer); longMarkTimer = null; }
             longMarkStart = null;
         }
         canvas.addEventListener('touchend', clearLongMarkTouch);
         canvas.addEventListener('touchcancel', clearLongMarkTouch);
 
         canvas.addEventListener('click', (e) => {
-            if (suppressCanvasClickAfterLongMark) {
-                e.preventDefault();
-                return;
-            }
+            if (suppressCanvasClickAfterLongMark) { e.preventDefault(); return; }
             const rect = canvas.getBoundingClientRect();
             const scale = 600 / rect.width;
-            const x = (e.clientX - rect.left) * scale;
-            const y = (e.clientY - rect.top) * scale;
+            const x = (e.clientX - rect.left) * scale, y = (e.clientY - rect.top) * scale;
             const { row, col } = getClosestIntersection(x, y);
-
-            if (tryPlayMode && replayMode) {
-                if (row < 0 || col < 0) {
-                    if (mobileTwoStepPlacing()) clearMobileMovePreview();
-                    drawBoard();
-                    return;
-                }
-                if (board[row][col] !== 0) return;
+            if (ps.tryPlayMode && ps.replayMode) {
+                if (row < 0 || col < 0) { if (mobileTwoStepPlacing()) clearMobileMovePreview(); drawBoard(); return; }
+                if (ps.board[row][col] !== 0) return;
                 if (mobileTwoStepPlacing()) {
-                    if (hoverRow === row && hoverCol === col && isHoverValid) {
-                        clearMobileMovePreview();
-                        tryPlayMove(row, col);
-                    } else {
-                        hoverRow = row;
-                        hoverCol = col;
-                        isHoverValid = true;
-                        drawBoard();
-                    }
+                    if (ps.hoverRow === row && ps.hoverCol === col && ps.isHoverValid) { clearMobileMovePreview(); tryPlayMove(row, col); }
+                    else { ps.hoverRow = row; ps.hoverCol = col; ps.isHoverValid = true; drawBoard(); }
                     return;
                 }
                 tryPlayMove(row, col);
                 return;
             }
-            if (gameOver) return;
-            if (!isMyTurn) return;
-            if (waitingScoreConfirm) return;
-
-            if (row < 0 || col < 0) {
-                if (mobileTwoStepPlacing()) clearMobileMovePreview();
-                drawBoard();
-                return;
+            if (ps.gameOver) return;
+            if (!ps.isMyTurn) return;
+            if (ps.waitingScoreConfirm) return;
+            if (row < 0 || col < 0) { if (mobileTwoStepPlacing()) clearMobileMovePreview(); drawBoard(); return; }
+            if (ps.board[row][col] !== 0) return;
+            if (ps.candidates.length > 0 && !ps.candidates.some(c => c.row === row && c.col === col)) {
+                if (mobileTwoStepPlacing()) clearMobileMovePreview(); drawBoard(); return;
             }
-            if (board[row][col] !== 0) return;
-            if (candidates.length > 0 && !candidates.some(c => c.row === row && c.col === col)) {
-                if (mobileTwoStepPlacing()) clearMobileMovePreview();
-                drawBoard();
-                return;
-            }
-
             if (mobileTwoStepPlacing()) {
-                if (hoverRow === row && hoverCol === col && isHoverValid) {
-                    clearMobileMovePreview();
-                    commitMove(row, col);
-                    drawBoard();
-                } else {
-                    hoverRow = row;
-                    hoverCol = col;
-                    isHoverValid = true;
-                    drawBoard();
-                }
+                if (ps.hoverRow === row && ps.hoverCol === col && ps.isHoverValid) { clearMobileMovePreview(); commitMove(row, col); drawBoard(); }
+                else { ps.hoverRow = row; ps.hoverCol = col; ps.isHoverValid = true; drawBoard(); }
                 return;
             }
             commitMove(row, col);
         });
 
-        if (isMouseDevice)
-        {
+        if (isMouseDevice) {
             canvas.addEventListener('mousemove', (e) => {
-                if (waitingScoreConfirm) {
-                    if (isHoverValid) { isHoverValid = false; hoverRow = -1; hoverCol = -1; drawBoard(); }
+                if (ps.waitingScoreConfirm) {
+                    if (ps.isHoverValid) { ps.isHoverValid = false; ps.hoverRow = -1; ps.hoverCol = -1; drawBoard(); }
                     return;
                 }
                 const rect = canvas.getBoundingClientRect();
                 const scale = 600 / rect.width;
-                const x = (e.clientX - rect.left) * scale;
-                const y = (e.clientY - rect.top) * scale;
+                const x = (e.clientX - rect.left) * scale, y = (e.clientY - rect.top) * scale;
                 const { row, col } = getClosestIntersection(x, y);
-                hoverRow = row; hoverCol = col;
-                const onCand = candidates.length === 0 || candidates.some(c => c.row === row && c.col === col);
-                isHoverValid = (row >= 0 && col >= 0 && board[row][col] === 0 && onCand);
+                ps.hoverRow = row; ps.hoverCol = col;
+                const onCand = ps.candidates.length === 0 || ps.candidates.some(c => c.row === row && c.col === col);
+                ps.isHoverValid = (row >= 0 && col >= 0 && ps.board[row][col] === 0 && onCand);
                 drawBoard();
             });
             canvas.addEventListener('mouseleave', () => {
-                if (!waitingScoreConfirm) {
-                    isHoverValid = false;
-                    hoverRow = -1; hoverCol = -1;
-                    drawBoard();
-                }
+                if (!ps.waitingScoreConfirm) { ps.isHoverValid = false; ps.hoverRow = -1; ps.hoverCol = -1; drawBoard(); }
             });
         }
 
-        document.getElementById('newGameBtn').onclick = () => {
-            if (replayMode) {
-                ws.send(JSON.stringify({ type: 'resetRoom' }));
-                return;
-            }
-            if (!mySlot) { alert('只有对局者可以开始新局'); return; }
-            const opponentSlot = mySlot === 'black' ? 'white' : 'black';
-            const hasOpponent = slots[opponentSlot];
-            if (hasOpponent) {
-                if (confirm('确定向对方申请开始新局吗？')) ws.send(JSON.stringify({ type: 'requestNewGame' }));
-            } else {
-                if (confirm('确定开始新局吗？')) ws.send(JSON.stringify({ type: 'requestNewGame' }));
-            }
-        };
-        document.getElementById('estimateBtn').onclick = () => {
-            showEstimateActive = !showEstimateActive;
-            if (showEstimateActive) showEstimate();
-            else clearEstimate();
-        };
-        document.getElementById('tryPlayBtn').onclick = () => {
-            if (tryPlayMode) exitTryPlay();
-            else enterTryPlay();
-        };
-        document.getElementById('showNumbersCheck').onchange = (e) => {
-            showMoveNumbers = e.target.checked;
-            drawBoard();
-        };
-        document.getElementById('passBtn').onclick = () => {
-            if (!isMyTurn) return;
-            ws.send(JSON.stringify({ type: 'pass' }));
-        };
-        document.getElementById('undoBtn').onclick = () => {
-            if (!mySlot) { alert('只有对局者可以悔棋'); return; }
-            const opponentSlot = mySlot === 'black' ? 'white' : 'black';
-            const hasOpponent = slots[opponentSlot];
-            if (hasOpponent) {
-                if (confirm('确定向对方申请悔棋吗？')) ws.send(JSON.stringify({ type: 'requestUndo' }));
-            } else {
-                if (confirm('确定悔棋吗？')) ws.send(JSON.stringify({ type: 'requestUndo' }));
-            }
-        };
-        document.getElementById('resignBtn').onclick = () => {
-            if (!mySlot) { alert('只有对局者可以认输'); return; }
-            if (confirm('确定认输吗？')) ws.send(JSON.stringify({ type: 'resign' }));
-        };
-        document.getElementById('drawBtn').onclick = () => {
-            if (!ps.mySlot) { alert('只有对局者可以申请和棋'); return; }
-            const opponentSlot = ps.mySlot === 'black' ? 'white' : 'black';
-            const hasOpponent = ps.slots[opponentSlot];
-            if (hasOpponent) {
-                if (confirm('确定向对方申请和棋吗？')) ps.ws.send(JSON.stringify({ type: 'requestDraw' }));
-            } else {
-                if (confirm('确定和棋吗？')) ps.ws.send(JSON.stringify({ type: 'requestDraw' }));
-            }
-        };
-        document.getElementById('endReqBtn').onclick = () => {
-            if (!mySlot) { alert('只有对局者可以申请数子'); return; }
-            ws.send(JSON.stringify({ type: 'requestEnd' }));
-        };
-        document.getElementById('exportBtn').onclick = () => {
-            ws.send(JSON.stringify({ type: 'exportRecord' }));
-        };
-        document.getElementById('importBtn').onclick = () => {
-            document.getElementById('importFileInput').click();
-        };
-        document.getElementById('importFileInput').onchange = (e) => {
-            const file = e.target.files[0];
-            if (!file) return;
-            const reader = new FileReader();
-            reader.onload = (ev) => {
-                try {
-                    const data = JSON.parse(ev.target.result);
-                    ws.send(JSON.stringify({ type: 'importRecord', data }));
-                } catch (err) {
-                    alert('棋谱文件解析失败');
-                }
-            };
-            reader.readAsText(file);
-            e.target.value = '';
-        };
-        document.getElementById('boardSizeSelect').addEventListener('change', (e) =>
-        {
-            const newSize = parseInt(e.target.value, 10);
-            if (ws && ws.readyState === WebSocket.OPEN)
-                ws.send(JSON.stringify({ type: 'setBoardSize', size: newSize }));
-        });
-        document.getElementById('backToLobbyBtn').onclick = () => { window.location.href = '/qi'; };
-        radioBlack.onchange = function () { if (this.checked && !this.disabled) ws.send(JSON.stringify({ type: 'selectColor', color: 'black' })); };
-        radioWhite.onchange = function () { if (this.checked && !this.disabled) ws.send(JSON.stringify({ type: 'selectColor', color: 'white' })); };
-
-        // 数子确认按钮事件
-        if (scoreConfirmYes)
-        {
-            scoreConfirmYes.onclick = () => {
-                ws.send(JSON.stringify({ type: 'scoreResponse', accept: true }));
-                hideScoreConfirm();
-            };
+        if (scoreConfirmYes) {
+            scoreConfirmYes.onclick = () => { ps.ws.send(JSON.stringify({ type: 'scoreResponse', accept: true })); hideScoreConfirm(); };
             scoreConfirmNo.onclick = () => {
-                iRejected = true;
-                ws.send(JSON.stringify({ type: 'scoreResponse', accept: false }));
+                ps.iRejected = true;
+                ps.ws.send(JSON.stringify({ type: 'scoreResponse', accept: false }));
                 hideScoreConfirm();
-                if (showEstimateActive) {
-                    showEstimateActive = false;
-                    clearEstimate();
-                }
-                waitingScoreConfirm = false;
+                if (ps.showEstimateActive) { ps.showEstimateActive = false; clearEstimate(); }
+                ps.waitingScoreConfirm = false;
             };
         }
 
-        document.getElementById('replayBackBtn').onclick = () => {
-            if (replayMode) {
-                if (tryPlayMode) setTryPlayStep(tryPlayStep - 1);
-                else setReplayStep(replayStep - 1);
-            } else {
-                setLiveViewStep(liveViewStep - 1);
-            }
-        };
-        document.getElementById('replayForwardBtn').onclick = () => {
-            if (replayMode) {
-                if (tryPlayMode) setTryPlayStep(tryPlayStep + 1);
-                else setReplayStep(replayStep + 1);
-            } else {
-                setLiveViewStep(liveViewStep + 1);
-            }
-        };
-        document.getElementById('replaySlider').addEventListener('input', (e) => {
-            const val = parseInt(e.target.value, 10);
-            if (replayMode) {
-                if (tryPlayMode) setTryPlayStep(val);
-                else setReplayStep(val);
-            } else {
-                setLiveViewStep(val);
-            }
-        });
-
-        const modal = document.getElementById('rulesModal');
-        document.getElementById('helpBtn').onclick = () => modal.style.display = 'flex';
-        document.getElementById('closeRulesBtn').onclick = () => modal.style.display = 'none';
-        modal.onclick = (e) => { if (e.target === modal) modal.style.display = 'none'; };
-
-        connectWebSocket();
+        connectWebSocket(handleMessage);
     </script>
 </body>
 </html>

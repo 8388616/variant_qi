@@ -1,0 +1,1283 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=2.0, user-scalable=yes">
+    <title>WxD棋</title>
+    <link rel="stylesheet" href="/qi/qi.css">
+</head>
+<body>
+    <div class="game-wrapper">
+        <div class="top-panel">
+            <div class="left-group">
+                <div class="side-select">
+                    <label id="labelBlack"><input type="radio" name="color" value="black" id="radioBlack"> ⚫ 黑方</label>
+                    <label id="labelWhite"><input type="radio" name="color" value="white" id="radioWhite"> ⚪ 白方</label>
+                </div>
+                <div class="komi-info" id="komiInfo">黑贴白32点</div>
+                <div class="color-status" id="colorStatus">观战</div>
+                <select id="boardSizeSelect" class="board-size-select">
+                    <option value="3">3路</option>
+                    <option value="5">5路</option>
+                    <option value="7">7路</option>
+                    <option value="9" selected>9路</option>
+                    <option value="11">11路</option>
+                    <option value="13">13路</option>
+                    <option value="15">15路</option>
+                    <option value="17">17路</option>
+                    <option value="19">19路</option>
+                    <option value="21">21路</option>
+                </select>
+                <label style="cursor:pointer; display:inline-flex; align-items:center; gap:5px; font-size:0.95rem;">
+                    <input type="checkbox" id="showNumbersCheck"> 显示序号
+                </label>
+            </div>
+            <div class="right-buttons">
+                <button class="help-btn" id="helpBtn">说明</button>
+                <button class="back-to-lobby-btn" id="backToLobbyBtn">返回大厅</button>
+            </div>
+        </div>
+
+        <div id="rulesModal" class="rules-modal">
+            <div class="rules-content">
+                <span class="close-rules" id="closeRulesBtn">&times;</span>
+                <h3>WxD棋</h3>
+                <p>
+                    双方从中心格出发，每步只能走到自己上一手周围八格，并获得格内分数。<br /><br />
+                    当一方无路可走时，由另一方继续走，直至双方都无路可走时结束。<br /><br />
+                    积分高者获胜。<br />
+                </p>
+            </div>
+        </div>
+
+        <div class="main-area">
+            <div class="button-panel">
+                <button class="ctrl-btn" id="newGameBtn">新局</button>
+                <button class="ctrl-btn" id="undoBtn" style="display:none;">悔棋</button>
+                <button class="ctrl-btn" id="resignBtn" style="display:none;">认输</button>
+                <button class="ctrl-btn" id="drawBtn" style="display:none;">和棋</button>
+                <button class="ctrl-btn" id="tryPlayBtn" style="display:none;">试下</button>
+                <button class="ctrl-btn" id="importBtn">导入棋谱</button>
+                <button class="ctrl-btn" id="exportBtn" style="display:none;">导出棋谱</button>
+            </div>
+            <div class="board-and-info">
+                <div class="board-container">
+                    <canvas id="goBoard" width="600" height="600"></canvas>
+                </div>
+                <div class="main-area-right">
+                    <div class="info-panel">
+                        <div class="turn-box" id="turnDisplay">　</div>
+                        <div class="score-box">
+                            <div class="score-title" id="scoreTitle">　</div>
+                            <div class="score-content">
+                                <div id="scoreBoard">黑: 0　白: 0</div>
+                                <div id="leadInfo" style="margin-top:6px; color:#ffb870;">　</div>
+                            </div>
+                        </div>
+                        <div id="replayPanel" class="replay-panel">
+                            <div class="replay-nav">
+                                <button class="replay-nav-btn" id="replayBackBtn">◀</button>
+                                <div class="replay-step-display" id="replayStepDisplay">0 / 0</div>
+                                <button class="replay-nav-btn" id="replayForwardBtn">▶</button>
+                            </div>
+                            <input type="range" id="replaySlider" min="0" max="0" value="0" class="replay-slider">
+                        </div>
+                    </div>
+                    <div id="goTimerPanel" class="go-timer-panel" hidden>
+                        <div class="go-timer-block go-timer-black" data-go-timer="black">
+                            <div class="go-timer-title">⚫ 黑方</div>
+                            <div class="go-timer-line2">
+                                <span class="go-timer-count">—</span>
+                                <span class="go-timer-over">—</span>
+                            </div>
+                            <div class="go-timer-rule">　</div>
+                        </div>
+                        <div class="go-timer-block go-timer-white" data-go-timer="white">
+                            <div class="go-timer-title">⚪ 白方</div>
+                            <div class="go-timer-line2">
+                                <span class="go-timer-count">—</span>
+                                <span class="go-timer-over">—</span>
+                            </div>
+                            <div class="go-timer-rule">　</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div id="timeControlModal" class="qi-time-control-modal" style="display:none;">
+        <div class="qi-time-control-dialog">
+            <div class="qi-time-control-title" id="timeControlTitle">对局限时设置</div>
+            <div id="timeControlBody">
+                <div class="qi-time-control-radio-row">
+                    <label class="qi-time-control-radio"><input type="radio" name="tcTimed" value="timed" checked> 限时</label>
+                    <label class="qi-time-control-radio"><input type="radio" name="tcTimed" value="untimed"> 不限时</label>
+                </div>
+                <div class="qi-time-control-fields">
+                    <label class="qi-time-control-field">基础用时(分钟)
+                        <input id="tcMainMinutes" type="number" min="1" max="120" value="1">
+                    </label>
+                    <label class="qi-time-control-field">读秒(秒)
+                        <input id="tcByoSeconds" type="number" min="0" max="180" value="10">
+                    </label>
+                    <label class="qi-time-control-field">超时次数
+                        <input id="tcTimeouts" type="number" min="0" max="20" value="3">
+                    </label>
+                </div>
+                <div class="qi-time-control-hint" id="timeControlHint"></div>
+            </div>
+            <div class="qi-time-control-footer">
+                <button id="timeControlPrimary" class="qi-time-control-primary">提交</button>
+                <button id="timeControlSecondary" class="qi-time-control-secondary" style="display:none;">调整</button>
+            </div>
+            <div id="timeControlWait" class="qi-time-control-wait" style="display:none;">等待中…</div>
+        </div>
+    </div>
+    <input type="file" id="importFileInput" accept=".json" style="display:none;">
+
+    <script src="/qi/qi.js"></script>
+    <script>
+        (function () {
+            const ps = {
+                BOARD_SIZE: 9,
+                PADDING: 45,
+                CELL_SIZE: 56,
+                board: [],
+                weights: [],
+                center: { row: 4, col: 4 },
+                komi: 0,
+                blackScore: 0,
+                whiteScore: 0,
+                numberOfHands: 1,
+                currentPlayer: 1,
+                mySlot: null,
+                gameOver: false,
+                winner: null,
+                lastMoveMarkers: [],
+                slots: { black: false, white: false },
+                ws: null,
+                reconnectTimer: null,
+                moveLog: [],
+                showMoveNumbers: false,
+                replayMode: false,
+                replayBoards: [],
+                replayMarkers: [],
+                replayStepPlayers: [],
+                replayScores: [],
+                replayCurrentPlayers: [],
+                replayGameOvers: [],
+                replayWinners: [],
+                replayStep: 0,
+                replayTotalSteps: 0,
+                tryPlayMode: false,
+                tryPlayFromLive: false,
+                tryPlayBaseStep: 0,
+                tryPlayBoards: [],
+                tryPlayMarkers: [],
+                tryPlayStepPlayers: [],
+                tryPlayScores: [],
+                tryPlayCurrentPlayers: [],
+                tryPlayGameOvers: [],
+                tryPlayWinners: [],
+                tryPlayStep: 0,
+                tryPlayTotalSteps: 0,
+                tryPlayBranchMoves: [],
+                hoverRow: -1,
+                hoverCol: -1,
+                isHoverValid: false,
+                matchStarted: false,
+                matchTime: null,
+                matchStartedOnce: false
+            };
+
+            const pathMatch = window.location.pathname.match(/^\/qi\/([^/]+)\/(\d+)$/);
+            if (!pathMatch) {
+                alert('无效的房间链接');
+                throw new Error('Invalid room URL');
+            }
+            const gameType = pathMatch[1];
+            const roomId = pathMatch[2];
+            let roomPassword = sessionStorage.getItem(`roomPassword_${roomId}`) || null;
+
+            const canvas = document.getElementById('goBoard');
+            const ctx = canvas.getContext('2d');
+            const turnDisplay = document.getElementById('turnDisplay');
+            const scoreBoard = document.getElementById('scoreBoard');
+            const leadInfo = document.getElementById('leadInfo');
+            const scoreTitle = document.getElementById('scoreTitle');
+            const colorStatus = document.getElementById('colorStatus');
+            const komiInfo = document.getElementById('komiInfo');
+            const labelBlack = document.getElementById('labelBlack');
+            const labelWhite = document.getElementById('labelWhite');
+            const radioBlack = document.getElementById('radioBlack');
+            const radioWhite = document.getElementById('radioWhite');
+            const boardSizeSelect = document.getElementById('boardSizeSelect');
+            const showNumbersCheck = document.getElementById('showNumbersCheck');
+            const goTimerPanel = document.getElementById('goTimerPanel');
+            const tcModal = document.getElementById('timeControlModal');
+            const tcTitle = document.getElementById('timeControlTitle');
+            const tcHint = document.getElementById('timeControlHint');
+            const tcMainMinutes = document.getElementById('tcMainMinutes');
+            const tcByoSeconds = document.getElementById('tcByoSeconds');
+            const tcTimeouts = document.getElementById('tcTimeouts');
+            const tcPrimary = document.getElementById('timeControlPrimary');
+            const tcSecondary = document.getElementById('timeControlSecondary');
+            const tcWait = document.getElementById('timeControlWait');
+
+            const isMouseDevice = window.matchMedia('(hover: hover) and (pointer: fine)').matches;
+
+            function updateGeometry() {
+                const n = ps.BOARD_SIZE;
+                ps.PADDING = 63 - 2 * n;
+                ps.CELL_SIZE = (600 - 2 * ps.PADDING) / n;
+            }
+
+            function initBoardArrays() {
+                ps.board = Array.from({ length: ps.BOARD_SIZE }, () => Array(ps.BOARD_SIZE).fill(0));
+                ps.weights = Array.from({ length: ps.BOARD_SIZE }, () => Array(ps.BOARD_SIZE).fill(0));
+                const center = Math.floor(ps.BOARD_SIZE / 2);
+                ps.center = { row: center, col: center };
+            }
+
+            function computeKomiBySize(n) {
+                const totalScore = ((n * n - 1) * n * n) / 2;
+                return Math.floor(0.01 * totalScore);
+            }
+
+            function updateKomiText() {
+                komiInfo.textContent = `黑贴白${ps.komi}点`;
+            }
+
+            function tcFormatMs(ms) {
+                const total = Math.max(0, Math.ceil((ms || 0) / 1000));
+                const h = Math.floor(total / 3600);
+                const m = Math.floor((total % 3600) / 60);
+                const s = total % 60;
+                if (h > 0) 
+                    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+                return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+            }
+
+            function tcRuleLine(settings) {
+                if (!settings || !settings.timed) return '不限时';
+                const mm = Number(settings.mainMinutes) || 0;
+                const hh = Math.floor(mm / 60);
+                const m = mm % 60;
+                const timeText = hh > 0 ? `${String(hh).padStart(2, '0')}:${String(m).padStart(2, '0')}:00` : `${String(m).padStart(2, '0')}:00`;
+                return `${timeText} ${settings.byoyomiSeconds}秒${settings.maxTimeouts}次`;
+            }
+
+            function hideTimeControlModal() {
+                tcModal.style.display = 'none';
+                tcWait.style.display = 'none';
+                tcSecondary.style.display = 'none';
+                tcHint.textContent = '';
+            }
+
+            function showTimeControlWait(text) {
+                tcModal.style.display = 'flex';
+                tcTitle.textContent = '对局限时设置';
+                tcPrimary.style.display = 'none';
+                tcSecondary.style.display = 'none';
+                tcWait.style.display = 'block';
+                tcWait.textContent = text || '等待中…';
+                tcHint.textContent = '';
+            }
+
+            function enableTimeControlInputs() {
+                const radios = document.querySelectorAll('input[name="tcTimed"]');
+                radios.forEach((r) => { r.disabled = false; });
+                tcMainMinutes.disabled = false;
+                tcByoSeconds.disabled = false;
+                tcTimeouts.disabled = false;
+            }
+
+            function showTimeControlProposal(prefill) {
+                enableTimeControlInputs();
+                tcModal.style.display = 'flex';
+                tcPrimary.style.display = '';
+                tcPrimary.textContent = '提交';
+                tcSecondary.style.display = 'none';
+                tcWait.style.display = 'none';
+                tcTitle.textContent = '对局限时设置';
+                const timed = !prefill || prefill.timed !== false;
+                const radios = document.querySelectorAll('input[name="tcTimed"]');
+                radios.forEach((r) => {
+                    r.checked = (timed && r.value === 'timed') || (!timed && r.value === 'untimed');
+                });
+                tcMainMinutes.value = String(prefill && prefill.mainMinutes != null ? prefill.mainMinutes : 1);
+                tcByoSeconds.value = String(prefill && prefill.byoyomiSeconds != null ? prefill.byoyomiSeconds : 10);
+                tcTimeouts.value = String(prefill && prefill.maxTimeouts != null ? prefill.maxTimeouts : 3);
+            }
+
+            function showTimeControlRespond(proposal) {
+                tcModal.style.display = 'flex';
+                tcPrimary.style.display = '';
+                tcPrimary.textContent = '确认';
+                tcSecondary.style.display = '';
+                tcSecondary.textContent = '调整';
+                tcWait.style.display = 'none';
+                tcTitle.textContent = '对方提议的限时规则';
+                const timed = proposal && proposal.timed;
+                const radios = document.querySelectorAll('input[name="tcTimed"]');
+                radios.forEach((r) => {
+                    r.checked = (timed && r.value === 'timed') || (!timed && r.value === 'untimed');
+                    r.disabled = true;
+                });
+                tcMainMinutes.value = String(proposal && proposal.mainMinutes != null ? proposal.mainMinutes : 1);
+                tcByoSeconds.value = String(proposal && proposal.byoyomiSeconds != null ? proposal.byoyomiSeconds : 10);
+                tcTimeouts.value = String(proposal && proposal.maxTimeouts != null ? proposal.maxTimeouts : 3);
+                tcMainMinutes.disabled = true;
+                tcByoSeconds.disabled = true;
+                tcTimeouts.disabled = true;
+                tcHint.textContent = tcRuleLine(proposal);
+            }
+
+            function updateTimerPanel() {
+                if (!ps.matchTime || !ps.matchTime.settings || !ps.matchTime.settings.timed) {
+                    goTimerPanel.hidden = true;
+                    return;
+                }
+                goTimerPanel.hidden = false;
+                const clock = ps.matchTime.clock || {};
+                const settings = ps.matchTime.settings;
+                ['black', 'white'].forEach((slot) => {
+                    const wrap = goTimerPanel.querySelector(`[data-go-timer="${slot}"]`);
+                    if (!wrap) return;
+                    const countEl = wrap.querySelector('.go-timer-count');
+                    const overEl = wrap.querySelector('.go-timer-over');
+                    const ruleEl = wrap.querySelector('.go-timer-rule');
+                    const p = clock[slot] || {};
+                    if (countEl) countEl.textContent = tcFormatMs(p.displayMs || p.mainMs || 0);
+                    if (overEl) overEl.textContent = `${p.timeoutsUsed || 0}/${settings.maxTimeouts}`;
+                    if (ruleEl) ruleEl.textContent = tcRuleLine(settings);
+                    if (!ps.gameOver && !ps.tryPlayMode && ps.matchStarted && clock.activeSlot === slot) wrap.classList.add('is-active');
+                    else wrap.classList.remove('is-active');
+                });
+            }
+
+            function boardCenterOfCell(row, col) {
+                return {
+                    x: ps.PADDING + col * ps.CELL_SIZE + ps.CELL_SIZE / 2,
+                    y: ps.PADDING + row * ps.CELL_SIZE + ps.CELL_SIZE / 2
+                };
+            }
+
+            function getClosestCell(x, y) {
+                let best = { row: -1, col: -1, dist: Infinity };
+                for (let r = 0; r < ps.BOARD_SIZE; r++) {
+                    for (let c = 0; c < ps.BOARD_SIZE; c++) {
+                        const p = boardCenterOfCell(r, c);
+                        const d = Math.hypot(x - p.x, y - p.y);
+                        if (d < best.dist) best = { row: r, col: c, dist: d };
+                    }
+                }
+                return { row: best.row, col: best.col };
+            }
+
+            function computeStoneNumbers() {
+                const nums = Array.from({ length: ps.BOARD_SIZE }, () => Array(ps.BOARD_SIZE).fill(0));
+                for (let i = 0; i < ps.moveLog.length; i++) {
+                    const m = ps.moveLog[i];
+                    if (m && m.type === 'move' && ps.board[m.row][m.col] !== 0) nums[m.row][m.col] = i + 1;
+                }
+                return nums;
+            }
+
+            function canPlayAt(row, col) {
+                if (row < 0 || row >= ps.BOARD_SIZE || col < 0 || col >= ps.BOARD_SIZE) return false;
+                if (ps.tryPlayMode) return false;
+                if (ps.replayMode) return false;
+                if (ps.gameOver || !isMyTurn()) return false;
+                if (ps.board[row][col] !== 0) return false;
+                if (row === ps.center.row && col === ps.center.col) return false;
+                const me = ps.mySlot === 'black' ? 1 : 2;
+                let last = null;
+                for (let i = ps.moveLog.length - 1; i >= 0; i--) {
+                    const m = ps.moveLog[i];
+                    if (m.player === ps.mySlot) {
+                        last = { row: m.row, col: m.col };
+                        break;
+                    }
+                }
+                if (!last) last = ps.center;
+                const dr = Math.abs(last.row - row);
+                const dc = Math.abs(last.col - col);
+                return (dr <= 1 && dc <= 1 && !(dr === 0 && dc === 0) && me > 0);
+            }
+
+            function drawBoard() {
+                ctx.clearRect(0, 0, 600, 600);
+                ctx.fillStyle = '#deb887';
+                ctx.fillRect(0, 0, 600, 600);
+
+                ctx.lineWidth = 1.5;
+                ctx.strokeStyle = '#3a281c';
+                for (let i = 0; i <= ps.BOARD_SIZE; i++) {
+                    const x = ps.PADDING + i * ps.CELL_SIZE;
+                    const y = ps.PADDING + i * ps.CELL_SIZE;
+                    ctx.beginPath();
+                    ctx.moveTo(x, ps.PADDING);
+                    ctx.lineTo(x, 600 - ps.PADDING);
+                    ctx.stroke();
+                    ctx.beginPath();
+                    ctx.moveTo(ps.PADDING, y);
+                    ctx.lineTo(600 - ps.PADDING, y);
+                    ctx.stroke();
+                }
+
+                const c = ps.center;
+                ctx.fillStyle = '#808080';
+                ctx.fillRect(
+                    ps.PADDING + c.col * ps.CELL_SIZE + 1,
+                    ps.PADDING + c.row * ps.CELL_SIZE + 1,
+                    ps.CELL_SIZE - 2,
+                    ps.CELL_SIZE - 2
+                );
+
+                ctx.font = `bold ${17 - 0.2 * ps.BOARD_SIZE}px Arial`;
+                ctx.fillStyle = '#3a281c';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                for (let col = 0; col < ps.BOARD_SIZE; col++) {
+                    const letter = String.fromCharCode(65 + col);
+                    const p = boardCenterOfCell(0, col);
+                    ctx.fillText(letter, p.x, 0.6 * ps.PADDING);
+                }
+                for (let row = 0; row < ps.BOARD_SIZE; row++) {
+                    const p = boardCenterOfCell(row, 0);
+                    ctx.fillText(String(row + 1), 0.5 * ps.PADDING, p.y);
+                }
+
+                const stoneRadius = ps.CELL_SIZE * 0.38;
+
+                for (const marker of ps.lastMoveMarkers) {
+                    const p = boardCenterOfCell(marker.row, marker.col);
+                    ctx.beginPath();
+                    ctx.moveTo(p.x + stoneRadius, p.y + stoneRadius);
+                    ctx.lineTo(p.x, p.y + stoneRadius);
+                    ctx.lineTo(p.x + stoneRadius, p.y);
+                    ctx.closePath();
+                    ctx.fillStyle = marker.color === 1 ? '#fff' : '#222';
+                    ctx.fill();
+                }
+
+                for (let r = 0; r < ps.BOARD_SIZE; r++) {
+                    for (let c2 = 0; c2 < ps.BOARD_SIZE; c2++) {
+                        const v = ps.board[r][c2];
+                        if (v === 0) continue;
+                        const p = boardCenterOfCell(r, c2);
+                        const grad = ctx.createRadialGradient(p.x - 3, p.y - 3, stoneRadius * 0.2, p.x, p.y, stoneRadius * 1.2);
+                        if (v === 1) {
+                            grad.addColorStop(0, '#444');
+                            grad.addColorStop(0.6, '#222');
+                            grad.addColorStop(1, '#111');
+                        } else {
+                            grad.addColorStop(0, '#fff');
+                            grad.addColorStop(0.5, '#eee');
+                            grad.addColorStop(1, '#aaa');
+                        }
+                        ctx.save();
+                        ctx.shadowBlur = 6;
+                        ctx.shadowColor = 'rgba(0,0,0,0.5)';
+                        ctx.shadowOffsetY = 2;
+                        ctx.beginPath();
+                        ctx.arc(p.x, p.y, stoneRadius, 0, Math.PI * 2);
+                        ctx.fillStyle = grad;
+                        ctx.fill();
+                        ctx.restore();
+                    }
+                }
+
+                if (!ps.showMoveNumbers) {
+                    for (let r = 0; r < ps.BOARD_SIZE; r++) {
+                        for (let c2 = 0; c2 < ps.BOARD_SIZE; c2++) {
+                            const w = ps.weights[r][c2];
+                            if (w <= 0) continue;
+                            const p = boardCenterOfCell(r, c2);
+                            ctx.font = `bold ${Math.floor(ps.CELL_SIZE * 0.35)}px Arial`;
+                            if (ps.board[r][c2] === 1) ctx.fillStyle = '#fff';
+                            else if (ps.board[r][c2] === 2) ctx.fillStyle = '#444';
+                            else ctx.fillStyle = '#2c1f15';
+                            ctx.fillText(String(w), p.x, p.y);
+                        }
+                    }
+                }
+
+                if (ps.showMoveNumbers) {
+                    const nums = computeStoneNumbers();
+                    for (let r = 0; r < ps.BOARD_SIZE; r++) {
+                        for (let c2 = 0; c2 < ps.BOARD_SIZE; c2++) {
+                            if (nums[r][c2] <= 0 || ps.board[r][c2] === 0) continue;
+                            const p = boardCenterOfCell(r, c2);
+                            const num = String(nums[r][c2]);
+                            const fontSize = Math.max(9, Math.floor(ps.CELL_SIZE * (num.length >= 3 ? 0.308 : 0.396)));
+                            ctx.font = `bold ${fontSize}px Arial`;
+                            ctx.fillStyle = ps.board[r][c2] === 1 ? '#fff' : '#000';
+                            ctx.fillText(num, p.x, p.y + 1);
+                        }
+                    }
+                }
+
+                if (!ps.gameOver && ps.isHoverValid && ps.hoverRow >= 0 && ps.hoverCol >= 0) {
+                    const canH = ps.tryPlayMode ? tryPlayCanPlayAt(ps.hoverRow, ps.hoverCol) : (isMyTurn() && canPlayAt(ps.hoverRow, ps.hoverCol));
+                    if (canH) {
+                        const p = boardCenterOfCell(ps.hoverRow, ps.hoverCol);
+                        ctx.save();
+                        ctx.globalAlpha = 0.42;
+                        ctx.beginPath();
+                        ctx.arc(p.x, p.y, stoneRadius, 0, Math.PI * 2);
+                        const isBlackStone = ps.tryPlayMode ? (ps.currentPlayer === 1) : (ps.mySlot === 'black');
+                        ctx.fillStyle = isBlackStone ? '#222' : '#ddd';
+                        ctx.fill();
+                        ctx.restore();
+                    }
+                }
+            }
+
+            function updateScoreBoard() {
+                scoreBoard.textContent = `黑: ${ps.blackScore}　白: ${ps.whiteScore}`;
+                if (ps.gameOver) {
+                    const adjWhite = ps.whiteScore + ps.komi;
+                    if (ps.winner === 'black') {
+                        leadInfo.textContent = `终局：黑胜`;
+                    } else if (ps.winner === 'white') {
+                        leadInfo.textContent = `终局：白胜`;
+                    } else {
+                        leadInfo.textContent = `终局：和棋`;
+                    }
+                } else {
+                    leadInfo.textContent = '　';
+                }
+            }
+
+            function updateTurn() {
+                updateActionButtons();
+                if (ps.tryPlayMode) {
+                    const stepDisplay = document.getElementById('replayStepDisplay');
+                    stepDisplay.textContent = `试下 ${ps.tryPlayStep} / ${ps.tryPlayTotalSteps}`;
+                    const emoji = ps.currentPlayer === 1 ? '⚫' : '⚪';
+                    turnDisplay.textContent = `${emoji} 试下`;
+                    return;
+                }
+                if (ps.replayMode) {
+                    if (ps.replayStep <= 0) {
+                        turnDisplay.textContent = '打谱：初始局面';
+                    } else {
+                        const playerVal = ps.replayStepPlayers[ps.replayStep] || 0;
+                        const emoji = playerVal === 1 ? '⚫' : '⚪';
+                        turnDisplay.textContent = `打谱：${emoji}第${ps.replayStep}手`;
+                    }
+                    return;
+                }
+                if (ps.gameOver) {
+                    turnDisplay.textContent = '对局结束';
+                    return;
+                }
+                const hasStarted = !!(ps.matchStarted || ps.matchStartedOnce);
+                if (!hasStarted) {
+                    const bothSelected = !!(ps.slots.black && ps.slots.white);
+                    if (!bothSelected) turnDisplay.textContent = '等待双方入座';
+                    else turnDisplay.textContent = '等待双方确认限时规则';
+                    updateTimerPanel();
+                    return;
+                }
+                const n = ps.moveLog.length;
+                if (n === 0) {
+                    turnDisplay.textContent = '初始局面';
+                } else {
+                    turnDisplay.textContent = `第${n}手`;
+                }
+                updateTimerPanel();
+            }
+
+            function updateActionButtons() {
+                const showMatchButtons = !!ps.mySlot
+                    && !!(ps.matchStarted || ps.matchStartedOnce || (ps.matchTime && ps.matchTime.settings))
+                    && !ps.replayMode;
+                ['undoBtn', 'resignBtn', 'drawBtn'].forEach((id) => {
+                    const el = document.getElementById(id);
+                    if (el) el.style.display = showMatchButtons ? '' : 'none';
+                });
+                const tryPlayBtn = document.getElementById('tryPlayBtn');
+                if (tryPlayBtn) {
+                    tryPlayBtn.style.display = showMatchButtons ? 'none' : '';
+                    tryPlayBtn.textContent = ps.tryPlayMode ? '试下结束' : '试下';
+                }
+            }
+
+            function updateReplayUI() {
+                if (ps.tryPlayMode) return;
+                const n = ps.BOARD_SIZE;
+                const emptyBoard = Array.from({ length: n }, () => Array(n).fill(0));
+                const replayBoards = [emptyBoard.map((row) => row.slice())];
+                const replayMarkers = [[]];
+                const replayStepPlayers = [0];
+                const replayScores = [{ blackScore: 0, whiteScore: 0 }];
+                const replayCurrentPlayers = [1];
+                const replayGameOvers = [false];
+                const replayWinners = [null];
+
+                let curBoard = emptyBoard.map((row) => row.slice());
+                let curBlackScore = 0;
+                let curWhiteScore = 0;
+                let curPlayer = 1;
+                let curOver = false;
+                let curWinner = null;
+                const lastBy = { black: null, white: null };
+                const center = ps.center;
+
+                function replayCanPlayerMove(slot) {
+                    const from = lastBy[slot] || center;
+                    for (let dr = -1; dr <= 1; dr++) {
+                        for (let dc = -1; dc <= 1; dc++) {
+                            if (dr === 0 && dc === 0) continue;
+                            const nr = from.row + dr;
+                            const nc = from.col + dc;
+                            if (nr < 0 || nr >= n || nc < 0 || nc >= n) continue;
+                            if (curBoard[nr][nc] !== 0) continue;
+                            if (nr === center.row && nc === center.col) continue;
+                            return true;
+                        }
+                    }
+                    return false;
+                }
+
+                for (const m of ps.moveLog) {
+                    if (!m || m.type !== 'move') continue;
+                    const row = m.row;
+                    const col = m.col;
+                    const playerVal = m.player === 'black' ? 1 : 2;
+                    if (row < 0 || row >= n || col < 0 || col >= n) continue;
+                    if (curBoard[row][col] !== 0) continue;
+
+                    curBoard[row][col] = playerVal;
+                    if (playerVal === 1) curBlackScore += (ps.weights[row][col] || 0);
+                    else curWhiteScore += (ps.weights[row][col] || 0);
+                    const slot = playerVal === 1 ? 'black' : 'white';
+                    lastBy[slot] = { row, col };
+
+                    const other = slot === 'black' ? 'white' : 'black';
+                    const selfCan = replayCanPlayerMove(slot);
+                    const otherCan = replayCanPlayerMove(other);
+                    if (!selfCan && !otherCan) {
+                        curOver = true;
+                        const whiteAdj = curWhiteScore + ps.komi;
+                        if (curBlackScore > whiteAdj) curWinner = 'black';
+                        else if (whiteAdj > curBlackScore) curWinner = 'white';
+                        else curWinner = 'draw';
+                    } else if (otherCan) {
+                        curPlayer = playerVal === 1 ? 2 : 1;
+                    }
+
+                    replayBoards.push(curBoard.map((r) => r.slice()));
+                    replayMarkers.push([{ row, col, color: playerVal }]);
+                    replayStepPlayers.push(playerVal);
+                    replayScores.push({ blackScore: curBlackScore, whiteScore: curWhiteScore });
+                    replayCurrentPlayers.push(curPlayer);
+                    replayGameOvers.push(curOver);
+                    replayWinners.push(curWinner);
+                }
+
+                ps.replayBoards = replayBoards;
+                ps.replayMarkers = replayMarkers;
+                ps.replayStepPlayers = replayStepPlayers;
+                ps.replayScores = replayScores;
+                ps.replayCurrentPlayers = replayCurrentPlayers;
+                ps.replayGameOvers = replayGameOvers;
+                ps.replayWinners = replayWinners;
+                const total = replayBoards.length - 1;
+                ps.replayTotalSteps = total;
+                ps.replayStep = total;
+                const slider = document.getElementById('replaySlider');
+                slider.max = total;
+                slider.value = total;
+                document.getElementById('replayStepDisplay').textContent = `${total} / ${total}`;
+
+                ps.board = replayBoards[total].map((row) => row.slice());
+                ps.lastMoveMarkers = (replayMarkers[total] || []).map((m) => ({ ...m }));
+                ps.blackScore = replayScores[total].blackScore;
+                ps.whiteScore = replayScores[total].whiteScore;
+                ps.currentPlayer = replayCurrentPlayers[total];
+                ps.gameOver = replayGameOvers[total];
+                ps.winner = replayWinners[total];
+            }
+
+            function setReplayStep(step) {
+                if (ps.tryPlayMode) return;
+                if (step < 0) step = 0;
+                if (step > ps.replayTotalSteps) step = ps.replayTotalSteps;
+                ps.replayStep = step;
+                ps.replayMode = step < ps.replayTotalSteps;
+                if (!ps.replayBoards.length) return;
+
+                const board = ps.replayBoards[step];
+                ps.board = board.map((row) => row.slice());
+                const mk = ps.replayMarkers[step] || [];
+                ps.lastMoveMarkers = mk.map((m) => ({ ...m }));
+
+                ps.blackScore = (ps.replayScores[step] && ps.replayScores[step].blackScore) || 0;
+                ps.whiteScore = (ps.replayScores[step] && ps.replayScores[step].whiteScore) || 0;
+                ps.currentPlayer = ps.replayCurrentPlayers[step] || 1;
+                ps.gameOver = !!ps.replayGameOvers[step];
+                ps.winner = ps.replayWinners[step] || null;
+
+                document.getElementById('replaySlider').value = String(step);
+                document.getElementById('replayStepDisplay').textContent = `${step} / ${ps.replayTotalSteps}`;
+                updateTurn();
+                updateScoreBoard();
+                drawBoard();
+            }
+
+            function setTryPlayStepWxD(step) {
+                if (!ps.tryPlayMode) return;
+                if (step < 0) step = 0;
+                if (step > ps.tryPlayTotalSteps) step = ps.tryPlayTotalSteps;
+                ps.tryPlayStep = step;
+                ps.board = ps.tryPlayBoards[step].map((r) => r.slice());
+                ps.lastMoveMarkers = (ps.tryPlayMarkers[step] || []).map((m) => ({ ...m }));
+                ps.blackScore = ps.tryPlayScores[step].blackScore;
+                ps.whiteScore = ps.tryPlayScores[step].whiteScore;
+                ps.currentPlayer = ps.tryPlayCurrentPlayers[step];
+                ps.gameOver = !!ps.tryPlayGameOvers[step];
+                ps.winner = ps.tryPlayWinners[step];
+                const slider = document.getElementById('replaySlider');
+                slider.value = String(step);
+                slider.max = ps.tryPlayTotalSteps;
+                document.getElementById('replayStepDisplay').textContent = `${step} / ${ps.tryPlayTotalSteps}`;
+                if (ps.hoverRow >= 0 && ps.hoverCol >= 0) {
+                    ps.isHoverValid = tryPlayCanPlayAt(ps.hoverRow, ps.hoverCol);
+                } else {
+                    ps.isHoverValid = false;
+                }
+                updateTurn();
+                updateScoreBoard();
+                drawBoard();
+            }
+
+            function wxdBuildLastByFromMoveList(moves) {
+                const lastBy = { black: null, white: null };
+                for (let i = 0; i < moves.length; i++) {
+                    const m = moves[i];
+                    if (m && m.type === 'move') lastBy[m.player] = { row: m.row, col: m.col };
+                }
+                return lastBy;
+            }
+
+            function wxdTryPlayCanMoveFrom(curBoard, lastBy, slot) {
+                const center = ps.center;
+                const n = ps.BOARD_SIZE;
+                const from = lastBy[slot] || center;
+                for (let dr = -1; dr <= 1; dr++) {
+                    for (let dc = -1; dc <= 1; dc++) {
+                        if (dr === 0 && dc === 0) continue;
+                        const nr = from.row + dr;
+                        const nc = from.col + dc;
+                        if (nr < 0 || nr >= n || nc < 0 || nc >= n) continue;
+                        if (curBoard[nr][nc] !== 0) continue;
+                        if (nr === center.row && nc === center.col) continue;
+                        return true;
+                    }
+                }
+                return false;
+            }
+
+            function tryPlayCanPlayAt(row, col) {
+                if (!ps.tryPlayMode || ps.gameOver) return false;
+                if (row < 0 || row >= ps.BOARD_SIZE || col < 0 || col >= ps.BOARD_SIZE) return false;
+                if (ps.board[row][col] !== 0) return false;
+                if (row === ps.center.row && col === ps.center.col) return false;
+                const me = ps.currentPlayer;
+                const mySlot = me === 1 ? 'black' : 'white';
+                const prefix = ps.moveLog
+                    .slice(0, ps.tryPlayBaseStep)
+                    .concat(ps.tryPlayBranchMoves.slice(0, ps.tryPlayStep));
+                let last = null;
+                for (let i = prefix.length - 1; i >= 0; i--) {
+                    const m = prefix[i];
+                    if (m && m.type === 'move' && m.player === mySlot) {
+                        last = { row: m.row, col: m.col };
+                        break;
+                    }
+                }
+                if (!last) last = ps.center;
+                const dr = Math.abs(last.row - row);
+                const dc = Math.abs(last.col - col);
+                return dr <= 1 && dc <= 1 && !(dr === 0 && dc === 0) && me > 0;
+            }
+
+            function tryPlayTryMoveWxD(row, col) {
+                if (!ps.tryPlayMode || ps.gameOver) return false;
+                if (!tryPlayCanPlayAt(row, col)) return false;
+                const t = ps.tryPlayStep;
+                if (ps.tryPlayStep < ps.tryPlayTotalSteps) {
+                    ps.tryPlayBoards.length = t + 1;
+                    ps.tryPlayMarkers.length = t + 1;
+                    ps.tryPlayStepPlayers.length = t + 1;
+                    ps.tryPlayScores.length = t + 1;
+                    ps.tryPlayCurrentPlayers.length = t + 1;
+                    ps.tryPlayGameOvers.length = t + 1;
+                    ps.tryPlayWinners.length = t + 1;
+                    ps.tryPlayBranchMoves.length = t;
+                }
+                const playerVal = ps.tryPlayCurrentPlayers[t];
+                const slot = playerVal === 1 ? 'black' : 'white';
+                const prefixBefore = ps.moveLog.slice(0, ps.tryPlayBaseStep).concat(ps.tryPlayBranchMoves);
+                const lastBy = wxdBuildLastByFromMoveList(prefixBefore);
+                let curBoard = ps.tryPlayBoards[t].map((r) => r.slice());
+                let curBlack = ps.tryPlayScores[t].blackScore;
+                let curWhite = ps.tryPlayScores[t].whiteScore;
+                let curPlayer = ps.tryPlayCurrentPlayers[t];
+                let curOver = !!ps.tryPlayGameOvers[t];
+                let curWinner = ps.tryPlayWinners[t];
+                curBoard[row][col] = playerVal;
+                if (playerVal === 1) curBlack += (ps.weights[row][col] || 0);
+                else curWhite += (ps.weights[row][col] || 0);
+                lastBy[slot] = { row, col };
+                const other = slot === 'black' ? 'white' : 'black';
+                const selfCan = wxdTryPlayCanMoveFrom(curBoard, lastBy, slot);
+                const otherCan = wxdTryPlayCanMoveFrom(curBoard, lastBy, other);
+                if (!selfCan && !otherCan) {
+                    curOver = true;
+                    const whiteAdj = curWhite + ps.komi;
+                    if (curBlack > whiteAdj) curWinner = 'black';
+                    else if (whiteAdj > curBlack) curWinner = 'white';
+                    else curWinner = 'draw';
+                } else if (otherCan) {
+                    curPlayer = playerVal === 1 ? 2 : 1;
+                }
+                ps.tryPlayBranchMoves.push({ type: 'move', row, col, player: slot });
+                ps.tryPlayBoards.push(curBoard.map((r) => r.slice()));
+                ps.tryPlayMarkers.push([{ row, col, color: playerVal }]);
+                ps.tryPlayStepPlayers.push(playerVal);
+                ps.tryPlayScores.push({ blackScore: curBlack, whiteScore: curWhite });
+                ps.tryPlayCurrentPlayers.push(curPlayer);
+                ps.tryPlayGameOvers.push(curOver);
+                ps.tryPlayWinners.push(curWinner);
+                ps.tryPlayTotalSteps = ps.tryPlayBoards.length - 1;
+                ps.tryPlayStep = ps.tryPlayTotalSteps;
+                setTryPlayStepWxD(ps.tryPlayStep);
+                return true;
+            }
+
+            function enterTryPlay() {
+                updateReplayUI();
+                const wasReplay = ps.replayMode;
+                const base = wasReplay ? ps.replayStep : ps.replayTotalSteps;
+                ps.tryPlayFromLive = !wasReplay;
+                ps.tryPlayMode = true;
+                ps.tryPlayBaseStep = base;
+                if (!wasReplay) ps.replayMode = true;
+                ps.tryPlayBoards = [ps.replayBoards[base].map((r) => r.slice())];
+                ps.tryPlayMarkers = [(ps.replayMarkers[base] || []).map((m) => ({ ...m }))];
+                ps.tryPlayStepPlayers = [ps.replayStepPlayers[base]];
+                ps.tryPlayScores = [{ ...ps.replayScores[base] }];
+                ps.tryPlayCurrentPlayers = [ps.replayCurrentPlayers[base]];
+                ps.tryPlayGameOvers = [!!ps.replayGameOvers[base]];
+                ps.tryPlayWinners = [ps.replayWinners[base]];
+                ps.tryPlayBranchMoves = [];
+                ps.tryPlayStep = 0;
+                ps.tryPlayTotalSteps = 0;
+                setTryPlayStepWxD(0);
+                const slider = document.getElementById('replaySlider');
+                slider.min = 0;
+                slider.max = 0;
+                slider.value = 0;
+                updateActionButtons();
+            }
+
+            function exitTryPlay() {
+                const base = ps.tryPlayBaseStep;
+                ps.tryPlayMode = false;
+                ps.tryPlayFromLive = false;
+                ps.tryPlayBoards = [];
+                ps.tryPlayMarkers = [];
+                ps.tryPlayStepPlayers = [];
+                ps.tryPlayScores = [];
+                ps.tryPlayCurrentPlayers = [];
+                ps.tryPlayGameOvers = [];
+                ps.tryPlayWinners = [];
+                ps.tryPlayBranchMoves = [];
+                ps.tryPlayStep = 0;
+                ps.tryPlayTotalSteps = 0;
+                updateReplayUI();
+                setReplayStep(base);
+            }
+
+            function isMyTurn() {
+                if (!ps.mySlot || ps.gameOver || !ps.matchStarted) return false;
+                if (ps.mySlot === 'black' && ps.currentPlayer === 1) return true;
+                if (ps.mySlot === 'white' && ps.currentPlayer === 2) return true;
+                return false;
+            }
+
+            function updateRecordButtons() {
+                const importBtn = document.getElementById('importBtn');
+                const exportBtn = document.getElementById('exportBtn');
+                const hasPlayers = ps.slots.black || ps.slots.white;
+                const hasMoves = ps.moveLog.length > 0;
+                boardSizeSelect.style.display = (hasPlayers || hasMoves) ? 'none' : '';
+                if (!hasPlayers && !hasMoves) {
+                    importBtn.style.display = '';
+                    exportBtn.style.display = 'none';
+                } else {
+                    importBtn.style.display = 'none';
+                    exportBtn.style.display = '';
+                }
+            }
+
+            function updateRadioStyles() {
+                labelBlack.classList.remove('self-radio', 'opponent-radio', 'checked-disabled');
+                labelWhite.classList.remove('self-radio', 'opponent-radio', 'checked-disabled');
+                if (ps.slots.black) {
+                    labelBlack.classList.add(ps.mySlot === 'black' ? 'self-radio' : 'opponent-radio');
+                    labelBlack.classList.add('checked-disabled');
+                    radioBlack.disabled = true;
+                    radioBlack.checked = true;
+                } else {
+                    radioBlack.disabled = false;
+                    radioBlack.checked = false;
+                }
+                if (ps.slots.white) {
+                    labelWhite.classList.add(ps.mySlot === 'white' ? 'self-radio' : 'opponent-radio');
+                    labelWhite.classList.add('checked-disabled');
+                    radioWhite.disabled = true;
+                    radioWhite.checked = true;
+                } else {
+                    radioWhite.disabled = false;
+                    radioWhite.checked = false;
+                }
+            }
+
+            function syncState(state) {
+                if (ps.tryPlayMode) exitTryPlay();
+                if (state.boardSize) ps.BOARD_SIZE = state.boardSize;
+                updateGeometry();
+                if (state.board) ps.board = state.board.map((row) => row.slice());
+                if (state.weights) ps.weights = state.weights.map((row) => row.slice());
+                if (state.center) ps.center = { row: state.center.row, col: state.center.col };
+                else ps.center = { row: Math.floor(ps.BOARD_SIZE / 2), col: Math.floor(ps.BOARD_SIZE / 2) };
+                ps.komi = state.komi != null ? state.komi : computeKomiBySize(ps.BOARD_SIZE);
+                ps.numberOfHands = state.numberOfHands || 1;
+                ps.currentPlayer = state.currentPlayer || 1;
+                ps.blackScore = state.blackScore || 0;
+                ps.whiteScore = state.whiteScore || 0;
+                ps.lastMoveMarkers = (state.lastMoveMarkers || []).map((m) => ({ ...m }));
+                ps.moveLog = (state.moveCoords || []).map((m) => ({ ...m }));
+                ps.gameOver = !!state.gameOver;
+                ps.winner = state.winner || null;
+                ps.matchStarted = !!state.matchStarted;
+                ps.matchTime = state.matchTime || null;
+                if (ps.matchStarted || ps.moveLog.length > 0 || (ps.matchTime && ps.matchTime.settings)) ps.matchStartedOnce = true;
+                if (state.slots) ps.slots = { black: !!state.slots.black, white: !!state.slots.white };
+                boardSizeSelect.value = String(ps.BOARD_SIZE);
+                updateKomiText();
+                updateTurn();
+                updateScoreBoard();
+                updateReplayUI();
+                updateRecordButtons();
+                updateRadioStyles();
+                drawBoard();
+            }
+
+            function handleMessage(msg) {
+                switch (msg.type) {
+                    case 'joined':
+                        sessionStorage.removeItem(`roomPassword_${roomId}`);
+                        if (msg.role === 'player') {
+                            ps.mySlot = msg.slot;
+                            colorStatus.textContent = ps.mySlot === 'black' ? '已选择: 黑方' : '已选择: 白方';
+                        } else {
+                            ps.mySlot = null;
+                            colorStatus.textContent = '观战';
+                        }
+                        if (msg.state) syncState(msg.state);
+                        break;
+                    case 'colorAssigned':
+                        ps.mySlot = msg.color;
+                        colorStatus.textContent = ps.mySlot === 'black' ? '已选择: 黑方' : '已选择: 白方';
+                        if (msg.color === 'black') ps.slots.black = true;
+                        if (msg.color === 'white') ps.slots.white = true;
+                        updateRadioStyles();
+                        updateTurn();
+                        break;
+                    case 'slotOccupied':
+                        if (msg.slot === 'black') ps.slots.black = true;
+                        if (msg.slot === 'white') ps.slots.white = true;
+                        updateRadioStyles();
+                        updateRecordButtons();
+                        updateTurn();
+                        break;
+                    case 'slotReleased':
+                        if (msg.slot === 'black') ps.slots.black = false;
+                        if (msg.slot === 'white') ps.slots.white = false;
+                        if (ps.mySlot === msg.slot) {
+                            ps.mySlot = null;
+                            colorStatus.textContent = '观战';
+                        }
+                        updateRadioStyles();
+                        updateRecordButtons();
+                        updateTurn();
+                        break;
+                    case 'boardSizeChanged':
+                        ps.BOARD_SIZE = msg.boardSize;
+                        initBoardArrays();
+                        updateGeometry();
+                        ps.komi = computeKomiBySize(ps.BOARD_SIZE);
+                        updateKomiText();
+                        drawBoard();
+                        break;
+                    case 'gameState':
+                        syncState(msg);
+                        break;
+                    case 'timeControlNegotiation':
+                        if (msg.mode === 'respond' && msg.proposal) showTimeControlRespond(msg.proposal);
+                        else showTimeControlProposal();
+                        break;
+                    case 'timeControlWaitPeer':
+                        showTimeControlWait(msg.text || '等待对方确认…');
+                        break;
+                    case 'timeControlAgreed':
+                        if (!ps.matchTime) ps.matchTime = {};
+                        ps.matchTime.settings = msg.settings || null;
+                        ps.matchTime.clock = msg.clock || null;
+                        ps.matchStarted = true;
+                        hideTimeControlModal();
+                        updateTurn();
+                        break;
+                    case 'timeControlReset':
+                        ps.matchTime = null;
+                        ps.matchStarted = false;
+                        hideTimeControlModal();
+                        updateTurn();
+                        break;
+                    case 'clockUpdate':
+                        if (!ps.matchTime) ps.matchTime = {};
+                        ps.matchTime.clock = msg.clock || null;
+                        updateTimerPanel();
+                        break;
+                    case 'broadcast':
+                        if (msg.action === 'move' || msg.action === 'undoAccept' || msg.action === 'resign' || msg.action === 'drawAgreed' || msg.action === 'timeLoss') {
+                            const wasOver = ps.gameOver;
+                            syncState(msg);
+                            if (!wasOver && msg.gameOver) {
+                                if (msg.winner === 'black') alert('黑胜。');
+                                else if (msg.winner === 'white') alert('白胜。');
+                                else alert('和棋。');
+                            }
+                        }
+                        break;
+                    case 'newGameStarted':
+                        ps.mySlot = null;
+                        colorStatus.textContent = '观战';
+                        ps.slots = { black: false, white: false };
+                        ps.matchStarted = false;
+                        ps.matchTime = null;
+                        ps.matchStartedOnce = false;
+                        hideTimeControlModal();
+                        syncState(msg);
+                        break;
+                    case 'importSuccess':
+                    case 'roomReset':
+                        syncState(msg);
+                        break;
+                    case 'gameRecord':
+                        if (msg.data) QiSquareWeiqiCanvas.downloadWeiqiJsonRecord(msg.data, 'WxD棋');
+                        break;
+                    case 'newGameRequest':
+                        if (confirm('对方请求开始新的一局，是否同意？')) ps.ws.send(JSON.stringify({ type: 'newGameResponse', accept: true }));
+                        else ps.ws.send(JSON.stringify({ type: 'newGameResponse', accept: false }));
+                        break;
+                    case 'undoRequest':
+                        if (confirm('对方请求悔棋，是否同意？')) ps.ws.send(JSON.stringify({ type: 'undoResponse', accept: true }));
+                        else ps.ws.send(JSON.stringify({ type: 'undoResponse', accept: false }));
+                        break;
+                    case 'drawRequest':
+                        if (confirm('对方申请和棋，是否同意？')) ps.ws.send(JSON.stringify({ type: 'drawResponse', accept: true }));
+                        else ps.ws.send(JSON.stringify({ type: 'drawResponse', accept: false }));
+                        break;
+                    case 'error':
+                        if (msg.message) alert(msg.message);
+                        break;
+                    default:
+                        break;
+                }
+            }
+
+            function connectWebSocket() {
+                if (ps.reconnectTimer) {
+                    clearTimeout(ps.reconnectTimer);
+                    ps.reconnectTimer = null;
+                }
+                ps.ws = QiSquareWeiqiCanvas.connectWeiqiRoomWebSocket({
+                    gameType,
+                    roomId,
+                    roomPassword,
+                    onMessage: handleMessage,
+                    colorStatus,
+                    connectWebSocket,
+                    clearReconnectTimer: () => {
+                        if (ps.reconnectTimer) {
+                            clearTimeout(ps.reconnectTimer);
+                            ps.reconnectTimer = null;
+                        }
+                    },
+                    getReconnectTimer: () => ps.reconnectTimer,
+                    setReconnectTimer: (t) => { ps.reconnectTimer = t; }
+                });
+            }
+
+            function tryCommitMove(row, col) {
+                if (!canPlayAt(row, col)) return;
+                if (ps.ws && ps.ws.readyState === 1) ps.ws.send(JSON.stringify({ type: 'move', row, col }));
+            }
+
+            canvas.addEventListener('click', (e) => {
+                const rect = canvas.getBoundingClientRect();
+                const scale = 600 / rect.width;
+                const x = (e.clientX - rect.left) * scale;
+                const y = (e.clientY - rect.top) * scale;
+                const { row, col } = getClosestCell(x, y);
+                if (ps.tryPlayMode) {
+                    tryPlayTryMoveWxD(row, col);
+                    return;
+                }
+                tryCommitMove(row, col);
+            });
+
+            if (isMouseDevice) {
+                canvas.addEventListener('mousemove', (e) => {
+                    const rect = canvas.getBoundingClientRect();
+                    const scale = 600 / rect.width;
+                    const x = (e.clientX - rect.left) * scale;
+                    const y = (e.clientY - rect.top) * scale;
+                    const hit = getClosestCell(x, y);
+                    ps.hoverRow = hit.row;
+                    ps.hoverCol = hit.col;
+                    ps.isHoverValid = ps.tryPlayMode ? tryPlayCanPlayAt(hit.row, hit.col) : canPlayAt(hit.row, hit.col);
+                    drawBoard();
+                });
+                canvas.addEventListener('mouseleave', () => {
+                    ps.hoverRow = -1;
+                    ps.hoverCol = -1;
+                    ps.isHoverValid = false;
+                    drawBoard();
+                });
+            }
+
+            radioBlack.addEventListener('change', () => {
+                if (radioBlack.checked && ps.ws && ps.ws.readyState === 1) ps.ws.send(JSON.stringify({ type: 'selectColor', color: 'black' }));
+            });
+            radioWhite.addEventListener('change', () => {
+                if (radioWhite.checked && ps.ws && ps.ws.readyState === 1) ps.ws.send(JSON.stringify({ type: 'selectColor', color: 'white' }));
+            });
+            boardSizeSelect.addEventListener('change', () => {
+                const n = parseInt(boardSizeSelect.value, 10);
+                if (ps.ws && ps.ws.readyState === 1) ps.ws.send(JSON.stringify({ type: 'setBoardSize', size: n }));
+            });
+            showNumbersCheck.addEventListener('change', () => {
+                ps.showMoveNumbers = !!showNumbersCheck.checked;
+                drawBoard();
+            });
+
+            document.getElementById('newGameBtn').onclick = () => {
+                if (ps.ws && ps.ws.readyState === 1) ps.ws.send(JSON.stringify({ type: 'requestNewGame' }));
+            };
+            document.getElementById('undoBtn').onclick = () => {
+                if (ps.ws && ps.ws.readyState === 1) ps.ws.send(JSON.stringify({ type: 'requestUndo' }));
+            };
+            document.getElementById('resignBtn').onclick = () => {
+                if (ps.ws && ps.ws.readyState === 1) ps.ws.send(JSON.stringify({ type: 'resign' }));
+            };
+            document.getElementById('drawBtn').onclick = () => {
+                if (ps.ws && ps.ws.readyState === 1) ps.ws.send(JSON.stringify({ type: 'requestDraw' }));
+            };
+            document.getElementById('exportBtn').onclick = () => {
+                if (ps.ws && ps.ws.readyState === 1) ps.ws.send(JSON.stringify({ type: 'exportRecord' }));
+            };
+            document.getElementById('importBtn').onclick = () => document.getElementById('importFileInput').click();
+            document.getElementById('importFileInput').onchange = (e) => {
+                const f = e.target.files && e.target.files[0];
+                if (!f) return;
+                const reader = new FileReader();
+                reader.onload = () => {
+                    try {
+                        const data = JSON.parse(reader.result);
+                        if (ps.ws && ps.ws.readyState === 1) ps.ws.send(JSON.stringify({ type: 'importRecord', data }));
+                    } catch (err) {
+                        alert('文件解析失败');
+                    }
+                    e.target.value = '';
+                };
+                reader.readAsText(f);
+            };
+            document.getElementById('helpBtn').onclick = () => { document.getElementById('rulesModal').style.display = 'flex'; };
+            document.getElementById('closeRulesBtn').onclick = () => { document.getElementById('rulesModal').style.display = 'none'; };
+            document.getElementById('backToLobbyBtn').onclick = () => { window.location.href = '/qi'; };
+
+            document.getElementById('replayBackBtn').onclick = () => {
+                if (ps.tryPlayMode) setTryPlayStepWxD(ps.tryPlayStep - 1);
+                else setReplayStep(ps.replayStep - 1);
+            };
+            document.getElementById('replayForwardBtn').onclick = () => {
+                if (ps.tryPlayMode) setTryPlayStepWxD(ps.tryPlayStep + 1);
+                else setReplayStep(ps.replayStep + 1);
+            };
+            document.getElementById('replaySlider').addEventListener('input', (e) => {
+                const step = Number(e.target.value) || 0;
+                if (ps.tryPlayMode) setTryPlayStepWxD(step);
+                else setReplayStep(step);
+            });
+            {
+                const tpBtn = document.getElementById('tryPlayBtn');
+                if (tpBtn) {
+                    tpBtn.onclick = () => {
+                        if (ps.tryPlayMode) exitTryPlay();
+                        else enterTryPlay();
+                    };
+                }
+            }
+
+            function tcCollectPayload() {
+                const mode = document.querySelector('input[name="tcTimed"]:checked');
+                const timed = !mode || mode.value === 'timed';
+                if (!timed) return { timed: false };
+                return {
+                    timed: true,
+                    mainMinutes: Number(tcMainMinutes.value),
+                    byoyomiSeconds: Number(tcByoSeconds.value),
+                    maxTimeouts: Number(tcTimeouts.value)
+                };
+            }
+
+            tcPrimary.addEventListener('click', () => {
+                if (!ps.ws || ps.ws.readyState !== 1) return;
+                if (tcPrimary.textContent === '确认') {
+                    ps.ws.send(JSON.stringify({ type: 'timeControlAccept' }));
+                    showTimeControlWait('正在等待服务器确认…');
+                    return;
+                }
+                ps.ws.send(JSON.stringify({ type: 'timeControlSubmit', ...tcCollectPayload() }));
+                showTimeControlWait('正在等待对方确认…');
+            });
+
+            tcSecondary.addEventListener('click', () => {
+                enableTimeControlInputs();
+                tcPrimary.textContent = '提交';
+                tcSecondary.style.display = 'none';
+                tcHint.textContent = '你可以调整后重新提交。';
+            });
+
+            initBoardArrays();
+            updateGeometry();
+            ps.komi = computeKomiBySize(ps.BOARD_SIZE);
+            updateKomiText();
+            updateTurn();
+            updateScoreBoard();
+            updateReplayUI();
+            drawBoard();
+            connectWebSocket();
+        })();
+    </script>
+</body>
+</html>

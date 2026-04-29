@@ -176,16 +176,15 @@
 
         .replay-step-display {
             color: #ffd966;
-            font-size: 1.1rem;
+            font-size: 0.9rem;
             font-weight: bold;
-            margin-bottom: 10px;
         }
 
         .replay-nav {
             display: flex;
-            gap: 12px;
+            gap: 8px;
             justify-content: center;
-            margin-bottom: 12px;
+            margin-bottom: 8px;
         }
 
         .replay-nav-btn {
@@ -193,9 +192,9 @@
             border: none;
             color: white;
             font-weight: bold;
-            padding: 8px 20px;
-            border-radius: 30px;
-            font-size: 0.95rem;
+            padding: 4px 6px;
+            border-radius: 8px;
+            font-size: 0.5rem;
             border-bottom: 3px solid #5e3e1e;
             cursor: pointer;
         }
@@ -204,6 +203,194 @@
             width: 100%;
             cursor: pointer;
             accent-color: #b88a4b;
+        }
+
+        .go-timer-panel {
+            margin-top: 12px;
+            text-align: left;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            font-family: Arial, sans-serif;
+        }
+
+        .go-timer-block {
+            background: #8f6b4f;
+            padding: 12px 14px 10px;
+            border-radius: 20px;
+            border: 2px solid transparent;
+            border-bottom: 4px solid #4d2f1b;
+        }
+
+        .go-timer-block.is-active {
+            border-color: #ffd966;
+            box-shadow: 0 0 0 2px rgba(255, 217, 102, 0.28);
+        }
+
+        .go-timer-title {
+            color: #fff9c2;
+            font-weight: bold;
+            font-size: 1.1rem;
+            margin-bottom: 4px;
+        }
+
+        .go-timer-line2 {
+            display: flex;
+            justify-content: flex-start;
+            align-items: baseline;
+            gap: 10px;
+        }
+
+        .go-timer-count {
+            font-family: Arial, sans-serif;
+            font-size: 1.0rem;
+            color: #ffd966;
+            letter-spacing: 0.02em;
+        }
+
+        .go-timer-over {
+            margin-top: 4px;
+            font-family: Arial, sans-serif;
+            font-size: 0.8rem;
+            color: #ffb870;
+            white-space: nowrap;
+        }
+
+        .go-timer-rule {
+            margin-top: 4px;
+            font-size: 0.78rem;
+            color: #dfd9a2;
+            line-height: 1.35;
+        }
+
+        .qi-time-control-modal {
+            display: none;
+            position: fixed;
+            inset: 0;
+            z-index: 1100;
+            background: rgba(0, 0, 0, 0.45);
+            align-items: center;
+            justify-content: center;
+            padding: 16px;
+        }
+
+        .qi-time-control-dialog {
+            background: #f9eed7;
+            color: #3e2e21;
+            max-width: 400px;
+            width: 90%;
+            border-radius: 22px;
+            padding: 18px 20px 16px;
+            box-shadow: 0 10px 28px rgba(0, 0, 0, 0.35);
+            border: 2px solid #8f6b4f;
+        }
+
+        .qi-time-control-title {
+            margin: 0 0 12px;
+            text-align: center;
+            font-size: 1.1rem;
+            color: #5e2b3b;
+        }
+
+        .qi-time-control-radio-row {
+            display: flex;
+            gap: 16px;
+            margin-bottom: 12px;
+            justify-content: center;
+        }
+
+        .qi-time-control-radio {
+            font-size: 0.95rem;
+            cursor: pointer;
+        }
+
+        .qi-time-control-fields {
+            display: flex;
+            flex-direction: row;
+            gap: 12px;
+            align-items: flex-start;
+        }
+
+        .qi-time-control-field {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            font-size: 0.88rem;
+            flex: 1 1 0;
+            min-width: 0;
+        }
+
+        .qi-time-control-field span {
+            color: #5e3e1e;
+        }
+
+        .qi-time-control-field input {
+            border-radius: 10px;
+            border: 1px solid #c4a882;
+            padding: 6px 10px;
+            font-size: 1rem;
+            background: #fff;
+            color: #3e2e21;
+            width: 100%;
+            text-align: center;
+            align-self: center;
+        }
+
+        .qi-time-control-hint {
+            margin: 10px 0 6px;
+            font-size: 0.85rem;
+            color: #6b5344;
+            min-height: 1.2em;
+        }
+
+        .qi-time-control-footer {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            justify-content: center;
+            margin-top: 12px;
+        }
+
+        .qi-time-control-primary {
+            background: #b88a4b;
+            color: #fff;
+            border: none;
+            padding: 8px 22px;
+            border-radius: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            border-bottom: 2px solid #5e3e1e;
+            font-size: 0.95rem;
+        }
+
+        .qi-time-control-secondary {
+            background: #e8dcc8;
+            color: #3e2e21;
+            border: 1px solid #8f6b4f;
+            padding: 8px 18px;
+            border-radius: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            font-size: 0.95rem;
+        }
+
+        .qi-time-control-wait {
+            text-align: center;
+            margin-top: 14px;
+            font-size: 0.95rem;
+            color: #5e2b3b;
+            font-weight: bold;
+        }
+
+        .qi-time-control-dialog input:disabled,
+        .qi-time-control-dialog button:disabled {
+            opacity: 0.55;
+            cursor: not-allowed;
+            filter: grayscale(0.2);
+        }
+
+        .qi-time-control-modal.qi-time-control-readonly .qi-time-control-dialog {
+            opacity: 0.92;
         }
 
         .right-buttons {
@@ -338,6 +525,52 @@
             width: 100%;
         }
 
+        /* 异气 / 乌克兰 / 罗斯：右侧 info+计时 包进 aside，与同列 flex 的标准围棋一致，避免两格网格被棋盘行高拉大间距 */
+        .board-and-info.board-and-info--palette-stack {
+            display: grid;
+            grid-template-columns: minmax(0, 600px) 280px;
+            grid-template-rows: auto auto;
+            grid-template-areas:
+                "board aside"
+                "palette palette";
+            column-gap: 40px;
+            row-gap: 0;
+            align-items: start;
+        }
+
+        .board-and-info.board-and-info--palette-stack > .board-container {
+            grid-area: board;
+            align-self: start;
+        }
+
+        .board-and-info.board-and-info--palette-stack > .palette-stack-aside {
+            grid-area: aside;
+            display: flex;
+            flex-direction: column;
+            align-self: start;
+            width: 280px;
+            max-width: 100%;
+            min-width: 0;
+        }
+
+        .board-and-info.board-and-info--palette-stack > .palette-stack-aside > .main-area-right {
+            width: 100%;
+            max-width: 100%;
+        }
+
+        .board-and-info.board-and-info--palette-stack > .palette-stack-aside > #goTimerPanel {
+            width: 100%;
+            max-width: 100%;
+        }
+
+        .board-and-info.board-and-info--palette-stack > .bottom-palette {
+            grid-area: palette;
+            width: 100%;
+            max-width: 100%;
+            margin-top: 25px;
+            box-sizing: border-box;
+        }
+
         .board-mark-outer {
             position: absolute;
             left: 100%;
@@ -459,7 +692,6 @@
             color: #efdfbb;
             width: 100%;
             max-width: 280px;
-            border: 1px solid #c9a450;
             margin: 0 auto;
             min-height: 200px;
             display: flex;
@@ -470,19 +702,18 @@
 
         .turn-box {
             background: #3e2e21;
-            padding: 12px;
+            padding: 8px;
             border-radius: 50px;
             text-align: center;
             color: #ffd966;
-            font-size: 1.2rem;
-            margin-bottom: 20px;
+            font-size: 1.1rem;
+            margin-bottom: 15px;
         }
 
         .score-box {
             background: #3e2e21;
             padding: 14px;
             border-radius: 16px;
-            line-height: 1.6;
             flex: 1;
             display: flex;
             flex-direction: column;
@@ -490,12 +721,12 @@
         }
 
         .score-title {
-            font-size: 1.3rem;
-            margin-bottom: 10px;
+            font-size: 1.1rem;
+            margin-bottom: 5px;
         }
 
         .score-content {
-            min-height: 60px;
+            font-size: 0.9rem;
         }
 
         @media (max-width: 700px) {
@@ -559,7 +790,14 @@
             }
 
             .main-area-right {
-                display: contents;
+                grid-column: 1;
+                grid-row: 2;
+                width: 100%;
+                max-width: 600px;
+                display: grid;
+                grid-template-columns: 1fr;
+                grid-template-rows: auto auto;
+                row-gap: 10px;
             }
 
             .board-mark-outer {
@@ -604,20 +842,116 @@
                 max-width: 600px;
                 margin-top: 0;
             }
+
+            .main-area-right #goTimerPanel {
+                grid-column: 1;
+                grid-row: 1;
+            }
+
+            #goTimerPanel {
+                order: -1;
+                display: flex;
+                flex-direction: row;
+                flex-wrap: wrap;
+                gap: 8px;
+                align-items: stretch;
+                margin-top: 0;
+                margin-bottom: 10px;
+            }
+
+            #goTimerPanel .go-timer-block {
+                flex: 1 1 calc(50% - 4px);
+                min-width: 0;
+                margin: 0;
+            }
+
+            #goTimerPanel .go-timer-rule {
+                width: 100%;
+                margin-top: 2px;
+            }
+
+            /* 异气 / 乌克兰 / 罗斯：手机纵向 棋盘 → 底部条 → 计时 → 信息（与 DOM 顺序一致） */
+            .board-and-info.board-and-info--palette-stack {
+                display: flex;
+                flex-direction: column;
+                gap: 12px;
+                width: 100%;
+                grid-template: none;
+            }
+
+            .board-and-info.board-and-info--palette-stack > .board-container {
+                grid-column: unset;
+                grid-row: unset;
+                width: 100%;
+            }
+
+            .board-and-info.board-and-info--palette-stack > .bottom-palette {
+                grid-column: unset;
+                grid-row: unset;
+                width: 100%;
+                max-width: 600px;
+                margin-left: auto;
+                margin-right: auto;
+                margin-top: 0;
+            }
+
+            /* DOM 为 info → timer；窄屏要「计时在上、信息在下」，用 column-reverse */
+            .board-and-info.board-and-info--palette-stack > .palette-stack-aside {
+                display: flex;
+                flex-direction: column-reverse;
+                width: 100%;
+                max-width: 600px;
+                margin-left: auto;
+                margin-right: auto;
+                gap: 12px;
+            }
+
+            .board-and-info.board-and-info--palette-stack > .palette-stack-aside > #goTimerPanel {
+                grid-column: unset;
+                grid-row: unset;
+                order: 0;
+                width: 100%;
+                max-width: 600px;
+                margin-left: auto;
+                margin-right: auto;
+                margin-top: 0;
+                margin-bottom: 0;
+            }
+
+            .board-and-info.board-and-info--palette-stack > .palette-stack-aside > .main-area-right {
+                display: flex;
+                flex-direction: column;
+                grid-column: unset;
+                grid-row: unset;
+                grid-template-rows: none;
+                grid-template-columns: none;
+                width: 100%;
+                max-width: 600px;
+                margin-left: auto;
+                margin-right: auto;
+            }
+
+            .board-and-info.board-and-info--palette-stack .main-area-right .info-panel {
+                grid-column: unset;
+                grid-row: unset;
+                width: 100%;
+                max-width: 600px;
+                margin-top: 0;
+            }
         }
 
-.score-confirm-panel {
-    margin-top: 15px;
-    background: #3e2e21;
-    border-radius: 20px;
-    padding: 12px;
+.score-confirm-modal {
+    z-index: 1101;
+}
+
+.score-confirm-dialog {
     text-align: center;
 }
 
-    .score-confirm-panel p {
+    .score-confirm-dialog p {
         margin: 0 0 10px 0;
-        font-size: 0.9rem;
-        color: #ffd98c;
+        font-size: 0.95rem;
+        color: #5e2b3b;
     }
 
 .score-confirm-buttons {
@@ -802,7 +1136,7 @@
     user-select: none;
 }
 
-/* ========== 洞 / 中立子 / 雾 / 隐身子等：仅非画布 UI 时用；画布效果见 board.js（holeDrawPit、neutralDrawSmallMarker、fogBlend、invisibleDrawStone） ========== */
+/* ========== 洞 / 中立子 / 雾 / 隐身子等：仅非画布 UI 时用；画布效果见 board.js（drawPitHole、neutralDrawSmallMarker、invisibleDrawStone） ========== */
 .qi-board-hole-indicator {
     box-sizing: border-box;
     border: 2px dashed rgba(180, 40, 40, 0.85);
@@ -833,7 +1167,6 @@
     background: #8f6b4f;
     padding: 14px 16px 16px;
     border-radius: 20px;
-    border: 1px solid #c9a450;
     border-bottom: 4px solid #4d2f1b;
     width: 100%;
     max-width: 280px;

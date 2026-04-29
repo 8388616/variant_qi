@@ -1,5 +1,26 @@
-const crypto = require('crypto');
-const { QiTwoPlayerRoomBase, squareWeiqiRules } = require('../common');
+const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, applyInitialPositionCompact } = require('../common');
+
+function applyInitialPositionFromRecord(board, boardSize, initialPosition) {
+    if (!initialPosition) return;
+    if (Array.isArray(initialPosition)) {
+        applyInitialPositionCompact(board, boardSize, initialPosition);
+        return;
+    }
+}
+
+function normalizeInitialPositionForReplayPayload(initialPosition) {
+    if (!initialPosition) return [];
+    if (Array.isArray(initialPosition)) return initialPosition;
+    if (typeof initialPosition !== 'object') return [];
+    const out = [];
+    for (const pos of initialPosition.black || []) {
+        if (Array.isArray(pos) && pos.length === 2) out.push(`B${pos[0]},${pos[1]}`);
+    }
+    for (const pos of initialPosition.white || []) {
+        if (Array.isArray(pos) && pos.length === 2) out.push(`W${pos[0]},${pos[1]}`);
+    }
+    return out;
+}
 
 class WeightWeiqiRoom extends QiTwoPlayerRoomBase {
     constructor(room) {
@@ -23,6 +44,243 @@ class WeightWeiqiRoom extends QiTwoPlayerRoomBase {
         this.pendingScore = null;
         this.scoreProposalData = null;
         this.moveCoords = [];
+        this.recordResultText = null;
+        /** @type {{ black: number|null, white: number|null }} */
+        this.slotJoinedAt = { black: null, white: null };
+        this.tcNego = null;
+        /** @type {{ timed: boolean, mainMinutes?: number, byoyomiSeconds?: number, maxTimeouts?: number }|null} */
+        this.tcSettings = null;
+        this.tcClock = null;
+        this._clockInterval = null;
+        this.matchStarted = false;
+    }
+
+    _stopClockTicker() {
+        if (this._clockInterval) {
+            clearInterval(this._clockInterval);
+            this._clockInterval = null;
+        }
+    }
+
+    _broadcastClock() {
+        if (!this.tcClock || !this.tcClock.timed || this.gameOver) return;
+        const snap = qiMatchTimeControl.snapshotForClient(this.tcClock);
+        this.broadcast({ type: 'clockUpdate', clock: snap });
+    }
+
+    _startClockTicker() {
+        this._stopClockTicker();
+        if (!this.tcClock || !this.tcClock.timed) return;
+        this._clockInterval = setInterval(() => {
+            if (!this.tcClock || !this.tcClock.timed || this.gameOver) {
+                this._stopClockTicker();
+                return;
+            }
+            if (this.pendingScore) return;
+            const now = Date.now();
+            const { lostSlot, winnerSlot } = qiMatchTimeControl.drain(this.tcClock, now);
+            if (lostSlot) {
+                this._stopClockTicker();
+                this.gameOver = true;
+                this.winner = winnerSlot;
+                this.setTimeLossResultText(lostSlot);
+                this.broadcast({
+                    type: 'broadcast',
+                    action: 'timeLoss',
+                    player: lostSlot,
+                    winner: winnerSlot,
+                    ...this.getState()
+                });
+                return;
+            }
+            this._broadcastClock();
+        }, 1000);
+    }
+
+    _firstPickerSlot() {
+        const tb = this.slotJoinedAt.black;
+        const tw = this.slotJoinedAt.white;
+        if (tb == null || tw == null) return 'black';
+        return tb <= tw ? 'black' : 'white';
+    }
+
+    _maybeBeginTimeNegotiation() {
+        if (this.moveHistory.length > 0 || this.gameOver) return;
+        const room = this.room;
+        if (!room.getPlayerBySlot('black') || !room.getPlayerBySlot('white')) return;
+        if (this.tcNego !== null) return;
+        if (this.tcSettings !== null) return;
+        const first = this._firstPickerSlot();
+        this.tcNego = {
+            phase: 'propose',
+            proposal: null,
+            waitingSlot: first,
+            lastProposerSlot: null
+        };
+        const ws = room.getPlayerBySlot(first);
+        if (ws) ws.send(JSON.stringify({ type: 'timeControlNegotiation', mode: 'propose' }));
+        const other = first === 'black' ? 'white' : 'black';
+        const ws2 = room.getPlayerBySlot(other);
+        if (ws2) ws2.send(JSON.stringify({ type: 'timeControlWaitPeer', text: '等待对方设置限时规则...' }));
+    }
+
+    afterColorAssigned(ws, slot) {
+        this.slotJoinedAt[slot] = Date.now();
+        this._maybeBeginTimeNegotiation();
+    }
+
+    _finalizeTimeControl(valid) {
+        this.tcSettings = valid.timed
+            ? {
+                timed: true,
+                mainMinutes: valid.mainMinutes,
+                byoyomiSeconds: valid.byoyomiSeconds,
+                maxTimeouts: valid.maxTimeouts
+            }
+            : { timed: false };
+        this.tcNego = null;
+        this.matchStarted = true;
+        const now = Date.now();
+        this.tcClock = qiMatchTimeControl.createClock(this.tcSettings, now);
+        if (this.tcClock.timed) {
+            qiMatchTimeControl.setActiveSlot(this.tcClock, this.currentPlayer === 1 ? 'black' : 'white', now);
+            this._startClockTicker();
+            this._broadcastClock();
+        } else {
+            this.tcClock = null;
+        }
+        this.broadcast({
+            type: 'timeControlAgreed',
+            settings: this.tcSettings,
+            clock: this.tcClock ? qiMatchTimeControl.snapshotForClient(this.tcClock) : null
+        });
+    }
+
+    _sendRespondDialog(toSlot, proposal) {
+        const ws = this.room.getPlayerBySlot(toSlot);
+        if (ws) {
+            ws.send(JSON.stringify({
+                type: 'timeControlNegotiation',
+                mode: 'respond',
+                proposal: {
+                    ok: true,
+                    timed: proposal.timed,
+                    mainMinutes: proposal.mainMinutes,
+                    byoyomiSeconds: proposal.byoyomiSeconds,
+                    maxTimeouts: proposal.maxTimeouts
+                }
+            }));
+        }
+    }
+
+    _handleTimeControlSubmit(ws, msg) {
+        const slot = this.room.getSlotByWs(ws);
+        if (!slot || !this.tcNego) return;
+        const v = qiMatchTimeControl.validateProposal(msg);
+        if (!v.ok) {
+            ws.send(JSON.stringify({ type: 'error', message: v.error }));
+            return;
+        }
+        const room = this.room;
+        if (this.tcNego.phase === 'propose') {
+            if (slot !== this.tcNego.waitingSlot) return;
+            this.tcNego.proposal = v;
+            this.tcNego.lastProposerSlot = slot;
+            this.tcNego.phase = 'respond';
+            const other = slot === 'black' ? 'white' : 'black';
+            this.tcNego.waitingSlot = other;
+            room.getPlayerBySlot(slot).send(JSON.stringify({ type: 'timeControlWaitPeer', text: '等待对方确认...' }));
+            this._sendRespondDialog(other, v);
+            return;
+        }
+        if (this.tcNego.phase === 'respond') {
+            if (slot !== this.tcNego.waitingSlot) return;
+            this.tcNego.proposal = v;
+            this.tcNego.lastProposerSlot = slot;
+            const other = slot === 'black' ? 'white' : 'black';
+            this.tcNego.waitingSlot = other;
+            this.tcNego.phase = 'respond';
+            room.getPlayerBySlot(slot).send(JSON.stringify({ type: 'timeControlWaitPeer', text: '等待对方确认...' }));
+            this._sendRespondDialog(other, v);
+        }
+    }
+
+    _handleTimeControlAccept(ws) {
+        const slot = this.room.getSlotByWs(ws);
+        if (!slot || !this.tcNego || this.tcNego.phase !== 'respond') return;
+        if (slot !== this.tcNego.waitingSlot) return;
+        const prop = this.tcNego.proposal;
+        if (!prop || prop.ok !== true) return;
+        this._finalizeTimeControl(prop);
+    }
+
+    _timeAllowsPlay(slot) {
+        if (this.gameOver) return false;
+        if (!this.matchStarted) return false;
+        if (this.tcNego || this.tcSettings === null) return false;
+        if (!this.tcClock || !this.tcClock.timed) return true;
+        const expect = this.currentPlayer === 1 ? 'black' : 'white';
+        return slot === expect;
+    }
+
+    _drainClockBeforeMove(slot) {
+        if (!this.tcClock || !this.tcClock.timed || this.gameOver) return true;
+        const expect = this.currentPlayer === 1 ? 'black' : 'white';
+        if (slot !== expect) return true;
+        const { lostSlot, winnerSlot } = qiMatchTimeControl.drain(this.tcClock, Date.now());
+        if (lostSlot) {
+            this._stopClockTicker();
+            this.gameOver = true;
+            this.winner = winnerSlot;
+            this.setTimeLossResultText(lostSlot);
+            this.broadcast({
+                type: 'broadcast',
+                action: 'timeLoss',
+                player: lostSlot,
+                winner: winnerSlot,
+                ...this.getState()
+            });
+            return false;
+        }
+        return true;
+    }
+
+    _syncClockAfterTurnChange() {
+        if (!this.tcClock || !this.tcClock.timed || this.gameOver) return;
+        const activeSlot = this.currentPlayer === 1 ? 'black' : 'white';
+        qiMatchTimeControl.setActiveSlot(this.tcClock, activeSlot, Date.now());
+        this._broadcastClock();
+    }
+
+    onResignResolved(resignSlot) {
+        this.recordResultText = resignSlot === 'black' ? '白中盘胜' : '黑中盘胜';
+    }
+
+    onDrawResolved() {
+        this.recordResultText = '和胜';
+    }
+
+    setScoreResultTextByLead(lead) {
+        if (!Number.isFinite(lead) || lead === 0) {
+            this.recordResultText = '和胜';
+            return;
+        }
+        const winnerSide = lead > 0 ? '黑' : '白';
+        this.recordResultText = `${winnerSide}胜${Math.abs(lead).toFixed(2)}点`;
+    }
+
+    setTimeLossResultText(lostSlot) {
+        if (lostSlot === 'black') this.recordResultText = '黑超时白胜';
+        else if (lostSlot === 'white') this.recordResultText = '白超时黑胜';
+    }
+
+    static parseResultTextToWinner(resultText) {
+        if (!resultText || typeof resultText !== 'string') return null;
+        if (resultText === '和胜' || resultText === 'draw' || resultText === '平局') return 'draw';
+        if (resultText.includes('白胜')) return 'white';
+        if (resultText.includes('黑胜')) return 'black';
+        if (resultText === 'black' || resultText === 'white' || resultText === 'draw') return resultText;
+        return null;
     }
 
     // 生成 1 ~ 棋盘点数 不重复随机权重
@@ -108,9 +366,7 @@ class WeightWeiqiRoom extends QiTwoPlayerRoomBase {
 
         // 落子有效，计算本方新增权重（落子点权重）
         const addedWeight = this.weights[row][col];
-        // 最终净得分变化：本方 +addedWeight，对方 -removedWeight
-        // 返回对象包含新棋盘和得分变化
-        return { newBoard, addedWeight, removedWeight };
+        return newBoard;
     }
 
     isLibertySurroundedByOpponent(board, libertyRow, libertyCol, opponentColor) {
@@ -149,7 +405,8 @@ class WeightWeiqiRoom extends QiTwoPlayerRoomBase {
         const liveBoard = this.removeDeadAndDying(this.board);
         const territory = this.assignTerritoryWithRange(liveBoard);
         const { blackTotal, whiteTotal } = this.computeScore(liveBoard, territory);
-        const KOMI = 3 * this.boardSize * this.boardSize;
+        const KOMI = Math.floor(0.008 * (1 + this.boardSize * this.boardSize) * this.boardSize * this.boardSize);
+
         return blackTotal - whiteTotal - 2 * KOMI;
     }
 
@@ -167,11 +424,22 @@ class WeightWeiqiRoom extends QiTwoPlayerRoomBase {
             slots: {
                 black: !!this.room.getPlayerBySlot('black'),
                 white: !!this.room.getPlayerBySlot('white')
-            }
+            },
+            matchTime: {
+                negotiation: this.tcNego,
+                settings: this.tcSettings,
+                clock: this.tcClock && this.tcClock.timed
+                    ? qiMatchTimeControl.snapshotForClient(this.tcClock)
+                    : (this.tcSettings && this.tcSettings.timed === false
+                        ? { timed: false, ruleLine: '本局不限时' }
+                        : null)
+            },
+            matchStarted: this.matchStarted
         };
     }
 
     startScoreCounting(requester, opponent) {
+        if (this.tcClock && this.tcClock.timed) qiMatchTimeControl.setPaused(this.tcClock, true);
         const lead = this.computeLead();
         this.scoreProposalData = { lead, requester, opponent };
         const proposalMsg = { type: 'scoreProposal', lead };
@@ -186,152 +454,71 @@ class WeightWeiqiRoom extends QiTwoPlayerRoomBase {
 
         switch (msg.type) {
             case 'selectColor':
-                if (slot) return;
-                const newSlot = this.assignSlot(ws, msg.color);
-                if (newSlot) {
-                    room.setPlayerSlot(ws, newSlot);
-                    ws.send(JSON.stringify({ type: 'colorAssigned', color: newSlot }));
-                    this.sendState(ws);
-                    room.broadcast({ type: 'slotOccupied', slot: newSlot }, ws);
-                } else {
-                    ws.send(JSON.stringify({ type: 'error', message: '该颜色已被占用' }));
-                }
+                qiProtocol.selectColor(this, ws, msg);
                 break;
 
-            case 'move':
-                if (this.gameOver) return;
-                if (!slot || slot !== (this.currentPlayer === 1 ? 'black' : 'white')) return;
-                const { row, col } = msg;
-                if (row < 0 || row >= this.boardSize || col < 0 || col >= this.boardSize) return;
-                if (this.board[row][col] !== 0)
-                    return;
-                const playerVal = this.currentPlayer === 1 ? 1 : 2;
-                const result = this.tryPlaceStone(this.board, row, col, playerVal);
-                if (!result) return;
-                const { newBoard, addedWeight, removedWeight } = result;
-                const newBoardStr = this.boardToString(newBoard);
-                if (this.historyBoardSet.has(newBoardStr))
-                {
-                    ws.send(JSON.stringify({ type: 'error', message: '禁全同。' }));
+            case 'timeControlSubmit':
+                this._handleTimeControlSubmit(ws, msg);
+                break;
+
+            case 'timeControlAccept':
+                this._handleTimeControlAccept(ws);
+                break;
+
+            case 'setBoardSize':
+                qiProtocol.setBoardSizeWeiqiObserver(this, ws, msg, slot);
+                break;
+
+            case 'move': {
+                const moveSlot = slot;
+                if (!this._timeAllowsPlay(moveSlot)) {
+                    if (moveSlot) ws.send(JSON.stringify({ type: 'error', message: '请先与对手确认限时规则。' }));
                     return;
                 }
-
-                // 保存历史
-                this.historyBoards.push(this.copyBoard(newBoard));
-                this.historyBoardSet.add(newBoardStr);
-                this.historyMarkers.push(this.copyMarkers(this.lastMoveMarkers));
-                this.moveHistory.push(slot);
-                this.moveCoords.push({ type: 'move', player: slot, row, col });
-                this.board = newBoard;
-                this.lastMoveMarkers = [{ row, col, color: playerVal }];
-
-                this.currentPlayer = 3 - this.currentPlayer;
-                this.passCounter = 0;
-                this.broadcast({ type: 'broadcast', action: 'move', ...this.getState() });
+                const before = () => this._drainClockBeforeMove(moveSlot);
+                qiProtocol.weiqiMove(this, ws, msg, moveSlot, { beforeCommit: before });
+                this._syncClockAfterTurnChange();
                 break;
+            }
 
-            case 'pass':
-                if (this.gameOver) return;
-                if (!slot || slot !== (this.currentPlayer === 1 ? 'black' : 'white')) return;
-                this.historyBoards.push(this.copyBoard(this.board));
-                this.historyMarkers.push(this.copyMarkers(this.lastMoveMarkers));
-                this.moveHistory.push(slot);
-                this.moveCoords.push({ type: 'pass', player: slot });
-                this.currentPlayer = 3 - this.currentPlayer;
-                this.passCounter++;
-                this.lastMoveMarkers = [];
-                this.broadcast({ type: 'broadcast', action: 'pass', ...this.getState() });
-                if (this.passCounter >= 2) {
-                    const blackPlayer = room.getPlayerBySlot('black');
-                    const whitePlayer = room.getPlayerBySlot('white');
-                    if (blackPlayer && whitePlayer) {
-                        this.startScoreCounting(blackPlayer, whitePlayer);
-                    } else {
-                        this.gameOver = true;
-                        this.broadcast({ type: 'broadcast', action: 'endAgreed', ...this.getState() });
-                    }
+            case 'pass': {
+                const passSlot = slot;
+                if (!this._timeAllowsPlay(passSlot)) {
+                    if (passSlot) ws.send(JSON.stringify({ type: 'error', message: '请先与对手确认限时规则。' }));
+                    return;
                 }
+                const beforeP = () => this._drainClockBeforeMove(passSlot);
+                qiProtocol.weiqiPass(this, ws, passSlot, { beforeCommit: beforeP });
+                this._syncClockAfterTurnChange();
                 break;
+            }
 
             case 'requestUndo':
-                if (!slot || this.gameOver) return;
-                let steps = 0;
-                for (let i = this.moveHistory.length - 1; i >= 0; i--) {
-                    steps++;
-                    if (this.moveHistory[i] === slot) break;
-                }
-                if (steps === 0 || steps > this.historyBoards.length) {
-                    ws.send(JSON.stringify({ type: 'error', message: '无法悔棋。' }));
-                    return;
-                }
-                const opponentSlot = slot === 'black' ? 'white' : 'black';
-                const opponent = room.getPlayerBySlot(opponentSlot);
-                if (!opponent) {
-                    this.performUndo(steps, ws);
-                } else {
-                    this.pendingUndo = { requester: ws, steps };
-                    opponent.send(JSON.stringify({ type: 'undoRequest' }));
-                }
+                qiProtocol.weiqiRequestUndo(this, ws, slot);
                 break;
 
             case 'undoResponse':
-                if (this.pendingUndo && msg.accept) {
-                    this.performUndo(this.pendingUndo.steps, this.pendingUndo.requester);
-                } else if (this.pendingUndo && !msg.accept) {
-                    this.pendingUndo.requester.send(JSON.stringify({ type: 'error', message: '对方拒绝悔棋。' }));
-                }
-                this.pendingUndo = null;
+                qiProtocol.weiqiUndoResponse(this, ws, msg);
                 break;
 
             case 'resign':
-                if (!slot || this.gameOver) return;
-                this.gameOver = true;
-                this.winner = slot === 'black' ? 'white' : 'black';
-                this.broadcast({ type: 'broadcast', action: 'resign', player: slot, winner: this.winner, ...this.getState() });
+                qiProtocol.resign(this, ws, slot);
                 break;
 
             case 'requestNewGame':
-                if (!slot) return;
-                const newGameOpponent = room.getPlayerBySlot(slot === 'black' ? 'white' : 'black');
-                if (!newGameOpponent) {
-                    this.resetGame();
-                } else {
-                    this.pendingNewGame = ws;
-                    newGameOpponent.send(JSON.stringify({ type: 'newGameRequest' }));
-                }
+                qiProtocol.requestNewGame(this, ws, slot);
                 break;
 
             case 'newGameResponse':
-                if (this.pendingNewGame && msg.accept) {
-                    this.resetGame();
-                } else if (this.pendingNewGame && !msg.accept) {
-                    this.pendingNewGame.send(JSON.stringify({ type: 'error', message: '对方拒绝开始新局' }));
-                }
-                this.pendingNewGame = null;
+                qiProtocol.newGameResponse(this, ws, msg, { newGameDeniedMsg: '对方拒绝开始新局' });
                 break;
 
             case 'requestDraw':
-                if (!slot || this.gameOver) return;
-                const drawOpponent = room.getPlayerBySlot(slot === 'black' ? 'white' : 'black');
-                if (!drawOpponent) {
-                    this.gameOver = true;
-                    this.winner = 'draw';
-                    this.broadcast({ type: 'broadcast', action: 'drawAgreed', ...this.getState() });
-                } else {
-                    this.pendingDraw = ws;
-                    drawOpponent.send(JSON.stringify({ type: 'drawRequest' }));
-                }
+                qiProtocol.requestDraw(this, ws, slot);
                 break;
 
             case 'drawResponse':
-                if (this.pendingDraw && msg.accept) {
-                    this.gameOver = true;
-                    this.winner = 'draw';
-                    this.broadcast({ type: 'broadcast', action: 'drawAgreed', ...this.getState() });
-                } else if (this.pendingDraw && !msg.accept) {
-                    this.pendingDraw.send(JSON.stringify({ type: 'error', message: '对方拒绝和棋。' }));
-                }
-                this.pendingDraw = null;
+                qiProtocol.drawResponse(this, ws, msg);
                 break;
 
             case 'requestEnd':
@@ -362,11 +549,14 @@ class WeightWeiqiRoom extends QiTwoPlayerRoomBase {
                             const lead = this.scoreProposalData.lead;
                             this.gameOver = true;
                             this.winner = lead > 0 ? 'black' : (lead < 0 ? 'white' : 'draw');
+                            this.setScoreResultTextByLead(lead);
                             this.broadcast({ type: 'scoreAgreed', winner: this.winner, lead });
                             this.pendingScore = null;
                             this.scoreProposalData = null;
+                            this._stopClockTicker();
                         }
                     } else {
+                        if (this.tcClock && this.tcClock.timed) qiMatchTimeControl.setPaused(this.tcClock, false);
                         this.broadcast({ type: 'scoreRejected' });
                         this.pendingScore = null;
                         this.scoreProposalData = null;
@@ -390,27 +580,16 @@ class WeightWeiqiRoom extends QiTwoPlayerRoomBase {
                 }));
                 break;
 
-            case 'setBoardSize':
-                if (!slot && !this.room.players.size)
-                    this.setBoardSize(msg.size, ws);
-                break;
-
             case 'exportRecord':
-                ws.send(JSON.stringify({ type: 'gameRecord', data: this.exportRecord() }));
+                qiProtocol.exportRecord(this, ws);
                 break;
 
             case 'importRecord':
-                if (this.room.getPlayerBySlot('black') || this.room.getPlayerBySlot('white')) {
-                    ws.send(JSON.stringify({ type: 'error', message: '已有玩家入座，无法导入棋谱' }));
-                    return;
-                }
-                this.importRecord(msg.data, ws);
+                qiProtocol.importRecord(this, ws, msg, { importBlockedMsg: '已有玩家入座，无法导入棋谱' });
                 break;
 
             case 'resetRoom':
-                if (this.room.getPlayerBySlot('black') || this.room.getPlayerBySlot('white')) return;
-                this.resetToEmpty();
-                this.broadcast({ type: 'roomReset', ...this.getState() });
+                qiProtocol.resetRoomToEmpty(this, ws);
                 break;
 
             default:
@@ -438,6 +617,7 @@ class WeightWeiqiRoom extends QiTwoPlayerRoomBase {
         else
             this.board = this.copyBoard(this.historyBoards[this.historyBoards.length - 1]);
         this.broadcast({ type: 'broadcast', action: 'undoAccept', ...this.getState() });
+        this._syncClockAfterTurnChange();
     }
 
     copyMarkers(markers) {
@@ -445,6 +625,13 @@ class WeightWeiqiRoom extends QiTwoPlayerRoomBase {
     }
 
     resetGame() {
+        this._stopClockTicker();
+        this.slotJoinedAt = { black: null, white: null };
+        this.tcNego = null;
+        this.tcSettings = null;
+        this.tcClock = null;
+        this.recordResultText = null;
+        this.matchStarted = false;
         this.board = Array(this.boardSize).fill().map(() => Array(this.boardSize).fill(0));
         this.weights = this.generateWeights();  // 重新生成权重
         this.currentPlayer = 1;
@@ -481,32 +668,52 @@ class WeightWeiqiRoom extends QiTwoPlayerRoomBase {
             return false;
         }
         this.boardSize = newSize;
-        this.komi = 3 * this.boardSize * this.boardSize;
+        this.komi = Math.floor(0.008 * (1 + this.boardSize * this.boardSize) * this.boardSize * this.boardSize);
         this.resetGame();
         this.broadcast({ type: 'boardSizeChanged', boardSize: this.boardSize });
         return true;
     }
 
     exportRecord() {
+        const mainMinutes = this.tcSettings.timed ? this.tcSettings.mainMinutes : 0;
+        const byoyomiSeconds = this.tcSettings.timed ? this.tcSettings.byoyomiSeconds : 0;
+        const maxTimeouts = this.tcSettings.timed ? this.tcSettings.maxTimeouts : 0;
+        const exportedTimeControl = (this.tcSettings && this.tcSettings.timed) ? `S${mainMinutes},${byoyomiSeconds},${maxTimeouts}` : null;
+
+        let resultText = null;
+        if (this.gameOver) {
+            if (this.recordResultText) resultText = this.recordResultText;
+            else if (this.winner === 'draw') resultText = '和胜';
+            else if (this.winner === 'black') resultText = '黑胜';
+            else if (this.winner === 'white') resultText = '白胜';
+        }
         return {
             format: 'muzei',
             version: 1,
             gameType: '权重围棋',
             gameId: 'weight-weiqi',
             boardSize: this.boardSize,
-            komi: 1000,
+            komi: this.komi,
             weights: this.weights.map(row => row.slice()),
             players: { black: null, white: null },
-            initialPosition: { black: [], white: [] },
+            initialPosition: [],
             moves: this.moveCoords.map(m => {
                 const p = m.player === 'black' ? 'B' : 'W';
                 return m.type === 'pass' ? p + 'p' : p + m.row + ',' + m.col;
             }),
-            result: this.gameOver ? this.winner : null
+            timeControl: exportedTimeControl,
+            result: resultText
         };
     }
 
     resetToEmpty() {
+        this._stopClockTicker();
+        this.slotJoinedAt = { black: null, white: null };
+        this.tcNego = null;
+        this.tcSettings = null;
+        this.tcClock = null;
+        this.recordResultText = null;
+        this.matchStarted = false;
         this.board = Array(this.boardSize).fill().map(() => Array(this.boardSize).fill(0));
         this.weights = this.generateWeights();
         this.currentPlayer = 1;
@@ -549,7 +756,7 @@ class WeightWeiqiRoom extends QiTwoPlayerRoomBase {
         }
 
         this.boardSize = newSize;
-        this.komi = 3 * this.boardSize * this.boardSize;
+        this.komi = Math.floor(0.008 * (1 + this.boardSize * this.boardSize) * this.boardSize * this.boardSize);
         this.resetToEmpty();
 
         if (data.weights && Array.isArray(data.weights) && data.weights.length === this.boardSize) {
@@ -563,9 +770,7 @@ class WeightWeiqiRoom extends QiTwoPlayerRoomBase {
             if (ok) this.weights = data.weights.map(row => row.slice());
         }
 
-        let curBoard = QiSquareWeiqiCanvas.initBoardArray(ps.BOARD_SIZE);
-        if (data.initialPosition && Array.isArray(data.initialPosition))
-            QiWeiqiSquarePageRuntime.applyInitialPositionCompact(curBoard, ps.BOARD_SIZE, data.initialPosition);
+        applyInitialPositionFromRecord(this.board, this.boardSize, data.initialPosition);
 
         const rawMoves = data.moves || [];
         const moves = rawMoves.map(WeightWeiqiRoom.parseMove);
@@ -581,14 +786,13 @@ class WeightWeiqiRoom extends QiTwoPlayerRoomBase {
                     this.broadcast({ type: 'roomReset', ...this.getState() });
                     return;
                 }
-                const result = this.tryPlaceStone(this.board, row, col, playerVal);
-                if (!result) {
+                const newBoard = this.tryPlaceStone(this.board, row, col, playerVal);
+                if (!newBoard) {
                     this.resetToEmpty();
                     requesterWs.send(JSON.stringify({ type: 'error', message: `棋谱回放失败：第${i + 1}手无法落子。` }));
                     this.broadcast({ type: 'roomReset', ...this.getState() });
                     return;
                 }
-                const newBoard = result.newBoard;
                 const newBoardStr = this.boardToString(newBoard);
                 this.historyBoards.push(this.copyBoard(newBoard));
                 this.historyBoardSet.add(newBoardStr);
@@ -610,16 +814,35 @@ class WeightWeiqiRoom extends QiTwoPlayerRoomBase {
             }
         }
 
-        if (data.result) {
+        if (data.timeControl && typeof data.timeControl === 'object') {
+            const tc = data.timeControl;
+            if (tc.enabled === true) {
+                this.tcSettings = {
+                    timed: true,
+                    mainMinutes: parseInt(String(tc.mainMinutes ?? 0), 10) || 0,
+                    byoyomiSeconds: parseInt(String(tc.byoyomiSeconds ?? 0), 10) || 0,
+                    maxTimeouts: parseInt(String(tc.maxTimeouts ?? 0), 10) || 0
+                };
+            } else if (tc.enabled === false) {
+                this.tcSettings = { timed: false };
+            }
+            this.matchStarted = true;
+        }
+
+        if (data.result || data.resultText) {
             this.gameOver = true;
-            this.winner = data.result;
+            const importedResultText = data.resultText != null ? String(data.resultText) : String(data.result);
+            this.recordResultText = importedResultText;
+            this.winner = WeightWeiqiRoom.parseResultTextToWinner(importedResultText);
+            if (!this.winner && (data.result === 'black' || data.result === 'white' || data.result === 'draw'))
+                this.winner = data.result;
         }
 
         this.broadcast({
             type: 'importSuccess',
             ...this.getState(),
             replayData: {
-                initialPosition: data.initialPosition || { black: [], white: [] },
+                initialPosition: normalizeInitialPositionForReplayPayload(data.initialPosition),
                 moves: this.moveCoords.map(m => ({ ...m })),
                 weights: this.weights.map(row => row.slice())
             }
@@ -639,9 +862,15 @@ class WeightWeiqiRoom extends QiTwoPlayerRoomBase {
         if (this.pendingDraw === ws) this.pendingDraw = null;
         if (this.pendingEnd && (this.pendingEnd.requester === ws || this.pendingEnd.opponent === ws)) this.pendingEnd = null;
         if (this.pendingScore && (this.pendingScore.requester === ws || this.pendingScore.opponent === ws)) {
+            if (this.tcClock && this.tcClock.timed) qiMatchTimeControl.setPaused(this.tcClock, false);
             this.pendingScore = null;
             this.scoreProposalData = null;
         }
+        if (this.tcNego) {
+            this.tcNego = null;
+            this.room.broadcast({ type: 'timeControlReset', reason: 'playerLeft' });
+        }
+        if (slot) this.slotJoinedAt[slot] = null;
     }
 }
 
