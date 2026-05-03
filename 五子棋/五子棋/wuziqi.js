@@ -215,8 +215,7 @@ class WuziqiRoom extends QiTwoPlayerRoomBase {
             gameId: 'wuziqi',
             boardSize: this.BOARD_SIZE,
             moves: this.moveHistory.map(m => `${m.player[0].toUpperCase()}${m.row},${m.col}`),
-            result: this.gameOver ? this.winner : null
-            ,
+            result: this.gameOver ? this.winner : null,
             timeControl: this.tcSettings ? {
                 enabled: this.tcSettings.timed === true,
                 mainMinutes: this.tcSettings.timed ? this.tcSettings.mainMinutes : 0,

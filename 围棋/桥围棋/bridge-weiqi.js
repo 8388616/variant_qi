@@ -607,14 +607,6 @@ class BridgeWeiqiRoom extends QiTwoPlayerRoomBase
 
     exportRecord() {
         const initialBoard = this.openingBoard || this.board;
-        const moves = this.moveCoords.map(m => {
-            if (m.type === 'pass') return (m.player === 'black' ? 'B' : 'W') + 'p';
-            return (m.player === 'black' ? 'B' : 'W') + m.row + ',' + m.col;
-        });
-        const mainMinutes = this.tcSettings.timed ? this.tcSettings.mainMinutes : 0;
-        const byoyomiSeconds = this.tcSettings.timed ? this.tcSettings.byoyomiSeconds : 0;
-        const maxTimeouts = this.tcSettings.timed ? this.tcSettings.maxTimeouts : 0;
-        const exportedTimeControl = (this.tcSettings && this.tcSettings.timed) ? `S${mainMinutes},${byoyomiSeconds},${maxTimeouts}` : null;
 
         let resultText = null;
         if (this.gameOver) {
@@ -631,8 +623,11 @@ class BridgeWeiqiRoom extends QiTwoPlayerRoomBase
             komi: 4.75,
             players: { black: '', white: '' },
             initialPosition: encodeInitialPositionCompact(initialBoard, this.boardSize),
-            moves,
-            timeControl: exportedTimeControl,
+            moves: this.moveCoords.map(m => {
+                const p = m.player === 'black' ? 'B' : 'W';
+                return m.type === 'pass' ? p + 'p' : p + m.row + ',' + m.col;
+            }),
+            timeControl: (this.tcSettings && this.tcSettings.timed) ? `S${this.tcSettings.mainMinutes || 0},${this.tcSettings.byoyomiSeconds || 0},${this.tcSettings.maxTimeouts || 0}` : null,
             result: resultText
         };
     }

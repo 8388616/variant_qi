@@ -1308,7 +1308,8 @@
             isMouseDevice,
             onNewGameStarted: () => { ps.userBoardMarks = Object.create(null); },
             onRoomReset: () => { ps.userBoardMarks = Object.create(null); },
-            standardWeiqiMatchTime: true
+            standardWeiqiMatchTime: true,
+            timeControlMainByoScale: 2
         });
 
         function handleMessage(msg) {

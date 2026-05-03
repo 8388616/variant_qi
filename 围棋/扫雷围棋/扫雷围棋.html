@@ -571,7 +571,7 @@
             getIRejected: () => ps.iRejected, setIRejected: (v) => { ps.iRejected = v; },
             colorStatus, scoreTitle, turnDisplay, labelBlack, labelWhite, radioBlack, radioWhite, syncState, updateBoardGeometry, initBoardArray,
             exitReplayMode, clearEstimate, hideScoreConfirm, showEstimate, clearMobileMovePreview, downloadRecord, enterReplayMode, updateTurn, updateReplayUI,
-            showScoreConfirm, isMouseDevice, standardWeiqiMatchTime: true,
+            showScoreConfirm, isMouseDevice, standardWeiqiMatchTime: true, timeControlMainByoScale: 2,
             onNewGameStarted: () => {
                 ps.gameStarted = false; ps.editModeEnabled = false; if (editModeCheckbox) editModeCheckbox.checked = false;
                 colorStatus.innerText = '未选择阵营';

@@ -626,14 +626,6 @@ class HoleWeiqiRoom extends QiTwoPlayerRoomBase
 
     exportRecord() {
         const initialBoard = this.openingBoard || this.board;
-        const moves = this.moveCoords.map(m => {
-            if (m.type === 'pass') return (m.player === 'black' ? 'B' : 'W') + 'p';
-            return (m.player === 'black' ? 'B' : 'W') + m.row + ',' + m.col;
-        });
-        const mainMinutes = this.tcSettings.timed ? this.tcSettings.mainMinutes : 0;
-        const byoyomiSeconds = this.tcSettings.timed ? this.tcSettings.byoyomiSeconds : 0;
-        const maxTimeouts = this.tcSettings.timed ? this.tcSettings.maxTimeouts : 0;
-        const exportedTimeControl = (this.tcSettings && this.tcSettings.timed) ? `S${mainMinutes},${byoyomiSeconds},${maxTimeouts}` : null;
 
         let resultText = null;
         if (this.gameOver) {
@@ -642,6 +634,9 @@ class HoleWeiqiRoom extends QiTwoPlayerRoomBase
             else if (this.winner === 'black') resultText = '黑胜';
             else if (this.winner === 'white') resultText = '白胜';
         }
+        const initialPosition = moves.length === 0
+            ? encodeInitialPositionCompact(initialBoard, this.boardSize)
+            : [];
         return {
             format: 'muzei',
             game: '洞围棋',
@@ -649,9 +644,12 @@ class HoleWeiqiRoom extends QiTwoPlayerRoomBase
             boardSize: this.boardSize,
             komi: 4.75,
             players: { black: '', white: '' },
-            initialPosition: encodeInitialPositionCompact(initialBoard, this.boardSize),
-            moves,
-            timeControl: exportedTimeControl,
+            initialPosition: initialPosition,
+            moves: this.moveCoords.map(m => {
+                const p = m.player === 'black' ? 'B' : 'W';
+                return m.type === 'pass' ? p + 'p' : p + m.row + ',' + m.col;
+            }),
+            timeControl: (this.tcSettings && this.tcSettings.timed) ? `S${this.tcSettings.mainMinutes || 0},${this.tcSettings.byoyomiSeconds || 0},${this.tcSettings.maxTimeouts || 0}` : null,
             result: resultText
         };
     }
@@ -699,7 +697,7 @@ class HoleWeiqiRoom extends QiTwoPlayerRoomBase
             requesterWs.send(JSON.stringify({ type: 'error', message: '棋谱格式不匹配（需要洞围棋棋谱）。' }));
             return;
         }
-        if (data.boardSize && data.boardSize >= 7 && data.boardSize <= 21) {
+        if (data.boardSize && data.boardSize >= 7 && data.boardSize <= 31) {
             this.boardSize = data.boardSize;
             this.HOLE_COUNT = Math.floor(0.083 * this.boardSize * this.boardSize);
         }
@@ -796,7 +794,7 @@ class HoleWeiqiRoom extends QiTwoPlayerRoomBase
 
     setBoardSize(newSize, requesterWs)
     {
-        if (!Number.isInteger(newSize) || newSize < 7 || newSize > 21) {
+        if (!Number.isInteger(newSize) || newSize < 7 || newSize > 31) {
             requesterWs.send(JSON.stringify({ type: 'error', message: '棋盘大小无效' }));
             return false;
         }

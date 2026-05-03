@@ -498,7 +498,7 @@ class HexagonWeiqiRoom extends QiTwoPlayerRoomBase {
                 const p = m.player === 'black' ? 'B' : 'W';
                 return m.type === 'pass' ? p + 'p' : p + m.vertex;
             }),
-            timeControl: exportedTimeControl,
+            timeControl: (this.tcSettings && this.tcSettings.timed) ? `S${this.tcSettings.mainMinutes || 0},${this.tcSettings.byoyomiSeconds || 0},${this.tcSettings.maxTimeouts || 0}` : null,
             result: resultText
         };
     }

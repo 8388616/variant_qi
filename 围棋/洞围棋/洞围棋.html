@@ -37,6 +37,16 @@
                     <option value="19" selected>19路</option>
                     <option value="20">20路</option>
                     <option value="21">21路</option>
+                    <option value="22">22路</option>
+                    <option value="23">23路</option>
+                    <option value="24">24路</option>
+                    <option value="25">25路</option>
+                    <option value="26">26路</option>
+                    <option value="27">27路</option>
+                    <option value="28">28路</option>
+                    <option value="29">29路</option>
+                    <option value="30">30路</option>
+                    <option value="31">31路</option>
                 </select>
                 <label style="cursor:pointer; display:inline-flex; align-items:center; gap:6px; font-size:0.95rem;">
                     <input type="checkbox" id="showNumbersCheck"> 显示序号
@@ -571,9 +581,23 @@
 
         function applyEditChange(newBoard) {
             ps.board = QiSquareWeiqiCanvas.deepCopyBoard(newBoard);
-            if (!ps.replayMode && ps.liveReplayBoards.length > 0) {
-                const i = Math.min(ps.liveViewStep, ps.liveReplayBoards.length - 1);
-                ps.liveReplayBoards[i] = QiSquareWeiqiCanvas.deepCopyBoard(ps.board);
+            if (!ps.replayMode) {
+                const preGame = !ps.gameStarted && (ps.numberOfHands || 1) <= 1;
+                if (preGame) {
+                    ps.liveOpeningBoard = QiSquareWeiqiCanvas.deepCopyBoard(ps.board);
+                    if (ps.liveReplayBoards.length === 0) {
+                        ps.liveReplayBoards = [QiSquareWeiqiCanvas.deepCopyBoard(ps.board)];
+                        ps.liveReplayMarkers = [[]];
+                        ps.liveReplayStepPlayers = [0];
+                        ps.liveViewStep = 0;
+                    } else {
+                        const i = Math.min(ps.liveViewStep, ps.liveReplayBoards.length - 1);
+                        ps.liveReplayBoards[i] = QiSquareWeiqiCanvas.deepCopyBoard(ps.board);
+                    }
+                } else if (ps.liveReplayBoards.length > 0) {
+                    const i = Math.min(ps.liveViewStep, ps.liveReplayBoards.length - 1);
+                    ps.liveReplayBoards[i] = QiSquareWeiqiCanvas.deepCopyBoard(ps.board);
+                }
             }
             drawBoard();
             sendEditBoard(ps.board);

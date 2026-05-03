@@ -900,8 +900,6 @@ class MinesweeperWeiqiRoom extends QiTwoPlayerRoomBase
             return p + m.row + ',' + m.col;
         };
 
-        let movesForExport = this.moveCoords.map(encodeMove);
-
         if (includeMines && stoneMoves.length >= 2 && this.snapshotHolesAfterGen && this.snapshotHolesAfterGen.length > 0) {
             initialPosition = this.snapshotHolesAfterGen.map(h => `M${h.r},${h.c}`);
         }
@@ -926,8 +924,8 @@ class MinesweeperWeiqiRoom extends QiTwoPlayerRoomBase
             komi: 3.25,
             players: { black: null, white: null },
             initialPosition,
-            moves: movesForExport,
-            timeControl: exportedTimeControl,
+            moves: this.moveCoords.map(encodeMove),
+            timeControl: (this.tcSettings && this.tcSettings.timed) ? `S${this.tcSettings.mainMinutes || 0},${this.tcSettings.byoyomiSeconds || 0},${this.tcSettings.maxTimeouts || 0}` : null,
             result: resultText
         };
     }

@@ -5,6 +5,108 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=2.0, user-scalable=yes">
     <title>围棋</title>
     <link rel="stylesheet" href="/qi/qi.css">
+    <style>
+        .weiqi-board-view-stack {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            width: 100%;
+            max-width: 600px;
+            min-width: 0;
+        }
+        .weiqi-board-view-row {
+            display: flex;
+            flex-direction: row;
+            align-items: stretch;
+            gap: 6px;
+            width: 100%;
+            max-width: 600px;
+            min-width: 0;
+        }
+        .weiqi-board-view-row #goBoard {
+            flex: 1 1 auto;
+            min-width: 0;
+            max-width: 100%;
+            height: auto;
+            display: block;
+        }
+        .weiqi-board-scrollbar {
+            --sb-track: #373737;
+            --sb-thumb: #e0b34f;
+            -webkit-appearance: none;
+            appearance: none;
+            background: transparent;
+            border: none;
+            outline: none;
+            padding: 0;
+        }
+        .weiqi-board-scrollbar--y {
+            display: none;
+            flex: 0 0 22px;
+            width: 22px;
+            min-height: 120px;
+            align-self: stretch;
+            box-sizing: border-box;
+            cursor: pointer;
+            writing-mode: vertical-lr;
+            direction: rtl;
+        }
+        .weiqi-board-scrollbar--x {
+            display: none;
+            width: calc(100% - 28px);
+            margin-top: 4px;
+            box-sizing: border-box;
+            cursor: pointer;
+            align-self: flex-start;
+        }
+        .weiqi-board-scrollbar::-webkit-slider-runnable-track {
+            height: 8px;
+            border-radius: 999px;
+            background: var(--sb-track);
+        }
+        .weiqi-board-scrollbar--y::-webkit-slider-runnable-track {
+            width: 8px;
+            height: 100%;
+        }
+        .weiqi-board-scrollbar::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            border: 1px solid #8e6f2c;
+            background: var(--sb-thumb);
+            margin-top: -3px;
+        }
+        .weiqi-board-scrollbar--y::-webkit-slider-thumb {
+            margin-top: 0;
+            margin-left: -3px;
+        }
+        .weiqi-board-scrollbar::-moz-range-track {
+            height: 8px;
+            border: none;
+            border-radius: 999px;
+            background: var(--sb-track);
+        }
+        .weiqi-board-scrollbar::-moz-range-progress {
+            height: 8px;
+            border: none;
+            border-radius: 999px;
+            background: var(--sb-track);
+        }
+        .weiqi-board-scrollbar--y::-moz-range-track,
+        .weiqi-board-scrollbar--y::-moz-range-progress {
+            width: 8px;
+            height: 100%;
+        }
+        .weiqi-board-scrollbar::-moz-range-thumb {
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            border: 1px solid #8e6f2c;
+            background: var(--sb-thumb);
+        }
+    </style>
 </head>
 <body>
     <div class="game-wrapper">
@@ -146,7 +248,15 @@
             </div>
             <div class="board-and-info">
                 <div class="board-container">
-                    <canvas id="goBoard" width="600" height="600"></canvas>
+                    <div class="weiqi-board-view-stack">
+                        <div class="weiqi-board-view-row">
+                            <canvas id="goBoard" width="600" height="600" style="touch-action: none;"></canvas>
+                            <input type="range" id="boardScrollY" class="weiqi-board-scrollbar weiqi-board-scrollbar--y"
+                                min="0" max="1000" value="500" step="1" tabindex="-1" aria-label="棋盘上下平移">
+                        </div>
+                        <input type="range" id="boardScrollX" class="weiqi-board-scrollbar weiqi-board-scrollbar--x"
+                            min="0" max="1000" value="500" step="1" tabindex="-1" aria-label="棋盘左右平移">
+                    </div>
                     <div class="board-mark-outer" id="boardMarkOuter">
                         <div class="board-mark-panel" id="boardMarkPanel" hidden title="右键或长按空点放置标记；再次放置可清除">
                             <label for="boardMarkSelect">标记</label>
@@ -256,7 +366,11 @@
             userBoardMarks: Object.create(null),
             hoverRow: -1,
             hoverCol: -1,
-            isHoverValid: false
+            isHoverValid: false,
+            /** 棋盘局部缩放（与 qi.js QiWeiqiSquarePageRuntime 视口变换配合） */
+            viewZoom: 1,
+            viewCenterX: 300,
+            viewCenterY: 300
         };
         (function initSquareGeometry() {
             const g = QiSquareWeiqiCanvas.computePaddingAndCell(ps.BOARD_SIZE);
@@ -308,6 +422,66 @@
 
         const isMouseDevice = window.matchMedia('(hover: hover) and (pointer: fine)').matches;
 
+        const BOARD_VIEW_CS = QiSquareWeiqiCanvas.DEFAULT_CANVAS_SIZE;
+        let boardScrollbarProgrammatic = false;
+
+        function viewCenterBoundsForScrollbars() {
+            const z = Math.max(1, Math.min(10, ps.viewZoom || 1));
+            const half = (BOARD_VIEW_CS / 2) / z;
+            return {
+                minX: half,
+                maxX: BOARD_VIEW_CS - half,
+                minY: half,
+                maxY: BOARD_VIEW_CS - half
+            };
+        }
+
+        function clampBoardView() {
+            let z = ps.viewZoom;
+            if (!Number.isFinite(z)) z = 1;
+            z = Math.max(1, Math.min(10, z));
+            ps.viewZoom = z;
+            if (z <= 1) {
+                ps.viewCenterX = BOARD_VIEW_CS / 2;
+                ps.viewCenterY = BOARD_VIEW_CS / 2;
+                return;
+            }
+            const half = (BOARD_VIEW_CS / 2) / z;
+            ps.viewCenterX = Math.min(BOARD_VIEW_CS - half, Math.max(half, ps.viewCenterX));
+            ps.viewCenterY = Math.min(BOARD_VIEW_CS - half, Math.max(half, ps.viewCenterY));
+        }
+
+        function applyZoomKeepingScreenPoint(ssx, ssy, zNew) {
+            const z0 = ps.viewZoom;
+            const cs = BOARD_VIEW_CS;
+            const Lx = (ssx - cs / 2) / z0 + ps.viewCenterX;
+            const Ly = (ssy - cs / 2) / z0 + ps.viewCenterY;
+            ps.viewZoom = zNew;
+            ps.viewCenterX = Lx - (ssx - cs / 2) / zNew;
+            ps.viewCenterY = Ly - (ssy - cs / 2) / zNew;
+            clampBoardView();
+        }
+
+        function syncScrollbarsFromView() {
+            const sx = document.getElementById('boardScrollX');
+            const sy = document.getElementById('boardScrollY');
+            if (!sx || !sy) return;
+            if (ps.viewZoom <= 1) {
+                sx.style.display = 'none';
+                sy.style.display = 'none';
+                return;
+            }
+            sx.style.display = 'block';
+            sy.style.display = 'block';
+            const b = viewCenterBoundsForScrollbars();
+            const spanX = b.maxX - b.minX;
+            const spanY = b.maxY - b.minY;
+            boardScrollbarProgrammatic = true;
+            sx.value = spanX > 1e-6 ? String(Math.round((ps.viewCenterX - b.minX) / spanX * 1000)) : '500';
+            sy.value = spanY > 1e-6 ? String(Math.round((b.maxY - ps.viewCenterY) / spanY * 1000)) : '500';
+            boardScrollbarProgrammatic = false;
+        }
+
         const domPage = {
             turnDisplay,
             scoreTitle,
@@ -328,12 +502,13 @@
             gameType,
             roomId,
             roomPassword,
-            isMouseDevice
+            isMouseDevice,
+            afterDrawBoard: syncScrollbarsFromView
         });
         const {
             mobileTwoStepPlacing,
             clearMobileMovePreview,
-            drawBoard,
+            drawBoard: drawBoardCore,
             updateTurn,
             showEstimate,
             clearEstimate,
@@ -360,6 +535,7 @@
             commitMove,
             getClosestIntersection,
             canvasCoordsFromClient,
+            boardScreenPointFromClient,
             applyUserBoardMark
         } = page;
 
@@ -367,7 +543,7 @@
             roomId,
             gameType,
             pageState: ps,
-            drawBoard,
+            drawBoard: drawBoardCore,
             exitTryPlay,
             enterTryPlay,
             setTryPlayStep,
@@ -418,11 +594,175 @@
             isMouseDevice,
             standardWeiqiMatchTime: true
         });
-        const handleMessage = _weiqiBindings.handleMessage;
+        const weiqiHandleMessageInner = _weiqiBindings.handleMessage;
         const updateRecordButtons = _weiqiBindings.updateRecordButtons;
         const updateRadioStyles = _weiqiBindings.updateRadioStyles;
 
+        function lastMoveMarkerKey() {
+            const m = ps.lastMoveMarkers && ps.lastMoveMarkers[0];
+            if (!m || m.row < 0 || m.col < 0) return '';
+            return `${m.row},${m.col},${m.color}`;
+        }
+
+        function maybeCenterViewOnOpponentMove(msg, keyBefore) {
+            if (ps.viewZoom <= 1 || !ps.mySlot || ps.replayMode || ps.tryPlayMode) return;
+            if (msg.type !== 'broadcast' && msg.type !== 'gameState') return;
+            if (msg.type === 'broadcast' && msg.action !== 'move') return;
+            const m = ps.lastMoveMarkers && ps.lastMoveMarkers[0];
+            if (!m || m.row < 0 || m.col < 0) return;
+            if (lastMoveMarkerKey() === keyBefore) return;
+            const oppColor = ps.mySlot === 'black' ? 2 : 1;
+            if (m.color !== oppColor) return;
+            ps.viewCenterX = ps.PADDING + m.col * ps.CELL_SIZE;
+            ps.viewCenterY = ps.PADDING + m.row * ps.CELL_SIZE;
+            clampBoardView();
+            drawBoardCore();
+        }
+
+        function handleMessage(msg) {
+            const mkBefore = lastMoveMarkerKey();
+            weiqiHandleMessageInner(msg);
+            maybeCenterViewOnOpponentMove(msg, mkBefore);
+        }
+
         let suppressCanvasClickAfterLongMark = false;
+        let suppressCanvasClickAfterPan = false;
+
+        const LONG_MARK_MS = 500;
+        const LONG_MARK_MOVE_CANCEL = 14;
+        let longMarkTimer = null;
+        let longMarkStart = null;
+
+        function clearLongMarkTouch() {
+            if (longMarkTimer) {
+                clearTimeout(longMarkTimer);
+                longMarkTimer = null;
+            }
+            longMarkStart = null;
+        }
+
+        (function initWeiqiBoardScrollbars() {
+            const sx = document.getElementById('boardScrollX');
+            const sy = document.getElementById('boardScrollY');
+            if (!sx || !sy) return;
+            function applyFromSliders() {
+                if (boardScrollbarProgrammatic) return;
+                if (ps.viewZoom <= 1) return;
+                const b = viewCenterBoundsForScrollbars();
+                const tx = Number(sx.value) / 1000;
+                const ty = 1 - Number(sy.value) / 1000;
+                ps.viewCenterX = b.minX + tx * (b.maxX - b.minX);
+                ps.viewCenterY = b.minY + ty * (b.maxY - b.minY);
+                clampBoardView();
+                drawBoardCore();
+            }
+            sx.addEventListener('input', applyFromSliders);
+            sy.addEventListener('input', applyFromSliders);
+        })();
+
+        canvas.addEventListener('wheel', (e) => {
+            const z0 = ps.viewZoom;
+            const z1 = Math.max(1, Math.min(10, z0 * Math.exp(-e.deltaY * 0.002)));
+            if (Math.abs(z1 - z0) < 1e-8) return;
+            e.preventDefault();
+            const ss = boardScreenPointFromClient(e.clientX, e.clientY);
+            applyZoomKeepingScreenPoint(ss.x, ss.y, z1);
+            drawBoardCore();
+        }, { passive: false });
+
+        let boardMousePanning = false;
+        let boardPanLastScreen = null;
+
+        function boardUpdateGrabCursor() {
+            if (boardMousePanning) {
+                canvas.style.cursor = 'grabbing';
+            } else {
+                canvas.style.cursor = ps.viewZoom > 1 ? 'grab' : 'default';
+            }
+        }
+
+        canvas.addEventListener('mousedown', (e) => {
+            if (e.button !== 0 || ps.viewZoom <= 1) return;
+            boardMousePanning = true;
+            boardPanLastScreen = boardScreenPointFromClient(e.clientX, e.clientY);
+            boardUpdateGrabCursor();
+            e.preventDefault();
+        });
+
+        window.addEventListener('mousemove', (e) => {
+            if (!boardMousePanning || !boardPanLastScreen) return;
+            const p = boardScreenPointFromClient(e.clientX, e.clientY);
+            const dx = p.x - boardPanLastScreen.x;
+            const dy = p.y - boardPanLastScreen.y;
+            ps.viewCenterX -= dx / ps.viewZoom;
+            ps.viewCenterY -= dy / ps.viewZoom;
+            boardPanLastScreen = p;
+            clampBoardView();
+            drawBoardCore();
+        });
+
+        window.addEventListener('mouseup', () => {
+            if (!boardMousePanning) return;
+            boardMousePanning = false;
+            boardPanLastScreen = null;
+            boardUpdateGrabCursor();
+        });
+
+        let pinchGesture = false;
+        let pinchStartDist = 1;
+        let pinchStartZoom = 1;
+        let touchPanLastScreen = null;
+        let touchDidPan = false;
+
+        function touchDistanceScreen(touches) {
+            const a = boardScreenPointFromClient(touches[0].clientX, touches[0].clientY);
+            const b = boardScreenPointFromClient(touches[1].clientX, touches[1].clientY);
+            return Math.hypot(b.x - a.x, b.y - a.y);
+        }
+
+        function touchMidpointScreen(touches) {
+            const a = boardScreenPointFromClient(touches[0].clientX, touches[0].clientY);
+            const b = boardScreenPointFromClient(touches[1].clientX, touches[1].clientY);
+            return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+        }
+
+        canvas.addEventListener('touchstart', (e) => {
+            if (e.touches.length >= 2) {
+                clearLongMarkTouch();
+                pinchGesture = true;
+                pinchStartDist = Math.max(1e-6, touchDistanceScreen(e.touches));
+                pinchStartZoom = ps.viewZoom;
+                touchPanLastScreen = null;
+            } else if (e.touches.length === 1 && ps.viewZoom > 1) {
+                touchPanLastScreen = boardScreenPointFromClient(e.touches[0].clientX, e.touches[0].clientY);
+            }
+        }, { capture: true, passive: true });
+
+        canvas.addEventListener('touchmove', (e) => {
+            if (pinchGesture && e.touches.length >= 2) {
+                e.preventDefault();
+                const d = touchDistanceScreen(e.touches);
+                const z1 = Math.max(1, Math.min(10, pinchStartZoom * (d / pinchStartDist)));
+                const mid = touchMidpointScreen(e.touches);
+                applyZoomKeepingScreenPoint(mid.x, mid.y, z1);
+                drawBoardCore();
+                return;
+            }
+            if (!pinchGesture && e.touches.length === 1 && ps.viewZoom > 1 && touchPanLastScreen) {
+                const cur = boardScreenPointFromClient(e.touches[0].clientX, e.touches[0].clientY);
+                const dx = cur.x - touchPanLastScreen.x;
+                const dy = cur.y - touchPanLastScreen.y;
+                if (dx * dx + dy * dy > 9) {
+                    touchDidPan = true;
+                    e.preventDefault();
+                    ps.viewCenterX -= dx / ps.viewZoom;
+                    ps.viewCenterY -= dy / ps.viewZoom;
+                    touchPanLastScreen = cur;
+                    clampBoardView();
+                    drawBoardCore();
+                }
+            }
+        }, { passive: false });
 
         canvas.addEventListener('contextmenu', (e) => {
             e.preventDefault();
@@ -430,11 +770,6 @@
             const { row, col } = getClosestIntersection(x, y);
             applyUserBoardMark(row, col);
         });
-
-        const LONG_MARK_MS = 500;
-        const LONG_MARK_MOVE_CANCEL = 14;
-        let longMarkTimer = null;
-        let longMarkStart = null;
 
         canvas.addEventListener('touchstart', (e) => {
             if (e.touches.length !== 1) return;
@@ -463,31 +798,40 @@
             }
         }, { passive: true });
 
-        function clearLongMarkTouch() {
-            if (longMarkTimer) {
-                clearTimeout(longMarkTimer);
-                longMarkTimer = null;
+        function onCanvasTouchEnd(e) {
+            clearLongMarkTouch();
+            if (e.touches.length < 2) pinchGesture = false;
+            if (e.touches.length === 0) {
+                if (touchDidPan) {
+                    suppressCanvasClickAfterPan = true;
+                    setTimeout(() => { suppressCanvasClickAfterPan = false; }, 450);
+                }
+                touchDidPan = false;
+                touchPanLastScreen = null;
+            } else if (e.touches.length === 1 && ps.viewZoom > 1) {
+                touchPanLastScreen = boardScreenPointFromClient(e.touches[0].clientX, e.touches[0].clientY);
             }
-            longMarkStart = null;
         }
-        canvas.addEventListener('touchend', clearLongMarkTouch);
-        canvas.addEventListener('touchcancel', clearLongMarkTouch);
+        canvas.addEventListener('touchend', onCanvasTouchEnd);
+        canvas.addEventListener('touchcancel', () => {
+            clearLongMarkTouch();
+            pinchGesture = false;
+            touchPanLastScreen = null;
+            touchDidPan = false;
+        });
 
         canvas.addEventListener('click', (e) => {
-            if (suppressCanvasClickAfterLongMark) {
+            if (suppressCanvasClickAfterLongMark || suppressCanvasClickAfterPan) {
                 e.preventDefault();
                 return;
             }
-            const rect = canvas.getBoundingClientRect();
-            const scale = 600 / rect.width;
-            const x = (e.clientX - rect.left) * scale;
-            const y = (e.clientY - rect.top) * scale;
+            const { x, y } = canvasCoordsFromClient(e.clientX, e.clientY);
             const { row, col } = getClosestIntersection(x, y);
 
             if (ps.tryPlayMode && ps.replayMode) {
                 if (row < 0 || col < 0) {
                     if (mobileTwoStepPlacing()) clearMobileMovePreview();
-                    drawBoard();
+                    drawBoardCore();
                     return;
                 }
                 if (ps.board[row][col] !== 0) return;
@@ -499,7 +843,7 @@
                         ps.hoverRow = row;
                         ps.hoverCol = col;
                         ps.isHoverValid = true;
-                        drawBoard();
+                        drawBoardCore();
                     }
                     return;
                 }
@@ -512,7 +856,7 @@
 
             if (row < 0 || col < 0) {
                 if (mobileTwoStepPlacing()) clearMobileMovePreview();
-                drawBoard();
+                drawBoardCore();
                 return;
             }
             if (ps.board[row][col] !== 0) return;
@@ -521,12 +865,12 @@
                 if (ps.hoverRow === row && ps.hoverCol === col && ps.isHoverValid) {
                     clearMobileMovePreview();
                     commitMove(row, col);
-                    drawBoard();
+                    drawBoardCore();
                 } else {
                     ps.hoverRow = row;
                     ps.hoverCol = col;
                     ps.isHoverValid = true;
-                    drawBoard();
+                    drawBoardCore();
                 }
                 return;
             }
@@ -536,24 +880,24 @@
         if (isMouseDevice)
         {
             canvas.addEventListener('mousemove', (e) => {
+                if (boardMousePanning) return;
                 if (ps.waitingScoreConfirm) {
-                    if (ps.isHoverValid) { ps.isHoverValid = false; ps.hoverRow = -1; ps.hoverCol = -1; drawBoard(); }
+                    if (ps.isHoverValid) { ps.isHoverValid = false; ps.hoverRow = -1; ps.hoverCol = -1; drawBoardCore(); }
                     return;
                 }
-                const rect = canvas.getBoundingClientRect();
-                const scale = 600 / rect.width;
-                const x = (e.clientX - rect.left) * scale;
-                const y = (e.clientY - rect.top) * scale;
+                const { x, y } = canvasCoordsFromClient(e.clientX, e.clientY);
                 const { row, col } = getClosestIntersection(x, y);
                 ps.hoverRow = row; ps.hoverCol = col;
                 ps.isHoverValid = (row >= 0 && col >= 0 && ps.board[row][col] === 0);
-                drawBoard();
+                boardUpdateGrabCursor();
+                drawBoardCore();
             });
             canvas.addEventListener('mouseleave', () => {
                 if (!ps.waitingScoreConfirm) {
                     ps.isHoverValid = false;
                     ps.hoverRow = -1; ps.hoverCol = -1;
-                    drawBoard();
+                    if (!boardMousePanning) boardUpdateGrabCursor();
+                    drawBoardCore();
                 }
             });
         }

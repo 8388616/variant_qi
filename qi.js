@@ -74,6 +74,7 @@
      * @property {()=>void} [onRoomReset]
      * @property {(msg:any)=>void} [onBoardSizeChanged]
      * @property {boolean} [standardWeiqiMatchTime] 标准围棋房间：限时协商与计时面板
+     * @property {number} [timeControlMainByoScale] 仅主时间/步时倍率（超时次数不受影响）
      */
 
     function qiCreateStandardWeiqiMatchTimeController(ctx) {
@@ -81,6 +82,20 @@
         let ui = null;
         let rafId = 0;
         let adjustMode = false;
+
+        function getDefaultTimeControlByBoardSize(boardSize) {
+            const n = Number.isFinite(boardSize) && boardSize > 0 ? boardSize : 19;
+            const points = n * n;
+            const scaleRaw = Number(ctx.timeControlMainByoScale);
+            const scale = Number.isFinite(scaleRaw) && scaleRaw > 0 ? scaleRaw : 1;
+            const baseMain = Math.ceil(0.013 * points);
+            const baseByo = Math.ceil(0.24 * Math.pow(points, 0.75));
+            return {
+                mainMinutes: Math.ceil(baseMain * scale),
+                byoyomiSeconds: Math.ceil(baseByo * scale),
+                maxTimeouts: Math.ceil(0.6 * Math.pow(points, 0.25))
+            };
+        }
 
         function fmtRuleLine(mainMin, byoSec, maxT) {
             const m = Math.max(0, parseInt(mainMin, 10) || 0);
@@ -102,9 +117,9 @@
     <label class="qi-time-control-radio"><input type="radio" name="qiTimedMode" value="unlimited"> 不限时</label>
   </div>
   <div class="qi-time-control-fields">
-    <label class="qi-time-control-field"><span>基本用时(分)</span><input type="number" id="qiTcMainMin" min="1" max="120" value="5"></label>
-    <label class="qi-time-control-field"><span>步时(秒)</span><input type="number" id="qiTcByoSec" min="0" max="180" value="20"></label>
-    <label class="qi-time-control-field"><span>超时次数</span><input type="number" id="qiTcMaxT" min="0" max="20" value="3"></label>
+    <label class="qi-time-control-field"><span>基本用时(分)</span><input type="number" id="qiTcMainMin" min="1" max="20000" value="300"></label>
+    <label class="qi-time-control-field"><span>步时(秒)</span><input type="number" id="qiTcByoSec" min="0" max="2000" value="22"></label>
+    <label class="qi-time-control-field"><span>超时次数</span><input type="number" id="qiTcMaxT" min="0" max="100" value="2"></label>
   </div>
   <p class="qi-time-control-hint" id="qiTcHint"></p>
   <div class="qi-time-control-footer" id="qiTcFooterPropose">
@@ -238,13 +253,14 @@
             ui.waitEl.style.display = 'none';
             ui.hint.textContent = '';
             if (msg.mode === 'propose') {
+                const d = getDefaultTimeControlByBoardSize(ctx.getBoardSize());
                 ui.wrap.classList.remove('qi-time-control-readonly');
                 ui.footProp.style.display = 'flex';
                 ui.footResp.style.display = 'none';
                 ui.wrap.querySelector('input[name="qiTimedMode"][value="limited"]').checked = true;
-                ui.mainIn.value = 5;
-                ui.byoIn.value = 20;
-                ui.maxTIn.value = 3;
+                ui.mainIn.value = d.mainMinutes;
+                ui.byoIn.value = d.byoyomiSeconds;
+                ui.maxTIn.value = d.maxTimeouts;
                 ui.setLimitedDisabled(false);
                 ui.mainIn.disabled = false;
                 ui.byoIn.disabled = false;
@@ -573,6 +589,10 @@
                     syncStateWithMatch(msg);
                     updateRadioStyles();
                     break;
+                case 'editBoardAccepted':
+                    syncStateWithMatch(msg);
+                    updateRadioStyles();
+                    break;
                 case 'broadcast':
                     if (msg.action === 'move' || msg.action === 'clearMine' || msg.action === 'guess' || msg.action === 'pass' || msg.action === 'capture' || msg.action === 'undoAccept' || msg.action === 'drawAgreed' || msg.action === 'resign'
                         || msg.action === 'invisibleReveal' || msg.action === 'endAgreed' || msg.action === 'scoreCountingStarted' || msg.action === 'mineHit' || msg.action === 'timeLoss') {
@@ -729,26 +749,38 @@
             }
         }
 
+        function isQiLobbyFreshCatalogRoom() {
+            try {
+                const raw = sessionStorage.getItem('qiLobbyFreshRoom');
+                if (!raw) return false;
+                const o = JSON.parse(raw);
+                return !!(o && String(o.roomId) === String(ctx.roomId) && o.gameId === ctx.gameType);
+            } catch (e) {
+                return false;
+            }
+        }
+
         function updateRecordButtons() {
             const importBtn = document.getElementById('importBtn');
             const exportBtn = document.getElementById('exportBtn');
             if (!importBtn || !exportBtn) return;
+            const board = ctx.getBoard();
+            const hasAnyStone = board.some(row => row.some(v => v !== 0));
+            const s = ctx.getSlots();
+            const noPlayers = !s.black && !s.white;
+            const freshCatalog = isQiLobbyFreshCatalogRoom();
+            if (freshCatalog && noPlayers && !hasAnyStone) {
+                importBtn.style.display = '';
+                exportBtn.style.display = 'none';
+                return;
+            }
             if (ctx.getReplayMode()) {
                 importBtn.style.display = 'none';
-                exportBtn.style.display = 'none';
-            } else {
-                const board = ctx.getBoard();
-                const hasAnyStone = board.some(row => row.some(v => v !== 0));
-                const s = ctx.getSlots();
-                const noPlayers = !s.black && !s.white;
-                if (noPlayers && !hasAnyStone) {
-                    importBtn.style.display = '';
-                    exportBtn.style.display = 'none';
-                } else {
-                    importBtn.style.display = 'none';
-                    exportBtn.style.display = '';
-                }
+                exportBtn.style.display = '';
+                return;
             }
+            importBtn.style.display = 'none';
+            exportBtn.style.display = '';
         }
 
         function updateRadioStyles() {
@@ -1045,7 +1077,7 @@
      */
     function computePaddingAndCell(boardSize, canvasSize) {
         const cs = canvasSize != null ? canvasSize : DEFAULT_CANVAS_SIZE;
-        const padding = Math.max(20, 63 - 2 * boardSize);
+        const padding = 475 / boardSize;
         const cellSize = (cs - 2 * padding) / (boardSize - 1);
         return { padding, cellSize, canvasSize: cs };
     }
@@ -1097,10 +1129,13 @@
             ctx.clearRect(0, 0, s, s);
         },
 
-        grid(ctx, boardSize, padding, cellSize, canvasSize) {
+        grid(ctx, boardSize, padding, cellSize, canvasSize, strokeInvScale) {
             const cs = canvasSize != null ? canvasSize : DEFAULT_CANVAS_SIZE;
-            ctx.lineWidth = 1.5;
             ctx.strokeStyle = '#3a281c';
+            let lw = 1.5;
+            if (strokeInvScale != null && strokeInvScale > 0 && strokeInvScale < 1)
+                lw = Math.max(0.5, 28 / boardSize * strokeInvScale);
+            ctx.lineWidth = lw;
             for (let i = 0; i < boardSize; i++) {
                 ctx.beginPath();
                 ctx.moveTo(padding + i * cellSize, padding);
@@ -1124,7 +1159,7 @@
         },
 
         coordLabels(ctx, boardSize, padding, cellSize) {
-            ctx.font = `bold ${17 - 0.2 * boardSize}px Arial`;
+            ctx.font = `bold ${250 / boardSize}px Arial`;
             ctx.fillStyle = '#3a281c';
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
@@ -1161,7 +1196,9 @@
             }
         },
 
-        stonesBlackWhite(ctx, board, boardSize, padding, cellSize, stoneRadius, showMoveNumbers) {
+        stonesBlackWhite(ctx, board, boardSize, padding, cellSize, stoneRadius, showMoveNumbers, shadowInvScale) {
+            const shInv = shadowInvScale != null && shadowInvScale > 0 ? shadowInvScale : 1;
+            const glossOffset = 3 * shInv;
             for (let r = 0; r < boardSize; r++) {
                 for (let c = 0; c < boardSize; c++) {
                     const val = board[r][c];
@@ -1170,10 +1207,10 @@
                     const y = padding + r * cellSize;
                     const radius = stoneRadius;
                     ctx.save();
-                    ctx.shadowBlur = 6;
+                    ctx.shadowBlur = 6 * shInv;
                     ctx.shadowColor = 'rgba(0,0,0,0.5)';
-                    ctx.shadowOffsetY = 2;
-                    const grad = ctx.createRadialGradient(x - 3, y - 3, radius * 0.2, x, y, radius * 1.2);
+                    ctx.shadowOffsetY = 2 * shInv;
+                    const grad = ctx.createRadialGradient(x - glossOffset, y - glossOffset, radius * 0.2, x, y, radius * 1.2);
                     if (val === 1) {
                         grad.addColorStop(0, '#444');
                         grad.addColorStop(0.6, '#222');
@@ -1190,7 +1227,7 @@
                     ctx.restore();
                     if (!showMoveNumbers) {
                         ctx.beginPath();
-                        ctx.arc(x - 3, y - 3, radius * 0.15, 0, 2 * Math.PI);
+                        ctx.arc(x - glossOffset, y - glossOffset, radius * 0.15, 0, 2 * Math.PI);
                         ctx.fillStyle = val === 1 ? '#444' : '#fff';
                         ctx.fill();
                     }
@@ -1272,6 +1309,9 @@
 
         hoverCaptureRing(ctx, hoverRow, hoverCol, padding, cellSize, stoneRadius, options) {
             const { tryPlayMode, gameOver, isMyTurn, isHoverValid, hoverCapture } = options;
+            const strokeInv = options && options.strokeInvScale != null && options.strokeInvScale > 0
+                ? options.strokeInvScale
+                : 1;
             const canHover = tryPlayMode || (!gameOver && isMyTurn);
             if (!canHover || !hoverCapture || !isHoverValid || hoverRow < 0 || hoverCol < 0) return;
             const x = padding + hoverCol * cellSize;
@@ -1280,7 +1320,7 @@
             ctx.beginPath();
             ctx.arc(x, y, stoneRadius + 1, 0, 2 * Math.PI);
             ctx.strokeStyle = '#d62828';
-            ctx.lineWidth = cellSize * 0.055;
+            ctx.lineWidth = cellSize * 0.055 * strokeInv;
             ctx.stroke();
             ctx.restore();
         },
@@ -1527,6 +1567,7 @@
      *   isMouseDevice: boolean,
      *   tryPlaceStone?: (boardBefore: number[][], row: number, col: number, playerVal: number) => number[][]|null,
      *   drawBoard?: () => void,
+     *   afterDrawBoard?: () => void,
      *   syncState?: (state: any) => void,
      *   setReplayStep?: (step: number) => void,
      *   removeDeadAndDying?: (srcBoard: number[][]) => number[][],
@@ -1643,6 +1684,32 @@
             return nums;
         }
 
+        /**
+         * 可选棋盘局部缩放（由页面在 ps 上设置 viewZoom / viewCenterX / viewCenterY）。
+         * 逻辑坐标仍为 DEFAULT_CANVAS_SIZE；仅绘制与 canvasCoordsFromClient 做视口变换。
+         */
+        function getBoardViewTransform() {
+            const cs = C().DEFAULT_CANVAS_SIZE;
+            const zRaw = ps.viewZoom;
+            const z = typeof zRaw === 'number' && zRaw >= 1 ? Math.min(10, zRaw) : 1;
+            const vcx = typeof ps.viewCenterX === 'number' ? ps.viewCenterX : cs / 2;
+            const vcy = typeof ps.viewCenterY === 'number' ? ps.viewCenterY : cs / 2;
+            return { z, vcx, vcy, cs };
+        }
+
+        function boardScreenToWorld(sx, sy) {
+            const { z, vcx, vcy, cs } = getBoardViewTransform();
+            if (z <= 1) return { x: sx, y: sy };
+            return {
+                x: (sx - cs / 2) / z + vcx,
+                y: (sy - cs / 2) / z + vcy
+            };
+        }
+
+        function boardScreenPointFromClient(clientX, clientY) {
+            return C().canvasCoordsFromClient(clientX, clientY, dom.canvas, C().DEFAULT_CANVAS_SIZE);
+        }
+
         function drawBoard() {
             if (opts.drawBoard) {
                 opts.drawBoard();
@@ -1651,8 +1718,17 @@
             const d = C().draw;
             const cs = C().DEFAULT_CANVAS_SIZE;
             const cellSize = ps.CELL_SIZE;
+            const { z, vcx, vcy } = getBoardViewTransform();
             d.clear(dom.ctx, cs);
-            d.grid(dom.ctx, ps.BOARD_SIZE, ps.PADDING, cellSize, cs);
+            const useView = z > 1;
+            const invZ = useView ? 1 / z : 1;
+            if (useView) {
+                dom.ctx.save();
+                dom.ctx.translate(cs / 2, cs / 2);
+                dom.ctx.scale(z, z);
+                dom.ctx.translate(-vcx, -vcy);
+            }
+            d.grid(dom.ctx, ps.BOARD_SIZE, ps.PADDING, cellSize, cs, useView ? invZ : undefined);
             d.starPoints(dom.ctx, ps.BOARD_SIZE, ps.PADDING, cellSize);
             d.coordLabels(dom.ctx, ps.BOARD_SIZE, ps.PADDING, cellSize);
             const stoneRadius = cellSize * 0.44;
@@ -1661,7 +1737,7 @@
             if (lowerLastMoveMarker) {
                 d.lastMoveMarkersLower(dom.ctx, ps.lastMoveMarkers, ps.PADDING, cellSize, stoneRadius);
             }
-            d.stonesBlackWhite(dom.ctx, ps.board, ps.BOARD_SIZE, ps.PADDING, cellSize, stoneRadius, ps.showMoveNumbers);
+            d.stonesBlackWhite(dom.ctx, ps.board, ps.BOARD_SIZE, ps.PADDING, cellSize, stoneRadius, ps.showMoveNumbers, invZ);
             if (!lowerLastMoveMarker) {
                 d.lastMoveMarkersUpper(dom.ctx, ps.lastMoveMarkers, ps.PADDING, cellSize, markLenDefault);
             }
@@ -1685,12 +1761,15 @@
                     gameOver: ps.gameOver,
                     isMyTurn: ps.isMyTurn,
                     isHoverValid: ps.isHoverValid,
-                    hoverCapture: !!ps.hoverCapture
+                    hoverCapture: !!ps.hoverCapture,
+                    strokeInvScale: invZ
                 });
             }
             if (ps.showEstimateActive && ps.cachedLiveBoard && ps.cachedTerritory) {
                 d.estimateOverlay(dom.ctx, ps.board, ps.BOARD_SIZE, ps.PADDING, cellSize, ps.cachedLiveBoard, ps.cachedTerritory);
             }
+            if (useView) dom.ctx.restore();
+            if (typeof opts.afterDrawBoard === 'function') opts.afterDrawBoard();
         }
 
         function updateTurn() {
@@ -1926,8 +2005,14 @@
             }
             clearMobileMovePreview();
             const fromLive = !!ps.tryPlayFromLive;
+            const savedLiveStep = ps.tryPlayFromLiveStep != null ? ps.tryPlayFromLiveStep : ps.liveViewStep;
+            const snapBoard = fromLive && ps.tryPlayBoards.length > 0 ? deepCopyBoard(ps.tryPlayBoards[0]) : null;
+            const snapMarkers = fromLive && ps.tryPlayMarkers.length > 0 && ps.tryPlayMarkers[0]
+                ? ps.tryPlayMarkers[0].map(m => ({ ...m }))
+                : [];
             ps.tryPlayMode = false;
             ps.tryPlayFromLive = false;
+            if ('tryPlayFromLiveStep' in ps) ps.tryPlayFromLiveStep = null;
             ps.tryPlayBoards = [];
             ps.tryPlayMarkers = [];
             ps.tryPlayStep = 0;
@@ -1942,7 +2027,24 @@
                 ps.replayStepPlayers = [];
                 ps.replayStep = 0;
                 ps.replayTotalSteps = 0;
-                applyLiveViewBoard();
+                if (snapBoard) {
+                    ps.board = snapBoard;
+                    ps.lastMoveMarkers = snapMarkers.map(m => ({ ...m }));
+                    if (ps.liveReplayBoards.length > 0) {
+                        const step = Math.min(Math.max(0, savedLiveStep), ps.liveReplayBoards.length - 1);
+                        ps.liveReplayBoards[step] = deepCopyBoard(snapBoard);
+                        if (!ps.liveReplayMarkers[step]) ps.liveReplayMarkers[step] = [];
+                        ps.liveReplayMarkers[step] = snapMarkers.map(m => ({ ...m }));
+                        ps.liveViewStep = step;
+                    } else {
+                        ps.liveReplayBoards = [deepCopyBoard(snapBoard)];
+                        ps.liveReplayMarkers = [snapMarkers.map(m => ({ ...m }))];
+                        ps.liveReplayStepPlayers = [0];
+                        ps.liveViewStep = 0;
+                    }
+                } else {
+                    applyLiveViewBoard();
+                }
                 updateLiveReplayPanelUI();
                 if (ps.showEstimateActive) showEstimate();
                 else updateTurn();
@@ -2104,6 +2206,12 @@
             const g = C().computePaddingAndCell(ps.BOARD_SIZE);
             ps.PADDING = g.padding;
             ps.CELL_SIZE = g.cellSize;
+            if (typeof ps.viewZoom === 'number' && ps.viewZoom > 1) {
+                const cs = C().DEFAULT_CANVAS_SIZE;
+                ps.viewZoom = 1;
+                ps.viewCenterX = cs / 2;
+                ps.viewCenterY = cs / 2;
+            }
             drawBoard();
             if (dom.komiInfo) {
                 if (typeof opts.komiInfoText === 'function')
@@ -2229,7 +2337,8 @@
         }
 
         function canvasCoordsFromClient(clientX, clientY) {
-            return C().canvasCoordsFromClient(clientX, clientY, dom.canvas, C().DEFAULT_CANVAS_SIZE);
+            const p = C().canvasCoordsFromClient(clientX, clientY, dom.canvas, C().DEFAULT_CANVAS_SIZE);
+            return boardScreenToWorld(p.x, p.y);
         }
 
         function getSelectedBoardMark() {
@@ -2303,6 +2412,7 @@
             commitMove,
             getClosestIntersection,
             canvasCoordsFromClient,
+            boardScreenPointFromClient,
             getSelectedBoardMark,
             applyUserBoardMark
         };

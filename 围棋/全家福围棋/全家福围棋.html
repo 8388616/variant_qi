@@ -554,9 +554,23 @@
         }
         function applyEditChange(newBoard) {
             ps.board = QiSquareWeiqiCanvas.deepCopyBoard(newBoard);
-            if (!ps.replayMode && ps.liveReplayBoards.length > 0) {
-                const i = Math.min(ps.liveViewStep, ps.liveReplayBoards.length - 1);
-                ps.liveReplayBoards[i] = QiSquareWeiqiCanvas.deepCopyBoard(ps.board);
+            if (!ps.replayMode) {
+                const preGame = !ps.gameStarted && (ps.numberOfHands || 1) <= 1;
+                if (preGame) {
+                    ps.liveOpeningBoard = QiSquareWeiqiCanvas.deepCopyBoard(ps.board);
+                    if (ps.liveReplayBoards.length === 0) {
+                        ps.liveReplayBoards = [QiSquareWeiqiCanvas.deepCopyBoard(ps.board)];
+                        ps.liveReplayMarkers = [[]];
+                        ps.liveReplayStepPlayers = [0];
+                        ps.liveViewStep = 0;
+                    } else {
+                        const i = Math.min(ps.liveViewStep, ps.liveReplayBoards.length - 1);
+                        ps.liveReplayBoards[i] = QiSquareWeiqiCanvas.deepCopyBoard(ps.board);
+                    }
+                } else if (ps.liveReplayBoards.length > 0) {
+                    const i = Math.min(ps.liveViewStep, ps.liveReplayBoards.length - 1);
+                    ps.liveReplayBoards[i] = QiSquareWeiqiCanvas.deepCopyBoard(ps.board);
+                }
             }
             drawBoard();
             sendEditBoard(ps.board);

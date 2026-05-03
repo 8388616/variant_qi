@@ -582,10 +582,6 @@ class FamilyWeiqiRoom extends QiTwoPlayerRoomBase {
             if (m.type === 'mineHit') return p + 'm' + m.row + ',' + m.col;
             return p + m.row + ',' + m.col;
         });
-        const mainMinutes = this.tcSettings.timed ? this.tcSettings.mainMinutes : 0;
-        const byoyomiSeconds = this.tcSettings.timed ? this.tcSettings.byoyomiSeconds : 0;
-        const maxTimeouts = this.tcSettings.timed ? this.tcSettings.maxTimeouts : 0;
-        const exportedTimeControl = (this.tcSettings && this.tcSettings.timed) ? `S${mainMinutes},${byoyomiSeconds},${maxTimeouts}` : null;
 
         let resultText = null;
         if (this.gameOver) {
@@ -602,8 +598,8 @@ class FamilyWeiqiRoom extends QiTwoPlayerRoomBase {
             komi: 4.75,
             players: { black: '', white: '' },
             initialPosition: encodeInitialPositionCompact(initialBoard, this.boardSize),
-            moves,
-            timeControl: exportedTimeControl,
+            moves: moves,
+            timeControl: (this.tcSettings && this.tcSettings.timed) ? `S${this.tcSettings.mainMinutes || 0},${this.tcSettings.byoyomiSeconds || 0},${this.tcSettings.maxTimeouts || 0}` : null,
             result: resultText
         };
     }

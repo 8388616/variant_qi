@@ -1,6 +1,6 @@
 ﻿'use strict';
 
-const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, applyInitialPositionCompact } = require('../common');
+const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, applyInitialPositionCompact, encodeInitialPositionCompact } = require('../common');
 
 const MAX_ROTATIONS = 8;
 
@@ -903,12 +903,12 @@ class RotationWeiqiRoom extends QiTwoPlayerRoomBase {
             boardSize: this.boardSize,
             komi: komiForSize(this.boardSize),
             players: { black: null, white: null },
-            initialPosition: [],
+            initialPosition: encodeInitialPositionCompact(this.board, this.boardSize),
             moves: this.moveCoords.map(m => {
                 const p = m.player === 'black' ? 'B' : 'W';
                 return m.type === 'pass' ? p + 'p' : p + m.row + ',' + m.col;
             }),
-            timeControl: exportedTimeControl,
+            timeControl: (this.tcSettings && this.tcSettings.timed) ? `S${this.tcSettings.mainMinutes || 0},${this.tcSettings.byoyomiSeconds || 0},${this.tcSettings.maxTimeouts || 0}` : null,
             result: resultText
         };
     }

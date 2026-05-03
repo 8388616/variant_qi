@@ -1,4 +1,4 @@
-const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, applyInitialPositionCompact } = require('../common');
+const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, applyInitialPositionCompact, encodeInitialPositionCompact } = require('../common');
 
 function applyInitialPositionFromRecord(board, boardSize, initialPosition) {
     if (!initialPosition) return;
@@ -602,10 +602,6 @@ class TriweightWeiqiRoom extends QiTwoPlayerRoomBase {
     }
 
     exportRecord() {
-        const mainMinutes = this.tcSettings.timed ? this.tcSettings.mainMinutes : 0;
-        const byoyomiSeconds = this.tcSettings.timed ? this.tcSettings.byoyomiSeconds : 0;
-        const maxTimeouts = this.tcSettings.timed ? this.tcSettings.maxTimeouts : 0;
-        const exportedTimeControl = (this.tcSettings && this.tcSettings.timed) ? `S${mainMinutes},${byoyomiSeconds},${maxTimeouts}` : null;
 
         let resultText = null;
         if (this.gameOver) {
@@ -623,12 +619,12 @@ class TriweightWeiqiRoom extends QiTwoPlayerRoomBase {
             komi: 6.25,
             weights: this.weights.map(row => row.slice()),
             players: { black: null, white: null },
-            initialPosition: [],
+            initialPosition: encodeInitialPositionCompact(this.board, this.boardSize),
             moves: this.moveCoords.map(m => {
                 const p = m.player === 'black' ? 'B' : 'W';
                 return m.type === 'pass' ? p + 'p' : p + m.row + ',' + m.col;
             }),
-            timeControl: exportedTimeControl,
+            timeControl: (this.tcSettings && this.tcSettings.timed) ? `S${this.tcSettings.mainMinutes || 0},${this.tcSettings.byoyomiSeconds || 0},${this.tcSettings.maxTimeouts || 0}` : null,
             result: resultText
         };
     }

@@ -189,11 +189,18 @@
             flex-direction: column;
         }
 
-        .catalog-import-btn {
+        .catalog-top-actions {
             position: absolute;
             top: 14px;
             right: 28px;
             z-index: 2;
+            display: flex;
+            flex-direction: row;
+            align-items: center;
+            gap: 14px;
+        }
+
+        .catalog-import-btn {
             background: none;
             border: none;
             color: #ffd98c;
@@ -202,6 +209,7 @@
             cursor: pointer;
             font-size: 1rem;
             transition: color 0.2s ease;
+            white-space: nowrap;
         }
 
             .catalog-import-btn:hover {
@@ -213,7 +221,109 @@
             align-items: baseline;
             margin: 0 0 16px 8px;
             gap: 12px;
-            padding-right: 120px;
+            padding-right: 220px;
+        }
+
+        .lobby-qr-modal.qi-time-control-modal {
+            display: none;
+        }
+
+        .lobby-qr-modal.qi-time-control-modal.lobby-qr-modal--open {
+            display: flex;
+        }
+
+        .lobby-qr-textarea {
+            width: 100%;
+            min-height: 88px;
+            margin-top: 6px;
+            border-radius: 10px;
+            border: 1px solid #c4a882;
+            padding: 8px 10px;
+            font-size: 0.95rem;
+            background: #fff;
+            color: #3e2e21;
+            resize: vertical;
+            box-sizing: border-box;
+            user-select: text;
+            -webkit-user-select: text;
+        }
+
+        .lobby-qr-field-block {
+            display: block;
+            width: 100%;
+            margin-bottom: 4px;
+        }
+
+        .lobby-qr-field-block > span {
+            color: #5e3e1e;
+            font-size: 0.88rem;
+        }
+
+        /* 与围棋限时协商弹窗同系样式（大厅页未加载 qi.css） */
+        .qi-time-control-modal {
+            position: fixed;
+            inset: 0;
+            z-index: 1100;
+            background: rgba(0, 0, 0, 0.45);
+            align-items: center;
+            justify-content: center;
+            padding: 16px;
+        }
+
+        .qi-time-control-dialog {
+            background: #f9eed7;
+            color: #3e2e21;
+            max-width: 400px;
+            width: 90%;
+            border-radius: 22px;
+            padding: 18px 20px 16px;
+            box-shadow: 0 10px 28px rgba(0, 0, 0, 0.35);
+            border: 2px solid #8f6b4f;
+        }
+
+        .qi-time-control-title {
+            margin: 0 0 12px;
+            text-align: center;
+            font-size: 1.1rem;
+            color: #5e2b3b;
+        }
+
+        .qi-time-control-hint {
+            margin: 10px 0 6px;
+            font-size: 0.85rem;
+            color: #6b5344;
+            min-height: 1.2em;
+        }
+
+        .qi-time-control-footer {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            justify-content: center;
+            margin-top: 12px;
+        }
+
+        .qi-time-control-primary {
+            background: #b88a4b;
+            color: #fff;
+            border: none;
+            padding: 8px 22px;
+            border-radius: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            border-bottom: 2px solid #5e3e1e;
+            font-size: 0.95rem;
+        }
+
+        .qi-time-control-secondary {
+            background: #e8dcc8;
+            color: #3e2e21;
+            border: 1px solid #8f6b4f;
+            padding: 8px 18px;
+            border-radius: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            font-size: 0.95rem;
         }
 
         .catalog-title {
@@ -338,13 +448,14 @@
                 max-height: none;
             }
 
-            .catalog-import-btn {
+            .catalog-top-actions {
                 top: 10px;
                 right: 8px;
+                gap: 8px;
             }
 
             .catalog-title-wrapper {
-                padding-right: 100px;
+                padding-right: 200px;
             }
 
             .games-scroll {
@@ -570,7 +681,10 @@
         </div>
 
         <div class="games-catalog">
-            <button type="button" class="catalog-import-btn" id="lobbyImportRecordBtn" title="导入棋谱">导入棋谱</button>
+            <div class="catalog-top-actions">
+                <button type="button" class="catalog-import-btn" id="lobbyQrCodeBtn" title="根据文本生成二维码局面">生成二维码</button>
+                <button type="button" class="catalog-import-btn" id="lobbyImportRecordBtn" title="导入棋谱">导入棋谱</button>
+            </div>
             <div class="catalog-title-wrapper">
                 <div class="catalog-title">创建房间</div>
                 <div class="random-level-hint">
@@ -584,6 +698,19 @@
 
     <input type="file" id="lobbyImportFileInput" accept=".json,application/json" style="display:none;" aria-hidden="true">
 
+    <div id="lobbyQrModal" class="qi-time-control-modal lobby-qr-modal" aria-hidden="true">
+        <div class="qi-time-control-dialog" role="dialog" aria-modal="true" aria-labelledby="lobbyQrModalTitle">
+            <h3 class="qi-time-control-title" id="lobbyQrModalTitle">生成二维码</h3>
+            <label class="lobby-qr-field-block" for="lobbyQrTextInput">
+                <textarea id="lobbyQrTextInput" class="lobby-qr-textarea" rows="4" placeholder="输入要编码为二维码的字符串…"></textarea>
+            </label>
+            <div class="qi-time-control-footer">
+                <button type="button" class="qi-time-control-primary" id="lobbyQrConfirmBtn">生成并进入房间</button>
+                <button type="button" class="qi-time-control-secondary" id="lobbyQrCancelBtn">取消</button>
+            </div>
+        </div>
+    </div>
+
     <div id="createModal" class="modal-mask">
         <div class="modal-panel">
             <h3 id="modalGameName">创建房间</h3>
@@ -595,6 +722,7 @@
         </div>
     </div>
 
+    <script src="/qi/qrcode.min.js"></script>
     <script>
         const GAMES_DATA = [
             // 围棋类
@@ -655,7 +783,6 @@
             { id: 'auction-weiqi', name: '竞叫围棋', randomLevel: 0, path: 'auction-weiqi', enabled: false, category: '废案' },
             { id: 'minesweeper-weiqi', name: '扫雷围棋', randomLevel: 4, path: 'minesweeper-weiqi', enabled: true, category: '废案' },
             { id: 'rotation-wuziqi', name: '旋转五子棋', randomLevel: 0, path: 'rotation-wuziqi', enabled: true, category: '废案' },
-            { id: 'capture-qiziqi', name: '提子七子棋', randomLevel: 0, path: 'capture-qiziqi', enabled: true, category: '废案' },
             { id: 'capture-shiziqi', name: '提子十子棋', randomLevel: 0, path: 'capture-shiziqi', enabled: true, category: '废案' },
             { id: 'weiqi', name: '围棋', randomLevel: 0, path: 'weiqi', enabled: true, category: '废案' },
             { id: 'wuziqi', name: '五子棋', randomLevel: 0, path: 'wuziqi', enabled: true, category: '废案' },
@@ -667,6 +794,90 @@
 
         /** 与 qi.js 中 sessionStorage 键一致：大厅导入成功后由游戏页在 joined 时发送 importRecord */
         const QI_LOBBY_PENDING_IMPORT_KEY = 'qiLobbyPendingImport';
+
+        function lobbyGetQrcodeFactory() {
+            if (typeof qrcode === 'function') return qrcode;
+            return null;
+        }
+
+        /**
+         * @param {string} text
+         * @returns {{ record: object } | { error: string }}
+         */
+        function lobbyBuildWeiqiRecordFromQrText(text) {
+            const mk = lobbyGetQrcodeFactory();
+            if (!mk) {
+                return { error: '二维码库未加载，请检查网络后刷新页面重试。' };
+            }
+            let qr;
+            try {
+                qr = mk(0, 'L');
+                qr.addData(text);
+                qr.make();
+            } catch (e) {
+                return { error: '无法生成二维码：' + (e && e.message ? e.message : String(e)) };
+            }
+            const n = qr.getModuleCount();
+            if (!Number.isFinite(n) || n < 1) {
+                return { error: '二维码生成结果无效。' };
+            }
+            if (n > 49) {
+                return { error: `二维码过大，无法显视。` };
+            }
+            const initialPosition = [];
+            for (let r = 0; r < n; r++) {
+                for (let c = 0; c < n; c++) {
+                    if (qr.isDark(r, c)) initialPosition.push(`B${r},${c}`);
+                    else initialPosition.push(`W${r},${c}`);
+                }
+            }
+            const boardSize = n;
+            return {
+                record: {
+                    format: 'muzei',
+                    version: 1,
+                    gameType: '围棋',
+                    gameId: 'weiqi',
+                    boardSize,
+                    komi: boardSize <= 8 ? 4.25 : 3.25,
+                    players: { black: null, white: null },
+                    initialPosition,
+                    moves: []
+                }
+            };
+        }
+
+        async function lobbyCreateRoomWithPendingWeiqiImport(record) {
+            const gameId = 'weiqi';
+            const game = GAMES_DATA.find(g => g.id === gameId);
+            if (!game || !game.enabled) {
+                alert('标准围棋未开放，无法创建房间');
+                return;
+            }
+            try {
+                const res = await fetch(`${API_BASE}/qi/create`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ game: game.id, password: null })
+                });
+                const result = await res.json();
+                if (!result.success) {
+                    alert('创建房间失败：' + (result.error || '未知错误'));
+                    return;
+                }
+                const roomId = String(result.roomId);
+                sessionStorage.setItem(`roomPassword_${roomId}`, '');
+                try { sessionStorage.removeItem('qiLobbyFreshRoom'); } catch (e) {}
+                sessionStorage.setItem(QI_LOBBY_PENDING_IMPORT_KEY, JSON.stringify({
+                    record,
+                    expectedGameId: gameId,
+                    expectedRoomId: roomId
+                }));
+                window.location.href = `/qi/${game.path}/${roomId}`;
+            } catch (err) {
+                alert('网络错误，请稍后重试');
+            }
+        }
 
         async function lobbyImportRecordFromFile(file) {
             let data;
@@ -699,6 +910,7 @@
                 }
                 const roomId = String(result.roomId);
                 sessionStorage.setItem(`roomPassword_${roomId}`, '');
+                try { sessionStorage.removeItem('qiLobbyFreshRoom'); } catch (e) {}
                 sessionStorage.setItem(QI_LOBBY_PENDING_IMPORT_KEY, JSON.stringify({
                     record: data,
                     expectedGameId: gameId,
@@ -779,6 +991,7 @@
                         if (data.success) {
                             // 存储密码，供游戏页面使用
                             sessionStorage.setItem(`roomPassword_${roomId}`, password || '');
+                            try { sessionStorage.removeItem('qiLobbyFreshRoom'); } catch (e) {}
                             window.location.href = `/qi/${gamePath}/${roomId}`;
                         } else {
                             alert('加入失败：' + (data.error || '密码错误或房间不存在'));
@@ -869,6 +1082,12 @@
                     } else {
                         sessionStorage.setItem(`roomPassword_${data.roomId}`, '');
                     }
+                    try {
+                        sessionStorage.setItem('qiLobbyFreshRoom', JSON.stringify({
+                            roomId: String(data.roomId),
+                            gameId: game.id
+                        }));
+                    } catch (e) {}
                     window.location.href = `/qi/${game.path}/${data.roomId}`;
                 } else {
                     alert('创建房间失败：' + (data.error || '未知错误'));
@@ -890,6 +1109,47 @@
                 if (file) lobbyImportRecordFromFile(file);
             });
         }
+
+        (function setupLobbyQrModal() {
+            const qrModal = document.getElementById('lobbyQrModal');
+            const qrBtn = document.getElementById('lobbyQrCodeBtn');
+            const qrText = document.getElementById('lobbyQrTextInput');
+            const qrConfirm = document.getElementById('lobbyQrConfirmBtn');
+            const qrCancel = document.getElementById('lobbyQrCancelBtn');
+            if (!qrModal || !qrBtn || !qrText || !qrConfirm || !qrCancel) return;
+
+            function openLobbyQrModal() {
+                qrModal.classList.add('lobby-qr-modal--open');
+                qrModal.setAttribute('aria-hidden', 'false');
+                qrText.focus();
+            }
+
+            function closeLobbyQrModal() {
+                qrModal.classList.remove('lobby-qr-modal--open');
+                qrModal.setAttribute('aria-hidden', 'true');
+            }
+
+            qrBtn.addEventListener('click', () => {
+                openLobbyQrModal();
+            });
+            qrCancel.addEventListener('click', () => {
+                closeLobbyQrModal();
+            });
+            qrModal.addEventListener('click', (e) => {
+                if (e.target === qrModal) closeLobbyQrModal();
+            });
+            qrConfirm.addEventListener('click', async () => {
+                const raw = qrText.value;
+                const text = raw != null ? String(raw) : '';
+                const built = lobbyBuildWeiqiRecordFromQrText(text);
+                if (built.error) {
+                    alert(built.error);
+                    return;
+                }
+                closeLobbyQrModal();
+                await lobbyCreateRoomWithPendingWeiqiImport(built.record);
+            });
+        })();
 
         const modal = document.getElementById('createModal');
         document.getElementById('confirmCreateBtn').addEventListener('click', () => {
@@ -981,6 +1241,7 @@
                             if (data.success) {
                                 // 存储密码，供游戏页面使用
                                 sessionStorage.setItem(`roomPassword_${roomId}`, password);
+                                try { sessionStorage.removeItem('qiLobbyFreshRoom'); } catch (e) {}
                                 const gameInfo = GAMES_DATA.find(g => g.id === gameId);
                                 if (gameInfo) {
                                     window.location.href = `/qi/${gameInfo.path}/${roomId}`;

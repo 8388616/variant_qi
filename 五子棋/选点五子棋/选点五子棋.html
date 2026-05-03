@@ -642,61 +642,6 @@
             drawBoard();
         }
 
-        function formatClockHMS(ms) {
-            if (!Number.isFinite(ms) || ms < 0) ms = 0;
-            const t = Math.floor(ms / 1000);
-            const h = Math.floor(t / 3600);
-            const m = Math.floor((t % 3600) / 60);
-            const s = t % 60;
-            return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
-        }
-
-        function updateTimerPanel() {
-            if (!goTimerPanel) return;
-            const mt = psBindings.matchTime || matchTime;
-            if (!mt || !mt.settings) {
-                goTimerPanel.hidden = true;
-                return;
-            }
-            goTimerPanel.hidden = false;
-            const timed = mt.settings.timed === true;
-            const ruleLine = mt.clock && mt.clock.ruleLine
-                ? mt.clock.ruleLine
-                : (timed ? '' : '不限时');
-            ['black', 'white'].forEach((slot) => {
-                const el = goTimerPanel.querySelector(`[data-go-timer="${slot}"]`);
-                if (!el) return;
-                const countEl = el.querySelector('.go-timer-count');
-                const overEl = el.querySelector('.go-timer-over');
-                const ruleEl = el.querySelector('.go-timer-rule');
-                if (!timed || !mt.clock || !mt.clock[slot]) {
-                    countEl.textContent = timed ? '--:--:--' : '不限时';
-                    overEl.textContent = '—';
-                    el.classList.remove('is-active');
-                    if (ruleEl) ruleEl.textContent = ruleLine;
-                    return;
-                }
-                const p = mt.clock[slot];
-                const ms = p.inByo ? p.byoMs : p.mainMs;
-                countEl.textContent = formatClockHMS(ms);
-                const rem = Math.max(0, (mt.settings.maxTimeouts || 0) - (p.timeoutsUsed || 0));
-                overEl.textContent = `${rem}/${mt.settings.maxTimeouts || 0}`;
-                if (mt.clock.activeSlot === slot) el.classList.add('is-active');
-                else el.classList.remove('is-active');
-                if (ruleEl) ruleEl.textContent = ruleLine;
-            });
-        }
-
-        function askTimeProposal(defaultProposal) {
-            const timed = confirm('是否启用限时？\n确定=限时，取消=不限时');
-            if (!timed) return { timed: false };
-            const d = defaultProposal || { mainMinutes: 5, byoyomiSeconds: 20, maxTimeouts: 3 };
-            const mainMinutes = parseInt(prompt('基本用时(分钟 1-120)', String(d.mainMinutes ?? 5)), 10);
-            const byoyomiSeconds = parseInt(prompt('步时(秒 0-180)', String(d.byoyomiSeconds ?? 20)), 10);
-            const maxTimeouts = parseInt(prompt('超时次数(0-20)', String(d.maxTimeouts ?? 3)), 10);
-            return { timed: true, mainMinutes, byoyomiSeconds, maxTimeouts };
-        }
-
         function normalizeClientBoardSize(raw) {
             const n = parseInt(raw, 10);
             return Number.isFinite(n) && n >= 7 && n <= 15 ? n : null;
@@ -899,7 +844,6 @@
             psBindings.tryPlayStep = tryPlayStep;
             psBindings.liveViewStep = liveViewStep;
             psBindings.mySlot = mySlot;
-            updateTimerPanel();
             updateRecordButtons();
             updateReplayUI();
         }

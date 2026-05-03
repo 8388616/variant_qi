@@ -657,13 +657,13 @@ class NogridWeiqiRoom extends QiTwoPlayerRoomBase {
             komi: KOMI,
             coordScale: COORD_SCALE,
             players: { black: null, white: null },
-            initialPosition: { black: [], white: [] },
+            initialPosition: [],
             moves: this.moveCoords.map(m => {
                 const p = m.player === 'black' ? 'B' : 'W';
                 if (m.type === 'pass') return p + 'p';
                 return p + m.ix + ',' + m.iy;
             }),
-            timeControl: exportedTimeControl,
+            timeControl: (this.tcSettings && this.tcSettings.timed) ? `S${this.tcSettings.mainMinutes || 0},${this.tcSettings.byoyomiSeconds || 0},${this.tcSettings.maxTimeouts || 0}` : null,
             result: resultText
         };
     }

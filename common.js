@@ -68,9 +68,9 @@ const qiMatchTimeControl = {
         if (!Number.isFinite(mainMinutes) || !Number.isFinite(byoyomiSeconds) || !Number.isFinite(maxTimeouts)) {
             return { ok: false, error: '限时对局请填写主时间、读秒与超时次数。' };
         }
-        if (mainMinutes < 1 || mainMinutes > 120) return { ok: false, error: '主时间须在 1～120 分钟之间。' };
-        if (byoyomiSeconds < 0 || byoyomiSeconds > 180) return { ok: false, error: '读秒须在 0～180 秒之间。' };
-        if (maxTimeouts < 0 || maxTimeouts > 20) return { ok: false, error: '超时次数须在 0～20 之间。' };
+        if (mainMinutes < 1 || mainMinutes > 10080) return { ok: false, error: '主时间须在 1~10080 分钟之间。' };
+        if (byoyomiSeconds < 0 || byoyomiSeconds > 7200) return { ok: false, error: '读秒须在 0~7200 秒之间。' };
+        if (maxTimeouts < 0 || maxTimeouts > 100) return { ok: false, error: '超时次数须在 0~100 之间。' };
         return {
             ok: true,
             timed: true,

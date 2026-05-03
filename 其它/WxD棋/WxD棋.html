@@ -305,9 +305,13 @@
                 radios.forEach((r) => {
                     r.checked = (timed && r.value === 'timed') || (!timed && r.value === 'untimed');
                 });
-                tcMainMinutes.value = String(prefill && prefill.mainMinutes != null ? prefill.mainMinutes : 1);
-                tcByoSeconds.value = String(prefill && prefill.byoyomiSeconds != null ? prefill.byoyomiSeconds : 10);
-                tcTimeouts.value = String(prefill && prefill.maxTimeouts != null ? prefill.maxTimeouts : 3);
+                const points = ps.BOARD_SIZE * ps.BOARD_SIZE;
+                const formulaMain = Math.ceil(0.83 * points);
+                const formulaByo = Math.ceil(0.24 * Math.pow(points, 0.75));
+                const formulaTimeouts = Math.ceil(0.6 * Math.pow(points, 0.25));
+                tcMainMinutes.value = String(prefill && prefill.mainMinutes != null ? prefill.mainMinutes : formulaMain);
+                tcByoSeconds.value = String(prefill && prefill.byoyomiSeconds != null ? prefill.byoyomiSeconds : formulaByo);
+                tcTimeouts.value = String(prefill && prefill.maxTimeouts != null ? prefill.maxTimeouts : formulaTimeouts);
             }
 
             function showTimeControlRespond(proposal) {

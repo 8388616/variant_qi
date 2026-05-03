@@ -1007,9 +1007,7 @@ class InvisibleStoneWeiqiRoom extends QiTwoPlayerRoomBase {
             initialPosition: encodeInitialPositionCompact(this.openingBoard, this.boardSize),
             plainWeiqiStartHand: this.plainWeiqiStartHand,
             moves: movesSrc.map(m => this.serializeMoveForExport(m)),
-            timeControl: (this.tcSettings && this.tcSettings.timed)
-                ? `S${this.tcSettings.mainMinutes || 0},${this.tcSettings.byoyomiSeconds || 0},${this.tcSettings.maxTimeouts || 0}`
-                : null,
+            timeControl: (this.tcSettings && this.tcSettings.timed) ? `S${this.tcSettings.mainMinutes || 0},${this.tcSettings.byoyomiSeconds || 0},${this.tcSettings.maxTimeouts || 0}` : null,
             result: this.gameOver ? (this.recordResultText || this.winner || null) : null
         };
     }

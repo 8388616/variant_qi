@@ -1,4 +1,4 @@
-const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, applyInitialPositionCompact } = require('../common');
+const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, applyInitialPositionCompact, encodeInitialPositionCompact } = require('../common');
 /** 客户端「显示序号」按 moveCoords 与磁性规则重放，使序号随子移动（见 强磁性围棋.html）。 */
 class StrongMagneticWeiqiRoom extends QiTwoPlayerRoomBase
 {

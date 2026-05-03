@@ -1,4 +1,4 @@
-const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, applyInitialPositionCompact } = require('../common');
+const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, applyInitialPositionCompact, encodeInitialPositionCompact } = require('../common');
 class ZeroLibertyWeiqiRoom extends QiTwoPlayerRoomBase
 {
     constructor(room, initialSize = 19) {
@@ -616,10 +616,6 @@ class ZeroLibertyWeiqiRoom extends QiTwoPlayerRoomBase
     }
 
     exportRecord() {
-        const mainMinutes = this.tcSettings.timed ? this.tcSettings.mainMinutes : 0;
-        const byoyomiSeconds = this.tcSettings.timed ? this.tcSettings.byoyomiSeconds : 0;
-        const maxTimeouts = this.tcSettings.timed ? this.tcSettings.maxTimeouts : 0;
-        const exportedTimeControl = (this.tcSettings && this.tcSettings.timed) ? `S${mainMinutes},${byoyomiSeconds},${maxTimeouts}` : null;
 
         let resultText = null;
         if (this.gameOver) {
@@ -636,14 +632,14 @@ class ZeroLibertyWeiqiRoom extends QiTwoPlayerRoomBase
             boardSize: this.boardSize,
             komi: this.boardSize <= 8 ? 4.25 : 3.25,
             players: { black: null, white: null },
-            initialPosition: [],
+            initialPosition: encodeInitialPositionCompact(this.board, this.boardSize),
             moves: this.moveCoords.map(m => {
                 const p = m.player === 'black' ? 'B' : 'W';
                 if (m.type === 'pass') return p + 'p';
                 if (m.type === 'capture') return p + 'C' + m.row + ',' + m.col;
                 return p + m.row + ',' + m.col;
             }),
-            timeControl: exportedTimeControl,
+            timeControl: (this.tcSettings && this.tcSettings.timed) ? `S${this.tcSettings.mainMinutes || 0},${this.tcSettings.byoyomiSeconds || 0},${this.tcSettings.maxTimeouts || 0}` : null,
             result: resultText
         };
     }
