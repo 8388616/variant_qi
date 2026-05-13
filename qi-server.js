@@ -21,6 +21,29 @@ Express.use(ExpressRateLimit);
 
 const rooms = {};
 
+function findGameAiScriptPath(gameId) {
+    const fileName = `${gameId}-ai.js`;
+    const flat = path.join(__dirname, 'games', fileName);
+    if (fs.existsSync(flat)) return flat;
+
+    const categoryRoots = ['围棋', '五子棋', '其它'];
+    for (const cat of categoryRoots) {
+        const catPath = path.join(__dirname, cat);
+        let entries;
+        try {
+            entries = fs.readdirSync(catPath, { withFileTypes: true });
+        } catch {
+            continue;
+        }
+        for (const ent of entries) {
+            if (!ent.isDirectory()) continue;
+            const candidate = path.join(catPath, ent.name, fileName);
+            if (fs.existsSync(candidate)) return candidate;
+        }
+    }
+    return null;
+}
+
 class BaseGameRoom
 {
     constructor(roomId, gameType, hasPassword, passwordHash, maxPlayers = 2) {
@@ -211,10 +234,20 @@ Express.get('/qi/rooms', (request, response) => {
     }
 });
 
-Express.use(express.static(path.join(__dirname, "public")));
 Express.get("/qi", (request, response) => response.sendFile(path.join(__dirname, "public", "qi.html")));
 Express.get("/qi/qi.css", (request, response) => response.sendFile(path.join(__dirname, "public", "qi.css")));
 Express.get("/qi/qi.js", (request, response) => response.sendFile(path.join(__dirname, "public", "qi.js")));
+Express.get('/qi/:leaf', (request, response, next) => {
+    const leaf = request.params.leaf;
+    const m = typeof leaf === 'string' && leaf.match(/^([a-zA-Z0-9_-]+)-ai\.js$/);
+    if (!m) return next();
+    const gameId = m[1];
+    const publicAi = path.join(__dirname, 'public', `${gameId}-ai.js`);
+    if (fs.existsSync(publicAi)) return response.sendFile(publicAi);
+    const abs = findGameAiScriptPath(gameId);
+    if (!abs) return response.status(404).type('text/plain').send('AI script not found');
+    response.sendFile(abs);
+});
 Express.get("/qi/qrcode.min.js", (request, response) => response.sendFile(path.join(__dirname, "public", "qrcode.min.js")));
 
 Express.get('/qi/:game/:roomId', (request, response) => {

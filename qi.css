@@ -1039,6 +1039,20 @@
         box-shadow: 0 6px 0 #6b4a2e;
     }
 
+.bottom-palette.normal-go-locked .piece-btn,
+.bottom-palette.normal-go-locked #rotateBtn,
+.bottom-palette.normal-go-locked #flipBtn {
+    pointer-events: none;
+    opacity: 0.45;
+    filter: grayscale(0.75);
+}
+
+.russian-compound-score-tools.normal-go-locked {
+    pointer-events: none;
+    opacity: 0.45;
+    filter: grayscale(0.6);
+}
+
 .shape-grid {
     display: grid;
     grid-template-columns: repeat(3, 32px);

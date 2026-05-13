@@ -90,9 +90,14 @@
                 <span class="close-rules" id="closeRulesBtn">&times;</span>
                 <h3>俄罗斯围棋</h3>
                 <p>
-                    基本规则同围棋。<br />
+                    基本规则同围棋，分为两个阶段。<br /><br /><br />
+                    <strong>第一阶段：</strong><br />
                     使用复合棋子，每个复合棋子由三个单棋子组成。每步随机选择一个复合棋子。可以旋转、翻折。<br /><br />
-                    单击右键旋转，长按右键翻折。<br />
+                    单击右键旋转，长按右键翻折，滑动鼠标滚轮切换形状。<br /><br />
+                    当双方连续两手虚着时进入第二阶段。<br /><br /><br />
+                    <strong>第二阶段：</strong><br />
+                    使用普通的棋子，恢复为标准围棋。<br /><br />
+                    当双方连续两手虚着时进入数子流程。<br />
                 </p>
             </div>
         </div>
@@ -222,6 +227,7 @@
             mySlot: null,
             gameOver: false,
             winner: null,
+            normalGoPhase: false,
             lastMoveMarkers: [],
             showEstimateActive: false,
             cachedLiveBoard: null,
@@ -419,7 +425,23 @@
             return newBoard;
         }
 
+        function inNormalGoLivePlay() {
+            return !!ps.normalGoPhase && !(ps.tryPlayMode && ps.replayMode);
+        }
+
+        function singleStoneCellFree(refRow, refCol) {
+            if (refRow < 0 || refCol < 0 || refRow >= ps.BOARD_SIZE || refCol >= ps.BOARD_SIZE) return false;
+            return ps.board[refRow][refCol] === 0;
+        }
+
+        function hoverPlacementFree(refRow, refCol) {
+            return inNormalGoLivePlay() ? singleStoneCellFree(refRow, refCol) : compoundPlacementCellsFree(refRow, refCol);
+        }
+
         function isPreviewGeometryValid(refRow, refCol) {
+            if (inNormalGoLivePlay()) {
+                return refRow >= 0 && refCol >= 0 && refRow < ps.BOARD_SIZE && refCol < ps.BOARD_SIZE;
+            }
             const coords = generatePlacementCoords(ps.currentShapeIndex, ps.rotation, ps.flipped, refRow, refCol);
             if (!coords) return false;
             for (let [r, c] of coords) {
@@ -441,8 +463,10 @@
         function isPlacementValid(refRow, refCol) {
             if (ps.tryPlayMode && ps.replayMode) {
                 if (ps.gameOver || ps.waitingScoreConfirm) return false;
-            } else if (!ps.isMyTurn || ps.gameOver || ps.waitingScoreConfirm) return false;
-            return compoundPlacementCellsFree(refRow, refCol);
+                return compoundPlacementCellsFree(refRow, refCol);
+            }
+            if (!ps.isMyTurn || ps.gameOver || ps.waitingScoreConfirm) return false;
+            return inNormalGoLivePlay() ? singleStoneCellFree(refRow, refCol) : compoundPlacementCellsFree(refRow, refCol);
         }
 
         function isUserBoardMarkVisibleAt(r, c) {
@@ -452,18 +476,21 @@
             const canPreview = ps.tryPlayMode && ps.replayMode ? (!ps.gameOver && !ps.waitingScoreConfirm) : (!ps.gameOver && ps.isMyTurn);
             if (canPreview) {
                 let previewRow = -1, previewCol = -1, previewActive = false;
-                if (isMouseDevice && ps.hoverRow >= 0 && ps.hoverCol >= 0 && compoundPlacementCellsFree(ps.hoverRow, ps.hoverCol)) {
+                if (isMouseDevice && ps.hoverRow >= 0 && ps.hoverCol >= 0 && isPreviewGeometryValid(ps.hoverRow, ps.hoverCol)) {
                     previewRow = ps.hoverRow; previewCol = ps.hoverCol; previewActive = true;
-                } else if (!isMouseDevice && ps.hoverRow >= 0 && ps.hoverCol >= 0 && ps.isHoverValid
-                    && compoundPlacementCellsFree(ps.hoverRow, ps.hoverCol)) {
+                } else if (!isMouseDevice && ps.hoverRow >= 0 && ps.hoverCol >= 0 && isPreviewGeometryValid(ps.hoverRow, ps.hoverCol)) {
                     previewRow = ps.hoverRow; previewCol = ps.hoverCol; previewActive = true;
                 } else if (isTouchDevice && ps.hasPreview && ps.pendingPreviewRow >= 0 && ps.pendingPreviewCol >= 0
-                    && compoundPlacementCellsFree(ps.pendingPreviewRow, ps.pendingPreviewCol)) {
+                    && isPreviewGeometryValid(ps.pendingPreviewRow, ps.pendingPreviewCol)) {
                     previewRow = ps.pendingPreviewRow; previewCol = ps.pendingPreviewCol; previewActive = true;
                 }
                 if (previewActive) {
-                    const coords = generatePlacementCoords(ps.currentShapeIndex, ps.rotation, ps.flipped, previewRow, previewCol);
-                    if (coords && coords.some(([cr, cc]) => cr === r && cc === c)) return false;
+                    if (inNormalGoLivePlay() && singleStoneCellFree(previewRow, previewCol)) {
+                        if (r === previewRow && c === previewCol) return false;
+                    } else if (!inNormalGoLivePlay()) {
+                        const coords = generatePlacementCoords(ps.currentShapeIndex, ps.rotation, ps.flipped, previewRow, previewCol);
+                        if (coords && coords.some(([cr, cc]) => cr === r && cc === c)) return false;
+                    }
                 }
             }
             return true;
@@ -547,29 +574,47 @@
             const canPreview = ps.tryPlayMode && ps.replayMode ? (!ps.gameOver && !ps.waitingScoreConfirm) : (!ps.gameOver && ps.isMyTurn);
             if (canPreview) {
                 let previewRow = -1, previewCol = -1, previewActive = false;
-                if (isMouseDevice && ps.hoverRow >= 0 && ps.hoverCol >= 0 && compoundPlacementCellsFree(ps.hoverRow, ps.hoverCol)) {
+                if (isMouseDevice && ps.hoverRow >= 0 && ps.hoverCol >= 0 && isPreviewGeometryValid(ps.hoverRow, ps.hoverCol)) {
                     previewRow = ps.hoverRow; previewCol = ps.hoverCol; previewActive = true;
-                } else if (!isMouseDevice && ps.hoverRow >= 0 && ps.hoverCol >= 0 && ps.isHoverValid
-                    && compoundPlacementCellsFree(ps.hoverRow, ps.hoverCol)) {
+                } else if (!isMouseDevice && ps.hoverRow >= 0 && ps.hoverCol >= 0 && isPreviewGeometryValid(ps.hoverRow, ps.hoverCol)) {
                     previewRow = ps.hoverRow; previewCol = ps.hoverCol; previewActive = true;
                 } else if (isTouchDevice && ps.hasPreview && ps.pendingPreviewRow >= 0 && ps.pendingPreviewCol >= 0
-                    && compoundPlacementCellsFree(ps.pendingPreviewRow, ps.pendingPreviewCol)) {
+                    && isPreviewGeometryValid(ps.pendingPreviewRow, ps.pendingPreviewCol)) {
                     previewRow = ps.pendingPreviewRow; previewCol = ps.pendingPreviewCol; previewActive = true;
                 }
                 if (previewActive) {
-                    const coords = generatePlacementCoords(ps.currentShapeIndex, ps.rotation, ps.flipped, previewRow, previewCol);
-                    if (coords) {
-                        const pv = ps.tryPlayMode ? ps.tryPlayCurrentPlayer : (ps.mySlot === 'black' ? 1 : 2);
+                    const pv = ps.tryPlayMode ? ps.tryPlayCurrentPlayer : (ps.mySlot === 'black' ? 1 : 2);
+                    const radius = cellSize * 0.44;
+                    if (inNormalGoLivePlay() && singleStoneCellFree(previewRow, previewCol)) {
+                        const cx = ps.PADDING + previewCol * cellSize, cy = ps.PADDING + previewRow * cellSize;
                         ctx.globalAlpha = 0.45;
-                        for (let [r, c] of coords) {
-                            if (r >= 0 && r < ps.BOARD_SIZE && c >= 0 && c < ps.BOARD_SIZE && ps.board[r][c] === 0) {
-                                ctx.beginPath();
-                                ctx.arc(ps.PADDING + c * cellSize, ps.PADDING + r * cellSize, cellSize * 0.44, 0, 2 * Math.PI);
-                                ctx.fillStyle = pv === 1 ? '#222' : '#ddd';
-                                ctx.fill();
-                            }
-                        }
+                        ctx.beginPath();
+                        ctx.arc(cx, cy, radius, 0, 2 * Math.PI);
+                        ctx.fillStyle = pv === 1 ? '#222' : '#ddd';
+                        ctx.fill();
                         ctx.globalAlpha = 1.0;
+                    } else if (!inNormalGoLivePlay()) {
+                        const coords = generatePlacementCoords(ps.currentShapeIndex, ps.rotation, ps.flipped, previewRow, previewCol);
+                        if (coords) {
+                            for (let [r, c] of coords) {
+                                if (r < 0 || r >= ps.BOARD_SIZE || c < 0 || c >= ps.BOARD_SIZE) continue;
+                                const cx = ps.PADDING + c * cellSize, cy = ps.PADDING + r * cellSize;
+                                if (ps.board[r][c] === 0) {
+                                    ctx.globalAlpha = 0.45;
+                                    ctx.beginPath();
+                                    ctx.arc(cx, cy, radius, 0, 2 * Math.PI);
+                                    ctx.fillStyle = pv === 1 ? '#222' : '#ddd';
+                                    ctx.fill();
+                                } else {
+                                    ctx.globalAlpha = 0.55;
+                                    ctx.beginPath();
+                                    ctx.arc(cx, cy, radius, 0, 2 * Math.PI);
+                                    ctx.fillStyle = 'rgba(220, 72, 56, 0.65)';
+                                    ctx.fill();
+                                }
+                            }
+                            ctx.globalAlpha = 1.0;
+                        }
                     }
                 }
             }
@@ -687,18 +732,13 @@
                 || ps.showEstimateActive
                 || (ps.replayMode && !ps.tryPlayMode)
                 || titleHasText
-                || contentHasText;
+                || contentHasText
+                || ps.normalGoPhase;
             row.style.display = hide ? 'none' : '';
         }
 
         function refreshPreview() {
-            if (ps.hasPreview && compoundPlacementCellsFree(ps.pendingPreviewRow, ps.pendingPreviewCol)) drawCompoundBoard();
-            else if (ps.hasPreview) {
-                ps.hasPreview = false;
-                ps.pendingPreviewRow = -1;
-                ps.pendingPreviewCol = -1;
-                drawCompoundBoard();
-            }
+            if (ps.hasPreview) drawCompoundBoard();
         }
 
         function setBottomPaletteObserverMode(on) {
@@ -748,6 +788,9 @@
             },
             tryPlayMove(row, col) {
                 if (!isPlacementValid(row, col)) return false;
+                ps.hasPreview = false;
+                ps.pendingPreviewRow = -1;
+                ps.pendingPreviewCol = -1;
                 const playerVal = ps.tryPlayCurrentPlayer;
                 const usedIdx = ps.currentShapeIndex;
                 const newBoard = tryPlaceShape(ps.board, usedIdx, ps.rotation, ps.flipped, row, col, playerVal);
@@ -852,6 +895,7 @@
                 ps.liveReplayNextShapeAtStep = state.nextShapeSnapshots || [];
                 ps.gameOver = state.gameOver || false;
                 ps.winner = state.winner || null;
+                ps.normalGoPhase = !!state.normalGoPhase;
                 if (state.moveCoords) {
                     ps.moveLog = state.moveCoords.map(m => {
                         if (m.type === 'move' && m.stones)
@@ -945,6 +989,10 @@
                     }
                 }
                 renderCompoundShapeGrid();
+                if (bottomPalette) bottomPalette.classList.toggle('normal-go-locked', !!ps.normalGoPhase);
+                const scoreCompoundRow = document.getElementById('scoreCompoundRow');
+                if (scoreCompoundRow) scoreCompoundRow.classList.toggle('normal-go-locked', !!ps.normalGoPhase);
+                updateCompoundScoreChromeVisibility();
                 setBottomPaletteObserverMode(!(ps.mySlot && !ps.gameOver && !ps.replayMode));
             }
         });
@@ -1014,9 +1062,19 @@
 
         function commitCompoundMove(row, col) {
             if (ps.gameOver || !ps.isMyTurn || ps.waitingScoreConfirm) return false;
-            const playerVal = ps.mySlot === 'black' ? 1 : 2;
-            if (!isPlacementValid(row, col)) 
+            if (inNormalGoLivePlay()) {
+                if (!singleStoneCellFree(row, col)) return false;
+                ps.hasPreview = false;
+                ps.pendingPreviewRow = -1;
+                ps.pendingPreviewCol = -1;
+                ps.ws.send(JSON.stringify({ type: 'move', singleStone: true, row, col }));
+                return true;
+            }
+            if (!isPlacementValid(row, col))
                 return false;
+            ps.hasPreview = false;
+            ps.pendingPreviewRow = -1;
+            ps.pendingPreviewCol = -1;
             const usedIdx = ps.currentShapeIndex;
             ps.ws.send(JSON.stringify({
                 type: 'move',
@@ -1177,7 +1235,6 @@
                     drawCompoundBoard();
                     return;
                 }
-                if (!isPlacementValid(row, col) && !mobileTwoStepPlacing()) return;
                 if (mobileTwoStepPlacing()) {
                     if (ps.hoverRow === row && ps.hoverCol === col && ps.isHoverValid) {
                         clearMobileMovePreview();
@@ -1185,12 +1242,16 @@
                     } else {
                         ps.hoverRow = row;
                         ps.hoverCol = col;
-                        ps.isHoverValid = compoundPlacementCellsFree(row, col);
+                        ps.isHoverValid = hoverPlacementFree(row, col);
                         drawCompoundBoard();
                     }
                     return;
                 }
-                tryPlayMove(row, col);
+                if (isPlacementValid(row, col)) {
+                    tryPlayMove(row, col);
+                } else if (isPreviewGeometryValid(row, col)) {
+                    setPreviewTouch(row, col);
+                }
                 return;
             }
             if (ps.gameOver) return;
@@ -1211,7 +1272,7 @@
                 } else {
                     ps.hoverRow = row;
                     ps.hoverCol = col;
-                    ps.isHoverValid = compoundPlacementCellsFree(row, col);
+                    ps.isHoverValid = hoverPlacementFree(row, col);
                     drawCompoundBoard();
                 }
                 return;
@@ -1233,7 +1294,7 @@
                 const y = (e.clientY - rect.top) * scale;
                 const { row, col } = getClosestIntersection(x, y);
                 ps.hoverRow = row; ps.hoverCol = col;
-                ps.isHoverValid = row >= 0 && col >= 0 && compoundPlacementCellsFree(row, col);
+                ps.isHoverValid = row >= 0 && col >= 0 && hoverPlacementFree(row, col);
                 drawCompoundBoard();
             });
             canvas.addEventListener('mouseleave', () => {
@@ -1309,7 +1370,6 @@
                         drawCompoundBoard();
                         return;
                     }
-                    if (!isPlacementValid(row, col) && !mobileTwoStepPlacing()) return;
                     if (mobileTwoStepPlacing()) {
                         if (ps.hoverRow === row && ps.hoverCol === col && ps.isHoverValid) {
                             clearMobileMovePreview();
@@ -1317,12 +1377,16 @@
                         } else {
                             ps.hoverRow = row;
                             ps.hoverCol = col;
-                            ps.isHoverValid = compoundPlacementCellsFree(row, col);
+                            ps.isHoverValid = hoverPlacementFree(row, col);
                             drawCompoundBoard();
                         }
                         return;
                     }
-                    tryPlayMove(row, col);
+                    if (isPlacementValid(row, col)) {
+                        tryPlayMove(row, col);
+                    } else if (isPreviewGeometryValid(row, col)) {
+                        setPreviewTouch(row, col);
+                    }
                     return;
                 }
                 if (ps.gameOver || !ps.isMyTurn || ps.waitingScoreConfirm) return;
@@ -1335,7 +1399,7 @@
                     } else {
                         ps.hoverRow = row;
                         ps.hoverCol = col;
-                        ps.isHoverValid = compoundPlacementCellsFree(row, col);
+                        ps.isHoverValid = hoverPlacementFree(row, col);
                         drawCompoundBoard();
                     }
                     return;
@@ -1351,12 +1415,10 @@
             const ok = ps.tryPlayMode && ps.replayMode ? (!ps.gameOver && !ps.waitingScoreConfirm) : (ps.isMyTurn && !ps.gameOver && !ps.waitingScoreConfirm);
             if (!ok) { clearPreviewTouch(); return; }
             if (row < 0 || row >= ps.BOARD_SIZE || col < 0 || col >= ps.BOARD_SIZE) { clearPreviewTouch(); return; }
-            if (compoundPlacementCellsFree(row, col)) {
-                ps.pendingPreviewRow = row;
-                ps.pendingPreviewCol = col;
-                ps.hasPreview = true;
-                drawCompoundBoard();
-            } else clearPreviewTouch();
+            ps.pendingPreviewRow = row;
+            ps.pendingPreviewCol = col;
+            ps.hasPreview = true;
+            drawCompoundBoard();
         }
 
         function clearPreviewTouch() {

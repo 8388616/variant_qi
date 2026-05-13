@@ -18,6 +18,7 @@ class RussianWeiqiRoom extends QiTwoPlayerRoomBase {
         this.gameOver = false;
         this.winner = null;
         this.passCounter = 0;
+        this.normalGoPhase = false;
         this.pendingNewGame = null;
         this.pendingUndo = null;
         this.pendingDraw = null;
@@ -453,8 +454,32 @@ class RussianWeiqiRoom extends QiTwoPlayerRoomBase {
                         ? { timed: false, ruleLine: '本局不限时' }
                         : null)
             },
-            matchStarted: this.matchStarted
+            matchStarted: this.matchStarted,
+            normalGoPhase: this.normalGoPhase
         };
+    }
+
+    _syncPhaseFromMoveCoords() {
+        let inNormal = false;
+        let pc = 0;
+        for (const m of this.moveCoords) {
+            if (!m) continue;
+            if (m.type === 'pass') {
+                pc++;
+                if (pc >= 2) {
+                    if (!inNormal) {
+                        inNormal = true;
+                        pc = 0;
+                    } else {
+                        pc = 0;
+                    }
+                }
+            } else {
+                pc = 0;
+            }
+        }
+        this.normalGoPhase = inNormal;
+        this.passCounter = pc;
     }
 
     copyMarkers(markers) {
@@ -484,6 +509,7 @@ class RussianWeiqiRoom extends QiTwoPlayerRoomBase {
         } else {
             this.board = this.copyBoard(this.historyBoards[this.historyBoards.length - 1]);
         }
+        this._syncPhaseFromMoveCoords();
         this.broadcast({ type: 'broadcast', action: 'undoAccept', ...this.getState() });
         this._syncClockAfterTurnChange();
     }
@@ -512,6 +538,7 @@ class RussianWeiqiRoom extends QiTwoPlayerRoomBase {
         this.gameOver = false;
         this.winner = null;
         this.passCounter = 0;
+        this.normalGoPhase = false;
         for (let [client, slot] of this.room.players.entries()) {
             this.room.slotOccupancy.delete(slot);
             this.room.players.delete(client);
@@ -543,21 +570,32 @@ class RussianWeiqiRoom extends QiTwoPlayerRoomBase {
         this.moveCoords.push({ type: 'pass', player: slot });
         this.lastUsedShapeByColor[passPlayerVal] = -1;
         this.currentPlayer = 3 - this.currentPlayer;
-        this.nextShapeIndex = this.rollNextShapeIndex();
+        if (!this.normalGoPhase) {
+            this.nextShapeIndex = this.rollNextShapeIndex();
+        }
         this.nextShapeSnapshots.push(this.nextShapeIndex);
         this.passCounter++;
         this.lastMoveMarkers = [];
-        this.broadcast({ type: 'broadcast', action: 'pass', ...this.getState() });
+
         if (this.passCounter >= 2) {
+            if (!this.normalGoPhase) {
+                this.normalGoPhase = true;
+                this.passCounter = 0;
+                this.broadcast({ type: 'broadcast', action: 'pass', ...this.getState() });
+                return;
+            }
             const blackPlayer = room.getPlayerBySlot('black');
             const whitePlayer = room.getPlayerBySlot('white');
+            this.broadcast({ type: 'broadcast', action: 'pass', ...this.getState() });
             if (blackPlayer && whitePlayer) {
                 this.startScoreCounting(blackPlayer, whitePlayer);
             } else {
                 this.gameOver = true;
                 this.broadcast({ type: 'broadcast', action: 'endAgreed', ...this.getState() });
             }
+            return;
         }
+        this.broadcast({ type: 'broadcast', action: 'pass', ...this.getState() });
     }
 
     handleMessage(ws, msg) {
@@ -589,13 +627,41 @@ class RussianWeiqiRoom extends QiTwoPlayerRoomBase {
                 }
                 if (this.gameOver) return;
                 if (!slot || slot !== (this.currentPlayer === 1 ? 'black' : 'white')) return;
+                const playerVal = this.currentPlayer === 1 ? 1 : 2;
+                if (this.normalGoPhase) {
+                    if (!msg.singleStone || msg.row === undefined || msg.col === undefined) return;
+                    const { row, col } = msg;
+                    const newBoard = this.tryPlaceStonesAt(this.board, [[row, col]], playerVal);
+                    if (!newBoard) return;
+                    const newBoardStr = this.boardToString(newBoard);
+                    if (this.historyBoardSet.has(newBoardStr)) {
+                        ws.send(JSON.stringify({ type: 'error', message: '禁全同。' }));
+                        return;
+                    }
+                    if (!this._drainClockBeforeMove(moveSlot)) return;
+                    this.historyNextShape.push(this.nextShapeIndex);
+                    this.historyBoards.push(this.copyBoard(newBoard));
+                    this.historyBoardSet.add(newBoardStr);
+                    this.historyMarkers.push(this.copyMarkers(this.lastMoveMarkers));
+                    this.historyLastUsed.push({ 1: this.lastUsedShapeByColor[1], 2: this.lastUsedShapeByColor[2] });
+                    this.moveHistory.push(slot);
+                    this.board = newBoard;
+                    this.moveCoords.push({ type: 'move', player: slot, stones: [[row, col]], singleStone: true });
+                    this.lastMoveMarkers = [{ row, col, color: playerVal }];
+                    this.lastUsedShapeByColor[playerVal] = -1;
+                    this.currentPlayer = 3 - this.currentPlayer;
+                    this.nextShapeSnapshots.push(this.nextShapeIndex);
+                    this.passCounter = 0;
+                    this.broadcast({ type: 'broadcast', action: 'move', ...this.getState() });
+                    this._syncClockAfterTurnChange();
+                    break;
+                }
                 const { shapeIndex, rotation, flipped, row, col } = msg;
                 if (shapeIndex === undefined || rotation === undefined || flipped === undefined || row === undefined || col === undefined) return;
                 if (shapeIndex !== this.nextShapeIndex) {
                     ws.send(JSON.stringify({ type: 'error', message: '复合棋子形状与当前要求不一致。' }));
                     return;
                 }
-                const playerVal = this.currentPlayer === 1 ? 1 : 2;
                 const newBoard = this.tryPlaceShape(this.board, shapeIndex, rotation, flipped, row, col, playerVal);
                 if (!newBoard) return;
                 const newBoardStr = this.boardToString(newBoard);
@@ -752,6 +818,7 @@ class RussianWeiqiRoom extends QiTwoPlayerRoomBase {
         this.gameOver = false;
         this.winner = null;
         this.passCounter = 0;
+        this.normalGoPhase = false;
         this.broadcast({ type: 'boardSizeChanged', boardSize: this.boardSize });
         return true;
     }
@@ -777,6 +844,10 @@ class RussianWeiqiRoom extends QiTwoPlayerRoomBase {
             moves: this.moveCoords.map(m => {
                 const p = m.player === 'black' ? 'B' : 'W';
                 if (m.type === 'pass') return p + 'p';
+                if (m.singleStone && m.stones && m.stones.length === 1) {
+                    const [r, c] = m.stones[0];
+                    return `${p}${r},${c}+`;
+                }
                 return p + m.stones.map(([r, c]) => `${r},${c}`).join(';');
             }),
             timeControl: (this.tcSettings && this.tcSettings.timed) ? `S${this.tcSettings.mainMinutes || 0},${this.tcSettings.byoyomiSeconds || 0},${this.tcSettings.maxTimeouts || 0}` : null,
@@ -808,6 +879,7 @@ class RussianWeiqiRoom extends QiTwoPlayerRoomBase {
         this.gameOver = false;
         this.winner = null;
         this.passCounter = 0;
+        this.normalGoPhase = false;
         this.pendingNewGame = null;
         this.pendingUndo = null;
         this.pendingDraw = null;
@@ -817,16 +889,30 @@ class RussianWeiqiRoom extends QiTwoPlayerRoomBase {
     }
 
     static parseMove(entry) {
-        if (typeof entry === 'object' && entry !== null) return entry;
-        const s = entry;
+        if (typeof entry === 'object' && entry !== null) {
+            const o = { ...entry };
+            if (o.type === 'move' && o.stones && o.stones.length === 1) o.singleStone = true;
+            return o;
+        }
+        const s = String(entry);
         const player = s[0] === 'B' ? 'black' : 'white';
         if (s[1] === 'p') return { type: 'pass', player };
         const rest = s.slice(1);
+        const singlePlus = rest.match(/^(\d+),(\d+)\+$/);
+        if (singlePlus) {
+            return {
+                type: 'move',
+                player,
+                stones: [[Number(singlePlus[1]), Number(singlePlus[2])]],
+                singleStone: true
+            };
+        }
         const parts = rest.split(';').filter(Boolean);
         const stones = parts.map(part => {
             const [r, c] = part.split(',').map(Number);
             return [r, c];
         });
+        if (stones.length === 1) return { type: 'move', player, stones, singleStone: true };
         return { type: 'move', player, stones };
     }
 
@@ -849,6 +935,9 @@ class RussianWeiqiRoom extends QiTwoPlayerRoomBase {
         const rawMoves = data.moves || [];
         const moves = rawMoves.map(RussianWeiqiRoom.parseMove);
 
+        let replayNormal = false;
+        let replayPass = 0;
+
         for (let i = 0; i < moves.length; i++) {
             const move = moves[i];
             const slot = move.player;
@@ -856,9 +945,16 @@ class RussianWeiqiRoom extends QiTwoPlayerRoomBase {
 
             if (move.type === 'move') {
                 const stones = move.stones;
+                const singleStone = move.singleStone === true || (stones && stones.length === 1);
                 if (!stones || stones.length === 0) {
                     this.resetToEmpty();
                     requesterWs.send(JSON.stringify({ type: 'error', message: `棋谱回放失败：第${i + 1}手缺少坐标` }));
+                    this.broadcast({ type: 'roomReset', ...this.getState() });
+                    return;
+                }
+                if (!singleStone && stones.length !== 3) {
+                    this.resetToEmpty();
+                    requesterWs.send(JSON.stringify({ type: 'error', message: `棋谱回放失败：第${i + 1}手坐标数量应为三（复合）或一（普通围棋）` }));
                     this.broadcast({ type: 'roomReset', ...this.getState() });
                     return;
                 }
@@ -876,6 +972,7 @@ class RussianWeiqiRoom extends QiTwoPlayerRoomBase {
                     this.broadcast({ type: 'roomReset', ...this.getState() });
                     return;
                 }
+                this.historyNextShape.push(this.nextShapeIndex);
                 const newBoard = this.tryPlaceStonesAt(this.board, stones, playerVal);
                 if (!newBoard) {
                     this.resetToEmpty();
@@ -895,15 +992,27 @@ class RussianWeiqiRoom extends QiTwoPlayerRoomBase {
                 this.historyMarkers.push(this.copyMarkers(this.lastMoveMarkers));
                 this.historyLastUsed.push({ 1: this.lastUsedShapeByColor[1], 2: this.lastUsedShapeByColor[2] });
                 this.moveHistory.push(slot);
-                this.moveCoords.push({ type: 'move', player: slot, stones: stones.map(([r, c]) => [r, c]) });
+                if (singleStone) {
+                    this.moveCoords.push({
+                        type: 'move',
+                        player: slot,
+                        stones: stones.map(([r, c]) => [r, c]),
+                        singleStone: true
+                    });
+                    this.lastUsedShapeByColor[playerVal] = -1;
+                    this.nextShapeSnapshots.push(this.nextShapeIndex);
+                } else {
+                    this.moveCoords.push({ type: 'move', player: slot, stones: stones.map(([r, c]) => [r, c]) });
+                    const si = this.inferShapeIndexFromStones(stones);
+                    this.lastUsedShapeByColor[playerVal] = si >= 0 ? si : -1;
+                    if (!replayNormal) this.nextShapeIndex = this.rollNextShapeIndex();
+                    this.nextShapeSnapshots.push(this.nextShapeIndex);
+                }
                 this.board = newBoard;
                 this.lastMoveMarkers = stones.map(([r, c]) => ({ row: r, col: c, color: playerVal }));
-                const si = this.inferShapeIndexFromStones(stones);
-                this.lastUsedShapeByColor[playerVal] = si >= 0 ? si : -1;
                 this.currentPlayer = 3 - this.currentPlayer;
                 this.passCounter = 0;
-                this.nextShapeIndex = this.rollNextShapeIndex();
-                this.nextShapeSnapshots.push(this.nextShapeIndex);
+                replayPass = 0;
             } else if (move.type === 'pass') {
                 if (slot !== (this.currentPlayer === 1 ? 'black' : 'white')) {
                     this.resetToEmpty();
@@ -911,6 +1020,7 @@ class RussianWeiqiRoom extends QiTwoPlayerRoomBase {
                     this.broadcast({ type: 'roomReset', ...this.getState() });
                     return;
                 }
+                this.historyNextShape.push(this.nextShapeIndex);
                 this.historyBoards.push(this.copyBoard(this.board));
                 this.historyBoardSet.add(this.boardToString(this.board));
                 this.historyMarkers.push(this.copyMarkers(this.lastMoveMarkers));
@@ -919,12 +1029,22 @@ class RussianWeiqiRoom extends QiTwoPlayerRoomBase {
                 this.moveCoords.push({ type: 'pass', player: slot });
                 this.lastUsedShapeByColor[playerVal] = -1;
                 this.currentPlayer = 3 - this.currentPlayer;
-                this.passCounter++;
-                this.lastMoveMarkers = [];
-                this.nextShapeIndex = this.rollNextShapeIndex();
+                if (!replayNormal) this.nextShapeIndex = this.rollNextShapeIndex();
                 this.nextShapeSnapshots.push(this.nextShapeIndex);
+                this.lastMoveMarkers = [];
+                replayPass++;
+                if (replayPass >= 2) {
+                    if (!replayNormal) {
+                        replayNormal = true;
+                        replayPass = 0;
+                    } else {
+                        replayPass = 0;
+                    }
+                }
             }
         }
+
+        this._syncPhaseFromMoveCoords();
 
         if (data.timeControl && typeof data.timeControl === 'object') {
             const tc = data.timeControl;
@@ -950,9 +1070,6 @@ class RussianWeiqiRoom extends QiTwoPlayerRoomBase {
                 this.winner = data.result;
         }
 
-        this.nextShapeIndex = this.rollNextShapeIndex();
-        if (this.nextShapeSnapshots.length) this.nextShapeSnapshots[this.nextShapeSnapshots.length - 1] = this.nextShapeIndex;
-
         this.broadcast({
             type: 'importSuccess',
             ...this.getState(),
@@ -960,6 +1077,14 @@ class RussianWeiqiRoom extends QiTwoPlayerRoomBase {
                 initialPosition: data.initialPosition || [],
                 moves: this.moveCoords.map(m => {
                     if (m.type === 'pass') return { type: 'pass', player: m.player };
+                    if (m.singleStone) {
+                        return {
+                            type: 'move',
+                            player: m.player,
+                            stones: m.stones.map(([r, c]) => [r, c]),
+                            singleStone: true
+                        };
+                    }
                     return { type: 'move', player: m.player, stones: m.stones.map(([r, c]) => [r, c]) };
                 })
             }

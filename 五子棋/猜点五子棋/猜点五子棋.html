@@ -916,8 +916,12 @@
             baseRoomHandleMessage(msg);
             switch (msg.type) {
                 case 'timeControlAgreed':
-                    matchStarted = true;
-                    updateTurn();
+                    if (msg.board !== undefined) {
+                        syncState(msg);
+                    } else {
+                        matchStarted = true;
+                        updateTurn();
+                    }
                     break;
                 case 'timeControlReset':
                     matchStarted = false;
@@ -1131,7 +1135,8 @@
             const replayPanel = document.getElementById('replayPanel');
             const tryPlayBtn = document.getElementById('tryPlayBtn');
             const isPlayer = !!mySlot;
-            const started = !!(matchStarted || (matchTime && matchTime.settings));
+            const mt = psBindings.matchTime;
+            const started = !!(matchStarted || (mt && mt.settings));
             const showMatchButtons = isPlayer && started && !replayMode;
             hideIds.forEach(id => { const el = document.getElementById(id); if (el) el.style.display = showMatchButtons ? '' : 'none'; });
             replayPanel.style.display = '';

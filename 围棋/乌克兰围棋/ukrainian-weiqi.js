@@ -17,6 +17,7 @@ class UkrainianWeiqiRoom extends QiTwoPlayerRoomBase {
         this.gameOver = false;
         this.winner = null;
         this.passCounter = 0;
+        this.normalGoPhase = false;
         this.pendingNewGame = null;
         this.pendingUndo = null;
         this.pendingDraw = null;
@@ -32,6 +33,8 @@ class UkrainianWeiqiRoom extends QiTwoPlayerRoomBase {
         this.tcClock = null;
         this._clockInterval = null;
         this.matchStarted = false;
+        /** @type {'black'|'white'|null} 无 WebSocket 的电脑所占座位 */
+        this.computerSlot = null;
 
         this.SHAPES = [
             [[-1, -1], [0, 0], [1, 1]],
@@ -91,8 +94,31 @@ class UkrainianWeiqiRoom extends QiTwoPlayerRoomBase {
         return tb <= tw ? 'black' : 'white';
     }
 
+    _slotOccupied(slot) {
+        return !!(this.room.getPlayerBySlot(slot) || this.computerSlot === slot);
+    }
+
+    _finalizeUnlimitedVsComputer() {
+        this.tcNego = null;
+        this.tcSettings = { timed: false };
+        this.matchStarted = true;
+        this.tcClock = null;
+        this.broadcast({
+            type: 'timeControlAgreed',
+            settings: this.tcSettings,
+            clock: null
+        });
+    }
+
     _maybeBeginTimeNegotiation() {
-        if (this.moveHistory.length > 0 || this.gameOver) return;
+        if (this.gameOver) return;
+        if (!this._slotOccupied('black') || !this._slotOccupied('white')) return;
+        if (this.computerSlot) {
+            if (this.tcSettings !== null) return;
+            this._finalizeUnlimitedVsComputer();
+            return;
+        }
+        if (this.moveHistory.length > 0) return;
         const room = this.room;
         if (!room.getPlayerBySlot('black') || !room.getPlayerBySlot('white')) return;
         if (this.tcNego !== null) return;
@@ -400,6 +426,13 @@ class UkrainianWeiqiRoom extends QiTwoPlayerRoomBase {
     }
 
     getState() {
+        let matchClock = null;
+        const tc = this.tcClock;
+        if (tc && tc.timed) {
+            matchClock = qiMatchTimeControl.snapshotForClient(tc);
+        } else if (this.tcSettings && this.tcSettings.timed === false) {
+            matchClock = { timed: false, ruleLine: '本局不限时' };
+        }
         return {
             boardSize: this.boardSize,
             board: this.board,
@@ -411,22 +444,42 @@ class UkrainianWeiqiRoom extends QiTwoPlayerRoomBase {
             winner: this.winner,
             lastUsedShapeByColor: this.lastUsedShapeByColor,
             moveCoords: this.moveCoords,
-            komi: 3.25,
+            computerSlot: this.computerSlot,
             slots: {
-                black: !!this.room.getPlayerBySlot('black'),
-                white: !!this.room.getPlayerBySlot('white')
+                black: this._slotOccupied('black'),
+                white: this._slotOccupied('white')
             },
             matchTime: {
                 negotiation: this.tcNego,
                 settings: this.tcSettings,
-                clock: this.tcClock && this.tcClock.timed
-                    ? qiMatchTimeControl.snapshotForClient(this.tcClock)
-                    : (this.tcSettings && this.tcSettings.timed === false
-                        ? { timed: false, ruleLine: '本局不限时' }
-                        : null)
+                clock: matchClock
             },
-            matchStarted: this.matchStarted
+            matchStarted: this.matchStarted,
+            normalGoPhase: this.normalGoPhase
         };
+    }
+
+    _syncPhaseFromMoveCoords() {
+        let inNormal = false;
+        let pc = 0;
+        for (const m of this.moveCoords) {
+            if (!m) continue;
+            if (m.type === 'pass') {
+                pc++;
+                if (pc >= 2) {
+                    if (!inNormal) {
+                        inNormal = true;
+                        pc = 0;
+                    } else {
+                        pc = 0;
+                    }
+                }
+            } else {
+                pc = 0;
+            }
+        }
+        this.normalGoPhase = inNormal;
+        this.passCounter = pc;
     }
 
     copyMarkers(markers) {
@@ -454,6 +507,7 @@ class UkrainianWeiqiRoom extends QiTwoPlayerRoomBase {
         } else {
             this.board = this.copyBoard(this.historyBoards[this.historyBoards.length - 1]);
         }
+        this._syncPhaseFromMoveCoords();
         this.broadcast({ type: 'broadcast', action: 'undoAccept', ...this.getState() });
         this._syncClockAfterTurnChange();
     }
@@ -479,6 +533,8 @@ class UkrainianWeiqiRoom extends QiTwoPlayerRoomBase {
         this.gameOver = false;
         this.winner = null;
         this.passCounter = 0;
+        this.normalGoPhase = false;
+        this.computerSlot = null;
         for (let [client, slot] of this.room.players.entries()) {
             this.room.slotOccupancy.delete(slot);
             this.room.players.delete(client);
@@ -492,10 +548,13 @@ class UkrainianWeiqiRoom extends QiTwoPlayerRoomBase {
         if (this.tcClock && this.tcClock.timed) qiMatchTimeControl.setPaused(this.tcClock, true);
         const lead = this.computeLead();
         this.scoreProposalData = { lead, requester, opponent };
-        const proposalMsg = { type: 'scoreProposal', lead };
+        const single = requester === opponent;
+        const proposalMsg = single
+            ? { type: 'scoreProposal', lead, ...this.getState() }
+            : { type: 'scoreProposal', lead };
         requester.send(JSON.stringify(proposalMsg));
-        opponent.send(JSON.stringify(proposalMsg));
-        this.pendingScore = { requester, opponent, agreed: new Set() };
+        if (!single) opponent.send(JSON.stringify(proposalMsg));
+        this.pendingScore = { requester, opponent, agreed: new Set(), singlePlayerConfirm: single };
     }
 
     compoundPass(slot) {
@@ -511,17 +570,101 @@ class UkrainianWeiqiRoom extends QiTwoPlayerRoomBase {
         this.currentPlayer = 3 - this.currentPlayer;
         this.passCounter++;
         this.lastMoveMarkers = [];
-        this.broadcast({ type: 'broadcast', action: 'pass', ...this.getState() });
+
         if (this.passCounter >= 2) {
+            if (!this.normalGoPhase) {
+                this.normalGoPhase = true;
+                this.passCounter = 0;
+                this.broadcast({ type: 'broadcast', action: 'pass', ...this.getState() });
+                return;
+            }
             const blackPlayer = room.getPlayerBySlot('black');
             const whitePlayer = room.getPlayerBySlot('white');
+            const humanWs = blackPlayer || whitePlayer;
+            this.broadcast({ type: 'broadcast', action: 'pass', ...this.getState() });
             if (blackPlayer && whitePlayer) {
                 this.startScoreCounting(blackPlayer, whitePlayer);
+            } else if (this.computerSlot && humanWs) {
+                this.startScoreCounting(humanWs, humanWs);
             } else {
                 this.gameOver = true;
                 this.broadcast({ type: 'broadcast', action: 'endAgreed', ...this.getState() });
             }
+            return;
         }
+        this.broadcast({ type: 'broadcast', action: 'pass', ...this.getState() });
+    }
+
+    /**
+     * @param {{ preBoard?: number[][] }} [opts]
+     * @returns {boolean}
+     */
+    _applyCompoundMove(moveSlot, shapeIndex, rotation, flipped, row, col, opts = {}) {
+        if (this.normalGoPhase) return false;
+        if (!this._timeAllowsPlay(moveSlot)) return false;
+        if (this.gameOver) return false;
+        if (moveSlot !== (this.currentPlayer === 1 ? 'black' : 'white')) return false;
+        const playerVal = this.currentPlayer === 1 ? 1 : 2;
+        if (this.lastUsedShapeByColor[playerVal] === shapeIndex) return false;
+        const newBoard = opts.preBoard != null
+            ? opts.preBoard
+            : this.tryPlaceShape(this.board, shapeIndex, rotation, flipped, row, col, playerVal);
+        if (!newBoard) return false;
+        const newBoardStr = this.boardToString(newBoard);
+        if (this.historyBoardSet.has(newBoardStr)) return false;
+        if (!this._drainClockBeforeMove(moveSlot)) return false;
+
+        this.historyBoards.push(this.copyBoard(this.board));
+        this.historyBoardSet.add(newBoardStr);
+        this.historyMarkers.push(this.copyMarkers(this.lastMoveMarkers));
+        this.historyLastUsed.push({ 1: this.lastUsedShapeByColor[1], 2: this.lastUsedShapeByColor[2] });
+        this.moveHistory.push(moveSlot);
+        this.board = newBoard;
+        const coords = this.generatePlacementCoords(shapeIndex, rotation, flipped, row, col);
+        const stoneList = coords.map(([r, c]) => [r, c]);
+        this.moveCoords.push({ type: 'move', player: moveSlot, stones: stoneList });
+        this.lastMoveMarkers = coords.map(([r, c]) => ({ row: r, col: c, color: playerVal }));
+        this.lastUsedShapeByColor[playerVal] = shapeIndex;
+        this.currentPlayer = 3 - this.currentPlayer;
+        this.passCounter = 0;
+        this.broadcast({ type: 'broadcast', action: 'move', ...this.getState() });
+        this._syncClockAfterTurnChange();
+        return true;
+    }
+
+    /**
+     * @param {{ preBoard?: number[][] }} [opts]
+     * @returns {boolean}
+     */
+    _applySingleStoneMove(moveSlot, row, col, opts = {}) {
+        if (!this.normalGoPhase) return false;
+        if (!this._timeAllowsPlay(moveSlot)) return false;
+        if (this.gameOver) return false;
+        if (moveSlot !== (this.currentPlayer === 1 ? 'black' : 'white')) return false;
+        const playerVal = this.currentPlayer === 1 ? 1 : 2;
+        if (row < 0 || row >= this.boardSize || col < 0 || col >= this.boardSize) return false;
+        const newBoard = opts.preBoard != null
+            ? opts.preBoard
+            : this.tryPlaceStonesAt(this.board, [[row, col]], playerVal);
+        if (!newBoard) return false;
+        const newBoardStr = this.boardToString(newBoard);
+        if (this.historyBoardSet.has(newBoardStr)) return false;
+        if (!this._drainClockBeforeMove(moveSlot)) return false;
+
+        this.historyBoards.push(this.copyBoard(this.board));
+        this.historyBoardSet.add(newBoardStr);
+        this.historyMarkers.push(this.copyMarkers(this.lastMoveMarkers));
+        this.historyLastUsed.push({ 1: this.lastUsedShapeByColor[1], 2: this.lastUsedShapeByColor[2] });
+        this.moveHistory.push(moveSlot);
+        this.board = newBoard;
+        this.moveCoords.push({ type: 'move', player: moveSlot, stones: [[row, col]], singleStone: true });
+        this.lastMoveMarkers = [{ row, col, color: playerVal }];
+        this.lastUsedShapeByColor[playerVal] = -1;
+        this.currentPlayer = 3 - this.currentPlayer;
+        this.passCounter = 0;
+        this.broadcast({ type: 'broadcast', action: 'move', ...this.getState() });
+        this._syncClockAfterTurnChange();
+        return true;
     }
 
     handleMessage(ws, msg) {
@@ -529,6 +672,18 @@ class UkrainianWeiqiRoom extends QiTwoPlayerRoomBase {
         const room = this.room;
 
         switch (msg.type) {
+            case 'requestComputerOpponent': {
+                const my = room.getSlotByWs(ws);
+                if (!my || this.gameOver || this.computerSlot) return;
+                const other = my === 'black' ? 'white' : 'black';
+                if (room.getPlayerBySlot(other)) return;
+                this.computerSlot = other;
+                room.broadcast({ type: 'slotOccupied', slot: other });
+                this._maybeBeginTimeNegotiation();
+                this.broadcast({ type: 'gameState', ...this.getState() });
+                break;
+            }
+
             case 'selectColor':
                 qiProtocol.selectColor(this, ws, msg);
                 break;
@@ -553,6 +708,20 @@ class UkrainianWeiqiRoom extends QiTwoPlayerRoomBase {
                 }
                 if (this.gameOver) return;
                 if (!slot || slot !== (this.currentPlayer === 1 ? 'black' : 'white')) return;
+                if (this.normalGoPhase) {
+                    if (!msg.singleStone || msg.row === undefined || msg.col === undefined) return;
+                    const { row, col } = msg;
+                    const playerVal = this.currentPlayer === 1 ? 1 : 2;
+                    const newBoard = this.tryPlaceStonesAt(this.board, [[row, col]], playerVal);
+                    if (!newBoard) return;
+                    const newBoardStr = this.boardToString(newBoard);
+                    if (this.historyBoardSet.has(newBoardStr)) {
+                        ws.send(JSON.stringify({ type: 'error', message: '禁全同。' }));
+                        return;
+                    }
+                    if (!this._applySingleStoneMove(moveSlot, row, col, { preBoard: newBoard })) return;
+                    break;
+                }
                 const { shapeIndex, rotation, flipped, row, col } = msg;
                 if (shapeIndex === undefined || rotation === undefined || flipped === undefined || row === undefined || col === undefined) return;
                 const playerVal = this.currentPlayer === 1 ? 1 : 2;
@@ -564,22 +733,53 @@ class UkrainianWeiqiRoom extends QiTwoPlayerRoomBase {
                     ws.send(JSON.stringify({ type: 'error', message: '禁全同。' }));
                     return;
                 }
-                if (!this._drainClockBeforeMove(moveSlot)) return;
-                this.historyBoards.push(this.copyBoard(newBoard));
-                this.historyBoardSet.add(newBoardStr);
-                this.historyMarkers.push(this.copyMarkers(this.lastMoveMarkers));
-                this.historyLastUsed.push({ 1: this.lastUsedShapeByColor[1], 2: this.lastUsedShapeByColor[2] });
-                this.moveHistory.push(slot);
-                this.board = newBoard;
-                const coords = this.generatePlacementCoords(shapeIndex, rotation, flipped, row, col);
-                const stoneList = coords.map(([r, c]) => [r, c]);
-                this.moveCoords.push({ type: 'move', player: slot, stones: stoneList });
-                this.lastMoveMarkers = coords.map(([r, c]) => ({ row: r, col: c, color: playerVal }));
-                this.lastUsedShapeByColor[playerVal] = shapeIndex;
-                this.currentPlayer = 3 - this.currentPlayer;
-                this.passCounter = 0;
-                this.broadcast({ type: 'broadcast', action: 'move', ...this.getState() });
-                this._syncClockAfterTurnChange();
+                if (!this._applyCompoundMove(moveSlot, shapeIndex, rotation, flipped, row, col, { preBoard: newBoard })) return;
+                break;
+            }
+
+            /** 人机时由前端代电脑提交着法，不占服务器算力 */
+            case 'computerMove': {
+                const humanSlot = slot;
+                if (!humanSlot || !this.computerSlot || this.gameOver) return;
+                const turnSlot = this.currentPlayer === 1 ? 'black' : 'white';
+                if (turnSlot !== this.computerSlot) return;
+                if (humanSlot === this.computerSlot) return;
+                if (!this._timeAllowsPlay(this.computerSlot)) {
+                    ws.send(JSON.stringify({ type: 'error', message: '请先与对手确认限时规则。' }));
+                    return;
+                }
+                if (msg.pass === true) {
+                    if (!this._drainClockBeforeMove(this.computerSlot)) return;
+                    this.compoundPass(this.computerSlot);
+                    this._syncClockAfterTurnChange();
+                    break;
+                }
+                if (this.normalGoPhase) {
+                    if (!msg.singleStone || msg.row === undefined || msg.col === undefined) return;
+                    const { row, col } = msg;
+                    const playerVal = this.currentPlayer === 1 ? 1 : 2;
+                    const tryBoard = this.tryPlaceStonesAt(this.board, [[row, col]], playerVal);
+                    if (!tryBoard) return;
+                    const tryStr = this.boardToString(tryBoard);
+                    if (this.historyBoardSet.has(tryStr)) {
+                        ws.send(JSON.stringify({ type: 'error', message: '禁全同。' }));
+                        return;
+                    }
+                    if (!this._applySingleStoneMove(this.computerSlot, row, col, { preBoard: tryBoard })) return;
+                    break;
+                }
+                const { shapeIndex, rotation, flipped, row, col } = msg;
+                if (shapeIndex === undefined || rotation === undefined || flipped === undefined || row === undefined || col === undefined) return;
+                const playerVal = this.currentPlayer === 1 ? 1 : 2;
+                if (this.lastUsedShapeByColor[playerVal] === shapeIndex) return;
+                const tryBoard = this.tryPlaceShape(this.board, shapeIndex, rotation, flipped, row, col, playerVal);
+                if (!tryBoard) return;
+                const tryStr = this.boardToString(tryBoard);
+                if (this.historyBoardSet.has(tryStr)) {
+                    ws.send(JSON.stringify({ type: 'error', message: '禁全同。' }));
+                    return;
+                }
+                if (!this._applyCompoundMove(this.computerSlot, shapeIndex, rotation, flipped, row, col, { preBoard: tryBoard })) return;
                 break;
             }
 
@@ -649,7 +849,8 @@ class UkrainianWeiqiRoom extends QiTwoPlayerRoomBase {
                 if (this.pendingScore && (ws === this.pendingScore.requester || ws === this.pendingScore.opponent)) {
                     if (msg.accept) {
                         this.pendingScore.agreed.add(ws);
-                        if (this.pendingScore.agreed.size === 2) {
+                        const need = this.pendingScore.singlePlayerConfirm ? 1 : 2;
+                        if (this.pendingScore.agreed.size >= need) {
                             const lead = this.scoreProposalData.lead;
                             this.gameOver = true;
                             this.winner = lead > 0 ? 'black' : (lead < 0 ? 'white' : 'draw');
@@ -691,7 +892,7 @@ class UkrainianWeiqiRoom extends QiTwoPlayerRoomBase {
             return false;
         }
         const hasAnyStone = this.board.some(row => row.some(v => v !== 0));
-        const hasPlayer = this.room.getPlayerBySlot('black') || this.room.getPlayerBySlot('white');
+        const hasPlayer = this._slotOccupied('black') || this._slotOccupied('white');
         if (hasAnyStone || hasPlayer) return false;
         this.boardSize = newSize;
         this.board = Array(this.boardSize).fill().map(() => Array(this.boardSize).fill(0));
@@ -707,6 +908,7 @@ class UkrainianWeiqiRoom extends QiTwoPlayerRoomBase {
         this.gameOver = false;
         this.winner = null;
         this.passCounter = 0;
+        this.normalGoPhase = false;
         this.broadcast({ type: 'boardSizeChanged', boardSize: this.boardSize });
         return true;
     }
@@ -760,12 +962,14 @@ class UkrainianWeiqiRoom extends QiTwoPlayerRoomBase {
         this.gameOver = false;
         this.winner = null;
         this.passCounter = 0;
+        this.normalGoPhase = false;
         this.pendingNewGame = null;
         this.pendingUndo = null;
         this.pendingDraw = null;
         this.pendingEnd = null;
         this.pendingScore = null;
         this.scoreProposalData = null;
+        this.computerSlot = null;
     }
 
     static parseMove(entry) {
@@ -779,7 +983,7 @@ class UkrainianWeiqiRoom extends QiTwoPlayerRoomBase {
             const [r, c] = part.split(',').map(Number);
             return [r, c];
         });
-        return { type: 'move', player, stones };
+        return { type: 'move', player, stones, singleStone: stones.length === 1 };
     }
 
     importRecord(data, requesterWs) {
@@ -847,11 +1051,20 @@ class UkrainianWeiqiRoom extends QiTwoPlayerRoomBase {
                 this.historyMarkers.push(this.copyMarkers(this.lastMoveMarkers));
                 this.historyLastUsed.push({ 1: this.lastUsedShapeByColor[1], 2: this.lastUsedShapeByColor[2] });
                 this.moveHistory.push(slot);
-                this.moveCoords.push({ type: 'move', player: slot, stones: stones.map(([r, c]) => [r, c]) });
+                const singleStone = stones.length === 1 || move.singleStone === true;
+                this.moveCoords.push({
+                    type: 'move',
+                    player: slot,
+                    stones: stones.map(([r, c]) => [r, c]),
+                    ...(singleStone ? { singleStone: true } : {})
+                });
                 this.board = newBoard;
                 this.lastMoveMarkers = stones.map(([r, c]) => ({ row: r, col: c, color: playerVal }));
-                const si = this.inferShapeIndexFromStones(stones);
-                this.lastUsedShapeByColor[playerVal] = si >= 0 ? si : -1;
+                if (singleStone) this.lastUsedShapeByColor[playerVal] = -1;
+                else {
+                    const si = this.inferShapeIndexFromStones(stones);
+                    this.lastUsedShapeByColor[playerVal] = si >= 0 ? si : -1;
+                }
                 this.currentPlayer = 3 - this.currentPlayer;
                 this.passCounter = 0;
             } else if (move.type === 'pass') {
@@ -873,6 +1086,8 @@ class UkrainianWeiqiRoom extends QiTwoPlayerRoomBase {
                 this.lastMoveMarkers = [];
             }
         }
+
+        this._syncPhaseFromMoveCoords();
 
         if (data.timeControl && typeof data.timeControl === 'object') {
             const tc = data.timeControl;
@@ -933,6 +1148,9 @@ class UkrainianWeiqiRoom extends QiTwoPlayerRoomBase {
             this.room.broadcast({ type: 'timeControlReset', reason: 'playerLeft' });
         }
         if (slot) this.slotJoinedAt[slot] = null;
+        setImmediate(() => {
+            if (this.room.getPlayerCount() === 0) this.computerSlot = null;
+        });
     }
 }
 

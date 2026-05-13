@@ -105,10 +105,15 @@
                 <span class="close-rules" id="closeRulesBtn">&times;</span>
                 <h3>乌克兰围棋</h3>
                 <p>
-                    基本规则同围棋。<br />
+                    基本规则同围棋，分为两个阶段。<br /><br /><br />
+                    <strong>第一阶段：</strong><br />
                     使用复合棋子，每个复合棋子由三个单棋子组成。可选的复合棋子在棋盘下方。可以旋转、翻折。<br /><br />
+                    单击右键旋转，长按右键翻折，滑动鼠标滚轮切换形状。<br /><br />
                     同一方不可以连续两步使用相同的形状。<br /><br />
-                    单击右键旋转，长按右键翻折，滑动鼠标滚轮切换形状。<br />
+                    当双方连续两手虚着时进入第二阶段。<br /><br /><br />
+                    <strong>第二阶段：</strong><br />
+                    使用普通的棋子，恢复为标准围棋。<br /><br />
+                    当双方连续两手虚着时进入数子流程。<br />
                 </p>
             </div>
         </div>
@@ -125,6 +130,7 @@
                 <button class="ctrl-btn" id="endReqBtn" style="display:none;">申请数子</button>
                 <button class="ctrl-btn" id="importBtn">导入棋谱</button>
                 <button class="ctrl-btn" id="exportBtn" style="display:none;">导出棋谱</button>
+                <button class="ctrl-btn" id="vsComputerBtn" style="display:none;">与电脑对战</button>
             </div>
             <div class="board-and-info board-and-info--palette-stack">
                 <div class="board-container">
@@ -201,6 +207,8 @@
     <input type="file" id="importFileInput" accept=".json" style="display:none;">
 
     <script src="/qi/qi.js"></script>
+    <!-- 前端 AI：文件名与 URL 中游戏 id 一致 → public/{id}-ai.js，由 GET /qi/{id}-ai.js 提供（见 qi-server.js） -->
+    <script src="/qi/ukrainian-weiqi-ai.js"></script>
     <script>
         const SHAPE_LIST = [
             [[-1, -1], [0, 0], [1, 1]],
@@ -220,6 +228,7 @@
             mySlot: null,
             gameOver: false,
             winner: null,
+            normalGoPhase: false,
             lastMoveMarkers: [],
             showEstimateActive: false,
             cachedLiveBoard: null,
@@ -267,7 +276,9 @@
             hasPreview: false,
             pendingPreviewRow: -1,
             pendingPreviewCol: -1,
-            _needCompoundShapeHint: false
+            _needCompoundShapeHint: false,
+            computerSlot: null,
+            _computerMoveSchedKey: null
         };
         (function initSquareGeometry() {
             const g = QiSquareWeiqiCanvas.computePaddingAndCell(ps.BOARD_SIZE);
@@ -299,7 +310,16 @@
         const radioWhite = document.getElementById('radioWhite');
         const labelBlack = document.getElementById('labelBlack');
         const labelWhite = document.getElementById('labelWhite');
+        const vsComputerBtn = document.getElementById('vsComputerBtn');
         const scoreTitle = document.getElementById('scoreTitle');
+
+        function updateVsComputerBtn() {
+            if (!vsComputerBtn) return;
+            const opp = ps.mySlot === 'black' ? 'white' : 'black';
+            const waitingForHuman = ps.mySlot && !ps.slots[opp];
+            const show = waitingForHuman && !ps.replayMode && !ps.gameOver && !ps.computerSlot && !ps.waitingScoreConfirm;
+            vsComputerBtn.style.display = show ? '' : 'none';
+        }
         const scoreBoard = document.getElementById('scoreBoard');
         const leadInfo = document.getElementById('leadInfo');
         const scoreConfirmPanel = document.getElementById('scoreConfirmPanel');
@@ -410,6 +430,95 @@
             return newBoard;
         }
 
+        function boardStringForKo(board) {
+            return board.map(row => row.join(',')).join(';');
+        }
+
+        function buildKoHistorySetFromLiveReplay() {
+            const h = new Set();
+            for (const b of ps.liveReplayBoards)
+                h.add(boardStringForKo(b));
+            return h;
+        }
+
+        /** 前端算电脑应手，通过 computerMove 提交服务器 */
+        function maybeRunFrontendComputerMove() {
+            if (typeof UkrainianWeiqiAI === 'undefined') {
+                if (!ps._warnedMissingFrontendAi) {
+                    ps._warnedMissingFrontendAi = true;
+                    console.warn('乌克兰围棋：未加载 ukrainian-weiqi-ai.js（全局 UkrainianWeiqiAI），电脑无法落子。请确认 public 下有该文件且 /qi/ukrainian-weiqi-ai.js 可访问。');
+                }
+                return;
+            }
+            if (!ps.computerSlot || ps.gameOver || ps.replayMode || ps.waitingScoreConfirm) return;
+            if (!ps.matchStarted || !ps.ws || ps.ws.readyState !== WebSocket.OPEN) return;
+            const turnSlot = ps.currentPlayer === 1 ? 'black' : 'white';
+            if (turnSlot !== ps.computerSlot) return;
+            const schedKey = `${ps.numberOfHands}_${ps.currentPlayer}_${boardStringForKo(ps.board)}`;
+            if (ps._computerMoveSchedKey === schedKey) return;
+            ps._computerMoveSchedKey = schedKey;
+
+            // setTimeout：让上一帧的棋盘绘制先完成，再跑 AI，避免长时间思考卡住首帧 paint
+            setTimeout(() => {
+                if (!ps.ws || ps.ws.readyState !== WebSocket.OPEN || ps.gameOver) return;
+                const t2 = ps.currentPlayer === 1 ? 'black' : 'white';
+                if (t2 !== ps.computerSlot) return;
+
+                const hist = buildKoHistorySetFromLiveReplay();
+                const mv = UkrainianWeiqiAI.chooseMove({
+                    board: ps.board.map(row => row.slice()),
+                    boardSize: ps.BOARD_SIZE,
+                    currentPlayer: ps.currentPlayer,
+                    normalGoPhase: !!ps.normalGoPhase,
+                    lastUsedShapeByColor: { ...ps.lastUsedShapeByColor },
+                    historySet: hist,
+                    tryPlaceShape,
+                    tryPlaceStonesAt,
+                    countGroupLiberties,
+                    komi: ps.KOMI,
+                    removeDeadAndDying: (src) => _page.removeDeadAndDying(src),
+                    assignTerritoryWithRange: (lb) => _page.assignTerritoryWithRange(lb),
+                    computeScore: (lb, terr) => R().computeScore(lb, terr, ps.BOARD_SIZE)
+                });
+                const pv = ps.computerSlot === 'black' ? 1 : 2;
+                if (mv) {
+                    if (mv.singleStone) {
+                        const nb = tryPlaceStonesAt(ps.board, [[mv.row, mv.col]], pv);
+                        if (!nb || hist.has(boardStringForKo(nb))) {
+                            ps.ws.send(JSON.stringify({ type: 'computerMove', pass: true }));
+                            return;
+                        }
+                        ps.ws.send(JSON.stringify({
+                            type: 'computerMove',
+                            singleStone: true,
+                            row: mv.row,
+                            col: mv.col
+                        }));
+                        return;
+                    }
+                    if (ps.lastUsedShapeByColor[pv] === mv.shapeIndex) {
+                        ps.ws.send(JSON.stringify({ type: 'computerMove', pass: true }));
+                        return;
+                    }
+                    const nb = tryPlaceShape(ps.board, mv.shapeIndex, mv.rotation, mv.flipped, mv.row, mv.col, pv);
+                    if (!nb || hist.has(boardStringForKo(nb))) {
+                        ps.ws.send(JSON.stringify({ type: 'computerMove', pass: true }));
+                        return;
+                    }
+                    ps.ws.send(JSON.stringify({
+                        type: 'computerMove',
+                        shapeIndex: mv.shapeIndex,
+                        rotation: mv.rotation,
+                        flipped: mv.flipped,
+                        row: mv.row,
+                        col: mv.col
+                    }));
+                } else {
+                    ps.ws.send(JSON.stringify({ type: 'computerMove', pass: true }));
+                }
+            }, 0);
+        }
+
         function tryPlaceStonesAt(boardBefore, stoneCoords, playerVal) {
             if (!stoneCoords || stoneCoords.length === 0) return null;
             for (let [r, c] of stoneCoords) {
@@ -439,7 +548,23 @@
             return newBoard;
         }
 
+        function inNormalGoLivePlay() {
+            return !!ps.normalGoPhase && !(ps.tryPlayMode && ps.replayMode);
+        }
+
+        function singleStoneCellFree(refRow, refCol) {
+            if (refRow < 0 || refCol < 0 || refRow >= ps.BOARD_SIZE || refCol >= ps.BOARD_SIZE) return false;
+            return ps.board[refRow][refCol] === 0;
+        }
+
+        function hoverPlacementFree(refRow, refCol) {
+            return inNormalGoLivePlay() ? singleStoneCellFree(refRow, refCol) : compoundPlacementCellsFree(refRow, refCol);
+        }
+
         function isPreviewGeometryValid(refRow, refCol) {
+            if (inNormalGoLivePlay()) {
+                return refRow >= 0 && refCol >= 0 && refRow < ps.BOARD_SIZE && refCol < ps.BOARD_SIZE;
+            }
             const coords = generatePlacementCoords(ps.currentShapeIndex, ps.rotation, ps.flipped, refRow, refCol);
             if (!coords) return false;
             for (let [r, c] of coords) {
@@ -462,8 +587,10 @@
         function isPlacementValid(refRow, refCol) {
             if (ps.tryPlayMode && ps.replayMode) {
                 if (ps.waitingScoreConfirm) return false;
-            } else if (!ps.isMyTurn || ps.gameOver || ps.waitingScoreConfirm) return false;
-            return compoundPlacementCellsFree(refRow, refCol);
+                return compoundPlacementCellsFree(refRow, refCol);
+            }
+            if (!ps.isMyTurn || ps.gameOver || ps.waitingScoreConfirm) return false;
+            return inNormalGoLivePlay() ? singleStoneCellFree(refRow, refCol) : compoundPlacementCellsFree(refRow, refCol);
         }
 
         /** 底部复合子配色：执黑与观战为黑方视角；执白为白方视角；打谱试下时随当前轮行棋方切换。 */
@@ -497,18 +624,21 @@
             const canPreview = ps.tryPlayMode && ps.replayMode ? !ps.waitingScoreConfirm : (!ps.gameOver && ps.isMyTurn);
             if (canPreview) {
                 let previewRow = -1, previewCol = -1, previewActive = false;
-                if (isMouseDevice && ps.hoverRow >= 0 && ps.hoverCol >= 0 && compoundPlacementCellsFree(ps.hoverRow, ps.hoverCol)) {
+                if (isMouseDevice && ps.hoverRow >= 0 && ps.hoverCol >= 0 && isPreviewGeometryValid(ps.hoverRow, ps.hoverCol)) {
                     previewRow = ps.hoverRow; previewCol = ps.hoverCol; previewActive = true;
-                } else if (!isMouseDevice && ps.hoverRow >= 0 && ps.hoverCol >= 0 && ps.isHoverValid
-                    && compoundPlacementCellsFree(ps.hoverRow, ps.hoverCol)) {
+                } else if (!isMouseDevice && ps.hoverRow >= 0 && ps.hoverCol >= 0 && isPreviewGeometryValid(ps.hoverRow, ps.hoverCol)) {
                     previewRow = ps.hoverRow; previewCol = ps.hoverCol; previewActive = true;
                 } else if (isTouchDevice && ps.hasPreview && ps.pendingPreviewRow >= 0 && ps.pendingPreviewCol >= 0
-                    && compoundPlacementCellsFree(ps.pendingPreviewRow, ps.pendingPreviewCol)) {
+                    && isPreviewGeometryValid(ps.pendingPreviewRow, ps.pendingPreviewCol)) {
                     previewRow = ps.pendingPreviewRow; previewCol = ps.pendingPreviewCol; previewActive = true;
                 }
                 if (previewActive) {
-                    const coords = generatePlacementCoords(ps.currentShapeIndex, ps.rotation, ps.flipped, previewRow, previewCol);
-                    if (coords && coords.some(([cr, cc]) => cr === r && cc === c)) return false;
+                    if (inNormalGoLivePlay() && singleStoneCellFree(previewRow, previewCol)) {
+                        if (r === previewRow && c === previewCol) return false;
+                    } else if (!inNormalGoLivePlay()) {
+                        const coords = generatePlacementCoords(ps.currentShapeIndex, ps.rotation, ps.flipped, previewRow, previewCol);
+                        if (coords && coords.some(([cr, cc]) => cr === r && cc === c)) return false;
+                    }
                 }
             }
             return true;
@@ -592,29 +722,47 @@
             const canPreview = ps.tryPlayMode && ps.replayMode ? !ps.waitingScoreConfirm : (!ps.gameOver && ps.isMyTurn);
             if (canPreview) {
                 let previewRow = -1, previewCol = -1, previewActive = false;
-                if (isMouseDevice && ps.hoverRow >= 0 && ps.hoverCol >= 0 && compoundPlacementCellsFree(ps.hoverRow, ps.hoverCol)) {
+                if (isMouseDevice && ps.hoverRow >= 0 && ps.hoverCol >= 0 && isPreviewGeometryValid(ps.hoverRow, ps.hoverCol)) {
                     previewRow = ps.hoverRow; previewCol = ps.hoverCol; previewActive = true;
-                } else if (!isMouseDevice && ps.hoverRow >= 0 && ps.hoverCol >= 0 && ps.isHoverValid
-                    && compoundPlacementCellsFree(ps.hoverRow, ps.hoverCol)) {
+                } else if (!isMouseDevice && ps.hoverRow >= 0 && ps.hoverCol >= 0 && isPreviewGeometryValid(ps.hoverRow, ps.hoverCol)) {
                     previewRow = ps.hoverRow; previewCol = ps.hoverCol; previewActive = true;
                 } else if (isTouchDevice && ps.hasPreview && ps.pendingPreviewRow >= 0 && ps.pendingPreviewCol >= 0
-                    && compoundPlacementCellsFree(ps.pendingPreviewRow, ps.pendingPreviewCol)) {
+                    && isPreviewGeometryValid(ps.pendingPreviewRow, ps.pendingPreviewCol)) {
                     previewRow = ps.pendingPreviewRow; previewCol = ps.pendingPreviewCol; previewActive = true;
                 }
                 if (previewActive) {
-                    const coords = generatePlacementCoords(ps.currentShapeIndex, ps.rotation, ps.flipped, previewRow, previewCol);
-                    if (coords) {
-                        const pv = compoundPalettePlayerVal();
+                    const pv = compoundPalettePlayerVal();
+                    const radius = cellSize * 0.44;
+                    if (inNormalGoLivePlay() && singleStoneCellFree(previewRow, previewCol)) {
+                        const cx = ps.PADDING + previewCol * cellSize, cy = ps.PADDING + previewRow * cellSize;
                         ctx.globalAlpha = 0.45;
-                        for (let [r, c] of coords) {
-                            if (r >= 0 && r < ps.BOARD_SIZE && c >= 0 && c < ps.BOARD_SIZE && ps.board[r][c] === 0) {
-                                ctx.beginPath();
-                                ctx.arc(ps.PADDING + c * cellSize, ps.PADDING + r * cellSize, cellSize * 0.44, 0, 2 * Math.PI);
-                                ctx.fillStyle = pv === 1 ? '#222' : '#ddd';
-                                ctx.fill();
-                            }
-                        }
+                        ctx.beginPath();
+                        ctx.arc(cx, cy, radius, 0, 2 * Math.PI);
+                        ctx.fillStyle = pv === 1 ? '#222' : '#ddd';
+                        ctx.fill();
                         ctx.globalAlpha = 1.0;
+                    } else if (!inNormalGoLivePlay()) {
+                        const coords = generatePlacementCoords(ps.currentShapeIndex, ps.rotation, ps.flipped, previewRow, previewCol);
+                        if (coords) {
+                            for (let [r, c] of coords) {
+                                if (r < 0 || r >= ps.BOARD_SIZE || c < 0 || c >= ps.BOARD_SIZE) continue;
+                                const cx = ps.PADDING + c * cellSize, cy = ps.PADDING + r * cellSize;
+                                if (ps.board[r][c] === 0) {
+                                    ctx.globalAlpha = 0.45;
+                                    ctx.beginPath();
+                                    ctx.arc(cx, cy, radius, 0, 2 * Math.PI);
+                                    ctx.fillStyle = pv === 1 ? '#222' : '#ddd';
+                                    ctx.fill();
+                                } else {
+                                    ctx.globalAlpha = 0.55;
+                                    ctx.beginPath();
+                                    ctx.arc(cx, cy, radius, 0, 2 * Math.PI);
+                                    ctx.fillStyle = 'rgba(220, 72, 56, 0.65)';
+                                    ctx.fill();
+                                }
+                            }
+                            ctx.globalAlpha = 1.0;
+                        }
                     }
                 }
             }
@@ -793,13 +941,7 @@
         }
 
         function refreshPreview() {
-            if (ps.hasPreview && compoundPlacementCellsFree(ps.pendingPreviewRow, ps.pendingPreviewCol)) drawCompoundBoard();
-            else if (ps.hasPreview) {
-                ps.hasPreview = false;
-                ps.pendingPreviewRow = -1;
-                ps.pendingPreviewCol = -1;
-                drawCompoundBoard();
-            }
+            if (ps.hasPreview) drawCompoundBoard();
         }
 
         function setBottomPaletteObserverMode(on) {
@@ -847,6 +989,9 @@
             },
             tryPlayMove(row, col) {
                 if (!isPlacementValid(row, col)) return false;
+                ps.hasPreview = false;
+                ps.pendingPreviewRow = -1;
+                ps.pendingPreviewCol = -1;
                 const playerVal = ps.tryPlayCurrentPlayer;
                 const usedIdx = ps.currentShapeIndex;
                 const nBefore = ps.tryPlayStep;
@@ -975,6 +1120,7 @@
                 ps.currentPlayer = state.currentPlayer;
                 ps.gameOver = state.gameOver || false;
                 ps.winner = state.winner || null;
+                ps.normalGoPhase = !!state.normalGoPhase;
                 ps.lastUsedShapeByColor = state.lastUsedShapeByColor || { 1: -1, 2: -1 };
                 let newLuMy = -1;
                 if (pv !== null) newLuMy = ps.lastUsedShapeByColor[pv] ?? -1;
@@ -1000,6 +1146,8 @@
                     });
                 }
                 if (state.slots) ps.slots = state.slots;
+                if (Object.prototype.hasOwnProperty.call(state, 'computerSlot'))
+                    ps.computerSlot = state.computerSlot;
                 if (state.matchTime !== undefined)
                     ps.matchTime = state.matchTime;
                 if (state.matchStarted !== undefined)
@@ -1055,7 +1203,10 @@
                 ps._syncMoveCoordsLen = incomingMoveLen;
                 updateShapeAvailability();
                 updateShapeColors();
+                if (bottomPalette) bottomPalette.classList.toggle('normal-go-locked', !!ps.normalGoPhase);
                 setBottomPaletteObserverMode(!(ps.mySlot && !ps.gameOver && !ps.replayMode));
+                updateVsComputerBtn();
+                maybeRunFrontendComputerMove();
             }
         });
         _page = page;
@@ -1100,12 +1251,74 @@
         function commitCompoundMove(row, col) {
             if (ps.gameOver || !ps.isMyTurn || ps.waitingScoreConfirm) return false;
             const playerVal = ps.mySlot === 'black' ? 1 : 2;
+            if (inNormalGoLivePlay()) {
+                if (!singleStoneCellFree(row, col)) return false;
+                ps.hasPreview = false;
+                ps.pendingPreviewRow = -1;
+                ps.pendingPreviewCol = -1;
+                if (ps.computerSlot) {
+                    const newBoard = tryPlaceStonesAt(ps.board, [[row, col]], playerVal);
+                    if (!newBoard) return false;
+                    const koKey = boardStringForKo(newBoard);
+                    const hist = buildKoHistorySetFromLiveReplay();
+                    if (hist.has(koKey)) {
+                        alert('禁全同。');
+                        return false;
+                    }
+                    ps.board = newBoard;
+                    ps.lastMoveMarkers = [{ row, col, color: playerVal }];
+                    ps.currentPlayer = 3 - ps.currentPlayer;
+                    ps.numberOfHands = (ps.numberOfHands || 1) + 1;
+                    if (ps.showEstimateActive) {
+                        ps.cachedLiveBoard = _page.removeDeadAndDying(ps.board);
+                        ps.cachedTerritory = _page.assignTerritoryWithRange(ps.cachedLiveBoard);
+                        _page.showEstimate();
+                    } else {
+                        _page.updateTurn();
+                    }
+                    drawCompoundBoard();
+                }
+                ps.ws.send(JSON.stringify({ type: 'move', singleStone: true, row, col }));
+                return true;
+            }
             if (ps.lastUsedShapeByColor[playerVal] === ps.currentShapeIndex) {
                 alert('不能连续两次使用相同的形状');
                 return false;
             }
             if (!isPlacementValid(row, col)) return false;
+            ps.hasPreview = false;
+            ps.pendingPreviewRow = -1;
+            ps.pendingPreviewCol = -1;
             const usedIdx = ps.currentShapeIndex;
+
+            if (ps.computerSlot) {
+                const newBoard = tryPlaceShape(ps.board, usedIdx, ps.rotation, ps.flipped, row, col, playerVal);
+                if (!newBoard) return false;
+                const koKey = boardStringForKo(newBoard);
+                const hist = buildKoHistorySetFromLiveReplay();
+                if (hist.has(koKey)) {
+                    alert('禁全同。');
+                    return false;
+                }
+                const coords = generatePlacementCoords(usedIdx, ps.rotation, ps.flipped, row, col);
+                ps.board = newBoard;
+                ps.lastMoveMarkers = coords.map(([r, c]) => ({ row: r, col: c, color: playerVal }));
+                ps.lastUsedShapeByColor[playerVal] = usedIdx;
+                ps.currentPlayer = 3 - ps.currentPlayer;
+                ps.numberOfHands = (ps.numberOfHands || 1) + 1;
+                ps.currentShapeIndex = (usedIdx + 1) % SHAPE_LIST.length;
+                applyShapeIndexToButtons();
+                updateShapeAvailability();
+                if (ps.showEstimateActive) {
+                    ps.cachedLiveBoard = _page.removeDeadAndDying(ps.board);
+                    ps.cachedTerritory = _page.assignTerritoryWithRange(ps.cachedLiveBoard);
+                    _page.showEstimate();
+                } else {
+                    _page.updateTurn();
+                }
+                drawCompoundBoard();
+            }
+
             ps.ws.send(JSON.stringify({
                 type: 'move',
                 shapeIndex: usedIdx,
@@ -1114,9 +1327,12 @@
                 row,
                 col
             }));
-            ps.currentShapeIndex = (usedIdx + 1) % SHAPE_LIST.length;
-            applyShapeIndexToButtons();
-            updateShapeAvailability();
+
+            if (!ps.computerSlot) {
+                ps.currentShapeIndex = (usedIdx + 1) % SHAPE_LIST.length;
+                applyShapeIndexToButtons();
+                updateShapeAvailability();
+            }
             return true;
         }
 
@@ -1179,6 +1395,7 @@
             isMouseDevice,
             onNewGameStarted() {
                 ps._needCompoundShapeHint = false;
+                ps._computerMoveSchedKey = null;
                 ps.rotation = 0;
                 ps.flipped = false;
                 ps.currentShapeIndex = 0;
@@ -1191,6 +1408,7 @@
             },
             onRoomReset() {
                 ps._needCompoundShapeHint = false;
+                ps._computerMoveSchedKey = null;
                 ps.rotation = 0;
                 ps.flipped = false;
                 ps.currentShapeIndex = 0;
@@ -1203,7 +1421,19 @@
         });
         const handleMessage = _weiqiBindings.handleMessage;
         const updateRecordButtons = _weiqiBindings.updateRecordButtons;
+        const _origUpdateRadioStyles = _weiqiBindings.updateRadioStyles;
+        _weiqiBindings.updateRadioStyles = function () {
+            _origUpdateRadioStyles();
+            updateVsComputerBtn();
+        };
         const updateRadioStyles = _weiqiBindings.updateRadioStyles;
+
+        if (vsComputerBtn) {
+            vsComputerBtn.onclick = () => {
+                if (!ps.ws || ps.ws.readyState !== WebSocket.OPEN) return;
+                ps.ws.send(JSON.stringify({ type: 'requestComputerOpponent' }));
+            };
+        }
 
         let suppressCanvasClickAfterLongMark = false;
 
@@ -1274,7 +1504,6 @@
                     drawCompoundBoard();
                     return;
                 }
-                if (!isPlacementValid(row, col) && !mobileTwoStepPlacing()) return;
                 if (mobileTwoStepPlacing()) {
                     if (ps.hoverRow === row && ps.hoverCol === col && ps.isHoverValid) {
                         clearMobileMovePreview();
@@ -1282,12 +1511,16 @@
                     } else {
                         ps.hoverRow = row;
                         ps.hoverCol = col;
-                        ps.isHoverValid = compoundPlacementCellsFree(row, col);
+                        ps.isHoverValid = hoverPlacementFree(row, col);
                         drawCompoundBoard();
                     }
                     return;
                 }
-                tryPlayMove(row, col);
+                if (isPlacementValid(row, col)) {
+                    tryPlayMove(row, col);
+                } else if (isPreviewGeometryValid(row, col)) {
+                    setPreviewTouch(row, col);
+                }
                 return;
             }
             if (ps.gameOver) return;
@@ -1308,7 +1541,7 @@
                 } else {
                     ps.hoverRow = row;
                     ps.hoverCol = col;
-                    ps.isHoverValid = compoundPlacementCellsFree(row, col);
+                    ps.isHoverValid = hoverPlacementFree(row, col);
                     drawCompoundBoard();
                 }
                 return;
@@ -1330,7 +1563,7 @@
                 const y = (e.clientY - rect.top) * scale;
                 const { row, col } = getClosestIntersection(x, y);
                 ps.hoverRow = row; ps.hoverCol = col;
-                ps.isHoverValid = row >= 0 && col >= 0 && compoundPlacementCellsFree(row, col);
+                ps.isHoverValid = row >= 0 && col >= 0 && hoverPlacementFree(row, col);
                 drawCompoundBoard();
             });
             canvas.addEventListener('mouseleave', () => {
@@ -1403,7 +1636,6 @@
                         drawCompoundBoard();
                         return;
                     }
-                    if (!isPlacementValid(row, col) && !mobileTwoStepPlacing()) return;
                     if (mobileTwoStepPlacing()) {
                         if (ps.hoverRow === row && ps.hoverCol === col && ps.isHoverValid) {
                             clearMobileMovePreview();
@@ -1411,12 +1643,16 @@
                         } else {
                             ps.hoverRow = row;
                             ps.hoverCol = col;
-                            ps.isHoverValid = compoundPlacementCellsFree(row, col);
+                            ps.isHoverValid = hoverPlacementFree(row, col);
                             drawCompoundBoard();
                         }
                         return;
                     }
-                    tryPlayMove(row, col);
+                    if (isPlacementValid(row, col)) {
+                        tryPlayMove(row, col);
+                    } else if (isPreviewGeometryValid(row, col)) {
+                        setPreviewTouch(row, col);
+                    }
                     return;
                 }
                 if (ps.gameOver || !ps.isMyTurn || ps.waitingScoreConfirm) return;
@@ -1429,7 +1665,7 @@
                     } else {
                         ps.hoverRow = row;
                         ps.hoverCol = col;
-                        ps.isHoverValid = compoundPlacementCellsFree(row, col);
+                        ps.isHoverValid = hoverPlacementFree(row, col);
                         drawCompoundBoard();
                     }
                     return;
@@ -1445,12 +1681,10 @@
             const ok = ps.tryPlayMode && ps.replayMode ? !ps.waitingScoreConfirm : (ps.isMyTurn && !ps.gameOver && !ps.waitingScoreConfirm);
             if (!ok) { clearPreviewTouch(); return; }
             if (row < 0 || row >= ps.BOARD_SIZE || col < 0 || col >= ps.BOARD_SIZE) { clearPreviewTouch(); return; }
-            if (compoundPlacementCellsFree(row, col)) {
-                ps.pendingPreviewRow = row;
-                ps.pendingPreviewCol = col;
-                ps.hasPreview = true;
-                drawCompoundBoard();
-            } else clearPreviewTouch();
+            ps.pendingPreviewRow = row;
+            ps.pendingPreviewCol = col;
+            ps.hasPreview = true;
+            drawCompoundBoard();
         }
 
         function clearPreviewTouch() {
@@ -1477,7 +1711,10 @@
             };
         }
 
-        connectWebSocket(handleMessage);
+        connectWebSocket((msg) => {
+            if (msg.type === 'error' && ps.computerSlot) ps._computerMoveSchedKey = null;
+            handleMessage(msg);
+        });
     </script>
 </body>
 </html>

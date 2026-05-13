@@ -143,7 +143,12 @@ class GuessWuziqiRoom extends QiTwoPlayerRoomBase {
         } else {
             this.tcClock = null;
         }
-        this.broadcast({ type: 'timeControlAgreed', settings: this.tcSettings, clock: this.tcClock ? qiMatchTimeControl.snapshotForClient(this.tcClock) : null });
+        this.broadcast({
+            type: 'timeControlAgreed',
+            settings: this.tcSettings,
+            clock: this.tcClock ? qiMatchTimeControl.snapshotForClient(this.tcClock) : null,
+            ...this.getState()
+        });
     }
 
     getEmptyCells() {
