@@ -85,6 +85,31 @@ function maybeRotateAfterPly(opts) {
     };
 }
 
+/** 全盘是否存在该颜色的连五（用于板块旋转后的胜负判定） */
+function boardHasFiveForColor(board, n, colorVal) {
+    for (let r = 0; r < n; r++) {
+        for (let c = 0; c < n; c++) {
+            if (board[r][c] === colorVal && squareWuziqiRules.checkFiveInRow(board, r, c, colorVal, n)) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+/**
+ * 旋转后若形成连五则终局。双方同时连五判和棋。
+ * @returns {'black'|'white'|'draw'|null}
+ */
+function winnerSlotAfterRotation(board, n) {
+    const blackFive = boardHasFiveForColor(board, n, 1);
+    const whiteFive = boardHasFiveForColor(board, n, 2);
+    if (blackFive && whiteFive) return 'draw';
+    if (blackFive) return 'black';
+    if (whiteFive) return 'white';
+    return null;
+}
+
 class RotationWuziqiRoom extends QiTwoPlayerRoomBase {
     constructor(room, initialSize = 12) {
         super(room);
@@ -481,9 +506,22 @@ class RotationWuziqiRoom extends QiTwoPlayerRoomBase {
                 this.historyHandNumAts.push(this.copyBoard(this.handNumAt));
                 this.historyRotationCounts.push(this.rotationCount);
 
-                this.currentPlayer = this.currentPlayer === 1 ? 2 : 1;
+                if (rotatedThisPly) {
+                    const rotWin = winnerSlotAfterRotation(this.board, this.BOARD_SIZE);
+                    if (rotWin) {
+                        this.gameOver = true;
+                        this.winner = rotWin;
+                        this._stopClockTicker();
+                    }
+                }
 
-                if (this.isBoardFull()) {
+                if (!this.gameOver) {
+                    this.currentPlayer = this.currentPlayer === 1 ? 2 : 1;
+                } else if (this.winner === 'black' || this.winner === 'white') {
+                    this.currentPlayer = this.winner === 'black' ? 1 : 2;
+                }
+
+                if (!this.gameOver && this.isBoardFull()) {
                     this.gameOver = true;
                     this.winner = 'draw';
                     this._stopClockTicker();
@@ -637,6 +675,7 @@ class RotationWuziqiRoom extends QiTwoPlayerRoomBase {
                 break;
             }
 
+            const prevRotationForImport = this.rotationCount;
             const rot = maybeRotateAfterPly({
                 board: this.board,
                 handNumAt: this.handNumAt,
@@ -655,9 +694,26 @@ class RotationWuziqiRoom extends QiTwoPlayerRoomBase {
             this.historyHandNumAts.push(this.copyBoard(this.handNumAt));
             this.historyRotationCounts.push(this.rotationCount);
 
-            this.currentPlayer = this.currentPlayer === 1 ? 2 : 1;
+            const rotatedThisPlyImport = rot.rotationCount > prevRotationForImport;
+            if (rotatedThisPlyImport) {
+                const rotWin = winnerSlotAfterRotation(this.board, this.BOARD_SIZE);
+                if (rotWin) {
+                    this.gameOver = true;
+                    this.winner = rotWin;
+                    if (rotWin === 'black' || rotWin === 'white') {
+                        this.currentPlayer = rotWin === 'black' ? 1 : 2;
+                    }
+                    break;
+                }
+            }
 
-            if (this.isBoardFull()) {
+            if (!this.gameOver) {
+                this.currentPlayer = this.currentPlayer === 1 ? 2 : 1;
+            } else if (this.winner === 'black' || this.winner === 'white') {
+                this.currentPlayer = this.winner === 'black' ? 1 : 2;
+            }
+
+            if (!this.gameOver && this.isBoardFull()) {
                 this.gameOver = true;
                 this.winner = 'draw';
                 break;

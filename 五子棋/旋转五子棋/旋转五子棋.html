@@ -42,6 +42,7 @@
                 <p>
                     基本规则同五子棋。<br /><br />
                     棋盘分为四个板块。每隔<strong>0.07×棋盘总点数，向上取奇</strong>数手，所有板块沿<strong>顺时针</strong>轮换旋转。
+                    每次旋转后会检查是否已形成连五；若已形成，则该局立即结束并按连五方判胜（双方同时连五判和棋）。<br /><br />
                     最多旋转 <strong>8</strong> 次（两整圈），之后不再旋转。<br /><br />
                     棋盘的路数和旋转手数的映射关系为：<br />
                     <strong>8 </strong>5<br />
@@ -208,6 +209,25 @@
                 rotationCount: rotationCount + 1,
                 lastMoveMarkers: rwRotateMarkers(lastMoveMarkers, n)
             };
+        }
+        function rwBoardHasFiveForColor(board, boardSize, colorVal) {
+            for (let r = 0; r < boardSize; r++) {
+                for (let c = 0; c < boardSize; c++) {
+                    if (board[r][c] === colorVal && R().checkWuziqiFiveInRow(board, r, c, colorVal, boardSize)) {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+        /** 旋转后连五判胜；双方同时连五判和棋。 */
+        function rwWinnerSlotAfterRotation(board, boardSize) {
+            const blackFive = rwBoardHasFiveForColor(board, boardSize, 1);
+            const whiteFive = rwBoardHasFiveForColor(board, boardSize, 2);
+            if (blackFive && whiteFive) return 'draw';
+            if (blackFive) return 'black';
+            if (whiteFive) return 'white';
+            return null;
         }
         function rwRotateUserBoardMarks(map, n) {
             if (!map || typeof map !== 'object') return;
@@ -657,6 +677,7 @@
                     replayRotationCounts.push(rotationCount);
                     break;
                 }
+                const prevRot = rotationCount;
                 const rot = rwMaybeRotate(curBoard, handNumAt, rotationCount, boardSize, rotationInterval, completedPly, markers);
                 curBoard = rot.board;
                 handNumAt = rot.handNumAt;
@@ -666,6 +687,10 @@
                 replayMarkers.push(markers.map(m => ({ ...m })));
                 replayHandNumAts.push(C().deepCopyBoard(handNumAt));
                 replayRotationCounts.push(rotationCount);
+                if (rotationCount > prevRot) {
+                    const rw = rwWinnerSlotAfterRotation(curBoard, boardSize);
+                    if (rw) break;
+                }
                 let full = true;
                 for (let r = 0; r < boardSize && full; r++) {
                     for (let c = 0; c < boardSize && full; c++) {

@@ -117,9 +117,9 @@
     <label class="qi-time-control-radio"><input type="radio" name="qiTimedMode" value="unlimited"> 不限时</label>
   </div>
   <div class="qi-time-control-fields">
-    <label class="qi-time-control-field"><span>基本用时(分)</span><input type="number" id="qiTcMainMin" min="1" max="20000" value="300"></label>
-    <label class="qi-time-control-field"><span>步时(秒)</span><input type="number" id="qiTcByoSec" min="0" max="2000" value="22"></label>
-    <label class="qi-time-control-field"><span>超时次数</span><input type="number" id="qiTcMaxT" min="0" max="100" value="2"></label>
+    <label class="qi-time-control-field"><span>基本用时(分)</span><input type="number" id="qiTcMainMin" min="1" max="20000" value=""></label>
+    <label class="qi-time-control-field"><span>步时(秒)</span><input type="number" id="qiTcByoSec" min="0" max="2000" value=""></label>
+    <label class="qi-time-control-field"><span>超时次数</span><input type="number" id="qiTcMaxT" min="0" max="100" value=""></label>
   </div>
   <p class="qi-time-control-hint" id="qiTcHint"></p>
   <div class="qi-time-control-footer" id="qiTcFooterPropose">

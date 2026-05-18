@@ -299,7 +299,8 @@
         let ws, isMyTurn = false, slots = { black: false, white: false }, reconnectTimer = null;
         let replayMode = false, replayBoards = [], replayMarkers = [], replayStepPlayers = [], replayStep = 0, replayTotalSteps = 0;
         let showMoveNumbers = false, moveLog = [];
-        let tryPlayMode = false, tryPlayBaseStep = 0, tryPlayBoards = [], tryPlayMarkers = [], tryPlayCurrentPlayer = 1, tryPlayStep = 0, tryPlayTotalSteps = 0;
+        let tryPlayMode = false, tryPlayFromLive = false, tryPlayFromLiveStep = null;
+        let tryPlayBaseStep = 0, tryPlayBoards = [], tryPlayMarkers = [], tryPlayCurrentPlayer = 1, tryPlayStep = 0, tryPlayTotalSteps = 0;
         let liveReplayBoards = [], liveReplayMarkers = [], liveReplayStepPlayers = [], liveViewStep = 0, liveFollowLatest = true;
 
         const canvas = document.getElementById('goBoard');
@@ -545,19 +546,19 @@
             }
 
             const stoneRadius = Math.max(4, DX * 0.24);
+            const hideAllCellNumbers = showEstimateActive || showMoveNumbers;
+            // 与权重围棋相同：最后落子标记在棋子之前绘制，三角形顶点相对棋子中心为右下象限
             for (const m of lastMoveMarkers) {
                 if (!isValidCoord(m.row, m.col)) continue;
                 const p = triCellCenter(m.row, m.col);
                 ctx.beginPath();
-                ctx.moveTo(p.x + 1.05 * stoneRadius, p.y + stoneRadius);
+                ctx.moveTo(p.x + stoneRadius, p.y + stoneRadius);
                 ctx.lineTo(p.x, p.y + stoneRadius);
                 ctx.lineTo(p.x + stoneRadius, p.y);
                 ctx.closePath();
-                ctx.fillStyle = m.color === 1 ? '#ffffff' : '#222222';
+                ctx.fillStyle = m.color === 1 ? '#fff' : '#222';
                 ctx.fill();
             }
-
-            const hideAllCellNumbers = showEstimateActive || showMoveNumbers;
             if (cellNumbers && !hideAllCellNumbers) {
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
@@ -668,6 +669,7 @@
 
         function syncState(state) {
             clearMobileMovePreview();
+            const prevMatchStarted = matchStarted;
             if (state.boardSize && state.boardSize !== ROWS) {
                 ROWS = state.boardSize;
                 board = initBoardArray(ROWS);
@@ -701,7 +703,7 @@
                 }
                 applyLiveViewBoard();
                 updateLiveReplayPanelUI();
-            } else {
+            } else if (!(tryPlayMode && tryPlayFromLive)) {
                 board = state.board || board;
                 lastMoveMarkers = state.lastMoveMarkers || [];
             }
@@ -709,12 +711,21 @@
             const hasPlayer = slots.black || slots.white;
             if (!hasAnyStone && !hasPlayer && !gameOver && mySlot === null) sizeSelect.style.display = 'inline-block';
             else sizeSelect.style.display = 'none';
+            const nowMatchStarted = !!matchStarted;
+            if (tryPlayMode && tryPlayFromLive && mySlot && nowMatchStarted && !prevMatchStarted) {
+                exitTryPlay();
+            }
             updateTurn();
         }
         function updateTurn() {
             if (replayMode) {
+                if (tryPlayMode) {
+                    if (showEstimateActive) updateEstimateData();
+                    drawBoardWithOverlay();
+                    return;
+                }
                 if (replayStep === 0) turnDisplay.innerText = '初始局面';
-                else turnDisplay.innerText = `${replayStepPlayers[replayStep] === 1 ? '⚫' : '⚪'} 第${replayStep}手`;
+                else turnDisplay.innerText = `第${replayStep}手`;
                 isMyTurn = false;
                 if (showEstimateActive) updateEstimateData();
                 drawBoardWithOverlay();
@@ -724,30 +735,41 @@
             const browsingLive = liveReplayBoards.length > 0 && liveViewStep < liveTotal;
             if (browsingLive) {
                 if (liveViewStep === 0) turnDisplay.innerText = '初始局面';
-                else turnDisplay.innerText = `${liveReplayStepPlayers[liveViewStep] === 1 ? '⚫' : '⚪'} 第${liveViewStep}手`;
+                else turnDisplay.innerText = `第${liveViewStep}手`;
                 isMyTurn = false;
                 if (showEstimateActive) updateEstimateData();
                 drawBoardWithOverlay();
                 return;
             }
+            const bothSelected = !!(slots && slots.black && slots.white);
+            const hasStoneOnBoard = board.some(row => row.some(v => v === 1 || v === 2));
+            const liveHasMoves = liveReplayBoards.length > 1;
+            const matchStartedOnce = !!matchStarted || numberOfHands > 1 || hasStoneOnBoard || liveHasMoves;
+
+            function fillTurnDisplayHandsOnly() {
+                if (liveReplayBoards.length === 0) {
+                    turnDisplay.innerText = hasStoneOnBoard ? `第${numberOfHands}手` : '第1手';
+                } else if (liveTotal === 0) {
+                    turnDisplay.innerText = '第1手';
+                } else {
+                    turnDisplay.innerText = `第${liveTotal}手`;
+                }
+            }
+
             if (gameOver) {
                 turnDisplay.innerText = '对局结束';
                 scoreTitle.innerText = winner === 'black' ? '黑胜' : (winner === 'white' ? '白胜' : (winner === 'draw' ? '和棋' : '　'));
                 isMyTurn = false;
             } else if (!matchStarted) {
-                const bothSelected = !!(slots && slots.black && slots.white);
-                turnDisplay.innerText = bothSelected ? '等待双方确认限时规则' : '等待双方入座';
-                isMyTurn = false;
-            } else {
-                if (liveReplayBoards.length === 0) {
-                    const hasStoneOnBoard = board.some(row => row.some(v => v === 1 || v === 2));
-                    turnDisplay.innerText = hasStoneOnBoard ? `${currentPlayer === 1 ? '⚫' : '⚪'} 第${numberOfHands}手` : '初始局面';
-                } else if (liveTotal === 0) {
-                    turnDisplay.innerText = '初始局面';
+                if (matchStartedOnce) {
+                    fillTurnDisplayHandsOnly();
+                    isMyTurn = false;
                 } else {
-                    const p = liveReplayStepPlayers[liveTotal];
-                    turnDisplay.innerText = `${p === 1 ? '⚫' : '⚪'} 第${liveTotal}手`;
+                    turnDisplay.innerText = bothSelected ? '等待双方确认限时规则' : '等待双方入座';
+                    isMyTurn = false;
                 }
+            } else {
+                fillTurnDisplayHandsOnly();
                 isMyTurn = (mySlot === 'black' && currentPlayer === 1) || (mySlot === 'white' && currentPlayer === 2);
             }
             if (showEstimateActive) updateEstimateData();
@@ -759,12 +781,16 @@
             const tryPlayBtn = document.getElementById('tryPlayBtn');
             const gameButtonIds = ['passBtn', 'undoBtn', 'resignBtn', 'drawBtn', 'endReqBtn'];
             panel.style.display = '';
-            tryPlayBtn.style.display = replayMode ? '' : 'none';
+            const isPlayer = !!mySlot;
+            const matchStartedEff = !!(matchStarted || (matchTime && matchTime.settings));
+            const showMatchControlButtons = isPlayer && matchStartedEff && !replayMode;
+            const showTryPlayButton = !showMatchControlButtons;
+            tryPlayBtn.style.display = showTryPlayButton ? '' : 'none';
             tryPlayBtn.innerText = tryPlayMode ? '试下结束' : '试下';
             for (const id of gameButtonIds) {
                 const btn = document.getElementById(id);
                 if (!btn) continue;
-                btn.style.display = replayMode ? 'none' : '';
+                btn.style.display = showMatchControlButtons ? '' : 'none';
             }
             updateRecordButtons();
         }
@@ -803,6 +829,8 @@
             replayTotalSteps = replayBoards.length - 1;
             replayMode = true;
             tryPlayMode = false;
+            tryPlayFromLive = false;
+            tryPlayFromLiveStep = null;
             const slider = document.getElementById('replaySlider');
             slider.min = 0;
             slider.max = replayTotalSteps;
@@ -812,6 +840,8 @@
         function exitReplayMode() {
             replayMode = false;
             tryPlayMode = false;
+            tryPlayFromLive = false;
+            tryPlayFromLiveStep = null;
             replayBoards = [];
             replayMarkers = [];
             replayStepPlayers = [];
@@ -831,12 +861,25 @@
             turnDisplay.innerText = `${tryPlayCurrentPlayer === 1 ? '⚫' : '⚪'} 试下`;
         }
         function enterTryPlay() {
-            if (!replayMode) return;
+            clearMobileMovePreview();
+            if (!replayMode) {
+                tryPlayFromLive = true;
+                tryPlayFromLiveStep = liveViewStep || 0;
+                replayMode = true;
+                replayBoards = [deepCopyBoard(board)];
+                replayMarkers = [(lastMoveMarkers || []).map(m => ({ ...m }))];
+                replayStepPlayers = [currentPlayer === 1 ? 2 : 1];
+                replayStep = 0;
+                replayTotalSteps = 0;
+            } else {
+                tryPlayFromLive = false;
+            }
             tryPlayMode = true;
             tryPlayBaseStep = replayStep;
             tryPlayBoards = [deepCopyBoard(board)];
-            tryPlayMarkers = [lastMoveMarkers.map(m => ({ ...m }))];
-            tryPlayCurrentPlayer = replayStep === 0 ? 1 : (replayStepPlayers[replayStep] === 1 ? 2 : 1);
+            tryPlayMarkers = [(lastMoveMarkers || []).map(m => ({ ...m }))];
+            if (replayStep === 0) tryPlayCurrentPlayer = 1;
+            else tryPlayCurrentPlayer = replayStepPlayers[replayStep] === 1 ? 2 : 1;
             tryPlayStep = 0;
             tryPlayTotalSteps = 0;
             const slider = document.getElementById('replaySlider');
@@ -845,17 +888,57 @@
             slider.value = 0;
             updateTryPlayDisplay();
             updateReplayUI();
+            drawBoardWithOverlay();
         }
         function exitTryPlay() {
+            clearMobileMovePreview();
+            const fromLive = !!tryPlayFromLive;
+            const savedLiveStep = tryPlayFromLiveStep != null ? tryPlayFromLiveStep : liveViewStep;
+            const snapBoard = fromLive && tryPlayBoards.length > 0 ? deepCopyBoard(tryPlayBoards[0]) : null;
+            const snapMarkers = fromLive && tryPlayMarkers.length > 0 && tryPlayMarkers[0]
+                ? tryPlayMarkers[0].map(m => ({ ...m }))
+                : [];
             tryPlayMode = false;
+            tryPlayFromLive = false;
+            tryPlayFromLiveStep = null;
             tryPlayBoards = [];
             tryPlayMarkers = [];
             tryPlayStep = 0;
             tryPlayTotalSteps = 0;
             const slider = document.getElementById('replaySlider');
             slider.min = 0;
-            slider.max = replayTotalSteps;
-            setReplayStep(tryPlayBaseStep);
+            if (fromLive) {
+                replayMode = false;
+                replayBoards = [];
+                replayMarkers = [];
+                replayStepPlayers = [];
+                replayStep = 0;
+                replayTotalSteps = 0;
+                if (snapBoard) {
+                    board = snapBoard;
+                    lastMoveMarkers = snapMarkers.map(m => ({ ...m }));
+                    if (liveReplayBoards.length > 0) {
+                        const step = Math.min(Math.max(0, savedLiveStep), liveReplayBoards.length - 1);
+                        liveReplayBoards[step] = deepCopyBoard(snapBoard);
+                        if (!liveReplayMarkers[step]) liveReplayMarkers[step] = [];
+                        liveReplayMarkers[step] = snapMarkers.map(m => ({ ...m }));
+                        liveViewStep = step;
+                    } else {
+                        liveReplayBoards = [deepCopyBoard(snapBoard)];
+                        liveReplayMarkers = [snapMarkers.map(m => ({ ...m }))];
+                        liveReplayStepPlayers = [0];
+                        liveViewStep = 0;
+                    }
+                } else {
+                    applyLiveViewBoard();
+                }
+                updateLiveReplayPanelUI();
+                if (showEstimateActive) showEstimate();
+                else updateTurn();
+            } else {
+                slider.max = replayTotalSteps;
+                setReplayStep(tryPlayBaseStep);
+            }
             updateReplayUI();
         }
         function tryPlayMove(row, col) {

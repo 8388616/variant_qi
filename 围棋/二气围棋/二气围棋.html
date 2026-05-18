@@ -33,9 +33,20 @@
                     <option value="20">20路</option>
                     <option value="21">21路</option>
                 </select>
-                <label style="cursor:pointer; display:inline-flex; align-items:center; gap:5px; font-size:0.95rem;">
+                <label style="cursor:pointer; display:inline-flex; align-items:center; gap:6px; font-size:0.95rem;">
                     <input type="checkbox" id="showNumbersCheck"> 显示序号
                 </label>
+                <div id="editControls" class="edit-controls">
+                    <label class="edit-checkbox">
+                        <input type="checkbox" id="editModeCheckbox"> 编辑
+                    </label>
+                    <select id="editToolSelect" class="edit-tool-select hidden">
+                        <option value="empty">空</option>
+                        <option value="black">黑子</option>
+                        <option value="white">白子</option>
+                    </select>
+                    <button type="button" id="clearBoardBtn" class="edit-clear-btn hidden">清空</button>
+                </div>
             </div>
             <div class="right-buttons">
                 <button class="help-btn" id="helpBtn">说明</button>
@@ -178,7 +189,11 @@
             userBoardMarks: Object.create(null),
             hoverRow: -1,
             hoverCol: -1,
-            isHoverValid: false
+            isHoverValid: false,
+            liveOpeningBoard: null,
+            gameStarted: false,
+            editModeEnabled: false,
+            editTool: 'empty'
         };
         (function initSquareGeometry() {
             const g = QiSquareWeiqiCanvas.computePaddingAndCell(ps.BOARD_SIZE);
@@ -220,6 +235,9 @@
         const scoreConfirmYes = document.getElementById('scoreConfirmYes');
         const scoreConfirmNo = document.getElementById('scoreConfirmNo');
         const boardMarkSelect = document.getElementById('boardMarkSelect');
+        const editModeCheckbox = document.getElementById('editModeCheckbox');
+        const editToolSelect = document.getElementById('editToolSelect');
+        const clearBoardBtn = document.getElementById('clearBoardBtn');
 
         QiSquareWeiqiCanvas.initBoardMarkSelectDom(boardMarkSelect, BOARD_MARK_CHAR_LIST);
         QiSquareWeiqiCanvas.initBoardMarkFoldDom(
@@ -229,6 +247,14 @@
         );
 
         const isMouseDevice = window.matchMedia('(hover: hover) and (pointer: fine)').matches;
+        const R = () => QiWeiqiSquarePageRuntime;
+
+        function bilibertyTryPlaceStone(boardBefore, row, col, playerVal) {
+            return R().tryPlaceStoneNLiberty(
+                boardBefore, row, col, playerVal, ps.BOARD_SIZE,
+                (b) => QiSquareWeiqiCanvas.deepCopyBoard(b), 2
+            );
+        }
 
         const domPage = {
             turnDisplay,
@@ -250,7 +276,19 @@
             gameType,
             roomId,
             roomPassword,
-            isMouseDevice
+            isMouseDevice,
+            rebuildLiveReplayFromMoveCoords(moveCoords) {
+                const ob = ps.liveOpeningBoard;
+                const o = R().rebuildLiveReplayFromMoveCoords(
+                    moveCoords,
+                    bilibertyTryPlaceStone,
+                    QiSquareWeiqiCanvas.deepCopyBoard,
+                    () => ob ? QiSquareWeiqiCanvas.deepCopyBoard(ob) : QiSquareWeiqiCanvas.initBoardArray(ps.BOARD_SIZE)
+                );
+                ps.liveReplayBoards = o.liveReplayBoards;
+                ps.liveReplayMarkers = o.liveReplayMarkers;
+                ps.liveReplayStepPlayers = o.liveReplayStepPlayers;
+            }
         });
         const {
             mobileTwoStepPlacing,
@@ -278,12 +316,77 @@
             connectWebSocket,
             initBoardArray,
             updateBoardGeometry,
-            syncState,
+            syncState: syncStateBase,
             commitMove,
             getClosestIntersection,
             canvasCoordsFromClient,
             applyUserBoardMark
         } = page;
+
+        function syncState(state) {
+            ps.liveOpeningBoard = state.initialBoard
+                ? QiSquareWeiqiCanvas.deepCopyBoard(state.initialBoard)
+                : null;
+            ps.gameStarted = (state.numberOfHands || 1) > 1;
+            syncStateBase(state);
+            updateEditModeUI();
+        }
+
+        function updateEditModeUI() {
+            const canEdit = !ps.gameStarted && !ps.gameOver && ps.mySlot === null;
+            if (editModeCheckbox) editModeCheckbox.disabled = !canEdit;
+            if (!canEdit && ps.editModeEnabled) {
+                ps.editModeEnabled = false;
+                if (editModeCheckbox) editModeCheckbox.checked = false;
+                if (editToolSelect) editToolSelect.classList.add('hidden');
+                if (clearBoardBtn) clearBoardBtn.classList.add('hidden');
+            }
+        }
+
+        function sendEditBoard(newBoard) {
+            if (!ps.ws || ps.ws.readyState !== WebSocket.OPEN) return;
+            ps.ws.send(JSON.stringify({ type: 'editBoard', board: newBoard }));
+        }
+
+        function applyEditChange(newBoard) {
+            ps.board = QiSquareWeiqiCanvas.deepCopyBoard(newBoard);
+            if (!ps.replayMode) {
+                const preGame = !ps.gameStarted && (ps.numberOfHands || 1) <= 1;
+                if (preGame) {
+                    ps.liveOpeningBoard = QiSquareWeiqiCanvas.deepCopyBoard(ps.board);
+                    if (ps.liveReplayBoards.length === 0) {
+                        ps.liveReplayBoards = [QiSquareWeiqiCanvas.deepCopyBoard(ps.board)];
+                        ps.liveReplayMarkers = [[]];
+                        ps.liveReplayStepPlayers = [0];
+                        ps.liveViewStep = 0;
+                    } else {
+                        const i = Math.min(ps.liveViewStep, ps.liveReplayBoards.length - 1);
+                        ps.liveReplayBoards[i] = QiSquareWeiqiCanvas.deepCopyBoard(ps.board);
+                    }
+                } else if (ps.liveReplayBoards.length > 0) {
+                    const i = Math.min(ps.liveViewStep, ps.liveReplayBoards.length - 1);
+                    ps.liveReplayBoards[i] = QiSquareWeiqiCanvas.deepCopyBoard(ps.board);
+                }
+            }
+            drawBoard();
+            sendEditBoard(ps.board);
+        }
+
+        if (editModeCheckbox) {
+            editModeCheckbox.addEventListener('change', () => {
+                ps.editModeEnabled = editModeCheckbox.checked;
+                if (editToolSelect) editToolSelect.classList.toggle('hidden', !ps.editModeEnabled);
+                if (clearBoardBtn) clearBoardBtn.classList.toggle('hidden', !ps.editModeEnabled);
+            });
+        }
+        if (editToolSelect) {
+            editToolSelect.addEventListener('change', () => { ps.editTool = editToolSelect.value; });
+        }
+        if (clearBoardBtn) {
+            clearBoardBtn.addEventListener('click', () => {
+                applyEditChange(Array(ps.BOARD_SIZE).fill().map(() => Array(ps.BOARD_SIZE).fill(0)));
+            });
+        }
 
         const _weiqiBindings = QiBoardRoomClient.createWeiqiMessageBindings({
             roomId,
@@ -338,7 +441,13 @@
             updateReplayUI,
             showScoreConfirm,
             isMouseDevice,
-            standardWeiqiMatchTime: true
+            standardWeiqiMatchTime: true,
+            onNewGameStarted() {
+                ps.editModeEnabled = false;
+                if (editModeCheckbox) editModeCheckbox.checked = false;
+                if (editToolSelect) editToolSelect.classList.add('hidden');
+                if (clearBoardBtn) clearBoardBtn.classList.add('hidden');
+            }
         });
         const handleMessage = _weiqiBindings.handleMessage;
         const updateRecordButtons = _weiqiBindings.updateRecordButtons;
@@ -350,6 +459,14 @@
             e.preventDefault();
             const { x, y } = canvasCoordsFromClient(e.clientX, e.clientY);
             const { row, col } = getClosestIntersection(x, y);
+            if (ps.editModeEnabled) {
+                if (row >= 0 && col >= 0 && ps.board[row][col] !== 0) {
+                    const nb = QiSquareWeiqiCanvas.deepCopyBoard(ps.board);
+                    nb[row][col] = 0;
+                    applyEditChange(nb);
+                }
+                return;
+            }
             applyUserBoardMark(row, col);
         });
 
@@ -405,6 +522,22 @@
             const x = (e.clientX - rect.left) * scale;
             const y = (e.clientY - rect.top) * scale;
             const { row, col } = getClosestIntersection(x, y);
+
+            if (ps.editModeEnabled) {
+                if (row >= 0 && col >= 0) {
+                    let newVal = 0;
+                    switch (ps.editTool) {
+                        case 'black': newVal = 1; break;
+                        case 'white': newVal = 2; break;
+                        default: newVal = 0;
+                    }
+                    if (ps.board[row][col] === newVal) return;
+                    const nb = QiSquareWeiqiCanvas.deepCopyBoard(ps.board);
+                    nb[row][col] = newVal;
+                    applyEditChange(nb);
+                }
+                return;
+            }
 
             if (ps.tryPlayMode && ps.replayMode) {
                 if (row < 0 || col < 0) {

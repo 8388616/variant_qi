@@ -7,6 +7,7 @@ class BilibertyWeiqiRoom extends QiTwoPlayerRoomBase
         super(room);
         this.boardSize = initialSize;
         this.board = Array(this.boardSize).fill().map(() => Array(this.boardSize).fill(0));
+        this.openingBoard = this.copyBoard(this.board);
         this.currentPlayer = 1;
         this.historyBoards = [];
         this.historyBoardSet = new Set();
@@ -305,9 +306,13 @@ class BilibertyWeiqiRoom extends QiTwoPlayerRoomBase
 
     getState()
     {
+        const initialBoard = this.openingBoard
+            ? this.copyBoard(this.openingBoard)
+            : this.copyBoard(this.board);
         return {
             boardSize: this.boardSize,
             board: this.board,
+            initialBoard,
             komi: 3.25,
             numberOfHands: 1 + this.historyBoards.length,
             currentPlayer: this.currentPlayer,
@@ -315,6 +320,38 @@ class BilibertyWeiqiRoom extends QiTwoPlayerRoomBase
             gameOver: this.gameOver,
             winner: this.winner,
             moveCoords: this.moveCoords,
+            slots: {
+                black: !!this.room.getPlayerBySlot('black'),
+                white: !!this.room.getPlayerBySlot('white')
+            },
+            matchTime: {
+                negotiation: this.tcNego,
+                settings: this.tcSettings,
+                clock: this.tcClock && this.tcClock.timed
+                    ? qiMatchTimeControl.snapshotForClient(this.tcClock)
+                    : (this.tcSettings && this.tcSettings.timed === false
+                        ? { timed: false, ruleLine: '本局不限时' }
+                        : null)
+            },
+            matchStarted: this.matchStarted
+        };
+    }
+
+    getInitialState() {
+        const initialBoard = this.openingBoard
+            ? this.copyBoard(this.openingBoard)
+            : this.copyBoard(this.board);
+        return {
+            board: this.board,
+            initialBoard,
+            boardSize: this.boardSize,
+            komi: 3.25,
+            currentPlayer: this.currentPlayer,
+            numberOfHands: 1,
+            lastMoveMarkers: this.lastMoveMarkers,
+            gameOver: this.gameOver,
+            winner: this.winner,
+            moveCoords: [],
             slots: {
                 black: !!this.room.getPlayerBySlot('black'),
                 white: !!this.room.getPlayerBySlot('white')
@@ -473,6 +510,41 @@ class BilibertyWeiqiRoom extends QiTwoPlayerRoomBase
                 qiProtocol.resetRoomToEmpty(this, ws);
                 break;
 
+            case 'editBoard':
+                if (this.gameOver || this.historyBoards.length > 0) {
+                    ws.send(JSON.stringify({ type: 'error', message: '对局已开始，不能编辑棋盘' }));
+                    return;
+                }
+                const editedBoard = msg.board;
+                if (!editedBoard || editedBoard.length !== this.boardSize) {
+                    ws.send(JSON.stringify({ type: 'error', message: '无效的棋盘数据' }));
+                    return;
+                }
+                for (let r = 0; r < this.boardSize; r++) {
+                    for (let c = 0; c < this.boardSize; c++) {
+                        const val = editedBoard[r][c];
+                        if (val !== 0 && val !== 1 && val !== 2) {
+                            ws.send(JSON.stringify({ type: 'error', message: '棋盘数据包含非法值' }));
+                            return;
+                        }
+                    }
+                }
+                this.board = this.copyBoard(editedBoard);
+                this.openingBoard = this.copyBoard(this.board);
+                this.historyBoards = [];
+                this.historyBoardSet.clear();
+                this.historyBoardSet.add(this.boardToString(this.board));
+                this.moveHistory = [];
+                this.moveCoords = [];
+                this.historyMarkers = [];
+                this.currentPlayer = 1;
+                this.lastMoveMarkers = [];
+                this.passCounter = 0;
+                this.gameOver = false;
+                this.winner = null;
+                this.broadcast({ type: 'editBoardAccepted', ...this.getInitialState() });
+                break;
+
             default:
                 break;
         }
@@ -499,7 +571,7 @@ class BilibertyWeiqiRoom extends QiTwoPlayerRoomBase
             this.currentPlayer = 3 - this.currentPlayer;
         }
         if (this.historyBoards.length == 0)
-            this.board = Array(this.boardSize).fill().map(() => Array(this.boardSize).fill(0));
+            this.board = this.copyBoard(this.openingBoard);
         else
             this.board = this.copyBoard(this.historyBoards.at(-1));
         this.broadcast({ type: 'broadcast', action: 'undoAccept', ...this.getState() });
@@ -521,9 +593,11 @@ class BilibertyWeiqiRoom extends QiTwoPlayerRoomBase
         this.recordResultText = null;
         this.matchStarted = false;
         this.board = Array(this.boardSize).fill().map(() => Array(this.boardSize).fill(0));
+        this.openingBoard = this.copyBoard(this.board);
         this.currentPlayer = 1;
         this.historyBoards = [];
         this.historyBoardSet.clear();
+        this.historyBoardSet.add(this.boardToString(this.board));
         this.moveHistory = [];
         this.historyMarkers = [];
         this.lastMoveMarkers = [];
@@ -595,9 +669,11 @@ class BilibertyWeiqiRoom extends QiTwoPlayerRoomBase
         this.recordResultText = null;
         this.matchStarted = false;
         this.board = Array(this.boardSize).fill().map(() => Array(this.boardSize).fill(0));
+        this.openingBoard = this.copyBoard(this.board);
         this.currentPlayer = 1;
         this.historyBoards = [];
         this.historyBoardSet = new Set();
+        this.historyBoardSet.add(this.boardToString(this.board));
         this.moveHistory = [];
         this.moveCoords = [];
         this.historyMarkers = [];
@@ -638,6 +714,7 @@ class BilibertyWeiqiRoom extends QiTwoPlayerRoomBase
         this.resetToEmpty();
 
         applyInitialPositionCompact(this.board, this.boardSize, data.initialPosition);
+        this.openingBoard = this.copyBoard(this.board);
 
         const rawMoves = data.moves || [];
         const moves = rawMoves.map(BilibertyWeiqiRoom.parseMove);
