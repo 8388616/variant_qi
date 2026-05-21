@@ -574,7 +574,7 @@
         .board-mark-outer {
             position: absolute;
             left: 100%;
-            margin-left: 6px;
+            margin-left: 12px;
             bottom: 0;
             right: auto;
             top: auto;
