@@ -10,10 +10,7 @@
     <div class="game-wrapper">
         <div class="top-panel">
             <div class="left-group">
-                <div class="side-select">
-                    <label id="labelBlack"><input type="radio" name="color" value="black" id="radioBlack"> ⚫ 黑方</label>
-                    <label id="labelWhite"><input type="radio" name="color" value="white" id="radioWhite"> ⚪ 白方</label>
-                </div>
+                <div class="komi-info" id="gameTitleInfo">镜像围棋</div>
                 <div class="komi-info" id="komiInfo">黑贴白4.25点</div>
                 <div class="color-status" id="colorStatus">观战</div>
                 <select id="boardSizeSelect" class="board-size-select" style="display: none;">
@@ -47,7 +44,7 @@
                 <button class="ctrl-btn" id="undoBtn" style="display:none;">悔棋</button>
                 <button class="ctrl-btn" id="resignBtn" style="display:none;">认输</button>
                 <button class="ctrl-btn" id="drawBtn" style="display:none;">和棋</button>
-                <button class="ctrl-btn" id="endReqBtn" style="display:none;">申请数子</button>
+                <button class="ctrl-btn" id="endReqBtn" style="display:none;">申请数点</button>
                 <button class="ctrl-btn" id="importBtn">导入棋谱</button>
                 <button class="ctrl-btn" id="exportBtn" style="display:none;">导出棋谱</button>
             </div>
@@ -136,7 +133,7 @@
             ps.board = Array(ps.BOARD_SIZE).fill().map(() => Array(ps.BOARD_SIZE).fill(0));
         })();
         const pathMatch = window.location.pathname.match(/^\/qi\/([^/]+)\/(\d+)$/);
-        if (!pathMatch) { alert('无效的房间链接'); throw new Error('Invalid room URL'); }
+        if (!pathMatch) { qiAlert('无效的房间链接'); throw new Error('Invalid room URL'); }
         const gameType = pathMatch[1], roomId = pathMatch[2];
         let roomPassword = sessionStorage.getItem(`roomPassword_${roomId}`) || null;
         const BOARD_MARK_CHAR_LIST = (() => {
@@ -145,9 +142,7 @@
         })();
         const komiInfo = document.getElementById('komiInfo'), canvas = document.getElementById('goBoard'), ctx = canvas.getContext('2d');
         const turnDisplay = document.getElementById('turnDisplay'), colorStatus = document.getElementById('colorStatus');
-        const radioBlack = document.getElementById('radioBlack'), radioWhite = document.getElementById('radioWhite');
-        const labelBlack = document.getElementById('labelBlack'), labelWhite = document.getElementById('labelWhite');
-        const scoreTitle = document.getElementById('scoreTitle'), scoreBoard = document.getElementById('scoreBoard'), leadInfo = document.getElementById('leadInfo');
+const scoreTitle = document.getElementById('scoreTitle'), scoreBoard = document.getElementById('scoreBoard'), leadInfo = document.getElementById('leadInfo');
         const scoreConfirmPanel = document.getElementById('scoreConfirmPanel'), scoreConfirmText = document.getElementById('scoreConfirmText');
         const scoreConfirmYes = document.getElementById('scoreConfirmYes'), scoreConfirmNo = document.getElementById('scoreConfirmNo');
         const boardMarkSelect = document.getElementById('boardMarkSelect');
@@ -224,7 +219,10 @@
             if (ps.liveViewStep >= ps.liveReplayBoards.length) ps.liveViewStep = ps.liveReplayBoards.length - 1;
             ps.board = dc(ps.liveReplayBoards[ps.liveViewStep]);
             ps.lastMoveMarkers = ps.liveReplayMarkers[ps.liveViewStep].map(m => ({ ...m }));
-            ps.mirrorAxis = ps.liveReplayMirrorAxes[ps.liveViewStep];
+            // liveReplayMirrorAxes[step] 是该手「已使用」的轴；跟最新时要用服务端「下一手」轴
+            const atLatest = ps.liveFollowLatest && ps.liveViewStep === ps.liveReplayBoards.length - 1;
+            ps.mirrorAxis = atLatest ? (ps.serverMirrorAxis || ps.liveReplayMirrorAxes[ps.liveViewStep] || 'diag1')
+                : ps.liveReplayMirrorAxes[ps.liveViewStep];
         }
         function numsMirror() {
             const nums = Array(ps.BOARD_SIZE).fill().map(() => Array(ps.BOARD_SIZE).fill(0));
@@ -246,7 +244,7 @@
             }
             return nums;
         }
-        /** 与旧版一致：试下时用当前分支下一手轴，否则用 ps.mirrorAxis */
+        /** 试下用分支下一手轴；否则用 ps.mirrorAxis（跟最新时已在 applyLiveView 换成服务端下一手轴） */
         function getCurrentMirrorAxis() {
             if (ps.tryPlayMode && ps.replayMode) return ps.tryPlayMirrorAxis;
             return ps.mirrorAxis;
@@ -308,10 +306,18 @@
             d.userBoardMarks(ctx, ps.userBoardMarks, ps.BOARD_SIZE, ps.PADDING, z, (r, c) =>
                 !ps.showEstimateActive && r >= 0 && r < ps.BOARD_SIZE && c >= 0 && c < ps.BOARD_SIZE && ps.board[r][c] === 0);
             if (ps.showMoveNumbers) d.moveNumbersOnStones(ctx, numsMirror(), ps.board, ps.BOARD_SIZE, ps.PADDING, z);
-            d.hoverPreviewStone(ctx, ps.hoverRow, ps.hoverCol, ps.board, ps.PADDING, z, {
+            const hoverOpts = {
                 tryPlayMode: ps.tryPlayMode, tryPlayCurrentPlayer: ps.tryPlayCurrentPlayer, gameOver: ps.gameOver,
                 isMyTurn: ps.isMyTurn, mySlot: ps.mySlot, isHoverValid: ps.isHoverValid
-            });
+            };
+            d.hoverPreviewStone(ctx, ps.hoverRow, ps.hoverCol, ps.board, ps.PADDING, z, hoverOpts);
+            // 镜像点同步悬停（须用下一手镜面轴，否则白方会画到上一手轴的错误位置）
+            const axis = getCurrentMirrorAxis();
+            if (ps.isHoverValid && ps.hoverRow >= 0 && ps.hoverCol >= 0 && axis) {
+                const mp = getMP(ps.hoverRow, ps.hoverCol, axis);
+                if (!(mp.row === ps.hoverRow && mp.col === ps.hoverCol))
+                    d.hoverPreviewStone(ctx, mp.row, mp.col, ps.board, ps.PADDING, z, hoverOpts);
+            }
             if (ps.showEstimateActive && ps.cachedLiveBoard && ps.cachedTerritory)
                 d.estimateOverlay(ctx, ps.board, ps.BOARD_SIZE, ps.PADDING, z, ps.cachedLiveBoard, ps.cachedTerritory);
         }
@@ -464,8 +470,10 @@
         const _setLive = page.setLiveViewStep;
         page.setLiveViewStep = function (step) {
             _setLive(step);
+            // applyLiveView 在跟最新时已写入 serverMirrorAxis；此处仅兜底
             const t = Math.max(0, ps.liveReplayBoards.length - 1);
-            if (ps.liveFollowLatest && ps.liveViewStep === t) ps.mirrorAxis = ps.serverMirrorAxis;
+            if (ps.liveFollowLatest && ps.liveViewStep === t)
+                ps.mirrorAxis = ps.serverMirrorAxis || ps.mirrorAxis || 'diag1';
         };
         const {
             mobileTwoStepPlacing, clearMobileMovePreview, drawBoard, updateTurn, showEstimate, clearEstimate, downloadRecord,
@@ -485,10 +493,11 @@
             getShowEstimateActive: () => ps.showEstimateActive, setShowEstimateActive: (v) => { ps.showEstimateActive = v; },
             getWaitingScoreConfirm: () => ps.waitingScoreConfirm, setWaitingScoreConfirm: (v) => { ps.waitingScoreConfirm = v; },
             getIRejected: () => ps.iRejected, setIRejected: (v) => { ps.iRejected = v; },
-            colorStatus, scoreTitle, turnDisplay, labelBlack, labelWhite, radioBlack, radioWhite, syncState, updateBoardGeometry, initBoardArray,
+            colorStatus, scoreTitle, turnDisplay, syncState, updateBoardGeometry, initBoardArray,
             exitReplayMode, clearEstimate, hideScoreConfirm, showEstimate, clearMobileMovePreview, downloadRecord, enterReplayMode, updateTurn, updateReplayUI,
             showScoreConfirm, isMouseDevice, onNewGameStarted: () => { colorStatus.innerText = '未选择阵营'; },
-            standardWeiqiMatchTime: true
+            standardWeiqiMatchTime: true,
+            boardSeatOverlay: true
         });
         (function wrapReplayNewGame() {
             const b = document.getElementById('newGameBtn'); if (!b) return;

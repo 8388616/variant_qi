@@ -1,4 +1,8 @@
-const { QiTwoPlayerRoomBase, gridGraphWeiqiRules, qiMatchTimeControl } = require('../common');
+const { QiTwoPlayerRoomBase, gridGraphWeiqiRules, qiMatchTimeControl, qiProtocol, qiBoardSeatOverlay } = require('../common');
+
+function komiForLanes(lanes) {
+    return lanes === 3 ? 3 : 2;
+}
 
 class SnubQuadrangleWeiqiRoom extends QiTwoPlayerRoomBase {
     constructor(room, initialLanes = 7) {
@@ -349,8 +353,7 @@ class SnubQuadrangleWeiqiRoom extends QiTwoPlayerRoomBase {
         const liveBoard = this.removeDeadAndDying(this.board);
         const territory = this.assignTerritoryWithRange(liveBoard);
         const { blackTotal, whiteTotal } = this.computeScore(liveBoard, territory);
-        const KOMI = 3.25;
-        return blackTotal - whiteTotal - 2 * KOMI;
+        return blackTotal - whiteTotal - 2 * komiForLanes(this.boardLanes);
     }
 
     getState() {
@@ -358,6 +361,7 @@ class SnubQuadrangleWeiqiRoom extends QiTwoPlayerRoomBase {
             boardLanes: this.boardLanes,
             gridWidth: this.gridW,
             gridHeight: this.gridH,
+            komi: komiForLanes(this.boardLanes),
             board: this.board,
             numberOfHands: 1 + this.historyBoards.length,
             currentPlayer: this.currentPlayer,
@@ -570,20 +574,11 @@ class SnubQuadrangleWeiqiRoom extends QiTwoPlayerRoomBase {
                 break;
 
             case 'requestNewGame':
-                if (!slot) return;
-                const newGameOpponent = room.getPlayerBySlot(slot === 'black' ? 'white' : 'black');
-                if (!newGameOpponent) this.resetGame();
-                else {
-                    this.pendingNewGame = ws;
-                    newGameOpponent.send(JSON.stringify({ type: 'newGameRequest' }));
-                }
+                qiProtocol.requestNewGame(this, ws, slot);
                 break;
 
             case 'newGameResponse':
-                if (this.pendingNewGame && msg.accept) this.resetGame();
-                else if (this.pendingNewGame && !msg.accept)
-                    this.pendingNewGame.send(JSON.stringify({ type: 'error', message: '对方拒绝开始新局' }));
-                this.pendingNewGame = null;
+                qiProtocol.newGameResponse(this, ws, msg, { newGameDeniedMsg: '对方拒绝开始新局' });
                 break;
 
             case 'requestDraw':
@@ -627,7 +622,7 @@ class SnubQuadrangleWeiqiRoom extends QiTwoPlayerRoomBase {
                 if (this.pendingEnd && msg.accept)
                     this.startScoreCounting(this.pendingEnd.requester, this.pendingEnd.opponent);
                 else if (this.pendingEnd && !msg.accept)
-                    this.pendingEnd.requester.send(JSON.stringify({ type: 'error', message: '对方拒绝数子。' }));
+                    this.pendingEnd.requester.send(JSON.stringify({ type: 'error', message: '对方拒绝数点。' }));
                 this.pendingEnd = null;
                 break;
 
@@ -783,7 +778,7 @@ class SnubQuadrangleWeiqiRoom extends QiTwoPlayerRoomBase {
             boardLanes: this.boardLanes,
             gridWidth: this.gridW,
             gridHeight: this.gridH,
-            komi: 3.25,
+            komi: komiForLanes(this.boardLanes),
             players: { black: null, white: null },
             initialPosition: [],
             moves: this.moveCoords.map(m => {
@@ -1012,6 +1007,7 @@ class SnubQuadrangleWeiqiRoom extends QiTwoPlayerRoomBase {
 module.exports = {
     initRoom(room) {
         room.gameLogic = new SnubQuadrangleWeiqiRoom(room);
+        if (typeof qiBoardSeatOverlay !== 'undefined' && qiBoardSeatOverlay) qiBoardSeatOverlay.install(room.gameLogic);
         room.maxPlayers = 2;
     }
 };

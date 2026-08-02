@@ -227,6 +227,148 @@
             box-shadow: 0 0 0 2px rgba(255, 217, 102, 0.28);
         }
 
+        .go-timer-block.is-player-left {
+            border-color: #c62828;
+            box-shadow: 0 0 0 2px rgba(198, 40, 40, 0.28);
+        }
+
+        .qi-seat-absent-notice {
+            margin-top: 8px;
+            color: #c62828;
+            font-weight: 700;
+            font-size: 0.95rem;
+            text-align: center;
+            min-height: 1.2em;
+        }
+
+        .qi-seat-overlay {
+            position: absolute;
+            inset: 0;
+            z-index: 20;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(70, 70, 70, 0.75);
+            border-radius: 6px;
+        }
+
+        /* 三角 / 六角 / 菱形：背景透明，由内嵌 canvas（与棋盘相同 arcTo）铺满伪外框 */
+        .qi-seat-overlay--shaped {
+            background: transparent !important;
+            border-radius: 0 !important;
+            box-shadow: none !important;
+            pointer-events: none;
+            overflow: hidden;
+        }
+
+        /* 必须压过全局 canvas { background/box-shadow/aspect-ratio }，否则会盖住棋盘并挤歪按钮 */
+        .qi-seat-overlay .qi-seat-overlay-shape-canvas {
+            position: absolute !important;
+            inset: 0 !important;
+            left: 0 !important;
+            top: 0 !important;
+            right: 0 !important;
+            bottom: 0 !important;
+            width: 100% !important;
+            height: 100% !important;
+            max-width: none !important;
+            max-height: none !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            aspect-ratio: auto !important;
+            background: transparent !important;
+            border: none !important;
+            border-radius: 0 !important;
+            box-shadow: none !important;
+            display: block !important;
+            pointer-events: none !important;
+            z-index: 0;
+        }
+
+        .qi-seat-overlay--shaped > .qi-seat-overlay-shape-svg {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            display: block;
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        .qi-seat-overlay--shaped > .qi-seat-overlay-shape-svg > polygon,
+        .qi-seat-overlay--shaped > .qi-seat-overlay-shape-svg > path {
+            fill: rgba(70, 70, 70, 0.75);
+            pointer-events: fill;
+        }
+
+        .qi-seat-overlay--shaped > .qi-seat-overlay-inner {
+            position: relative;
+            z-index: 1;
+            pointer-events: auto;
+            margin: auto;
+        }
+
+        .qi-seat-overlay--mute {
+            pointer-events: none;
+        }
+
+        .dual-boards .board-wrap {
+            position: relative;
+        }
+
+        .qi-seat-overlay[hidden] {
+            display: none !important;
+        }
+
+        .qi-seat-overlay-inner {
+            display: flex;
+            flex-direction: column;
+            align-items: stretch;
+            gap: 28px;
+            min-width: 160px;
+            padding: 8px;
+        }
+
+        .qi-seat-overlay-btn {
+            appearance: none;
+            border: 2px solid #5a3d24;
+            border-radius: 10px;
+            background: #f3e6c8;
+            color: #3b2414;
+            font-size: 1.05rem;
+            font-weight: 700;
+            padding: 12px 18px;
+            cursor: pointer;
+            box-shadow: 0 3px 0 #5a3d24;
+        }
+
+        .qi-seat-overlay-btn:hover:not(:disabled) {
+            background: #ffe9b8;
+        }
+
+        .qi-seat-overlay-btn:active:not(:disabled) {
+            transform: translateY(2px);
+            box-shadow: 0 1px 0 #5a3d24;
+        }
+
+        .qi-seat-overlay-btn:disabled {
+            opacity: 0.45;
+            cursor: not-allowed;
+            box-shadow: none;
+        }
+
+        .qi-seat-overlay-btn--secondary {
+            background: #d7d0c3;
+        }
+
+        .qi-time-control-color-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px 18px;
+            margin: 10px 0 4px;
+            justify-content: center;
+        }
+
         .go-timer-title {
             color: #fff9c2;
             font-weight: bold;
@@ -302,6 +444,10 @@
         .qi-time-control-radio {
             font-size: 0.95rem;
             cursor: pointer;
+        }
+
+        .qi-time-control-radio input {
+            accent-color: #5e3e1e;
         }
 
         .qi-time-control-fields {
@@ -391,6 +537,37 @@
 
         .qi-time-control-modal.qi-time-control-readonly .qi-time-control-dialog {
             opacity: 0.92;
+        }
+
+        .qi-message-modal {
+            display: none;
+        }
+
+        .qi-message-modal.qi-message-modal--open {
+            display: flex;
+        }
+
+        .qi-message-dialog {
+            max-width: 360px;
+            outline: none;
+        }
+
+        .qi-message-title {
+            margin-bottom: 10px;
+        }
+
+        .qi-message-text {
+            color: #4b3828;
+            font-size: 0.98rem;
+            line-height: 1.55;
+            min-height: 1.6em;
+            text-align: center;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
+        .qi-message-footer {
+            margin-top: 16px;
         }
 
         .right-buttons {

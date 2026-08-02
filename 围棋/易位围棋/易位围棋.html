@@ -10,11 +10,8 @@
     <div class="game-wrapper">
         <div class="top-panel">
             <div class="left-group">
-                <div class="side-select">
-                    <label id="labelBlack"><input type="radio" name="color" value="black" id="radioBlack"> ⚫ 黑方</label>
-                    <label id="labelWhite"><input type="radio" name="color" value="white" id="radioWhite"> ⚪ 白方</label>
-                </div>
-                <div class="komi-info" id="komiInfo">黑贴白3.25点</div>
+                <div class="komi-info" id="gameTitleInfo">易位围棋</div>
+                <div class="komi-info" id="komiInfo">黑贴白1.25点</div>
                 <div class="color-status" id="colorStatus">观战</div>
                 <select id="boardSizeSelect" class="board-size-select" style="display: none;">
                     <option value="7">7路</option>
@@ -69,7 +66,7 @@
                     <strong>20 </strong>322<br />
                     <strong>21 </strong>354<br />
                     <br /><br />
-                    需要易位时，请先点击己方棋子，再点击对方棋子。<br />
+                    需要易位时，依次点击两枚待易位的棋子。<br />
                 </p>
             </div>
         </div>
@@ -83,7 +80,7 @@
                 <button class="ctrl-btn" id="undoBtn" style="display:none;">悔棋</button>
                 <button class="ctrl-btn" id="resignBtn" style="display:none;">认输</button>
                 <button class="ctrl-btn" id="drawBtn" style="display:none;">和棋</button>
-                <button class="ctrl-btn" id="endReqBtn" style="display:none;">申请数子</button>
+                <button class="ctrl-btn" id="endReqBtn" style="display:none;">申请数点</button>
                 <button class="ctrl-btn" id="importBtn">导入棋谱</button>
                 <button class="ctrl-btn" id="exportBtn" style="display:none;">导出棋谱</button>
             </div>
@@ -158,7 +155,7 @@
         const C = () => QiSquareWeiqiCanvas;
 
         const pathMatch = window.location.pathname.match(/^\/qi\/([^/]+)\/(\d+)$/);
-        if (!pathMatch) { alert('无效的房间链接'); throw new Error('Invalid room URL'); }
+        if (!pathMatch) { qiAlert('无效的房间链接'); throw new Error('Invalid room URL'); }
         const gameType = pathMatch[1];
         const roomId = pathMatch[2];
         let roomPassword = sessionStorage.getItem(`roomPassword_${roomId}`) || null;
@@ -169,9 +166,23 @@
             return limit;
         }
 
+        function komiForSize(boardSize) {
+            if (boardSize === 7) 
+                return 2.5;    
+            if (boardSize === 8) 
+                return 2.0;
+            if (boardSize === 9) 
+                return 1.5;
+            if (boardSize === 10) 
+                return 1.75;
+            if (boardSize === 11) 
+                return 1.75;
+            return 1.25;
+        }
+
         const ps = {
             BOARD_SIZE: 19,
-            KOMI: 3.25,
+            KOMI: 1.25,
             PADDING: 0,
             CELL_SIZE: 0,
             numberOfHands: 1,
@@ -284,15 +295,54 @@
             return newBoard;
         }
 
+        function stoneColorAt(board, row, col) {
+            return board[row] && board[row][col];
+        }
+
+        function isAdjacentPos(r1, c1, r2, c2) {
+            return Math.abs(r1 - r2) + Math.abs(c1 - c2) === 1;
+        }
+
+        function hasAdjacentOppositeStone(board, row, col, boardSize) {
+            const color = stoneColorAt(board, row, col);
+            if (color !== 1 && color !== 2) return false;
+            const dirs = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+            for (const [dr, dc] of dirs) {
+                const nr = row + dr;
+                const nc = col + dc;
+                if (nr >= 0 && nr < boardSize && nc >= 0 && nc < boardSize && stoneColorAt(board, nr, nc) === 3 - color)
+                    return true;
+            }
+            return false;
+        }
+
+        function canSelectForSwap(board, row, col, boardSize) {
+            const color = stoneColorAt(board, row, col);
+            if (color !== 1 && color !== 2) return false;
+            return hasAdjacentOppositeStone(board, row, col, boardSize);
+        }
+
+        function isSwapTargetForSelection(board, sel, row, col) {
+            if (!sel) return false;
+            const selColor = stoneColorAt(board, sel.row, sel.col);
+            if (selColor !== 1 && selColor !== 2) return false;
+            const targetColor = stoneColorAt(board, row, col);
+            return isAdjacentPos(sel.row, sel.col, row, col) && targetColor === 3 - selColor;
+        }
+
+        function normalizeSwapCoords(board, sel, row, col, playerVal) {
+            const selColor = stoneColorAt(board, sel.row, sel.col);
+            if (selColor === playerVal) {
+                return { fromRow: sel.row, fromCol: sel.col, row, col };
+            }
+            return { fromRow: row, fromCol: col, row: sel.row, col: sel.col };
+        }
+
         const canvas = document.getElementById('goBoard');
         const ctx = canvas.getContext('2d');
         const turnDisplay = document.getElementById('turnDisplay');
         const colorStatus = document.getElementById('colorStatus');
-        const radioBlack = document.getElementById('radioBlack');
-        const radioWhite = document.getElementById('radioWhite');
-        const labelBlack = document.getElementById('labelBlack');
-        const labelWhite = document.getElementById('labelWhite');
-        const scoreTitle = document.getElementById('scoreTitle');
+const scoreTitle = document.getElementById('scoreTitle');
         const scoreBoard = document.getElementById('scoreBoard');
         const leadInfo = document.getElementById('leadInfo');
         const scoreConfirmPanel = document.getElementById('scoreConfirmPanel');
@@ -355,19 +405,15 @@
         function isTranspositionHoverPreviewAt(r, c) {
             if (ps.hoverRow !== r || ps.hoverCol !== c || !ps.isHoverValid) return false;
             if (ps.tryPlayMode && ps.replayMode) {
-                const pv = ps.tryPlayCurrentPlayer;
                 const tsp = ps.tryPlaySelectedPiece;
                 if (tsp) {
-                    const { row: fromRow, col: fromCol } = tsp;
-                    return Math.abs(fromRow - r) + Math.abs(fromCol - c) === 1 && ps.board[r][c] === 3 - pv;
+                    return isSwapTargetForSelection(ps.board, tsp, r, c);
                 }
                 return ps.board[r][c] === 0;
             }
             if (ps.gameOver || !ps.isMyTurn) return false;
-            const playerVal = ps.mySlot === 'black' ? 1 : 2;
             if (ps.selectedPiece) {
-                const { row: fromRow, col: fromCol } = ps.selectedPiece;
-                return Math.abs(fromRow - r) + Math.abs(fromCol - c) === 1 && ps.board[r][c] === 3 - playerVal;
+                return isSwapTargetForSelection(ps.board, ps.selectedPiece, r, c);
             }
             return ps.board[r][c] === 0;
         }
@@ -447,9 +493,7 @@
                 const tsp = ps.tryPlaySelectedPiece;
                 if (ps.isHoverValid && ps.hoverRow >= 0 && ps.hoverCol >= 0) {
                     if (tsp) {
-                        const { row: fromRow, col: fromCol } = tsp;
-                        if (Math.abs(fromRow - ps.hoverRow) + Math.abs(fromCol - ps.hoverCol) === 1 &&
-                            ps.board[ps.hoverRow][ps.hoverCol] === 3 - pv)
+                        if (isSwapTargetForSelection(ps.board, tsp, ps.hoverRow, ps.hoverCol))
                             showPreview = true;
                     } else if (ps.board[ps.hoverRow][ps.hoverCol] === 0) {
                         showPreview = true;
@@ -458,11 +502,8 @@
                 previewColor = pv === 1 ? '#222' : '#ddd';
             } else if (!ps.gameOver && ps.isMyTurn && ps.isHoverValid && ps.hoverRow >= 0 && ps.hoverCol >= 0) {
                 if (ps.selectedPiece) {
-                    const { row: fromRow, col: fromCol } = ps.selectedPiece;
-                    if (Math.abs(fromRow - ps.hoverRow) + Math.abs(fromCol - ps.hoverCol) === 1 &&
-                        ps.board[ps.hoverRow][ps.hoverCol] === 3 - (ps.mySlot === 'black' ? 1 : 2)) {
+                    if (isSwapTargetForSelection(ps.board, ps.selectedPiece, ps.hoverRow, ps.hoverCol))
                         showPreview = true;
-                    }
                 } else {
                     if (ps.board[ps.hoverRow][ps.hoverCol] === 0) showPreview = true;
                 }
@@ -554,6 +595,7 @@
             if (needGeometry) {
                 ps.BOARD_SIZE = incomingSize;
                 if (state.komi != null && Number.isFinite(state.komi)) ps.KOMI = state.komi;
+                else ps.KOMI = komiForSize(incomingSize);
                 ps.board = page.initBoardArray(ps.BOARD_SIZE);
                 ps.maxTranspositionMoves = computeMaxTranspositionMoves(ps.BOARD_SIZE);
                 page.updateBoardGeometry();
@@ -954,11 +996,7 @@
             colorStatus,
             scoreTitle,
             turnDisplay,
-            labelBlack,
-            labelWhite,
-            radioBlack,
-            radioWhite,
-            syncState,
+syncState,
             updateBoardGeometry,
             initBoardArray,
             exitReplayMode,
@@ -979,10 +1017,13 @@
                     const bs = Number(msg.boardSize);
                     if (Number.isFinite(bs)) {
                         ps.maxTranspositionMoves = computeMaxTranspositionMoves(bs);
+                        ps.KOMI = komiForSize(bs);
+                        if (komiInfo) komiInfo.innerText = `黑贴白${ps.KOMI}点`;
                     }
                 }
             },
             standardWeiqiMatchTime: true,
+            boardSeatOverlay: true,
             timeControlMainByoScale: 2
         });
         const handleMessage = _weiqiBindings.handleMessage;
@@ -1005,18 +1046,18 @@
             if (ps.replayMode && ps.tryPlayMode) {
                 const playerVal = ps.tryPlayCurrentPlayer;
                 if (ps.tryPlaySelectedPiece) {
-                    const { row: fromRow, col: fromCol } = ps.tryPlaySelectedPiece;
-                    if (Math.abs(fromRow - row) + Math.abs(fromCol - col) === 1 && ps.board[row] && ps.board[row][col] === 3 - playerVal) {
+                    if (isSwapTargetForSelection(ps.board, ps.tryPlaySelectedPiece, row, col)) {
                         if (!tryPlayCanSwap()) {
                             ps.tryPlaySelectedPiece = null;
                             clearMobileMovePreview();
                             drawBoard();
                             return;
                         }
+                        const swap = normalizeSwapCoords(ps.board, ps.tryPlaySelectedPiece, row, col, playerVal);
                         if (m2) {
                             if (ps.hoverRow === row && ps.hoverCol === col && ps.isHoverValid) {
                                 clearMobileMovePreview();
-                                tryPlaySwapAt(fromRow, fromCol, row, col);
+                                tryPlaySwapAt(swap.fromRow, swap.fromCol, swap.row, swap.col);
                                 ps.tryPlaySelectedPiece = null;
                             } else {
                                 ps.hoverRow = row;
@@ -1026,9 +1067,9 @@
                             }
                             return;
                         }
-                        tryPlaySwapAt(fromRow, fromCol, row, col);
+                        tryPlaySwapAt(swap.fromRow, swap.fromCol, swap.row, swap.col);
                         ps.tryPlaySelectedPiece = null;
-                    } else if (ps.board[row] && ps.board[row][col] === playerVal) {
+                    } else if (tryPlayCanSwap() && canSelectForSwap(ps.board, row, col, ps.BOARD_SIZE)) {
                         ps.tryPlaySelectedPiece = { row, col };
                         clearMobileMovePreview();
                         drawBoard();
@@ -1039,9 +1080,8 @@
                     }
                     return;
                 }
-                if (ps.board[row] && ps.board[row][col] === playerVal) {
-                    if (tryPlayCanSwap())
-                        ps.tryPlaySelectedPiece = { row, col };
+                if (tryPlayCanSwap() && canSelectForSwap(ps.board, row, col, ps.BOARD_SIZE)) {
+                    ps.tryPlaySelectedPiece = { row, col };
                     clearMobileMovePreview();
                     drawBoard();
                 } else if (ps.board[row] && ps.board[row][col] === 0) {
@@ -1067,22 +1107,22 @@
             const playerVal = ps.mySlot === 'black' ? 1 : 2;
 
             if (ps.selectedPiece) {
-                const { row: fromRow, col: fromCol } = ps.selectedPiece;
-                if (Math.abs(fromRow - row) + Math.abs(fromCol - col) === 1 && ps.board[row] && ps.board[row][col] === 3 - playerVal) {
+                if (isSwapTargetForSelection(ps.board, ps.selectedPiece, row, col)) {
                     if (!ps.canTransposition) {
                         ps.selectedPiece = null;
                         clearMobileMovePreview();
                         drawBoard();
                         return;
                     }
+                    const swap = normalizeSwapCoords(ps.board, ps.selectedPiece, row, col, playerVal);
                     if (m2) {
                         if (ps.hoverRow === row && ps.hoverCol === col && ps.isHoverValid) {
                             clearMobileMovePreview();
                             ps.ws.send(JSON.stringify({
                                 type: 'move',
                                 moveType: 'swap',
-                                fromRow, fromCol,
-                                row, col
+                                fromRow: swap.fromRow, fromCol: swap.fromCol,
+                                row: swap.row, col: swap.col
                             }));
                             ps.selectedPiece = null;
                             drawBoard();
@@ -1097,11 +1137,11 @@
                     ps.ws.send(JSON.stringify({
                         type: 'move',
                         moveType: 'swap',
-                        fromRow, fromCol,
-                        row, col
+                        fromRow: swap.fromRow, fromCol: swap.fromCol,
+                        row: swap.row, col: swap.col
                     }));
                     ps.selectedPiece = null;
-                } else if (ps.board[row] && ps.board[row][col] === playerVal) {
+                } else if (ps.canTransposition && canSelectForSwap(ps.board, row, col, ps.BOARD_SIZE)) {
                     ps.selectedPiece = { row, col };
                     clearMobileMovePreview();
                     drawBoard();
@@ -1113,12 +1153,10 @@
                 return;
             }
 
-            if (ps.board[row] && ps.board[row][col] === playerVal) {
-                if (ps.canTransposition) {
-                    ps.selectedPiece = { row, col };
-                    clearMobileMovePreview();
-                    drawBoard();
-                }
+            if (ps.canTransposition && canSelectForSwap(ps.board, row, col, ps.BOARD_SIZE)) {
+                ps.selectedPiece = { row, col };
+                clearMobileMovePreview();
+                drawBoard();
             } else if (ps.board[row] && ps.board[row][col] === 0) {
                 if (m2) {
                     if (ps.hoverRow === row && ps.hoverCol === col && ps.isHoverValid) {
@@ -1211,18 +1249,14 @@
                 const { row, col } = getClosestIntersection(x, y);
                 ps.hoverRow = row; ps.hoverCol = col;
                 if (ps.tryPlayMode && ps.replayMode) {
-                    const playerVal = ps.tryPlayCurrentPlayer;
                     if (ps.tryPlaySelectedPiece) {
-                        const { row: fromRow, col: fromCol } = ps.tryPlaySelectedPiece;
-                        ps.isHoverValid = (Math.abs(fromRow - row) + Math.abs(fromCol - col) === 1 && ps.board[row] && ps.board[row][col] === 3 - playerVal);
+                        ps.isHoverValid = isSwapTargetForSelection(ps.board, ps.tryPlaySelectedPiece, row, col);
                     } else {
                         ps.isHoverValid = (row >= 0 && col >= 0 && ps.board[row][col] === 0);
                     }
                 } else {
-                    const playerVal = ps.mySlot === 'black' ? 1 : 2;
                     if (ps.selectedPiece) {
-                        const { row: fromRow, col: fromCol } = ps.selectedPiece;
-                        ps.isHoverValid = (Math.abs(fromRow - row) + Math.abs(fromCol - col) === 1 && ps.board[row] && ps.board[row][col] === 3 - playerVal);
+                        ps.isHoverValid = isSwapTargetForSelection(ps.board, ps.selectedPiece, row, col);
                     } else {
                         ps.isHoverValid = (row >= 0 && col >= 0 && ps.board[row][col] === 0);
                     }

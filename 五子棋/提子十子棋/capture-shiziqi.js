@@ -1,4 +1,4 @@
-const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWuziqiRules, squareWeiqiRules } = require('../common');
+const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWuziqiRules, squareWeiqiRules, qiBoardSeatOverlay } = require('../common');
 
 class CaptureShiziqiRoom extends QiTwoPlayerRoomBase {
     constructor(room) {
@@ -537,6 +537,7 @@ class CaptureShiziqiRoom extends QiTwoPlayerRoomBase {
 module.exports = {
     initRoom(room) {
         room.gameLogic = new CaptureShiziqiRoom(room);
+        if (typeof qiBoardSeatOverlay !== 'undefined' && qiBoardSeatOverlay) qiBoardSeatOverlay.install(room.gameLogic);
         room.maxPlayers = 2;
     }
 };

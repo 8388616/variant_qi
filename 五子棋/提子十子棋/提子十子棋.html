@@ -5,15 +5,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=2.0, user-scalable=yes">
     <title>提子十子棋</title>
     <link rel="stylesheet" href="/qi/qi.css">
+    <style>
+        body { background: #5e2b3b; }
+    </style>
 </head>
 <body>
     <div class="game-wrapper">
         <div class="top-panel">
             <div class="left-group">
-                <div class="side-select">
-                    <label id="labelBlack"><input type="radio" name="color" value="black" id="radioBlack"> ⚫ 黑方</label>
-                    <label id="labelWhite"><input type="radio" name="color" value="white" id="radioWhite"> ⚪ 白方</label>
-                </div>
+                <div class="komi-info" id="gameTitleInfo">提子十子棋</div>
                 <div class="color-status" id="colorStatus">未选择阵营</div>
                 <select id="boardSizeSelect" class="board-size-select" style="display: none;">
                     <option value="7">7路</option>
@@ -251,7 +251,7 @@
         })();
 
         const pathMatch = window.location.pathname.match(/^\/qi\/([^/]+)\/(\d+)$/);
-        if (!pathMatch) { alert('无效的房间链接'); throw new Error('Invalid room URL'); }
+        if (!pathMatch) { qiAlert('无效的房间链接'); throw new Error('Invalid room URL'); }
         const gameType = pathMatch[1];
         const roomId = pathMatch[2];
         let roomPassword = sessionStorage.getItem(`roomPassword_${roomId}`) || null;
@@ -268,11 +268,7 @@
         const ctx = canvas.getContext('2d');
         const turnDisplay = document.getElementById('turnDisplay');
         const colorStatus = document.getElementById('colorStatus');
-        const radioBlack = document.getElementById('radioBlack');
-        const radioWhite = document.getElementById('radioWhite');
-        const labelBlack = document.getElementById('labelBlack');
-        const labelWhite = document.getElementById('labelWhite');
-        const scoreTitle = document.getElementById('scoreTitle');
+const scoreTitle = document.getElementById('scoreTitle');
         const scoreBoard = document.getElementById('scoreBoard');
         const leadInfo = document.getElementById('leadInfo');
         const boardMarkSelect = document.getElementById('boardMarkSelect');
@@ -408,6 +404,7 @@
 
         const _weiqiBindings = QiBoardRoomClient.createWeiqiMessageBindings({
             standardWeiqiMatchTime: true,
+            boardSeatOverlay: true,
             roomId,
             gameType,
             pageState: ps,
@@ -442,11 +439,7 @@
             colorStatus,
             scoreTitle,
             turnDisplay,
-            labelBlack,
-            labelWhite,
-            radioBlack,
-            radioWhite,
-            syncState: page.syncState,
+syncState: page.syncState,
             updateBoardGeometry,
             initBoardArray,
             exitReplayMode,

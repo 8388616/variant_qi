@@ -67,10 +67,7 @@
     <div class="game-wrapper">
         <div class="top-panel">
             <div class="left-group">
-                <div class="side-select">
-                    <label id="labelBlack"><input type="radio" name="color" value="black" id="radioBlack"> ⚫ 黑方</label>
-                    <label id="labelWhite"><input type="radio" name="color" value="white" id="radioWhite"> ⚪ 白方</label>
-                </div>
+                <div class="komi-info" id="gameTitleInfo">罗斯围棋</div>
                 <div class="komi-info" id="komiInfo">黑贴白2.25点</div>
                 <div class="color-status" id="colorStatus">观战</div>
                 <select id="boardSizeSelect" class="board-size-select" style="display: none;">
@@ -105,15 +102,11 @@
                 <span class="close-rules" id="closeRulesBtn">&times;</span>
                 <h3>罗斯围棋</h3>
                 <p>
-                    基本规则同围棋，分为两个阶段。<br /><br /><br />
-                    <strong>第一阶段：</strong><br />
+                    基本规则同围棋。<br /><br /><br />
                     使用复合棋子，每个复合棋子由三个单棋子组成（两枚己方、一枚对方，形状中第二个点为对方）。可选的复合棋子在棋盘下方。可以旋转、翻折。<br /><br />
                     单击右键旋转，长按右键翻折，滑动鼠标滚轮切换形状。<br /><br />
                     同一方不可以连续两步使用相同的形状。<br /><br />
-                    当双方连续两手虚着时进入第二阶段。<br /><br /><br />
-                    <strong>第二阶段：</strong><br />
-                    使用普通的棋子，恢复为标准围棋。<br /><br />
-                    当双方连续两手虚着时进入数子流程。<br /><br /><br />
+                    当双方连续四手虚着时进入数点流程。<br /><br /><br />
                     <font color="gray"><i>复合棋子中，两枚己方的棋子代表俄罗斯和白俄罗斯。</i></font><br />
                 </p>
             </div>
@@ -128,7 +121,7 @@
                 <button class="ctrl-btn" id="undoBtn" style="display:none;">悔棋</button>
                 <button class="ctrl-btn" id="resignBtn" style="display:none;">认输</button>
                 <button class="ctrl-btn" id="drawBtn" style="display:none;">和棋</button>
-                <button class="ctrl-btn" id="endReqBtn" style="display:none;">申请数子</button>
+                <button class="ctrl-btn" id="endReqBtn" style="display:none;">申请数点</button>
                 <button class="ctrl-btn" id="importBtn">导入棋谱</button>
                 <button class="ctrl-btn" id="exportBtn" style="display:none;">导出棋谱</button>
             </div>
@@ -285,7 +278,7 @@
         })();
 
         const pathMatch = window.location.pathname.match(/^\/qi\/([^/]+)\/(\d+)$/);
-        if (!pathMatch) { alert('无效的房间链接'); throw new Error('Invalid room URL'); }
+        if (!pathMatch) { qiAlert('无效的房间链接'); throw new Error('Invalid room URL'); }
         const gameType = pathMatch[1];
         const roomId = pathMatch[2];
         let roomPassword = sessionStorage.getItem(`roomPassword_${roomId}`) || null;
@@ -303,11 +296,7 @@
         const ctx = canvas.getContext('2d');
         const turnDisplay = document.getElementById('turnDisplay');
         const colorStatus = document.getElementById('colorStatus');
-        const radioBlack = document.getElementById('radioBlack');
-        const radioWhite = document.getElementById('radioWhite');
-        const labelBlack = document.getElementById('labelBlack');
-        const labelWhite = document.getElementById('labelWhite');
-        const scoreTitle = document.getElementById('scoreTitle');
+const scoreTitle = document.getElementById('scoreTitle');
         const scoreBoard = document.getElementById('scoreBoard');
         const leadInfo = document.getElementById('leadInfo');
         const scoreConfirmPanel = document.getElementById('scoreConfirmPanel');
@@ -1012,7 +1001,7 @@
                 const nBefore = ps.tryPlayStep;
                 const luBefore = computeTryPlayLastUsedAfterNTrialMoves(nBefore);
                 if (luBefore[playerVal] === usedIdx) {
-                    alert('不能连续两次使用相同的形状');
+                    qiAlert('不能连续两次使用相同的形状');
                     return false;
                 }
                 const newBoard = tryPlaceShape(ps.board, usedIdx, ps.rotation, ps.flipped, row, col, playerVal);
@@ -1274,7 +1263,7 @@
                 return true;
             }
             if (ps.lastUsedShapeByColor[playerVal] === ps.currentShapeIndex) {
-                alert('不能连续两次使用相同的形状');
+                qiAlert('不能连续两次使用相同的形状');
                 return false;
             }
             if (!isPlacementValid(row, col)) return false;
@@ -1335,11 +1324,7 @@
             colorStatus,
             scoreTitle,
             turnDisplay,
-            labelBlack,
-            labelWhite,
-            radioBlack,
-            radioWhite,
-            syncState,
+syncState,
             updateBoardGeometry,
             initBoardArray,
             exitReplayMode,
@@ -1375,7 +1360,8 @@
                     b.classList.toggle('active', i === 0);
                 });
             },
-            standardWeiqiMatchTime: true
+            standardWeiqiMatchTime: true,
+            boardSeatOverlay: true
         });
         const handleMessage = _weiqiBindings.handleMessage;
 

@@ -1,4 +1,4 @@
-const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, applyInitialPositionCompact, encodeInitialPositionCompact } = require('../common');
+const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, applyInitialPositionCompact, encodeInitialPositionCompact, qiBoardSeatOverlay } = require('../common');
 /** 客户端「显示序号」按 moveCoords 与磁性规则重放，使序号随子移动（见 中磁性围棋.html）。 */
 class MediumMagneticWeiqiRoom extends QiTwoPlayerRoomBase
 {
@@ -438,7 +438,7 @@ class MediumMagneticWeiqiRoom extends QiTwoPlayerRoomBase
                 if (this.pendingEnd && msg.accept) {
                     this.startScoreCounting(this.pendingEnd.requester, this.pendingEnd.opponent);
                 } else if (this.pendingEnd && !msg.accept) {
-                    this.pendingEnd.requester.send(JSON.stringify({ type: 'error', message: '对方拒绝数子。' }));
+                    this.pendingEnd.requester.send(JSON.stringify({ type: 'error', message: '对方拒绝数点。' }));
                 }
                 this.pendingEnd = null;
                 break;
@@ -747,6 +747,7 @@ class MediumMagneticWeiqiRoom extends QiTwoPlayerRoomBase
 module.exports = {
     initRoom(room) {
         room.gameLogic = new MediumMagneticWeiqiRoom(room);
+        qiBoardSeatOverlay.install(room.gameLogic);
         room.maxPlayers = 2;
     }
 };

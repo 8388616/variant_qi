@@ -1,4 +1,4 @@
-const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, applyInitialPositionCompact, encodeInitialPositionCompact } = require('../common');
+const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, applyInitialPositionCompact, encodeInitialPositionCompact, qiBoardSeatOverlay } = require('../common');
 
 class UkrainianWeiqiRoom extends QiTwoPlayerRoomBase {
     constructor(room) {
@@ -466,15 +466,9 @@ class UkrainianWeiqiRoom extends QiTwoPlayerRoomBase {
             if (!m) continue;
             if (m.type === 'pass') {
                 pc++;
-                if (pc >= 2) {
-                    if (!inNormal) {
-                        inNormal = true;
-                        pc = 0;
-                    } else {
-                        pc = 0;
-                    }
-                }
             } else {
+                // 旧棋谱可能含第二阶段单子着法；新规则不再进入正常围棋阶段
+                if (m.singleStone) inNormal = true;
                 pc = 0;
             }
         }
@@ -571,13 +565,7 @@ class UkrainianWeiqiRoom extends QiTwoPlayerRoomBase {
         this.passCounter++;
         this.lastMoveMarkers = [];
 
-        if (this.passCounter >= 2) {
-            if (!this.normalGoPhase) {
-                this.normalGoPhase = true;
-                this.passCounter = 0;
-                this.broadcast({ type: 'broadcast', action: 'pass', ...this.getState() });
-                return;
-            }
+        if (this.passCounter >= 4) {
             const blackPlayer = room.getPlayerBySlot('black');
             const whitePlayer = room.getPlayerBySlot('white');
             const humanWs = blackPlayer || whitePlayer;
@@ -840,7 +828,7 @@ class UkrainianWeiqiRoom extends QiTwoPlayerRoomBase {
                 if (this.pendingEnd && msg.accept) {
                     this.startScoreCounting(this.pendingEnd.requester, this.pendingEnd.opponent);
                 } else if (this.pendingEnd && !msg.accept) {
-                    this.pendingEnd.requester.send(JSON.stringify({ type: 'error', message: '对方拒绝数子。' }));
+                    this.pendingEnd.requester.send(JSON.stringify({ type: 'error', message: '对方拒绝数点。' }));
                 }
                 this.pendingEnd = null;
                 break;
@@ -1157,6 +1145,7 @@ class UkrainianWeiqiRoom extends QiTwoPlayerRoomBase {
 module.exports = {
     initRoom(room) {
         room.gameLogic = new UkrainianWeiqiRoom(room);
+        if (typeof qiBoardSeatOverlay !== 'undefined' && qiBoardSeatOverlay) qiBoardSeatOverlay.install(room.gameLogic);
         room.maxPlayers = 2;
     }
 };

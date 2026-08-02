@@ -1,4 +1,122 @@
 (function (global) {
+    const DEFAULTS = {
+        alertTitle: '提示',
+        confirmTitle: '确认',
+        okText: '确认',
+        cancelText: '取消',
+        yesText: '是',
+        noText: '否'
+    };
+    const queue = [];
+    let active = false;
+    let ui = null;
+
+    function normalizeMessageOptions(type, message, options) {
+        const o = options || {};
+        const useYesNo = o.buttons === 'yesNo' || o.choice === 'yesNo';
+        return {
+            type: type === 'confirm' ? 'confirm' : 'alert',
+            title: o.title || (type === 'confirm' ? DEFAULTS.confirmTitle : DEFAULTS.alertTitle),
+            message: message == null ? '' : String(message),
+            okText: o.okText || o.confirmText || (useYesNo ? DEFAULTS.yesText : DEFAULTS.okText),
+            cancelText: o.cancelText || o.noText || (useYesNo ? DEFAULTS.noText : DEFAULTS.cancelText)
+        };
+    }
+
+    function ensureUi() {
+        if (ui) return ui;
+        const wrap = document.createElement('div');
+        wrap.className = 'qi-time-control-modal qi-message-modal';
+        wrap.setAttribute('aria-hidden', 'true');
+        wrap.style.display = 'none';
+        wrap.innerHTML = `
+<div class="qi-time-control-dialog qi-message-dialog" role="dialog" aria-modal="true" aria-labelledby="qiMessageTitle">
+  <h3 class="qi-time-control-title qi-message-title" id="qiMessageTitle"></h3>
+  <div class="qi-message-text" id="qiMessageText"></div>
+  <div class="qi-time-control-footer qi-message-footer">
+    <button type="button" class="qi-time-control-primary" id="qiMessageOk"></button>
+    <button type="button" class="qi-time-control-secondary" id="qiMessageCancel"></button>
+  </div>
+</div>`;
+        document.body.appendChild(wrap);
+        ui = {
+            wrap,
+            dialog: wrap.querySelector('.qi-message-dialog'),
+            title: wrap.querySelector('#qiMessageTitle'),
+            text: wrap.querySelector('#qiMessageText'),
+            ok: wrap.querySelector('#qiMessageOk'),
+            cancel: wrap.querySelector('#qiMessageCancel')
+        };
+        return ui;
+    }
+
+    function closeCurrent(result) {
+        const item = queue.shift();
+        const box = ensureUi();
+        box.wrap.classList.remove('qi-message-modal--open');
+        box.wrap.style.display = 'none';
+        box.wrap.setAttribute('aria-hidden', 'true');
+        active = false;
+        if (item) item.resolve(!!result);
+        setTimeout(showNext, 0);
+    }
+
+    function showNext() {
+        if (active || queue.length === 0) return;
+        active = true;
+        const item = queue[0];
+        const box = ensureUi();
+        box.title.textContent = item.title;
+        box.text.textContent = item.message;
+        box.ok.textContent = item.okText;
+        box.cancel.textContent = item.cancelText;
+        box.cancel.style.display = item.type === 'confirm' ? '' : 'none';
+        box.wrap.classList.add('qi-message-modal--open');
+        box.wrap.style.display = 'flex';
+        box.wrap.setAttribute('aria-hidden', 'false');
+
+        box.ok.onclick = () => closeCurrent(true);
+        box.cancel.onclick = () => closeCurrent(false);
+        box.wrap.onclick = (e) => {
+            if (e.target === box.wrap && item.type === 'confirm') closeCurrent(false);
+        };
+        box.wrap.onkeydown = (e) => {
+            if (e.key === 'Escape') closeCurrent(item.type !== 'confirm');
+            if (e.key === 'Enter') closeCurrent(true);
+        };
+        setTimeout(() => box.ok.focus(), 0);
+    }
+
+    function showMessage(type, message, options) {
+        if (!global.document || !global.document.body) {
+            return Promise.resolve(type !== 'confirm');
+        }
+        const item = normalizeMessageOptions(type, message, options);
+        return new Promise((resolve) => {
+            queue.push({ ...item, resolve });
+            showNext();
+        });
+    }
+
+    const api = {
+        qiAlert(message, options) {
+            return showMessage('alert', message, options);
+        },
+        confirm(message, options) {
+            return showMessage('confirm', message, options);
+        },
+        ask(message, options) {
+            return showMessage('confirm', message, { ...(options || {}), buttons: 'yesNo' });
+        }
+    };
+
+    global.QiMessageBox = api;
+    global.qiAlert = api.qiAlert;
+    global.qiConfirm = api.confirm;
+    global.qiAsk = api.ask;
+})(window);
+
+(function (global) {
     function qiOpenRoomWebSocket(opts) {
         const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
         const url = `${protocol}//${location.host}/qi/ws?game=${encodeURIComponent(opts.gameType)}&room=${encodeURIComponent(opts.roomId)}`;
@@ -84,6 +202,13 @@
         let adjustMode = false;
 
         function getDefaultTimeControlByBoardSize(boardSize) {
+            if (ctx.timeControlDefaults && typeof ctx.timeControlDefaults === 'object') {
+                return {
+                    mainMinutes: Number(ctx.timeControlDefaults.mainMinutes) || 5,
+                    byoyomiSeconds: Number(ctx.timeControlDefaults.byoyomiSeconds) || 30,
+                    maxTimeouts: Number(ctx.timeControlDefaults.maxTimeouts) || 3
+                };
+            }
             const n = Number.isFinite(boardSize) && boardSize > 0 ? boardSize : 19;
             const points = n * n;
             const scaleRaw = Number(ctx.timeControlMainByoScale);
@@ -111,7 +236,7 @@
             wrap.className = 'qi-time-control-modal';
             wrap.innerHTML = `
 <div class="qi-time-control-dialog" role="dialog" aria-modal="true">
-  <h3 class="qi-time-control-title">限时设置</h3>
+  <h3 class="qi-time-control-title">对局设置</h3>
   <div class="qi-time-control-row qi-time-control-radio-row">
     <label class="qi-time-control-radio"><input type="radio" name="qiTimedMode" value="limited" checked> 限时</label>
     <label class="qi-time-control-radio"><input type="radio" name="qiTimedMode" value="unlimited"> 不限时</label>
@@ -120,6 +245,11 @@
     <label class="qi-time-control-field"><span>基本用时(分)</span><input type="number" id="qiTcMainMin" min="1" max="20000" value=""></label>
     <label class="qi-time-control-field"><span>步时(秒)</span><input type="number" id="qiTcByoSec" min="0" max="2000" value=""></label>
     <label class="qi-time-control-field"><span>超时次数</span><input type="number" id="qiTcMaxT" min="0" max="100" value=""></label>
+  </div>
+  <div class="qi-time-control-row qi-time-control-color-row" id="qiTcColorRow" style="display:none;">
+    <label class="qi-time-control-radio"><input type="radio" name="qiColorChoice" value="black" checked> 执黑</label>
+    <label class="qi-time-control-radio"><input type="radio" name="qiColorChoice" value="white"> 执白</label>
+    <label class="qi-time-control-radio"><input type="radio" name="qiColorChoice" value="random"> 猜先</label>
   </div>
   <p class="qi-time-control-hint" id="qiTcHint"></p>
   <div class="qi-time-control-footer" id="qiTcFooterPropose">
@@ -142,18 +272,30 @@
             const btnProposeOk = wrap.querySelector('#qiTcBtnProposeOk');
             const btnAccept = wrap.querySelector('#qiTcBtnAccept');
             const btnAdjust = wrap.querySelector('#qiTcBtnAdjust');
+            const colorRow = wrap.querySelector('#qiTcColorRow');
             const radios = Array.from(wrap.querySelectorAll('input[name="qiTimedMode"]'));
+            const colorRadios = Array.from(wrap.querySelectorAll('input[name="qiColorChoice"]'));
             const lowerControls = [mainIn, byoIn, maxTIn];
 
             function readPayloadFromInputs() {
                 const unlimited = wrap.querySelector('input[name="qiTimedMode"][value="unlimited"]').checked;
-                if (unlimited) return { timed: false, unlimited: true };
-                return {
-                    timed: true,
-                    mainMinutes: parseInt(mainIn.value, 10),
-                    byoyomiSeconds: parseInt(byoIn.value, 10),
-                    maxTimeouts: parseInt(maxTIn.value, 10)
-                };
+                const payload = unlimited
+                    ? { timed: false, unlimited: true }
+                    : {
+                        timed: true,
+                        mainMinutes: parseInt(mainIn.value, 10),
+                        byoyomiSeconds: parseInt(byoIn.value, 10),
+                        maxTimeouts: parseInt(maxTIn.value, 10)
+                    };
+                if (ctx.boardSeatOverlay || (colorRow && colorRow.style.display !== 'none')) {
+                    const c = wrap.querySelector('input[name="qiColorChoice"]:checked');
+                    // black/white/random：表示「我方」执子，不是房主
+                    let v = c ? c.value : 'black';
+                    if (v === 'hostBlack') v = 'black';
+                    if (v === 'hostWhite') v = 'white';
+                    payload.colorChoice = v;
+                }
+                return payload;
             }
 
             function setLimitedDisabled(dis) {
@@ -169,8 +311,90 @@
             function setDialogReadonly(dis) {
                 radios.forEach((r) => { r.disabled = dis; });
                 setLowerDisabled(dis);
+                colorRadios.forEach((r) => { r.disabled = dis; });
                 wrap.classList.toggle('qi-time-control-readonly', !!dis);
             }
+
+            function setColorRowVisible(vis, readonly) {
+                if (!colorRow) return;
+                colorRow.style.display = vis ? 'flex' : 'none';
+                colorRadios.forEach((r) => { r.disabled = !!readonly; });
+            }
+
+            function normalizeColorChoice(val) {
+                if (val === 'white' || val === 'hostWhite') return 'white';
+                if (val === 'random') return 'random';
+                return 'black';
+            }
+
+            function setColorChoice(val) {
+                const v = normalizeColorChoice(val);
+                const el = wrap.querySelector(`input[name="qiColorChoice"][value="${v}"]`);
+                if (el) el.checked = true;
+            }
+
+            /** 选项相对己方：直接显示您执X / 猜先 */
+            function colorChoiceLabel(cc) {
+                const v = normalizeColorChoice(cc);
+                if (v === 'random') return '猜先';
+                const ui = (ctx.slotUi && ctx.slotUi[v]) || null;
+                if (ui && ui.youText) return ui.youText;
+                return v === 'white' ? '您执白' : '您执黑';
+            }
+
+            function applySlotUiColorLabels() {
+                if (!ctx.slotUi) return;
+                [['black', '执黑'], ['white', '执白']].forEach(([slot, fallback]) => {
+                    const input = wrap.querySelector(`input[name="qiColorChoice"][value="${slot}"]`);
+                    if (!input || !input.parentElement) return;
+                    const ui = ctx.slotUi[slot];
+                    const label = (ui && (ui.choiceText || ui.name)) || fallback;
+                    const lab = input.parentElement;
+                    lab.textContent = '';
+                    lab.appendChild(input);
+                    lab.appendChild(document.createTextNode(' ' + label));
+                });
+            }
+            applySlotUiColorLabels();
+
+            function currentColorChoice() {
+                const c = wrap.querySelector('input[name="qiColorChoice"]:checked');
+                return normalizeColorChoice(c ? c.value : 'black');
+            }
+
+            /**
+             * 将提议中的执子（相对选择者）换算成当前页面己方执子，供只读展示。
+             * proposal.colorChoice: black|white|random；colorChooserSlot: 选择者座位。
+             */
+            function selfColorFromProposal(pr) {
+                if (!pr) return 'black';
+                const raw = normalizeColorChoice(pr.colorChoice || 'black');
+                if (raw === 'random') return 'random';
+                const chooser = pr.colorChooserSlot;
+                const my = ctx.getMySlot && ctx.getMySlot();
+                if (!chooser || !my || my === chooser) return raw;
+                return raw === 'white' ? 'black' : 'white';
+            }
+
+            function refreshRespondHint(proposal) {
+                const showColor = !!(ctx.boardSeatOverlay || (colorRow && colorRow.style.display !== 'none'));
+                const pr = proposal || lastRespondProposal;
+                if (!pr) {
+                    if (showColor) hint.textContent = colorChoiceLabel(currentColorChoice());
+                    return;
+                }
+                const base = pr.timed
+                    ? `对方提议：${fmtRuleLine(pr.mainMinutes, pr.byoyomiSeconds, pr.maxTimeouts)}`
+                    : '对方提议：不限时';
+                if (!showColor) {
+                    hint.textContent = base;
+                    return;
+                }
+                const cc = adjustMode ? currentColorChoice() : selfColorFromProposal(pr);
+                hint.textContent = `${base}；${colorChoiceLabel(cc)}`;
+            }
+
+            let lastRespondProposal = null;
 
             function onRadioChange() {
                 const un = wrap.querySelector('input[name="qiTimedMode"][value="unlimited"]').checked;
@@ -179,6 +403,10 @@
                 setLimitedDisabled(un);
             }
             radios.forEach(r => r.addEventListener('change', onRadioChange));
+            colorRadios.forEach(r => r.addEventListener('change', () => {
+                if (colorRow && colorRow.style.display !== 'none')
+                    refreshRespondHint(lastRespondProposal);
+            }));
 
             btnProposeOk.onclick = () => {
                 const w = ctx.getWs();
@@ -186,15 +414,14 @@
                 const p = readPayloadFromInputs();
                 if (p.timed !== false) {
                     if (!Number.isFinite(p.mainMinutes) || !Number.isFinite(p.byoyomiSeconds) || !Number.isFinite(p.maxTimeouts)) {
-                        alert('请填写主时间、读秒与超时次数。');
+                        qiAlert('请填写主时间、读秒与超时次数。');
                         return;
                     }
                 }
                 w.send(JSON.stringify(Object.assign({ type: 'timeControlSubmit' }, p)));
-                footProp.style.display = 'none';
-                waitEl.style.display = 'block';
-                waitEl.textContent = '等待对方确认...';
+                // 等服务端 timeControlWaitPeer，避免提交失败后卡在本地等待态
                 setDialogReadonly(true);
+                btnProposeOk.disabled = true;
             };
 
             btnAccept.onclick = () => {
@@ -204,33 +431,71 @@
                     const p = readPayloadFromInputs();
                     if (p.timed !== false) {
                         if (!Number.isFinite(p.mainMinutes) || !Number.isFinite(p.byoyomiSeconds) || !Number.isFinite(p.maxTimeouts)) {
-                            alert('请填写主时间、读秒与超时次数。');
+                            qiAlert('请填写主时间、读秒与超时次数。');
                             return;
                         }
                     }
                     w.send(JSON.stringify(Object.assign({ type: 'timeControlSubmit' }, p)));
                     adjustMode = false;
-                    footResp.style.display = 'none';
-                    waitEl.style.display = 'block';
-                    waitEl.textContent = '等待对方确认...';
                     setDialogReadonly(true);
+                    btnAccept.disabled = true;
+                    btnAdjust.disabled = true;
                     return;
                 }
                 w.send(JSON.stringify({ type: 'timeControlAccept' }));
-                footResp.style.display = 'none';
-                waitEl.style.display = 'block';
-                waitEl.textContent = '等待对方确认...';
                 setDialogReadonly(true);
+                btnAccept.disabled = true;
+                btnAdjust.disabled = true;
             };
 
             btnAdjust.onclick = () => {
                 adjustMode = true;
                 setLimitedDisabled(false);
                 radios.forEach((r) => { r.disabled = false; });
+                if (colorRow && colorRow.style.display !== 'none')
+                    colorRadios.forEach((r) => { r.disabled = false; });
+                const un = wrap.querySelector('input[name="qiTimedMode"][value="unlimited"]').checked;
+                setLowerDisabled(un);
                 btnAdjust.style.display = 'none';
+                refreshRespondHint(lastRespondProposal);
             };
 
-            ui = { wrap, mainIn, byoIn, maxTIn, hint, footProp, footResp, waitEl, btnProposeOk, btnAccept, btnAdjust, setLimitedDisabled, readPayloadFromInputs };
+            ui = {
+                wrap, mainIn, byoIn, maxTIn, hint, footProp, footResp, waitEl,
+                btnProposeOk, btnAccept, btnAdjust, colorRow, colorRadios,
+                setLimitedDisabled, readPayloadFromInputs, setColorRowVisible, setColorChoice, colorChoiceLabel,
+                selfColorFromProposal, refreshRespondHint,
+                getLastRespondProposal: () => lastRespondProposal,
+                setLastRespondProposal: (p) => { lastRespondProposal = p; },
+                restoreAfterError() {
+                    if (!ui || !ui.wrap || ui.wrap.style.display === 'none') return;
+                    ui.wrap.classList.remove('qi-time-control-readonly');
+                    ui.waitEl.style.display = 'none';
+                    if (lastRespondProposal) {
+                        ui.footProp.style.display = 'none';
+                        ui.footResp.style.display = 'flex';
+                        ui.btnAdjust.style.display = '';
+                        adjustMode = false;
+                        ui.setColorRowVisible(!!ctx.boardSeatOverlay, true);
+                        ui.setColorChoice(selfColorFromProposal(lastRespondProposal));
+                        ui.wrap.querySelector('input[name="qiTimedMode"][value="unlimited"]').disabled = true;
+                        ui.wrap.querySelector('input[name="qiTimedMode"][value="limited"]').disabled = true;
+                        ui.setLimitedDisabled(true);
+                        ui.btnAccept.disabled = false;
+                        ui.btnAdjust.disabled = false;
+                        refreshRespondHint(lastRespondProposal);
+                    } else {
+                        ui.footProp.style.display = 'flex';
+                        ui.footResp.style.display = 'none';
+                        ui.setColorRowVisible(!!ctx.boardSeatOverlay, false);
+                        ui.wrap.querySelector('input[name="qiTimedMode"][value="unlimited"]').disabled = false;
+                        ui.wrap.querySelector('input[name="qiTimedMode"][value="limited"]').disabled = false;
+                        ui.setLimitedDisabled(false);
+                        ui.btnProposeOk.disabled = false;
+                        ui.setColorChoice('black');
+                    }
+                }
+            };
             return ui;
         }
 
@@ -252,6 +517,7 @@
             ui.wrap.style.display = 'flex';
             ui.waitEl.style.display = 'none';
             ui.hint.textContent = '';
+            const showColor = !!(msg.boardSeatOverlay || ctx.boardSeatOverlay);
             if (msg.mode === 'propose') {
                 const d = getDefaultTimeControlByBoardSize(ctx.getBoardSize());
                 ui.wrap.classList.remove('qi-time-control-readonly');
@@ -270,6 +536,9 @@
                 ui.btnAdjust.disabled = false;
                 ui.wrap.querySelector('input[name="qiTimedMode"][value="unlimited"]').disabled = false;
                 ui.wrap.querySelector('input[name="qiTimedMode"][value="limited"]').disabled = false;
+                ui.setColorRowVisible(showColor, false);
+                if (showColor) ui.setColorChoice('black');
+                if (ui.setLastRespondProposal) ui.setLastRespondProposal(null);
             } else if (msg.mode === 'respond' && msg.proposal) {
                 ui.wrap.classList.remove('qi-time-control-readonly');
                 ui.footProp.style.display = 'none';
@@ -277,6 +546,7 @@
                 adjustMode = false;
                 ui.btnAdjust.style.display = '';
                 const pr = msg.proposal;
+                if (ui.setLastRespondProposal) ui.setLastRespondProposal(pr);
                 if (!pr.timed) {
                     ui.wrap.querySelector('input[name="qiTimedMode"][value="unlimited"]').checked = true;
                     ui.setLimitedDisabled(true);
@@ -291,7 +561,17 @@
                 ui.wrap.querySelector('input[name="qiTimedMode"][value="limited"]').disabled = true;
                 ui.btnAccept.disabled = false;
                 ui.btnAdjust.disabled = false;
-                ui.hint.textContent = pr.timed ? `对方提议：${fmtRuleLine(pr.mainMinutes, pr.byoyomiSeconds, pr.maxTimeouts)}` : '对方提议：不限时';
+                ui.setColorRowVisible(showColor, true);
+                // 只读展示换算成「您」的执子
+                if (showColor) {
+                    const mine = ui.selfColorFromProposal ? ui.selfColorFromProposal(pr) : (pr.colorChoice || 'black');
+                    ui.setColorChoice(mine);
+                }
+                if (ui.refreshRespondHint) ui.refreshRespondHint(pr);
+                else {
+                    const colorHint = showColor ? `；${ui.colorChoiceLabel(pr.colorChoice || 'black')}` : '';
+                    ui.hint.textContent = (pr.timed ? `对方提议：${fmtRuleLine(pr.mainMinutes, pr.byoyomiSeconds, pr.maxTimeouts)}` : '对方提议：不限时') + colorHint;
+                }
             }
         }
 
@@ -312,12 +592,17 @@
             const mt = S.matchTime;
             if (!mt || !mt.settings) {
                 panel.hidden = true;
+                updateSeatAbsentNotice();
                 return;
             }
             panel.hidden = false;
             const rule = mt.clock && mt.clock.ruleLine
                 ? `${mt.clock.ruleLine}`
                 : (mt.settings.timed === false ? '不限时' : '');
+            const slots = (ctx.getSlots && ctx.getSlots()) || S.slots || {};
+            const matchStarted = !!(S.matchStarted || mt.settings);
+            const absentBlack = !!(matchStarted && !slots.black);
+            const absentWhite = !!(matchStarted && !slots.white);
 
             function line(slot) {
                 const isTimed = mt.settings && mt.settings.timed;
@@ -366,10 +651,55 @@
                         el.classList.remove('is-active');
                     const ruleEl = el.querySelector('.go-timer-rule');
                     if (ruleEl) ruleEl.textContent = rule;
+                    const titleEl = el.querySelector('.go-timer-title');
+                    if (titleEl) {
+                        const ui = (ctx.slotUi && ctx.slotUi[slot]) || null;
+                        const base = ui
+                            ? `${ui.emoji || ''} ${ui.name || ''}`.trim()
+                            : (slot === 'black' ? '⚫ 黑方' : '⚪ 白方');
+                        const left = slot === 'black' ? absentBlack : absentWhite;
+                        titleEl.textContent = left ? `${base}(已退出)` : base;
+                    }
+                    el.classList.toggle('is-player-left', slot === 'black' ? absentBlack : absentWhite);
                 }
             }
             line('black');
             line('white');
+            updateSeatAbsentNotice();
+        }
+
+        function updateSeatAbsentNotice() {
+            let notice = document.getElementById('qiSeatAbsentNotice');
+            const panel = document.getElementById('goTimerPanel');
+            const parent = panel && panel.parentElement;
+            if (!parent) return;
+            if (!notice) {
+                notice = document.createElement('div');
+                notice.id = 'qiSeatAbsentNotice';
+                notice.className = 'qi-seat-absent-notice';
+                parent.insertBefore(notice, panel.nextSibling);
+            }
+            const slots = (ctx.getSlots && ctx.getSlots()) || S.slots || {};
+            const matchStarted = !!(S.matchStarted || (S.matchTime && S.matchTime.settings));
+            const absentBlack = !!(matchStarted && !slots.black);
+            const absentWhite = !!(matchStarted && !slots.white);
+            const panelVisible = panel && !panel.hidden;
+            // 有分边时间框时用红框+(已退出)；无时间框或需补充文案时写在下方
+            if (!matchStarted || (!absentBlack && !absentWhite)) {
+                notice.hidden = true;
+                notice.textContent = '';
+                return;
+            }
+            if (panelVisible) {
+                notice.hidden = true;
+                notice.textContent = '';
+                return;
+            }
+            const parts = [];
+            if (absentBlack) parts.push(((ctx.slotUi && ctx.slotUi.black && ctx.slotUi.black.absentText) || '黑方已退出'));
+            if (absentWhite) parts.push(((ctx.slotUi && ctx.slotUi.white && ctx.slotUi.white.absentText) || '白方已退出'));
+            notice.textContent = parts.join('　');
+            notice.hidden = !parts.length;
         }
 
         function resetTimerPanelToInitial() {
@@ -380,12 +710,21 @@
                 const c = el.querySelector('.go-timer-count');
                 const o = el.querySelector('.go-timer-over');
                 const r = el.querySelector('.go-timer-rule');
+                const t = el.querySelector('.go-timer-title');
                 if (c) c.textContent = '—';
                 if (o) o.textContent = '—';
                 if (r) r.textContent = '　';
-                el.classList.remove('is-active');
+                if (t) {
+                    const slot = el.getAttribute('data-go-timer');
+                    const ui = (ctx.slotUi && ctx.slotUi[slot]) || null;
+                    t.textContent = ui
+                        ? `${ui.emoji || ''} ${ui.name || ''}`.trim()
+                        : (slot === 'white' ? '⚪ 白方' : '⚫ 黑方');
+                }
+                el.classList.remove('is-active', 'is-player-left');
             });
             panel.hidden = true;
+            updateSeatAbsentNotice();
         }
 
         function tickRaf() {
@@ -404,10 +743,15 @@
             const nego = msg.matchTime && msg.matchTime.negotiation;
             const my = ctx.getMySlot();
             if (nego && my) {
-                if (nego.waitingSlot === my && nego.phase === 'propose') openNegotiation({ mode: 'propose' });
-                else if (nego.waitingSlot === my && nego.phase === 'respond' && nego.proposal
+                const showingWait = !!(ui && ui.wrap && ui.wrap.style.display !== 'none'
+                    && ui.waitEl && ui.waitEl.style.display !== 'none');
+                if (nego.waitingSlot === my && nego.phase === 'propose') {
+                    // 已在等待对方确认时不要被 gameState 重置回提议表单
+                    if (!showingWait)
+                        openNegotiation({ mode: 'propose', boardSeatOverlay: !!ctx.boardSeatOverlay });
+                } else if (nego.waitingSlot === my && nego.phase === 'respond' && nego.proposal
                     && (nego.proposal.ok === true || nego.proposal.timed === false || nego.proposal.timed === true)) {
-                    openNegotiation({ mode: 'respond', proposal: nego.proposal });
+                    openNegotiation({ mode: 'respond', proposal: nego.proposal, boardSeatOverlay: !!ctx.boardSeatOverlay });
                 } else if (nego.waitingSlot !== my && nego.lastProposerSlot === my) {
                     ensureModal();
                     ui.footProp.style.display = 'none';
@@ -435,6 +779,12 @@
             closeModal();
             S.matchTime = null;
             resetTimerPanelToInitial();
+        }
+
+        function restoreAfterError() {
+            ensureModal();
+            if (ui && typeof ui.restoreAfterError === 'function')
+                ui.restoreAfterError();
         }
 
         return {
@@ -487,7 +837,8 @@
                 }
             },
             applyMatchTimeFromState,
-            stop
+            stop,
+            restoreAfterError
         };
     }
 
@@ -495,21 +846,568 @@
         const S = ctx.pageState;
         if (!S) throw new Error('createWeiqiMessageBindings requires ctx.pageState (page state object, e.g. ps)');
         const mtCtl = ctx.standardWeiqiMatchTime ? qiCreateStandardWeiqiMatchTimeController(ctx) : null;
+        if (S.seatOverlayLocalHide === undefined) S.seatOverlayLocalHide = false;
+        if (S.seatOverlayForceHide === undefined) S.seatOverlayForceHide = false;
+        if (S._prevSeatVacant === undefined) S._prevSeatVacant = null;
+
+        function vacantCount(slots) {
+            let n = 0;
+            if (!slots || !slots.black) n++;
+            if (!slots || !slots.white) n++;
+            return n;
+        }
+
+        function noteSeatVacancyChange() {
+            const slots = ctx.getSlots();
+            const v = vacantCount(slots);
+            if (S._prevSeatVacant != null && v > S._prevSeatVacant)
+                S.seatOverlayLocalHide = false;
+            S._prevSeatVacant = v;
+        }
+
+        function refreshColorStatus() {
+            if (!ctx.colorStatus) return;
+            const mySlot = ctx.getMySlot();
+            const matchStarted = !!(S.matchStarted || (S.matchTime && S.matchTime.settings));
+            if (!mySlot) {
+                ctx.colorStatus.innerText = '观战';
+                return;
+            }
+            if (ctx.boardSeatOverlay && !matchStarted)
+                ctx.colorStatus.innerText = '已落座';
+            else {
+                const ui = (ctx.slotUi && ctx.slotUi[mySlot]) || null;
+                const name = (ui && (ui.statusText || ui.name)) || (mySlot === 'black' ? '黑方' : '白方');
+                ctx.colorStatus.innerText = `已选择: ${name}`;
+            }
+        }
+
+        function getSeatOverlayMounts() {
+            if (ctx.seatOverlayDualBoards) {
+                const wraps = document.querySelectorAll('.dual-boards .board-wrap');
+                if (wraps.length) return Array.from(wraps);
+            }
+            const sel = ctx.seatOverlayContainer || '.board-container';
+            const c = document.querySelector(sel);
+            return c ? [c] : [];
+        }
+
+        /** 600×600 画布坐标下的伪外框顶点（与三角/六角绘制一致） */
+        function defaultSeatOverlayVertices(shape) {
+            if (shape === 'triangle') {
+                return [
+                    { x: 300, y: 38.49364905389035 },
+                    { x: 11.02885682970026, y: 539.0063509461097 },
+                    { x: 588.9711431702997, y: 539.0063509461097 }
+                ];
+            }
+            if (shape === 'hexagon') {
+                const pts = [];
+                for (let i = 0; i < 6; i++) {
+                    const a = (i * 60) * Math.PI / 180;
+                    pts.push({ x: 300 + 280 * Math.cos(a), y: 300 + 280 * Math.sin(a) });
+                }
+                return pts;
+            }
+            return null;
+        }
+
+        function defaultSeatOverlayCornerRadius(shape) {
+            if (shape === 'triangle') return 3;
+            if (shape === 'hexagon') return 12;
+            if (shape === 'rhombus') return 4;
+            return 0;
+        }
+
+        /**
+         * 与棋盘外框完全同一套 canvas arcTo 路径（三角/六角/Sigmoid drawRounded*）。
+         */
+        function traceRoundedPolygon(ctx2d, vertices, radius) {
+            const n = vertices && vertices.length;
+            if (!n || n < 3) return;
+            const startPoints = [];
+            const endPoints = [];
+            for (let i = 0; i < n; i++) {
+                const curr = vertices[i];
+                const prev = vertices[(i - 1 + n) % n];
+                const next = vertices[(i + 1) % n];
+                const v1 = { x: prev.x - curr.x, y: prev.y - curr.y };
+                const v2 = { x: next.x - curr.x, y: next.y - curr.y };
+                const len1 = Math.hypot(v1.x, v1.y) || 1;
+                const len2 = Math.hypot(v2.x, v2.y) || 1;
+                const dx1 = v1.x / len1;
+                const dy1 = v1.y / len1;
+                const dx2 = v2.x / len2;
+                const dy2 = v2.y / len2;
+                startPoints.push({ x: curr.x + dx1 * radius, y: curr.y + dy1 * radius });
+                endPoints.push({ x: curr.x + dx2 * radius, y: curr.y + dy2 * radius });
+            }
+            ctx2d.beginPath();
+            ctx2d.moveTo(endPoints[n - 1].x, endPoints[n - 1].y);
+            for (let i = 0; i < n; i++) {
+                ctx2d.arcTo(vertices[i].x, vertices[i].y, endPoints[i].x, endPoints[i].y, radius);
+            }
+            ctx2d.closePath();
+        }
+
+        function resolveSeatOverlayShapeGeom() {
+            let vertices = null;
+            let radius = null;
+            if (typeof ctx.getSeatOverlayVertices === 'function') {
+                try {
+                    const v = ctx.getSeatOverlayVertices();
+                    if (Array.isArray(v) && v.length >= 3) vertices = v;
+                } catch (e) { /* ignore */ }
+            }
+            if (typeof ctx.seatOverlayCornerRadius === 'number' && ctx.seatOverlayCornerRadius >= 0)
+                radius = ctx.seatOverlayCornerRadius;
+            if (!vertices && typeof ctx.getSeatOverlayPolygonPoints === 'function') {
+                try {
+                    const custom = ctx.getSeatOverlayPolygonPoints();
+                    if (custom && typeof custom === 'string') {
+                        vertices = custom.trim().split(/\s+/).map((pair) => {
+                            const [x, y] = pair.split(',').map(Number);
+                            return { x, y };
+                        }).filter((p) => Number.isFinite(p.x) && Number.isFinite(p.y));
+                    }
+                } catch (e) { /* ignore */ }
+            }
+            if (!vertices)
+                vertices = defaultSeatOverlayVertices(ctx.seatOverlayShape);
+            if (radius == null)
+                radius = defaultSeatOverlayCornerRadius(ctx.seatOverlayShape);
+            if (!vertices || vertices.length < 3) return null;
+            return { vertices, radius: radius || 0 };
+        }
+
+        function layoutSeatOverlayToCanvas(container, overlay) {
+            const canvas = container.querySelector('canvas.go-canvas, canvas#goBoard, canvas');
+            // 优先对齐主棋盘 canvas（跳过蒙版自身的 shape canvas）
+            const boardCanvas = Array.from(container.querySelectorAll('canvas')).find(
+                (c) => !c.classList.contains('qi-seat-overlay-shape-canvas')
+            ) || null;
+            const target = boardCanvas;
+            if (!target || !ctx.seatOverlayShape) {
+                overlay.style.left = '';
+                overlay.style.top = '';
+                overlay.style.width = '';
+                overlay.style.height = '';
+                overlay.style.right = '';
+                overlay.style.bottom = '';
+                overlay.style.inset = '';
+                return null;
+            }
+            const cRect = target.getBoundingClientRect();
+            const pRect = container.getBoundingClientRect();
+            if (!cRect.width || !pRect.width) return target;
+            overlay.style.inset = 'auto';
+            overlay.style.right = 'auto';
+            overlay.style.bottom = 'auto';
+            overlay.style.left = `${cRect.left - pRect.left}px`;
+            overlay.style.top = `${cRect.top - pRect.top}px`;
+            overlay.style.width = `${cRect.width}px`;
+            overlay.style.height = `${cRect.height}px`;
+            return target;
+        }
+
+        function applySeatOverlayShape(overlay, container) {
+            overlay.classList.remove(
+                'qi-seat-overlay--shaped',
+                'qi-seat-overlay--triangle',
+                'qi-seat-overlay--hexagon',
+                'qi-seat-overlay--rhombus'
+            );
+            const geom = resolveSeatOverlayShapeGeom();
+            const oldSvg = overlay.querySelector(':scope > .qi-seat-overlay-shape-svg');
+            if (oldSvg) oldSvg.remove();
+            let shapeCanvas = overlay.querySelector(':scope > .qi-seat-overlay-shape-canvas');
+            if (!geom) {
+                if (shapeCanvas) shapeCanvas.remove();
+                layoutSeatOverlayToCanvas(container, overlay);
+                return;
+            }
+            overlay.classList.add('qi-seat-overlay--shaped');
+            if (ctx.seatOverlayShape === 'triangle')
+                overlay.classList.add('qi-seat-overlay--triangle');
+            else if (ctx.seatOverlayShape === 'hexagon')
+                overlay.classList.add('qi-seat-overlay--hexagon');
+            else if (ctx.seatOverlayShape === 'rhombus')
+                overlay.classList.add('qi-seat-overlay--rhombus');
+            if (!shapeCanvas) {
+                shapeCanvas = document.createElement('canvas');
+                shapeCanvas.className = 'qi-seat-overlay-shape-canvas';
+                shapeCanvas.setAttribute('aria-hidden', 'true');
+                // 内联压过全局 canvas 木纹/阴影，避免正方形框盖住棋盘
+                shapeCanvas.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;max-width:none;aspect-ratio:auto;background:transparent;border:none;border-radius:0;box-shadow:none;pointer-events:none;z-index:0;display:block;margin:0;padding:0;';
+                overlay.insertBefore(shapeCanvas, overlay.firstChild);
+            } else {
+                shapeCanvas.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;max-width:none;aspect-ratio:auto;background:transparent;border:none;border-radius:0;box-shadow:none;pointer-events:none;z-index:0;display:block;margin:0;padding:0;';
+            }
+            const boardCanvas = layoutSeatOverlayToCanvas(container, overlay);
+            const logical = (boardCanvas && (boardCanvas.width || boardCanvas.height))
+                ? Math.max(boardCanvas.width, boardCanvas.height)
+                : 600;
+            const viewSize = Number(ctx.seatOverlayViewSize) > 0 ? Number(ctx.seatOverlayViewSize) : logical;
+            if (shapeCanvas.width !== viewSize) shapeCanvas.width = viewSize;
+            if (shapeCanvas.height !== viewSize) shapeCanvas.height = viewSize;
+            const sctx = shapeCanvas.getContext('2d');
+            sctx.setTransform(1, 0, 0, 1, 0, 0);
+            sctx.clearRect(0, 0, viewSize, viewSize);
+            sctx.fillStyle = 'rgba(70, 70, 70, 0.75)';
+            traceRoundedPolygon(sctx, geom.vertices, geom.radius);
+            sctx.fill();
+        }
+
+        function setAllSeatOverlaysHidden(hidden) {
+            getSeatOverlayMounts().forEach((container) => {
+                const o = container.querySelector(':scope > .qi-seat-overlay');
+                if (o) o.hidden = hidden;
+            });
+        }
+
+        function ensureSeatOverlay() {
+            const mounts = getSeatOverlayMounts();
+            if (!mounts.length) return null;
+            let primary = null;
+            mounts.forEach((container, idx) => {
+                let overlay = container.querySelector(':scope > .qi-seat-overlay');
+                if (!overlay) {
+                    overlay = document.createElement('div');
+                    overlay.className = 'qi-seat-overlay';
+                    if (idx === 0) {
+                        const contB = (ctx.slotUi && ctx.slotUi.black && ctx.slotUi.black.continueText) || '继续执黑';
+                        const contW = (ctx.slotUi && ctx.slotUi.white && ctx.slotUi.white.continueText) || '继续执白';
+                        overlay.innerHTML =
+                            '<div class="qi-seat-overlay-inner">' +
+                            '<button type="button" class="qi-seat-overlay-btn" data-seat-action="sit">落座</button>' +
+                            `<button type="button" class="qi-seat-overlay-btn" data-seat-action="continue-black">${contB}</button>` +
+                            `<button type="button" class="qi-seat-overlay-btn" data-seat-action="continue-white">${contW}</button>` +
+                            '<button type="button" class="qi-seat-overlay-btn qi-seat-overlay-btn--secondary" data-seat-action="cancel">取消</button>' +
+                            '</div>';
+                        overlay.addEventListener('click', (e) => {
+                            const btn = e.target.closest('[data-seat-action]');
+                            if (!btn || btn.disabled) return;
+                            const action = btn.getAttribute('data-seat-action');
+                            const w = ctx.getWs();
+                            if (action === 'cancel') {
+                                S.seatOverlayLocalHide = true;
+                                updateSeatOverlay();
+                                return;
+                            }
+                            if (!w || w.readyState !== WebSocket.OPEN) return;
+                            const slots = ctx.getSlots();
+                            if (action === 'sit') {
+                                if (slots.black && slots.white) return;
+                                const color = !slots.black ? 'black' : (!slots.white ? 'white' : null);
+                                if (!color) return;
+                                // takeSeat：新协议由服务端分配；selectColor：兼容旧服务端
+                                w.send(JSON.stringify({ type: 'takeSeat' }));
+                                w.send(JSON.stringify({ type: 'selectColor', color }));
+                                S._optimisticSeat = color;
+                                S._seatRetryOther = true;
+                                ctx.setMySlot(color);
+                                slots[color] = true;
+                                refreshColorStatus();
+                                updateSeatOverlay();
+                                if (typeof ctx.updateTurn === 'function') ctx.updateTurn();
+                            } else if (action === 'continue-black') {
+                                w.send(JSON.stringify({ type: 'takeSeat', color: 'black' }));
+                                w.send(JSON.stringify({ type: 'selectColor', color: 'black' }));
+                                S._optimisticSeat = 'black';
+                                S._seatRetryOther = false;
+                                ctx.setMySlot('black');
+                                slots.black = true;
+                                refreshColorStatus();
+                                updateSeatOverlay();
+                                if (typeof ctx.updateTurn === 'function') ctx.updateTurn();
+                            } else if (action === 'continue-white') {
+                                w.send(JSON.stringify({ type: 'takeSeat', color: 'white' }));
+                                w.send(JSON.stringify({ type: 'selectColor', color: 'white' }));
+                                S._optimisticSeat = 'white';
+                                S._seatRetryOther = false;
+                                ctx.setMySlot('white');
+                                slots.white = true;
+                                refreshColorStatus();
+                                updateSeatOverlay();
+                                if (typeof ctx.updateTurn === 'function') ctx.updateTurn();
+                            }
+                        });
+                    } else {
+                        overlay.classList.add('qi-seat-overlay--mute');
+                    }
+                    container.appendChild(overlay);
+                    if (!S._seatOverlayResizeBound) {
+                        S._seatOverlayResizeBound = true;
+                        window.addEventListener('resize', () => {
+                            if (!ctx.boardSeatOverlay) return;
+                            getSeatOverlayMounts().forEach((c) => {
+                                const o = c.querySelector(':scope > .qi-seat-overlay');
+                                if (o) applySeatOverlayShape(o, c);
+                            });
+                        });
+                    }
+                }
+                applySeatOverlayShape(overlay, container);
+                if (idx === 0) primary = overlay;
+            });
+            return primary;
+        }
+
+        function notifySeatOverlayVisibility() {
+            let visible = false;
+            getSeatOverlayMounts().forEach((c) => {
+                const o = c.querySelector(':scope > .qi-seat-overlay');
+                if (o && !o.hidden) visible = true;
+            });
+            if (typeof ctx.onSeatOverlayUpdated === 'function') {
+                try { ctx.onSeatOverlayUpdated({ visible }); } catch (e) { /* ignore */ }
+            }
+        }
+
+        function updateSeatOverlay() {
+            if (!ctx.boardSeatOverlay) return;
+            noteSeatVacancyChange();
+            const overlay = ensureSeatOverlay();
+            if (!overlay) {
+                notifySeatOverlayVisibility();
+                return;
+            }
+
+            const slots = ctx.getSlots();
+            const mySlot = ctx.getMySlot();
+            const matchStarted = !!(S.matchStarted || (S.matchTime && S.matchTime.settings));
+            const btnSit = overlay.querySelector('[data-seat-action="sit"]');
+            const btnCB = overlay.querySelector('[data-seat-action="continue-black"]');
+            const btnCW = overlay.querySelector('[data-seat-action="continue-white"]');
+            const btnCancel = overlay.querySelector('[data-seat-action="cancel"]');
+
+            const forceHide = !!(S.seatOverlayForceHide || S.tryPlayMode || (S.replayMode && !matchStarted));
+            if (forceHide || S.seatOverlayLocalHide) {
+                setAllSeatOverlaysHidden(true);
+                refreshColorStatus();
+                updatePlayerLeftIndicators();
+                notifySeatOverlayVisibility();
+                return;
+            }
+
+            if (matchStarted && mySlot) {
+                setAllSeatOverlaysHidden(true);
+                refreshColorStatus();
+                updatePlayerLeftIndicators();
+                notifySeatOverlayVisibility();
+                return;
+            }
+
+            if (!matchStarted) {
+                if (mySlot) {
+                    setAllSeatOverlaysHidden(true);
+                    refreshColorStatus();
+                    updatePlayerLeftIndicators();
+                    notifySeatOverlayVisibility();
+                    return;
+                }
+                const bothFull = !!(slots.black && slots.white);
+                if (btnSit) {
+                    btnSit.hidden = false;
+                    btnSit.disabled = bothFull;
+                }
+                if (btnCB) btnCB.hidden = true;
+                if (btnCW) btnCW.hidden = true;
+                if (btnCancel) btnCancel.hidden = false;
+                setAllSeatOverlaysHidden(false);
+                refreshColorStatus();
+                updatePlayerLeftIndicators();
+                notifySeatOverlayVisibility();
+                return;
+            }
+
+            const needBlack = !slots.black;
+            const needWhite = !slots.white;
+            if (!needBlack && !needWhite) {
+                setAllSeatOverlaysHidden(true);
+                refreshColorStatus();
+                updatePlayerLeftIndicators();
+                notifySeatOverlayVisibility();
+                return;
+            }
+            if (btnSit) btnSit.hidden = true;
+            if (btnCB) {
+                btnCB.hidden = !needBlack;
+                btnCB.disabled = false;
+            }
+            if (btnCW) {
+                btnCW.hidden = !needWhite;
+                btnCW.disabled = false;
+            }
+            if (btnCancel) btnCancel.hidden = false;
+            setAllSeatOverlaysHidden(false);
+            refreshColorStatus();
+            updatePlayerLeftIndicators();
+            notifySeatOverlayVisibility();
+        }
+
+        function updateRadioStylesForSeatOverlay() {
+            updateSeatOverlay();
+        }
+
+        function handleSeatOverlayMessage(msg) {
+            if (!ctx.boardSeatOverlay || !msg) return false;
+            switch (msg.type) {
+                case 'joined':
+                    S.seatOverlayLocalHide = false;
+                    S.seatOverlayForceHide = false;
+                    if (msg.state && msg.state.boardSeatOverlay) ctx.boardSeatOverlay = true;
+                    if (msg.state && msg.state.hostSlot !== undefined) {
+                        S.hostSlot = msg.state.hostSlot;
+                        if (ctx.getMySlot()) S.isHost = ctx.getMySlot() === msg.state.hostSlot;
+                    }
+                    updateSeatOverlay();
+                    return true;
+                case 'slotOccupied':
+                case 'slotReleased':
+                case 'playerLeft':
+                    updateSeatOverlay();
+                    return true;
+                case 'colorAssigned':
+                    S._optimisticSeat = null;
+                    S._seatRetryOther = false;
+                    if (msg.isHost != null) S.isHost = !!msg.isHost;
+                    if (msg.isHost) S.hostSlot = msg.color;
+                    updateSeatOverlay();
+                    return true;
+                case 'colorsFinalized':
+                    if (msg.slots) ctx.setSlots(msg.slots);
+                    if (msg.hostSlot !== undefined) {
+                        S.hostSlot = msg.hostSlot;
+                        S.isHost = ctx.getMySlot() === msg.hostSlot;
+                    }
+                    updateSeatOverlay();
+                    return true;
+                case 'gameState':
+                case 'roomReset':
+                case 'editBoardAccepted':
+                    if (msg.boardSeatOverlay) ctx.boardSeatOverlay = true;
+                    if (msg.hostSlot !== undefined) S.hostSlot = msg.hostSlot;
+                    if (msg.type === 'roomReset') {
+                        S.seatOverlayLocalHide = false;
+                        S.seatOverlayForceHide = false;
+                        S.matchStarted = false;
+                        S.matchTime = null;
+                    }
+                    updateSeatOverlay();
+                    return true;
+                case 'timeControlAgreed':
+                    if (msg.slots) ctx.setSlots(msg.slots);
+                    if (msg.hostSlot !== undefined) S.hostSlot = msg.hostSlot;
+                    S.matchStarted = true;
+                    updateSeatOverlay();
+                    return true;
+                case 'timeControlReset':
+                    S.matchStarted = false;
+                    updateSeatOverlay();
+                    return true;
+                case 'newGameStarted':
+                    S.seatOverlayLocalHide = false;
+                    S.seatOverlayForceHide = false;
+                    S.matchStarted = false;
+                    S.matchTime = null;
+                    updateSeatOverlay();
+                    return true;
+                case 'importSuccess':
+                    S.seatOverlayForceHide = true;
+                    S.seatOverlayLocalHide = true;
+                    updateSeatOverlay();
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        if (ctx.seatOverlayOnly) {
+            if (ctx.boardSeatOverlay) updateRadioStylesForSeatOverlay();
+            return {
+                updateSeatOverlay,
+                updateRadioStyles: updateRadioStylesForSeatOverlay,
+                refreshColorStatus,
+                handleSeatOverlayMessage
+            };
+        }
+
+        function updatePlayerLeftIndicators() {
+            if (mtCtl && typeof mtCtl.applyMatchTimeFromState === 'function') {
+                // reuse timer panel refresh when matchTime present
+            }
+            const panel = document.getElementById('goTimerPanel');
+            const slots = ctx.getSlots();
+            const matchStarted = !!(S.matchStarted || (S.matchTime && S.matchTime.settings));
+            const absentBlack = !!(matchStarted && !slots.black);
+            const absentWhite = !!(matchStarted && !slots.white);
+            if (panel && !panel.hidden && S.matchTime && S.matchTime.settings) {
+                ['black', 'white'].forEach((slot) => {
+                    const el = panel.querySelector('[data-go-timer="' + slot + '"]');
+                    if (!el) return;
+                    const left = slot === 'black' ? absentBlack : absentWhite;
+                    const titleEl = el.querySelector('.go-timer-title');
+                    if (titleEl) {
+                        const ui = (ctx.slotUi && ctx.slotUi[slot]) || null;
+                        const base = ui
+                            ? `${ui.emoji || ''} ${ui.name || ''}`.trim()
+                            : (slot === 'black' ? '⚫ 黑方' : '⚪ 白方');
+                        titleEl.textContent = left ? `${base}(已退出)` : base;
+                    }
+                    el.classList.toggle('is-player-left', left);
+                });
+            }
+            let notice = document.getElementById('qiSeatAbsentNotice');
+            const parent = panel && panel.parentElement;
+            if (parent) {
+                if (!notice) {
+                    notice = document.createElement('div');
+                    notice.id = 'qiSeatAbsentNotice';
+                    notice.className = 'qi-seat-absent-notice';
+                    parent.insertBefore(notice, panel.nextSibling);
+                }
+                if (!matchStarted || (!absentBlack && !absentWhite) || (panel && !panel.hidden)) {
+                    notice.hidden = true;
+                    notice.textContent = '';
+                } else {
+                    const parts = [];
+                    if (absentBlack) parts.push(((ctx.slotUi && ctx.slotUi.black && ctx.slotUi.black.absentText) || '黑方已退出'));
+                    if (absentWhite) parts.push(((ctx.slotUi && ctx.slotUi.white && ctx.slotUi.white.absentText) || '白方已退出'));
+                    notice.textContent = parts.join('　');
+                    notice.hidden = !parts.length;
+                }
+            }
+        }
+
         function syncStateWithMatch(msg) {
             ctx.syncState(msg);
             if (mtCtl && msg.matchTime !== undefined) mtCtl.applyMatchTimeFromState(msg);
+            if (msg.hostSlot !== undefined) {
+                S.hostSlot = msg.hostSlot;
+                if (ctx.getMySlot()) S.isHost = ctx.getMySlot() === msg.hostSlot;
+            }
+            if (msg.boardSeatOverlay) ctx.boardSeatOverlay = true;
         }
         function handleMessage(msg) {
             const ws = ctx.getWs();
             if (mtCtl && (msg.type === 'timeControlNegotiation' || msg.type === 'timeControlWaitPeer'
                 || msg.type === 'timeControlAgreed' || msg.type === 'timeControlReset' || msg.type === 'clockUpdate')) {
                 mtCtl.handleMessage(msg);
-                updateReplayUI();
+                if (msg.type === 'timeControlAgreed') {
+                    if (msg.slots) ctx.setSlots(msg.slots);
+                    if (msg.hostSlot !== undefined) S.hostSlot = msg.hostSlot;
+                    refreshColorStatus();
+                }
+                if (typeof ctx.updateReplayUI === 'function') ctx.updateReplayUI();
+                updateSeatOverlay();
                 return;
             }
             switch (msg.type) {
                 case 'joined':
                     sessionStorage.removeItem(`roomPassword_${ctx.roomId}`);
+                    S.seatOverlayLocalHide = false;
+                    S.seatOverlayForceHide = false;
                     if (msg.state && msg.state.boardSize && msg.state.boardSize !== ctx.getBoardSize()) {
                         ctx.setBoardSize(msg.state.boardSize);
                         if (msg.state.komi != null && Number.isFinite(msg.state.komi))
@@ -520,14 +1418,15 @@
                         if (boardSizeSelect) 
                             boardSizeSelect.value = ctx.getBoardSize();
                     }
+                    if (msg.state && msg.state.boardSeatOverlay) ctx.boardSeatOverlay = true;
                     if (msg.role === 'player') {
                         ctx.setMySlot(msg.slot);
-                        ctx.colorStatus.innerText = `已选择: ${ctx.getMySlot() === 'black' ? '黑方' : '白方'}`;
                         if (msg.state) syncStateWithMatch(msg.state);
+                        refreshColorStatus();
                     } else {
                         ctx.setMySlot(null);
-                        ctx.colorStatus.innerText = '观战';
                         if (msg.state) syncStateWithMatch(msg.state);
+                        refreshColorStatus();
                     }
                     updateRadioStyles();
                     // 大厅「导入棋谱」：创建房间并跳转后，在此处发送 importRecord（与房间内选文件导入一致）
@@ -568,22 +1467,50 @@
                         else if (msg.slot === 'white') s.white = false;
                         if (ctx.getMySlot() === msg.slot) {
                             ctx.setMySlot(null);
-                            ctx.colorStatus.innerText = '观战';
+                            refreshColorStatus();
                         }
                     }
                     updateRadioStyles();
                     ctx.updateTurn();
                     break;
+                case 'playerLeft':
+                    {
+                        const s = ctx.getSlots();
+                        if (msg.slot === 'black') s.black = false;
+                        else if (msg.slot === 'white') s.white = false;
+                        if (ctx.getMySlot() === msg.slot) {
+                            ctx.setMySlot(null);
+                            refreshColorStatus();
+                        }
+                        if (msg.matchStarted || S.matchStarted)
+                            S.seatOverlayLocalHide = false;
+                    }
+                    updateRadioStyles();
+                    ctx.updateTurn();
+                    break;
                 case 'colorAssigned':
+                    S._optimisticSeat = null;
+                    S._seatRetryOther = false;
                     ctx.setMySlot(msg.color);
-                    ctx.colorStatus.innerText = `已选择: ${ctx.getMySlot() === 'black' ? '黑方' : '白方'}`;
+                    if (msg.isHost != null) S.isHost = !!msg.isHost;
                     {
                         const s = ctx.getSlots();
                         if (ctx.getMySlot() === 'black') s.black = true;
                         else s.white = true;
                     }
+                    if (msg.isHost) S.hostSlot = msg.color;
+                    refreshColorStatus();
                     updateRadioStyles();
                     ctx.updateTurn();
+                    break;
+                case 'colorsFinalized':
+                    if (msg.slots) ctx.setSlots(msg.slots);
+                    if (msg.hostSlot !== undefined) {
+                        S.hostSlot = msg.hostSlot;
+                        S.isHost = ctx.getMySlot() === msg.hostSlot;
+                    }
+                    refreshColorStatus();
+                    updateRadioStyles();
                     break;
                 case 'gameState':
                     syncStateWithMatch(msg);
@@ -599,16 +1526,24 @@
                         const wasOver = ctx.getGameOver();
                         syncStateWithMatch(msg);
                         if (msg.gameOver && !wasOver) {
+                            const slotName = (slot) =>
+                                (ctx.slotUi && ctx.slotUi[slot] && ctx.slotUi[slot].name)
+                                || (slot === 'black' ? '黑方' : '白方');
                             if (msg.action === 'timeLoss') {
-                                const loser = msg.player === 'black' ? '黑方' : '白方';
-                                const winText = msg.winner === 'black' ? '黑胜' : (msg.winner === 'white' ? '白胜' : '和棋');
-                                alert(`${loser}超时，${winText}。`);
+                                const loser = slotName(msg.player);
+                                const winText = msg.winner === 'draw' ? '和棋' : `${slotName(msg.winner)}胜`;
+                                qiAlert(`${loser}超时，${winText}。`);
                             }
-                            else if (msg.winner === 'black') alert('黑胜。');
-                            else if (msg.winner === 'white') alert('白胜。');
-                            else if (msg.winner === 'draw') alert('和棋。');
-                        } else if (msg.action === 'drawAgreed' && !wasOver) alert('和棋。');
-                        else if (msg.action === 'resign' && !wasOver) alert(`${msg.player === 'black' ? '黑方' : '白方'}认输`);
+                            else if (msg.winner === 'black') qiAlert(`${slotName('black')}胜。`);
+                            else if (msg.winner === 'white') qiAlert(`${slotName('white')}胜。`);
+                            else if (msg.winner === 'draw') qiAlert('和棋。');
+                        } else if (msg.action === 'drawAgreed' && !wasOver) qiAlert('和棋。');
+                        else if (msg.action === 'resign' && !wasOver) {
+                            const slotName = (slot) =>
+                                (ctx.slotUi && ctx.slotUi[slot] && ctx.slotUi[slot].name)
+                                || (slot === 'black' ? '黑方' : '白方');
+                            qiAlert(`${slotName(msg.player)}认输`);
+                        }
                     }
                     break;
                 case 'newGameStarted':
@@ -619,7 +1554,9 @@
                     ctx.setWaitingScoreConfirm(false);
                     ctx.setIRejected(false);
                     ctx.setMySlot(null);
-                    ctx.colorStatus.innerText = '观战';
+                    S.seatOverlayLocalHide = false;
+                    S.seatOverlayForceHide = false;
+                    refreshColorStatus();
                     ctx.setSlots({ black: false, white: false });
                     ctx.scoreTitle.innerText = '　';
                     S.matchTime = null;
@@ -630,16 +1567,13 @@
                     updateRadioStyles();
                     break;
                 case 'newGameRequest':
-                    if (confirm('对方请求开始新的一局，是否同意？')) ws.send(JSON.stringify({ type: 'newGameResponse', accept: true }));
-                    else ws.send(JSON.stringify({ type: 'newGameResponse', accept: false }));
+                    qiConfirm('对方请求开始新的一局，是否同意？').then(ok => { ws.send(JSON.stringify({ type: 'newGameResponse', accept: !!ok })); });
                     break;
                 case 'undoRequest':
-                    if (confirm('对方请求悔棋，是否同意？')) ws.send(JSON.stringify({ type: 'undoResponse', accept: true }));
-                    else ws.send(JSON.stringify({ type: 'undoResponse', accept: false }));
+                    qiConfirm('对方请求悔棋，是否同意？').then(ok => { ws.send(JSON.stringify({ type: 'undoResponse', accept: !!ok })); });
                     break;
                 case 'drawRequest':
-                    if (confirm('对方申请和棋，是否同意？')) ws.send(JSON.stringify({ type: 'drawResponse', accept: true }));
-                    else ws.send(JSON.stringify({ type: 'drawResponse', accept: false }));
+                    qiConfirm('对方申请和棋，是否同意？').then(ok => { ws.send(JSON.stringify({ type: 'drawResponse', accept: !!ok })); });
                     break;
                 case 'scoreProposal': {
                     if (msg.board) syncStateWithMatch(msg);
@@ -679,7 +1613,7 @@
                 case 'scoreRejected':
                     if (msg.board) syncStateWithMatch(msg);
                     if (ctx.getIRejected()) ctx.setIRejected(false);
-                    else alert('对方拒绝数子结果，对局继续');
+                    else qiAlert('对方拒绝数点结果，对局继续');
                     ctx.clearMobileMovePreview();
                     if (ctx.getShowEstimateActive()) {
                         ctx.setShowEstimateActive(false);
@@ -689,8 +1623,7 @@
                     ctx.setWaitingScoreConfirm(false);
                     break;
                 case 'requestEnd':
-                    if (confirm('对方申请数子，是否同意？')) ws.send(JSON.stringify({ type: 'endResponse', accept: true }));
-                    else ws.send(JSON.stringify({ type: 'endResponse', accept: false }));
+                    qiConfirm('对方申请数点，是否同意？').then(ok => { ws.send(JSON.stringify({ type: 'endResponse', accept: !!ok })); });
                     break;
                 case 'gameRecord':
                     ctx.downloadRecord(msg.data);
@@ -713,6 +1646,8 @@
                     ctx.hideScoreConfirm();
                     ctx.setWaitingScoreConfirm(false);
                     if (msg.replayData) ctx.enterReplayMode(msg.replayData);
+                    S.seatOverlayForceHide = true;
+                    S.seatOverlayLocalHide = true;
                     updateRadioStyles();
                     break;
                 }
@@ -722,6 +1657,8 @@
                     S.matchTime = null;
                     S.matchStarted = false;
                     S.matchStartedOnce = false;
+                    S.seatOverlayLocalHide = false;
+                    S.seatOverlayForceHide = false;
                     if (ctx.onRoomReset) ctx.onRoomReset();
                     syncStateWithMatch(msg);
                     ctx.clearEstimate();
@@ -739,10 +1676,55 @@
                     }
                     break;
                 case 'error':
+                    if (S._optimisticSeat) {
+                        const s = ctx.getSlots();
+                        const c = S._optimisticSeat;
+                        const occupied = msg.message && /(颜色|座位)已被占用/.test(msg.message);
+                        const seatsFull = msg.message && /双方均已落座/.test(msg.message);
+                        // 开局落座抢座：自动改试另一色，不弹旧提示
+                        if (occupied && S._seatRetryOther && (c === 'black' || c === 'white')) {
+                            const other = c === 'black' ? 'white' : 'black';
+                            S._seatRetryOther = false;
+                            if (ctx.getMySlot() === c) ctx.setMySlot(null);
+                            s[c] = false;
+                            if (!s[other]) {
+                                const w2 = ctx.getWs();
+                                S._optimisticSeat = other;
+                                ctx.setMySlot(other);
+                                s[other] = true;
+                                if (w2 && w2.readyState === WebSocket.OPEN) {
+                                    w2.send(JSON.stringify({ type: 'takeSeat', color: other }));
+                                    w2.send(JSON.stringify({ type: 'selectColor', color: other }));
+                                }
+                                refreshColorStatus();
+                                updateRadioStyles();
+                                if (typeof ctx.updateTurn === 'function') ctx.updateTurn();
+                                break;
+                            }
+                        }
+                        if (ctx.getMySlot() === c) ctx.setMySlot(null);
+                        if (c === 'black') s.black = false;
+                        else if (c === 'white') s.white = false;
+                        S._optimisticSeat = null;
+                        S._seatRetryOther = false;
+                        S.seatOverlayLocalHide = false;
+                        refreshColorStatus();
+                        updateRadioStyles();
+                        if (typeof ctx.updateTurn === 'function') ctx.updateTurn();
+                        if (ctx.boardSeatOverlay && (occupied || seatsFull))
+                            break;
+                    }
                     if (msg.message === '密码错误') {
                         sessionStorage.removeItem(`roomPassword_${ctx.roomId}`);
                         window.location.href = `/qi?game=${ctx.gameType}&room=${ctx.roomId}&needPassword=1`;
-                    } else alert(msg.message);
+                    } else if (ctx.boardSeatOverlay && msg.message && /双方均已落座/.test(msg.message)) {
+                        // 座位已满时点击落座：静默忽略
+                        break;
+                    } else {
+                        if (mtCtl && typeof mtCtl.restoreAfterError === 'function')
+                            mtCtl.restoreAfterError();
+                        qiAlert(msg.message);
+                    }
                     break;
                 default:
                     console.log('未知消息', msg);
@@ -765,18 +1747,26 @@
             const exportBtn = document.getElementById('exportBtn');
             if (!importBtn || !exportBtn) return;
             const board = ctx.getBoard();
-            const hasAnyStone = board.some(row => row.some(v => v !== 0));
+            // 围棋等用 0 表示空；象棋等用 '' 表示空
+            const hasAnyStone = Array.isArray(board) && board.some(row =>
+                Array.isArray(row) && row.some(v => v !== 0 && v !== '' && v != null));
             const s = ctx.getSlots();
             const noPlayers = !s.black && !s.white;
+            const matchStarted = !!(S.matchStarted || (S.matchTime && S.matchTime.settings));
             const freshCatalog = isQiLobbyFreshCatalogRoom();
-            if (freshCatalog && noPlayers && !hasAnyStone) {
+            if (ctx.getReplayMode()) {
+                importBtn.style.display = 'none';
+                exportBtn.style.display = '';
+                return;
+            }
+            if (!matchStarted && noPlayers && !hasAnyStone) {
                 importBtn.style.display = '';
                 exportBtn.style.display = 'none';
                 return;
             }
-            if (ctx.getReplayMode()) {
-                importBtn.style.display = 'none';
-                exportBtn.style.display = '';
+            if (freshCatalog && noPlayers && !hasAnyStone) {
+                importBtn.style.display = '';
+                exportBtn.style.display = 'none';
                 return;
             }
             importBtn.style.display = 'none';
@@ -784,6 +1774,15 @@
         }
 
         function updateRadioStyles() {
+            if (ctx.boardSeatOverlay) {
+                updateRecordButtons();
+                updateSeatOverlay();
+                return;
+            }
+            if (!ctx.labelBlack || !ctx.labelWhite || !ctx.radioBlack || !ctx.radioWhite) {
+                updateRecordButtons();
+                return;
+            }
             ctx.labelBlack.classList.remove('self-radio', 'opponent-radio', 'checked-disabled');
             ctx.labelWhite.classList.remove('self-radio', 'opponent-radio', 'checked-disabled');
             const slots = ctx.getSlots();
@@ -815,19 +1814,20 @@
             newGameBtn.onclick = () => {
                 if (!S.mySlot) {
                     if (S.slots.black || S.slots.white) {
-                        alert('只有对局者可以开始新局');
+                        qiAlert('只有对局者可以开始新局');
                         return;
                     }
-                    if (!confirm('确定开始新局吗？')) return;
-                    S.ws.send(JSON.stringify({ type: 'requestNewGame' }));
+                    qiConfirm('确定开始新局吗？').then(ok => {
+                        if (ok) S.ws.send(JSON.stringify({ type: 'requestNewGame' }));
+                    });
                     return;
                 }
                 const opponentSlot = S.mySlot === 'black' ? 'white' : 'black';
                 const hasOpponent = S.slots[opponentSlot];
                 if (hasOpponent) {
-                    if (confirm('确定向对方申请开始新局吗？')) S.ws.send(JSON.stringify({ type: 'requestNewGame' }));
+                    qiConfirm('确定向对方申请开始新局吗？').then(ok => { if (ok) S.ws.send(JSON.stringify({ type: 'requestNewGame' })); });
                 } else {
-                    if (confirm('确定开始新局吗？')) S.ws.send(JSON.stringify({ type: 'requestNewGame' }));
+                    qiConfirm('确定开始新局吗？').then(ok => { if (ok) S.ws.send(JSON.stringify({ type: 'requestNewGame' })); });
                 }
                 return;
             };
@@ -847,8 +1847,15 @@
         if (tryPlayBtn !== null) 
         {
             tryPlayBtn.onclick = () => {
-                if (S.tryPlayMode) ctx.exitTryPlay();
-                else ctx.enterTryPlay();
+                if (S.tryPlayMode) {
+                    ctx.exitTryPlay();
+                    S.seatOverlayForceHide = false;
+                    updateSeatOverlay();
+                } else {
+                    ctx.enterTryPlay();
+                    S.seatOverlayForceHide = true;
+                    updateSeatOverlay();
+                }
             };
         }
 
@@ -865,13 +1872,13 @@
         if (undoBtn !== null) 
         {
             undoBtn.onclick = () => {
-                if (!S.mySlot) { alert('只有对局者可以悔棋'); return; }
+                if (!S.mySlot) { qiAlert('只有对局者可以悔棋'); return; }
                 const opponentSlot = S.mySlot === 'black' ? 'white' : 'black';
                 const hasOpponent = S.slots[opponentSlot];
                 if (hasOpponent) {
-                    if (confirm('确定向对方申请悔棋吗？')) S.ws.send(JSON.stringify({ type: 'requestUndo' }));
+                    qiConfirm('确定向对方申请悔棋吗？').then(ok => { if (ok) S.ws.send(JSON.stringify({ type: 'requestUndo' })); });
                 } else {
-                    if (confirm('确定悔棋吗？')) S.ws.send(JSON.stringify({ type: 'requestUndo' }));
+                    qiConfirm('确定悔棋吗？').then(ok => { if (ok) S.ws.send(JSON.stringify({ type: 'requestUndo' })); });
                 }
             };
         }
@@ -880,8 +1887,8 @@
         if (resignBtn !== null) 
         {
             resignBtn.onclick = () => {
-                if (!S.mySlot) { alert('只有对局者可以认输'); return; }
-                if (confirm('确定认输吗？')) S.ws.send(JSON.stringify({ type: 'resign' }));
+                if (!S.mySlot) { qiAlert('只有对局者可以认输'); return; }
+                qiConfirm('确定认输吗？').then(ok => { if (ok) S.ws.send(JSON.stringify({ type: 'resign' })); });
             };
         }
 
@@ -889,13 +1896,13 @@
         if (drawBtn !== null) 
         {
             drawBtn.onclick = () => {
-                if (!S.mySlot) { alert('只有对局者可以申请和棋'); return; }
+                if (!S.mySlot) { qiAlert('只有对局者可以申请和棋'); return; }
                 const opponentSlot = S.mySlot === 'black' ? 'white' : 'black';
                 const hasOpponent = S.slots[opponentSlot];
                 if (hasOpponent) {
-                    if (confirm('确定向对方申请和棋吗？')) S.ws.send(JSON.stringify({ type: 'requestDraw' }));
+                    qiConfirm('确定向对方申请和棋吗？').then(ok => { if (ok) S.ws.send(JSON.stringify({ type: 'requestDraw' })); });
                 } else {
-                    if (confirm('确定和棋吗？')) S.ws.send(JSON.stringify({ type: 'requestDraw' }));
+                    qiConfirm('确定和棋吗？').then(ok => { if (ok) S.ws.send(JSON.stringify({ type: 'requestDraw' })); });
                 }
             };
         }
@@ -904,7 +1911,7 @@
         if (endReqBtn !== null) 
         {
             endReqBtn.onclick = () => {
-                if (!S.mySlot) { alert('只有对局者可以申请数子'); return; }
+                if (!S.mySlot) { qiAlert('只有对局者可以申请数点'); return; }
                 S.ws.send(JSON.stringify({ type: 'requestEnd' }));
             };
         }
@@ -945,7 +1952,7 @@
                         const data = JSON.parse(ev.target.result);
                         S.ws.send(JSON.stringify({ type: 'importRecord', data }));
                     } catch (err) {
-                        alert('棋谱文件解析失败');
+                        qiAlert('棋谱文件解析失败');
                     }
                 };
                 reader.readAsText(file);
@@ -968,8 +1975,15 @@
         if (backToLobbyBtn !== null)
             backToLobbyBtn.onclick = () => { window.location.href = '/qi'; };
 
-        ctx.radioBlack.onchange = function () { if (this.checked && !this.disabled) S.ws.send(JSON.stringify({ type: 'selectColor', color: 'black' })); };
-        ctx.radioWhite.onchange = function () { if (this.checked && !this.disabled) S.ws.send(JSON.stringify({ type: 'selectColor', color: 'white' })); };
+        if (!ctx.boardSeatOverlay) {
+            if (ctx.radioBlack)
+                ctx.radioBlack.onchange = function () { if (this.checked && !this.disabled) S.ws.send(JSON.stringify({ type: 'selectColor', color: 'black' })); };
+            if (ctx.radioWhite)
+                ctx.radioWhite.onchange = function () { if (this.checked && !this.disabled) S.ws.send(JSON.stringify({ type: 'selectColor', color: 'white' })); };
+        }
+
+        if (ctx.boardSeatOverlay)
+            updateSeatOverlay();
 
         const replayBackBtn = document.getElementById('replayBackBtn');
         if (replayBackBtn !== null)
@@ -1022,7 +2036,7 @@
                 closeRulesBtn.onclick = () => rulesModal.style.display = 'none';
             rulesModal.onclick = (e) => { if (e.target === rulesModal) rulesModal.style.display = 'none'; };
         }
-        return { handleMessage, updateRecordButtons, updateRadioStyles };
+        return { handleMessage, updateRecordButtons, updateRadioStyles, updateSeatOverlay };
     }
 
     const QiBoardRoomClient = {
@@ -1361,7 +2375,7 @@
     function standardRoomSocketOnClose(o) {
         return function (event) {
             if (event.code === 1008 && event.reason && String(event.reason).includes('房间不存在')) {
-                alert('房间不存在，请返回大厅');
+                qiAlert('房间不存在，请返回大厅');
                 window.location.href = '/qi';
                 return;
             }
@@ -1809,7 +2823,15 @@
                 return;
             }
             if (!ps.matchStarted) {
-                dom.turnDisplay.innerText = bothSelected ? '等待双方确认限时规则' : '等待双方入座';
+                if (bothSelected) {
+                    dom.turnDisplay.innerText = '等待双方确认规则';
+                } else {
+                    const seated = (ps.slots && ps.slots.black ? 1 : 0) + (ps.slots && ps.slots.white ? 1 : 0);
+                    if (seated === 1 && ps.mySlot)
+                        dom.turnDisplay.innerText = '等待对手(1/2)';
+                    else
+                        dom.turnDisplay.innerText = `等待双方入座(${seated}/2)`;
+                }
                 ps.isMyTurn = false;
                 drawBoard();
                 return;

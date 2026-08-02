@@ -1,6 +1,6 @@
 'use strict';
 
-const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, encodeInitialPositionCompact, applyInitialPositionCompact } = require('../common');
+const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, encodeInitialPositionCompact, applyInitialPositionCompact, qiBoardSeatOverlay } = require('../common');
 
 class SyncWeiqiRoom extends QiTwoPlayerRoomBase {
     constructor(room, initialSize = 19) {
@@ -926,7 +926,7 @@ class SyncWeiqiRoom extends QiTwoPlayerRoomBase {
 
             case 'endResponse':
                 if (this.pendingEnd && msg.accept) this.startScoreCounting(this.pendingEnd.requester, this.pendingEnd.opponent);
-                else if (this.pendingEnd && !msg.accept) this.pendingEnd.requester.send(JSON.stringify({ type: 'error', message: '对方拒绝数子。' }));
+                else if (this.pendingEnd && !msg.accept) this.pendingEnd.requester.send(JSON.stringify({ type: 'error', message: '对方拒绝数点。' }));
                 this.pendingEnd = null;
                 break;
 
@@ -993,6 +993,7 @@ class SyncWeiqiRoom extends QiTwoPlayerRoomBase {
 module.exports = {
     initRoom(room) {
         room.gameLogic = new SyncWeiqiRoom(room);
+        if (typeof qiBoardSeatOverlay !== 'undefined' && qiBoardSeatOverlay) qiBoardSeatOverlay.install(room.gameLogic);
         room.maxPlayers = 2;
     }
 };

@@ -10,11 +10,8 @@
     <div class="game-wrapper">
         <div class="top-panel">
             <div class="left-group">
-                <div class="side-select">
-                    <label id="labelBlack"><input type="radio" name="color" value="black" id="radioBlack"> ⚫ 黑方</label>
-                    <label id="labelWhite"><input type="radio" name="color" value="white" id="radioWhite"> ⚪ 白方</label>
-                </div>
-                <div class="komi-info">黑贴白3.25点</div>
+                <div class="komi-info" id="gameTitleInfo">扭棱四角围棋</div>
+                <div class="komi-info" id="komiInfo">黑贴白2点</div>
                 <div class="color-status" id="colorStatus">观战</div>
                 <select id="boardSizeSelect" class="board-size-select" style="display: none;">
                     <option value="3">3路</option>
@@ -54,7 +51,7 @@
                 <button class="ctrl-btn" id="undoBtn" style="display:none;">悔棋</button>
                 <button class="ctrl-btn" id="resignBtn" style="display:none;">认输</button>
                 <button class="ctrl-btn" id="drawBtn" style="display:none;">和棋</button>
-                <button class="ctrl-btn" id="endReqBtn" style="display:none;">申请数子</button>
+                <button class="ctrl-btn" id="endReqBtn" style="display:none;">申请数点</button>
                 <button class="ctrl-btn" id="importBtn">导入棋谱</button>
                 <button class="ctrl-btn" id="exportBtn" style="display:none;">导出棋谱</button>
             </div>
@@ -129,14 +126,17 @@
         let BOARD_LANES = 7;
         let GRID_W = 3 * BOARD_LANES - 2;
         let GRID_H = 3 * BOARD_LANES - 2;
-        const KOMI = 3.25;
+        function komiForLanes(lanes) {
+            return lanes === 3 ? 3 : 2;
+        }
+        let KOMI = komiForLanes(BOARD_LANES);
         let vertexPos = new Map();
         let boardEdgePath = null;
         let hoverDrawPending = false;
 
         // 路径参数
         const pathMatch = window.location.pathname.match(/^\/qi\/([^/]+)\/(\d+)$/);
-        if (!pathMatch) { alert('无效的房间链接'); throw new Error('Invalid room URL'); }
+        if (!pathMatch) { qiAlert('无效的房间链接'); throw new Error('Invalid room URL'); }
         const gameType = pathMatch[1];
         const roomId = pathMatch[2];
         let roomPassword = sessionStorage.getItem(`roomPassword_${roomId}`) || null;
@@ -188,7 +188,7 @@
         let showEstimateActive = false;
         let cachedLiveBoard = null;
         let cachedTerritory = null;
-        let waitingScoreConfirm = false; // 数子确认等待中
+        let waitingScoreConfirm = false; // 数点确认等待中
         let iRejected = false;
 
         let ws;
@@ -196,6 +196,8 @@
         let slots = { black: false, white: false };
         let matchStarted = false;
         let matchStartedOnce = false;
+        /** 与 qi.js 限时协商一致：由 syncState / 限时消息更新 */
+        let matchTime = null;
         let reconnectTimer = null;
 
         let replayMode = false;
@@ -215,6 +217,8 @@
         let tryPlayCurrentPlayer = 1;
         let tryPlayStep = 0;
         let tryPlayTotalSteps = 0;
+        let tryPlayFromLive = false;
+        let tryPlayFromLiveStep = null;
 
         let liveReplayBoards = [];
         let liveReplayMarkers = [];
@@ -238,11 +242,7 @@
         const ctx = canvas.getContext('2d');
         const turnDisplay = document.getElementById('turnDisplay');
         const colorStatus = document.getElementById('colorStatus');
-        const radioBlack = document.getElementById('radioBlack');
-        const radioWhite = document.getElementById('radioWhite');
-        const labelBlack = document.getElementById('labelBlack');
-        const labelWhite = document.getElementById('labelWhite');
-        const scoreTitle = document.getElementById('scoreTitle');
+const scoreTitle = document.getElementById('scoreTitle');
         const scoreBoard = document.getElementById('scoreBoard');
         const leadInfo = document.getElementById('leadInfo');
         const scoreConfirmPanel = document.getElementById('scoreConfirmPanel');
@@ -958,10 +958,22 @@
         // ======================== 试下模式 ========================
         function enterTryPlay() {
             clearMobileMovePreview();
+            if (!replayMode) {
+                tryPlayFromLive = true;
+                tryPlayFromLiveStep = liveViewStep || 0;
+                replayMode = true;
+                replayBoards = [deepCopyBoard(board)];
+                replayMarkers = [(lastMoveMarkers || []).map(m => ({ ...m }))];
+                replayStepPlayers = [currentPlayer === 1 ? 2 : 1];
+                replayStep = 0;
+                replayTotalSteps = 0;
+            } else {
+                tryPlayFromLive = false;
+            }
             tryPlayMode = true;
             tryPlayBaseStep = replayStep;
             tryPlayBoards = [deepCopyBoard(board)];
-            tryPlayMarkers = [lastMoveMarkers.map(m => ({ ...m }))];
+            tryPlayMarkers = [(lastMoveMarkers || []).map(m => ({ ...m }))];
 
             if (replayStep === 0) {
                 tryPlayCurrentPlayer = 1;
@@ -977,11 +989,20 @@
             slider.value = 0;
             updateTryPlayDisplay();
             updateReplayUI();
+            drawBoard();
         }
 
         function exitTryPlay() {
             clearMobileMovePreview();
+            const fromLive = !!tryPlayFromLive;
+            const savedLiveStep = tryPlayFromLiveStep != null ? tryPlayFromLiveStep : liveViewStep;
+            const snapBoard = fromLive && tryPlayBoards.length > 0 ? deepCopyBoard(tryPlayBoards[0]) : null;
+            const snapMarkers = fromLive && tryPlayMarkers.length > 0 && tryPlayMarkers[0]
+                ? tryPlayMarkers[0].map(m => ({ ...m }))
+                : [];
             tryPlayMode = false;
+            tryPlayFromLive = false;
+            tryPlayFromLiveStep = null;
             tryPlayBoards = [];
             tryPlayMarkers = [];
             tryPlayStep = 0;
@@ -989,8 +1010,38 @@
 
             const slider = document.getElementById('replaySlider');
             slider.min = 0;
-            slider.max = replayTotalSteps;
-            setReplayStep(tryPlayBaseStep);
+            if (fromLive) {
+                replayMode = false;
+                replayBoards = [];
+                replayMarkers = [];
+                replayStepPlayers = [];
+                replayStep = 0;
+                replayTotalSteps = 0;
+                if (snapBoard) {
+                    board = snapBoard;
+                    lastMoveMarkers = snapMarkers.map(m => ({ ...m }));
+                    if (liveReplayBoards.length > 0) {
+                        const step = Math.min(Math.max(0, savedLiveStep), liveReplayBoards.length - 1);
+                        liveReplayBoards[step] = deepCopyBoard(snapBoard);
+                        if (!liveReplayMarkers[step]) liveReplayMarkers[step] = [];
+                        liveReplayMarkers[step] = snapMarkers.map(m => ({ ...m }));
+                        liveViewStep = step;
+                    } else {
+                        liveReplayBoards = [deepCopyBoard(snapBoard)];
+                        liveReplayMarkers = [snapMarkers.map(m => ({ ...m }))];
+                        liveReplayStepPlayers = [0];
+                        liveViewStep = 0;
+                    }
+                } else {
+                    applyLiveViewBoard();
+                }
+                updateLiveReplayPanelUI();
+                if (showEstimateActive) showEstimate();
+                else updateTurn();
+            } else {
+                slider.max = replayTotalSteps;
+                setReplayStep(tryPlayBaseStep);
+            }
             updateReplayUI();
         }
 
@@ -1129,6 +1180,11 @@
             });
         }
 
+        function updateKomiInfo() {
+            const el = document.getElementById('komiInfo');
+            if (el) el.innerText = `黑贴白${KOMI}点`;
+        }
+
         function applyBoardDimensions(lanes, gw, gh) {
             const w = gw != null ? gw : (3 * lanes - 2);
             const h = gh != null ? gh : (3 * lanes - 2);
@@ -1137,6 +1193,8 @@
             BOARD_LANES = lanes;
             GRID_W = w;
             GRID_H = h;
+            KOMI = komiForLanes(lanes);
+            updateKomiInfo();
             board = initGridBoard();
             rebuildLayout();
         }
@@ -1144,6 +1202,7 @@
         function syncState(state)
         {
             clearMobileMovePreview();
+            const prevMatchStarted = matchStarted;
             if (state.boardLanes != null && state.gridWidth != null && state.gridHeight != null) {
                 if (state.boardLanes !== BOARD_LANES || state.gridWidth !== GRID_W || state.gridHeight !== GRID_H)
                     applyBoardDimensions(state.boardLanes, state.gridWidth, state.gridHeight);
@@ -1158,6 +1217,10 @@
                 const sizeSelect = document.getElementById('boardSizeSelect');
                 if (sizeSelect) sizeSelect.value = state.boardLanes;
             }
+            if (state.komi != null && Number.isFinite(state.komi)) {
+                KOMI = state.komi;
+                updateKomiInfo();
+            }
             numberOfHands = state.numberOfHands || 1;
             currentPlayer = state.currentPlayer;
             gameOver = state.gameOver || false;
@@ -1171,6 +1234,8 @@
                 moveLog = state.moveCoords.map(m => m.type === 'move' ? { row: m.row, col: m.col } : null);
             if (state.slots)
                 slots = state.slots;
+            if (state.matchTime !== undefined)
+                matchTime = state.matchTime;
 
             if (!replayMode) {
                 const prevTotal = Math.max(0, liveReplayBoards.length - 1);
@@ -1190,10 +1255,13 @@
                 }
                 applyLiveViewBoard();
                 updateLiveReplayPanelUI();
-            } else {
+            } else if (!(tryPlayMode && tryPlayFromLive)) {
                 board = state.board;
                 lastMoveMarkers = state.lastMoveMarkers || [];
             }
+
+            if (tryPlayMode && tryPlayFromLive && mySlot && matchStarted && !prevMatchStarted)
+                exitTryPlay();
 
             const hasAnyStone = board.some((row, r) => row.some((v, c) => Snub.isValidVertex(r, c, GRID_W, GRID_H) && (v === 1 || v === 2)));
             const hasPlayer = slots.black || slots.white;
@@ -1229,6 +1297,8 @@
                 set matchStarted(v) { matchStarted = !!v; if (matchStarted) matchStartedOnce = true; },
                 get matchStartedOnce() { return matchStartedOnce; },
                 set matchStartedOnce(v) { matchStartedOnce = !!v; },
+                get matchTime() { return matchTime; },
+                set matchTime(v) { matchTime = v; },
                 get isMyTurn() { return isMyTurn; },
                 set isMyTurn(v) { isMyTurn = v; },
                 get gameOver() { return gameOver; },
@@ -1262,10 +1332,12 @@
             getBoardSize: () => BOARD_LANES,
             setBoardSize: (n) => {
                 const lanes = Number(n);
+                KOMI = komiForLanes(lanes);
+                updateKomiInfo();
                 applyBoardDimensions(lanes, 3 * lanes - 2, 3 * lanes - 2);
             },
             getKomi: () => KOMI,
-            setKomi: () => {},
+            setKomi: (n) => { KOMI = n; updateKomiInfo(); },
             // 公共 updateRecordButtons 需要二维棋盘，传入过滤 -1 的兼容视图。
             getBoard: () => board.map((row, r) => row.map((v, c) => (
                 Snub.isValidVertex(r, c, GRID_W, GRID_H) ? v : 0
@@ -1289,11 +1361,7 @@
             colorStatus,
             scoreTitle,
             turnDisplay,
-            labelBlack,
-            labelWhite,
-            radioBlack,
-            radioWhite,
-            syncState,
+syncState,
             updateBoardGeometry: rebuildLayout,
             initBoardArray: () => initGridBoard(),
             exitReplayMode,
@@ -1312,7 +1380,8 @@
                 syncState(msg);
             },
             isMouseDevice,
-            standardWeiqiMatchTime: true
+            standardWeiqiMatchTime: true,
+            boardSeatOverlay: true
         });
         handleMessage = _weiqiBindings.handleMessage;
         updateRecordButtons = _weiqiBindings.updateRecordButtons;
@@ -1440,7 +1509,7 @@
             const x = (e.clientX - rect.left) * scale;
             const y = (e.clientY - rect.top) * scale;
             const { row, col } = getClosestIntersection(x, y);
-            if (tryPlayMode && replayMode) {
+            if (tryPlayMode) {
                 if (row < 0 || col < 0 || !Snub.isValidVertex(row, col, GRID_W, GRID_H)) {
                     if (mobileTwoStepPlacing()) clearMobileMovePreview();
                     drawBoard();
@@ -1522,7 +1591,7 @@
             });
         }
 
-        // 数子确认按钮事件
+        // 数点确认按钮事件
         if (scoreConfirmYes)
         {
             scoreConfirmYes.onclick = () => {

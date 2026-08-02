@@ -98,7 +98,7 @@ function generateFloretPentBoardData(n) {
     const neighbors = neighborSets.map(set => Array.from(set));
     return { vertexCount: V, neighbors };
 }
-const { QiTwoPlayerRoomBase, qiMatchTimeControl, vertexGraphWeiqiRules } = require('../common');
+const { QiTwoPlayerRoomBase, qiMatchTimeControl, vertexGraphWeiqiRules, qiBoardSeatOverlay } = require('../common');
 class FloretPentagonWeiqiRoom extends QiTwoPlayerRoomBase {
     constructor(room, initialSize = 5) {
         super(room);
@@ -957,7 +957,7 @@ class FloretPentagonWeiqiRoom extends QiTwoPlayerRoomBase {
                 if (this.pendingEnd && msg.accept) {
                     this.startScoreCounting(this.pendingEnd.requester, this.pendingEnd.opponent);
                 } else if (this.pendingEnd && !msg.accept) {
-                    this.pendingEnd.requester.send(JSON.stringify({ type: 'error', message: '对方拒绝数子。' }));
+                    this.pendingEnd.requester.send(JSON.stringify({ type: 'error', message: '对方拒绝数点。' }));
                 }
                 this.pendingEnd = null;
                 break;
@@ -1091,6 +1091,7 @@ module.exports = {
     generateFloretPentBoardData,
     initRoom(room) {
         room.gameLogic = new FloretPentagonWeiqiRoom(room);
+        if (typeof qiBoardSeatOverlay !== 'undefined' && qiBoardSeatOverlay) qiBoardSeatOverlay.install(room.gameLogic);
         room.maxPlayers = 2;
     }
 };

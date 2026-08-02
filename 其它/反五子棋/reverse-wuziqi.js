@@ -1,4 +1,4 @@
-const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWuziqiRules } = require('../common');
+const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWuziqiRules, qiBoardSeatOverlay } = require('../common');
 class ReverseWuziqiRoom extends QiTwoPlayerRoomBase {
     constructor(room) {
         super(room);
@@ -483,6 +483,7 @@ class ReverseWuziqiRoom extends QiTwoPlayerRoomBase {
 module.exports = {
     initRoom(room) {
         room.gameLogic = new ReverseWuziqiRoom(room);
+        if (typeof qiBoardSeatOverlay !== 'undefined' && qiBoardSeatOverlay) qiBoardSeatOverlay.install(room.gameLogic);
         room.maxPlayers = 2;
     }
 };

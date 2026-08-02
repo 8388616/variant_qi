@@ -1,4 +1,4 @@
-const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules } = require('../common');
+const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, qiBoardSeatOverlay } = require('../common');
 const MINE = -3;
 class MinesweeperWeiqiRoom extends QiTwoPlayerRoomBase
 {
@@ -28,7 +28,7 @@ class MinesweeperWeiqiRoom extends QiTwoPlayerRoomBase
         this.moveCoords = [];
         /** 对局中随机雷未向客户端公开时为 true；编辑棋盘摆洞为 false */
         this.randomMinesFromGame = false;
-        /** 终局、或进入数子阶段后，客户端可见全部 -1 雷位；数子被拒后仍保持 */
+        /** 终局、或进入数点阶段后，客户端可见全部 -1 雷位；数点被拒后仍保持 */
         this.minesRevealedPublicly = false;
         this.clientBoardHistory = [];
         this.clientMarkerHistory = [];
@@ -662,7 +662,7 @@ class MinesweeperWeiqiRoom extends QiTwoPlayerRoomBase
                 if (this.pendingEnd && msg.accept) {
                     this.startScoreCounting(this.pendingEnd.requester, this.pendingEnd.opponent);
                 } else if (this.pendingEnd && !msg.accept) {
-                    this.pendingEnd.requester.send(JSON.stringify({ type: 'error', message: '对方拒绝数子。' }));
+                    this.pendingEnd.requester.send(JSON.stringify({ type: 'error', message: '对方拒绝数点。' }));
                 }
                 this.pendingEnd = null;
                 break;
@@ -1224,6 +1224,7 @@ class MinesweeperWeiqiRoom extends QiTwoPlayerRoomBase
 module.exports = {
     initRoom(room) {
         room.gameLogic = new MinesweeperWeiqiRoom(room);
+        qiBoardSeatOverlay.install(room.gameLogic);
         room.maxPlayers = 2;
     }
 };

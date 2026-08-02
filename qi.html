@@ -1,229 +1,781 @@
 <!DOCTYPE html>
-<html lang="zh">
+<html lang="zh-Hans">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>变体棋类研究中心</title>
+    <link rel="stylesheet" href="/qi/fonts/lxgw-wenkai-gb/index.css">
     <style>
+        :root {
+            --bg: #f6f0e3;
+            --bg-deep: #eadcc2;
+            --paper: rgba(255, 250, 241, 0.84);
+            --ink: #4e3219;
+            --muted: #806350;
+            --line: rgba(108, 76, 46, 0.16);
+            --accent: #b86e34;
+            --accent-strong: #8e4a1a;
+            --forest: #3e7053;
+            --shadow-soft: 0 22px 44px rgba(94, 68, 38, 0.12);
+            --shadow-strong: 0 30px 70px rgba(87, 58, 28, 0.16);
+            --radius-xl: 34px;
+            --radius-lg: 24px;
+            /* 全站统一霞鹜文楷 GB，避免缺字回退到系统楷体/宋体 */
+            --body-font: "LXGW WenKai GB", "PingFang SC", "Microsoft YaHei", sans-serif;
+            --serif-font: "LXGW WenKai GB", "PingFang SC", "Microsoft YaHei", sans-serif;
+        }
+
         * {
             box-sizing: border-box;
             user-select: none;
+            -webkit-tap-highlight-color: transparent;
         }
 
-        body {
+        html {
+            scroll-behavior: smooth;
+        }
+
+        body.platform-home {
             margin: 0;
             min-height: 100vh;
-            display: flex;
-            justify-content: center;
+            font-family: var(--body-font);
+            color: var(--ink);
+            background:
+                radial-gradient(circle at 14% 18%, rgba(171, 212, 189, 0.38), transparent 0 24rem),
+                radial-gradient(circle at 84% 12%, rgba(248, 206, 145, 0.44), transparent 0 26rem),
+                radial-gradient(circle at 50% 78%, rgba(255, 236, 202, 0.52), transparent 0 28rem),
+                linear-gradient(180deg, #fcf8f1 0%, var(--bg) 46%, var(--bg-deep) 100%);
+            overflow-x: hidden;
+        }
+
+        body.platform-home::before,
+        body.platform-home::after {
+            content: "";
+            position: fixed;
+            inset: auto;
+            z-index: 0;
+            pointer-events: none;
+            filter: blur(12px);
+        }
+
+        body.platform-home::before {
+            top: -8rem;
+            right: -5rem;
+            width: 24rem;
+            height: 24rem;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(255, 219, 165, 0.7) 0%, rgba(255, 219, 165, 0) 72%);
+        }
+
+        body.platform-home::after {
+            left: -9rem;
+            bottom: -10rem;
+            width: 26rem;
+            height: 26rem;
+            border-radius: 40%;
+            background: radial-gradient(circle, rgba(133, 187, 160, 0.5) 0%, rgba(133, 187, 160, 0) 74%);
+        }
+
+        body.platform-home a {
+            color: inherit;
+            text-decoration: none;
+        }
+
+        body.platform-home button {
+            font: inherit;
+        }
+
+        .home-shell {
+            position: relative;
+            z-index: 1;
+            width: min(1480px, calc(100% - 32px));
+            margin: 0 auto;
+            padding: 14px 0 18px;
+        }
+
+        .site-header {
+            display: grid;
+            grid-template-columns: auto 1fr auto;
+            gap: 14px;
             align-items: center;
-            font-family: 'Segoe UI', 'Roboto', 'Noto Sans', system-ui, sans-serif;
-            padding: 0;
+            padding: 12px 18px;
+            border: 1px solid var(--line);
+            border-radius: 999px;
+            background: rgba(255, 250, 241, 0.7);
+            backdrop-filter: blur(12px);
+            box-shadow: var(--shadow-soft);
         }
 
-        .lobby-card {
-            width: 100%;
-            min-height: 100vh;
-            padding: 20px 28px 32px;
+        .brand-lockup {
+            display: inline-flex;
+            align-items: center;
+            gap: 14px;
+            min-width: 0;
+        }
+
+        .brand-emblem {
+            width: 48px;
+            height: 48px;
+            display: grid;
+            place-items: center;
+            border-radius: 15px;
+            border: 1px solid rgba(108, 76, 46, 0.18);
+            background: linear-gradient(145deg, rgba(255, 249, 240, 0.96), rgba(245, 229, 202, 0.9));
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85);
+            color: var(--accent-strong);
+            font-family: var(--body-font);
+            font-size: 22px;
+            font-weight: 500;
+        }
+
+        .brand-copy {
+            display: grid;
+            gap: 4px;
+        }
+
+        .brand-title {
+            font-size: 23px;
+            font-weight: 500;
+            letter-spacing: 0.01em;
+        }
+
+        .brand-subtitle {
+            color: var(--muted);
+            font-size: 12px;
+        }
+
+        .site-nav {
+            display: none;
+        }
+
+        .header-actions {
             display: flex;
-            flex-direction: column;
-            background: #d9c8ac;
-            transition: all 0.2s;
+            flex-wrap: wrap;
+            justify-content: flex-end;
+            gap: 8px;
         }
 
-        h1 {
-            text-align: center;
-            font-size: 2.2rem;
-            margin: 0 0 8px 0;
-            color: #2c2118;
-            letter-spacing: 4px;
-            text-shadow: 2px 2px 0 #c9ad7a;
+        .header-action-btn {
+            min-height: 38px;
+            padding: 0 14px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border: none;
+            border-radius: 999px;
+            background: transparent;
+            color: var(--muted);
+            cursor: pointer;
+            transition:
+                transform 0.16s ease,
+                background 0.16s ease,
+                color 0.16s ease;
         }
 
-        .rooms-section {
-            background: #3e2e21;
-            border-radius: 32px;
-            padding: 12px 16px;
-            margin-bottom: 16px;
-            margin-left: 5%;
-            margin-right: 5%;
-            box-shadow: inset 0 0 0 1px #6b4a2e, 0 8px 12px rgba(0,0,0,0.2);
+        .header-action-btn:hover,
+        .header-action-btn:focus-visible {
+            background: rgba(184, 110, 52, 0.12);
+            color: var(--accent-strong);
+        }
+
+        .landing-main {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) minmax(260px, 320px);
+            gap: 16px;
+            align-items: start;
+            margin-top: 14px;
+        }
+
+        .matrix-section,
+        .rooms-panel {
+            border: 1px solid var(--line);
+            border-radius: var(--radius-xl);
+            background: linear-gradient(180deg, rgba(255, 251, 244, 0.88), rgba(255, 246, 233, 0.74));
+            box-shadow: var(--shadow-soft);
+            backdrop-filter: blur(10px);
+        }
+
+        .matrix-section {
+            position: relative;
+            padding: 18px;
+            min-width: 0;
+        }
+
+        .game-category-head-tools {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex: 0 0 auto;
+            margin-left: auto;
+            min-width: 0;
+        }
+
+        /* 需压过 body.platform-home button { font: inherit }（约 16px） */
+        body.platform-home button.game-view-toggle {
+            flex: 0 0 auto;
+            height: 24px;
+            padding: 0 11px;
+            border: 1px solid rgba(108, 76, 46, 0.18);
+            border-radius: 999px;
+            background: rgba(255, 251, 244, 0.92);
+            color: var(--muted);
+            font: 400 13px/22px var(--body-font);
+            cursor: pointer;
+            white-space: nowrap;
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.78);
+            transition: background 0.16s ease, border-color 0.16s ease, color 0.16s ease;
+        }
+
+        body.platform-home button.game-view-toggle:hover,
+        body.platform-home button.game-view-toggle:focus-visible {
+            background: rgba(184, 110, 52, 0.12);
+            border-color: rgba(184, 110, 52, 0.28);
+            color: var(--accent-strong);
+            outline: none;
+        }
+
+        .game-category-head .game-search-input {
+            flex: 0 1 auto;
+            width: min(220px, 36vw);
+            height: 24px; /* 与 .game-category-title 行高一致，不抬高分类头 */
+            margin: 0;
+            padding: 0 12px;
+            border: 1px solid rgba(108, 76, 46, 0.18);
+            border-radius: 999px;
+            background: rgba(255, 251, 244, 0.92);
+            color: var(--ink);
+            font-family: var(--body-font);
+            font-size: 13px;
+            font-weight: 400;
+            line-height: 22px;
+            outline: none;
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.78);
+            user-select: text;
+            -webkit-user-select: text;
+        }
+
+        .game-category-head .game-search-input::placeholder {
+            color: rgba(128, 99, 80, 0.7);
+        }
+
+        .game-category-head .game-search-input:focus {
+            border-color: rgba(184, 110, 52, 0.45);
+            box-shadow: 0 0 0 3px rgba(184, 110, 52, 0.12);
+        }
+
+        .game-category-head.is-first-category .game-category-divider {
             flex: 1 1 auto;
-            min-width: 250px;
-            min-height: 300px;
-            max-height: 300px;
+            min-width: 12px;
+        }
+
+        .matrix-grid {
+            display: grid;
+            gap: 22px;
+        }
+
+        .game-category-row.is-search-hidden,
+        .game-card.is-search-hidden {
+            display: none !important;
+        }
+
+        .game-category-row {
+            display: grid;
+            gap: 12px;
+            margin-bottom: 28px;
+        }
+
+        .game-category-row:last-child {
+            margin-bottom: 0;
+        }
+
+        .game-category-head {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            padding: 0 4px;
+        }
+
+        .game-category-title {
+            margin: 0;
+            flex: 0 0 auto;
+            color: var(--ink);
+            font-family: var(--body-font);
+            font-size: 20px;
+            font-weight: 500;
+            line-height: 1.2;
+        }
+
+        .game-category-divider {
+            display: block;
+            height: 1px;
+            flex: 1 1 auto;
+            background: linear-gradient(90deg, rgba(108, 76, 46, 0.32), rgba(108, 76, 46, 0.06));
+        }
+
+        .game-category-cards {
+            display: grid;
+            gap: 12px;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            grid-auto-rows: 170px;
+        }
+
+        .game-card {
+            position: relative;
+            height: 100%;
+            padding: 16px;
             display: flex;
             flex-direction: column;
+            align-items: stretch;
+            gap: 8px;
+            border: 1px solid rgba(108, 76, 46, 0.14);
+            border-radius: 24px;
+            background: linear-gradient(180deg, rgba(255, 252, 247, 0.95), rgba(247, 238, 223, 0.82));
+            box-shadow: 0 14px 26px rgba(97, 71, 39, 0.08);
+            transition:
+                transform 0.14s ease,
+                box-shadow 0.14s ease,
+                border-color 0.14s ease,
+                background 0.14s ease;
+        }
+
+        .game-card.is-live {
+            border-color: rgba(62, 112, 83, 0.24);
+            box-shadow: 0 20px 34px rgba(62, 112, 83, 0.12);
+        }
+
+        .game-card.is-disabled {
+            opacity: 1;
+            cursor: default;
+            pointer-events: none;
+            border-color: rgba(108, 76, 46, 0.1);
+            box-shadow: none;
+            background: linear-gradient(180deg, rgba(245, 240, 232, 0.9), rgba(236, 230, 220, 0.82));
+            color: #9a8b7a;
+        }
+
+        .game-card-linkable {
+            cursor: pointer;
+        }
+
+        .game-card-linkable:hover,
+        .game-card-linkable:focus-visible {
+            transform: translateY(-2px);
+            border-color: rgba(138, 75, 28, 0.22);
+            box-shadow: 0 20px 34px rgba(97, 71, 39, 0.12);
+        }
+
+        .game-card-linkable:active {
+            transform: translateY(1px) scale(0.986);
+            border-color: rgba(138, 75, 28, 0.28);
+            box-shadow: 0 10px 18px rgba(97, 71, 39, 0.12);
+            background: linear-gradient(180deg, rgba(251, 243, 229, 0.98), rgba(240, 226, 202, 0.9));
+        }
+
+        .game-card-linkable:focus-visible {
+            outline: 2px solid rgba(138, 75, 28, 0.26);
+            outline-offset: 3px;
+        }
+
+        .game-card-head {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .game-name-pill {
+            margin: 0;
+            padding: 0;
+            border: none;
+            border-radius: 0;
+            background: none;
+            font-family: var(--body-font);
+            font-size: 1.17em;
+            font-weight: 500;
+            line-height: 1.3;
+            letter-spacing: 0.01em;
+            color: var(--ink);
+            max-width: calc(100% - 5.5rem);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .game-card.is-disabled .game-name-pill {
+            color: #9a8b7a;
+        }
+
+        .game-index {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            flex: 0 0 auto;
+            min-height: 28px;
+            padding: 0 10px;
+            border-radius: 999px;
+            background: rgba(62, 112, 83, 0.12);
+            color: #2f6044;
+            font-size: 12px;
+            font-weight: 500;
+            letter-spacing: 0.02em;
+            line-height: 1.2;
+            white-space: nowrap;
+        }
+
+        .game-card.is-disabled .game-index {
+            background: rgba(154, 139, 122, 0.14);
+            color: #9a8b7a;
+        }
+
+        .game-intro {
+            margin: 5px 0 0;
+            color: var(--muted);
+            font-family: "KaiTi", "Kaiti SC", "STKaiti", "DFKai-SB", "BiauKai", serif;
+            font-size: 12px;
+            font-weight: 400;
+            line-height: 1.55;
+            min-height: 1.2em;
+        }
+
+        .game-card.is-disabled .game-intro,
+        .game-card.is-disabled .game-create-hint {
+            color: #9a8b7a;
+        }
+
+        .game-create-hint {
+            margin: auto 0 0;
+            color: rgba(128, 99, 80, 0.75);
+            font-size: 12px;
+            line-height: 1.4;
+            font-weight: 500;
+        }
+
+        .game-index-num {
+            display: none;
+        }
+
+        /* —— 列表视图：名称 + 右上角数字等级，纵向滚动 —— */
+        #platform-games.games-view-list .game-category-row {
+            gap: 8px;
+            margin-bottom: 18px;
+        }
+
+        #platform-games.games-view-list .game-category-cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, 148px);
+            grid-auto-rows: auto;
+            justify-content: start;
+            gap: 6px 10px;
+        }
+
+        #platform-games.games-view-list .game-card {
+            width: 148px;
+            height: auto;
+            min-height: 0;
+            min-width: 0;
+            padding: 7px 10px;
+            gap: 0;
+            border-radius: 14px;
+            box-shadow: none;
+            background: rgba(255, 251, 244, 0.55);
+        }
+
+        #platform-games.games-view-list .game-card.is-live {
+            box-shadow: none;
+            border-color: rgba(108, 76, 46, 0.14);
+            background: rgba(255, 251, 244, 0.72);
+        }
+
+        #platform-games.games-view-list .game-card-linkable:hover,
+        #platform-games.games-view-list .game-card-linkable:focus-visible {
+            transform: none;
+            border-color: rgba(184, 110, 52, 0.32);
+            background: rgba(255, 246, 230, 0.95);
+            box-shadow: 0 6px 14px rgba(97, 71, 39, 0.08);
+        }
+
+        #platform-games.games-view-list .game-card-linkable:active {
+            transform: scale(0.99);
+            box-shadow: none;
+        }
+
+        #platform-games.games-view-list .game-card-head {
+            align-items: flex-start;
+            gap: 4px;
+            min-width: 0;
+        }
+
+        #platform-games.games-view-list .game-name-pill {
+            flex: 1 1 auto;
+            min-width: 0;
+            max-width: none;
+            font-size: 0.98rem;
+            font-weight: 500;
+            line-height: 1.35;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        #platform-games.games-view-list .game-index {
+            min-height: 0;
+            padding: 0;
+            border-radius: 0;
+            background: none;
+            color: var(--accent-strong);
+            font-size: 0.72rem;
+            font-weight: 500;
+            line-height: 1.1;
+            margin-top: 1px;
+        }
+
+        #platform-games.games-view-list .game-card.is-disabled .game-index {
+            background: none;
+            color: #9a8b7a;
+        }
+
+        #platform-games.games-view-list .game-index-full {
+            display: none;
+        }
+
+        #platform-games.games-view-list .game-index-num {
+            display: inline;
+        }
+
+        #platform-games.games-view-list .game-intro,
+        #platform-games.games-view-list .game-create-hint {
+            display: none;
+        }
+
+        .rooms-panel {
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            min-height: 420px;
+            max-height: calc(100vh - 120px);
+            position: sticky;
+            top: 14px;
         }
 
         .rooms-header {
             display: flex;
-            justify-content: flex-end;
-            align-items: baseline;
-            color: #ffd98c;
-            font-weight: bold;
-            padding: 0 8px 2px 8px;
-            border-bottom: 2px solid #6b4a2e;
-            margin-bottom: 4px;
-            flex-wrap: wrap;
+            justify-content: space-between;
+            align-items: center;
             gap: 10px;
+            padding: 0 4px 10px;
+            border-bottom: 1px solid var(--line);
+            margin-bottom: 10px;
+        }
+
+        .rooms-title {
+            margin: 0;
+            font-family: var(--body-font);
+            font-size: 20px;
+            font-weight: 500;
         }
 
         .refresh-btn {
-            background: none;
+            min-height: 34px;
+            padding: 0 12px;
             border: none;
-            color: #ffd98c;
-            font-weight: bold;
-            padding: 0;
+            border-radius: 999px;
+            background: rgba(184, 110, 52, 0.12);
+            color: var(--accent-strong);
+            font-weight: 800;
             cursor: pointer;
-            font-size: 1rem;
-            transition: color 0.2s ease;
+            transition: background 0.16s ease, transform 0.16s ease;
         }
 
-            .refresh-btn:hover {
-                color: #fff2c9;
-            }
+        .refresh-btn:hover {
+            background: rgba(184, 110, 52, 0.2);
+            transform: translateY(-1px);
+        }
 
         .rooms-list-container {
             flex: 1;
             overflow-y: auto;
-            padding-right: 6px;
-            max-height: 55vh;
+            padding-right: 4px;
+            min-height: 0;
         }
 
-            .rooms-list-container::-webkit-scrollbar {
-                width: 8px;
-            }
+        .rooms-list-container::-webkit-scrollbar {
+            width: 8px;
+        }
 
-            .rooms-list-container::-webkit-scrollbar-track {
-                background: #2c1f15;
-                border-radius: 10px;
-            }
+        .rooms-list-container::-webkit-scrollbar-track {
+            background: rgba(108, 76, 46, 0.06);
+            border-radius: 10px;
+        }
 
-            .rooms-list-container::-webkit-scrollbar-thumb {
-                background: #c9a450;
-                border-radius: 10px;
-            }
+        .rooms-list-container::-webkit-scrollbar-thumb {
+            background: rgba(184, 110, 52, 0.45);
+            border-radius: 10px;
+        }
 
         .room-item {
-            background: #5e4a35;
-            margin: 10px 0;
-            padding: 12px 16px;
-            border-radius: 20px;
+            background: rgba(255, 251, 244, 0.9);
+            margin: 0 0 10px;
+            padding: 12px 14px;
+            border-radius: 18px;
+            border: 1px solid rgba(108, 76, 46, 0.12);
             display: flex;
             justify-content: space-between;
             align-items: center;
             flex-wrap: wrap;
-            gap: 12px;
-            transition: 0.1s;
+            gap: 10px;
+            transition: border-color 0.14s ease, box-shadow 0.14s ease;
+        }
+
+        .room-item:hover {
+            border-color: rgba(138, 75, 28, 0.22);
+            box-shadow: 0 10px 18px rgba(97, 71, 39, 0.08);
         }
 
         .room-info {
             display: flex;
             align-items: center;
-            gap: 16px;
+            gap: 8px;
             flex-wrap: wrap;
-            font-weight: 500;
-            color: #fef0cf;
+            font-weight: 600;
+            color: var(--ink);
+        }
+
+        .room-id,
+        .game-badge,
+        .player-count {
+            display: inline-flex;
+            align-items: center;
+            min-height: 28px;
+            padding: 0 10px;
+            border-radius: 999px;
+            font-size: 0.85rem;
         }
 
         .room-id {
-            background: #2c1f15;
-            padding: 5px 14px;
-            border-radius: 40px;
-            font-size: 1.1rem;
+            background: rgba(78, 50, 25, 0.08);
             letter-spacing: 1px;
         }
 
-        .game-badge {
-            background: #846645;
-            padding: 4px 12px;
-            border-radius: 30px;
-            font-size: 0.85rem;
-        }
-
+        .game-badge,
         .player-count {
-            background: #846645;
-            padding: 4px 12px;
-            border-radius: 30px;
-            font-size: 0.85rem;
+            background: rgba(62, 112, 83, 0.12);
+            color: #2f6044;
         }
 
         .enter-btn {
-            background: #e4b363;
+            background: linear-gradient(135deg, #b76e34, #8e4a1a);
             border: none;
-            color: #2c1f15;
-            font-weight: bold;
-            padding: 6px 20px;
-            border-radius: 40px;
+            color: #fff8ef;
+            font-weight: 800;
+            padding: 6px 16px;
+            border-radius: 999px;
             cursor: pointer;
             font-size: 0.9rem;
-            transition: 0.08s linear;
-            border-bottom: 3px solid #9b6e3e;
+            box-shadow: 0 10px 18px rgba(133, 73, 25, 0.16);
+            transition: transform 0.14s ease, box-shadow 0.14s ease;
         }
 
-            .enter-btn:active {
-                transform: translateY(2px);
-                border-bottom-width: 1px;
-            }
+        .enter-btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 14px 22px rgba(133, 73, 25, 0.2);
+        }
+
+        .enter-btn:active {
+            transform: translateY(1px);
+        }
 
         .empty-rooms {
             text-align: center;
-            color: #c9ad7a;
-            padding: 8px 20px;
+            color: var(--muted);
+            padding: 28px 12px;
             font-style: italic;
         }
 
-        .games-catalog {
-            position: relative;
-            background: #2c1f15c9;
-            border-radius: 36px;
-            padding: 20px 16px;
-            backdrop-filter: blur(3px);
-            margin-top: 16px;
-            margin-left: 5%;
-            margin-right: 5%;
-            height: 400px;
-            min-width: 250px;
-            min-height: 400px;
+        .random-level-hint {
+            margin-top: 12px;
+            padding: 0 6px;
+            font-size: 0.8rem;
+            color: var(--muted);
             display: flex;
-            flex-direction: column;
-        }
-
-        .catalog-top-actions {
-            position: absolute;
-            top: 14px;
-            right: 28px;
-            z-index: 2;
-            display: flex;
-            flex-direction: row;
             align-items: center;
-            gap: 14px;
+            gap: 6px;
         }
 
-        .catalog-import-btn {
-            background: none;
-            border: none;
-            color: #ffd98c;
-            font-weight: bold;
-            padding: 0;
+        .help-icon {
+            display: inline-grid;
+            place-items: center;
+            width: 18px;
+            height: 18px;
+            border: 1px solid rgba(108, 76, 46, 0.16);
+            background: rgba(184, 110, 52, 0.12);
+            color: var(--accent-strong);
+            border-radius: 50%;
+            font-weight: 700;
             cursor: pointer;
-            font-size: 1rem;
-            transition: color 0.2s ease;
-            white-space: nowrap;
+            font-size: 11px;
+            line-height: 1;
+            position: relative;
+            transition: background 0.16s ease, border-color 0.16s ease, color 0.16s ease;
         }
 
-            .catalog-import-btn:hover {
-                color: #fff2c9;
-            }
+        .help-icon:hover,
+        .help-icon:focus-visible {
+            background: rgba(184, 110, 52, 0.2);
+            border-color: rgba(184, 110, 52, 0.28);
+            color: var(--accent-strong);
+        }
 
-        .catalog-title-wrapper {
+        .temp-tooltip {
+            position: fixed;
+            z-index: 10000;
+            max-width: min(300px, calc(100vw - 24px));
+            padding: 14px 16px 12px;
+            border: 1px solid var(--line);
+            border-radius: 22px;
+            background: linear-gradient(180deg, rgba(255, 251, 244, 0.98), rgba(255, 245, 230, 0.94));
+            color: var(--ink);
+            font-family: var(--body-font);
+            font-size: 0.88rem;
+            line-height: 1.55;
+            white-space: normal;
+            box-shadow: var(--shadow-strong);
+            pointer-events: none;
+            transition: opacity 0.18s ease;
+            opacity: 0;
+            text-align: left;
+        }
+
+        .temp-tooltip.show {
+            opacity: 1;
+        }
+
+        .temp-tooltip .tooltip-title {
+            margin: 0 0 8px;
+            color: var(--ink);
+            font-size: 0.95rem;
+            font-weight: 500;
+            letter-spacing: 0.02em;
+        }
+
+        .temp-tooltip .tooltip-line {
             display: flex;
             align-items: baseline;
-            margin: 0 0 16px 8px;
-            gap: 12px;
-            padding-right: 220px;
+            gap: 8px;
+            color: var(--muted);
         }
 
+        .temp-tooltip .tooltip-line + .tooltip-line {
+            margin-top: 4px;
+        }
+
+        .temp-tooltip .tooltip-level {
+            flex: 0 0 auto;
+            min-width: 2.2em;
+            color: var(--accent-strong);
+            font-weight: 500;
+        }
+
+        /* —— 首页风格弹窗（创建房间 / 生成二维码） —— */
         .lobby-qr-modal.qi-time-control-modal {
             display: none;
         }
@@ -232,468 +784,324 @@
             display: flex;
         }
 
-        .lobby-qr-textarea {
-            width: 100%;
-            min-height: 88px;
-            margin-top: 6px;
-            border-radius: 10px;
-            border: 1px solid #c4a882;
-            padding: 8px 10px;
-            font-size: 0.95rem;
-            background: #fff;
-            color: #3e2e21;
-            resize: vertical;
-            box-sizing: border-box;
-            user-select: text;
-            -webkit-user-select: text;
+        .qi-time-control-modal,
+        .modal-mask {
+            display: none;
+            position: fixed;
+            inset: 0;
+            z-index: 2000;
+            align-items: center;
+            justify-content: center;
+            padding: 24px;
+            background: rgba(63, 39, 18, 0.28);
+            backdrop-filter: blur(10px);
+        }
+
+        .qi-message-modal {
+            display: none;
+        }
+
+        .qi-time-control-dialog,
+        .modal-panel {
+            position: relative;
+            width: min(420px, calc(100vw - 36px));
+            padding: 22px 24px 20px;
+            border: 1px solid var(--line);
+            border-radius: var(--radius-xl);
+            background: linear-gradient(180deg, rgba(255, 251, 244, 0.98), rgba(255, 245, 230, 0.94));
+            box-shadow: var(--shadow-strong);
+            color: var(--ink);
+            text-align: center;
+        }
+
+        .qi-time-control-title,
+        .modal-panel h3 {
+            margin: 0 0 16px;
+            font-family: var(--body-font);
+            font-size: 1.25rem;
+            font-weight: 500;
+            color: var(--ink);
+            letter-spacing: 0.02em;
         }
 
         .lobby-qr-field-block {
             display: block;
             width: 100%;
             margin-bottom: 4px;
+            text-align: left;
         }
 
         .lobby-qr-field-block > span {
-            color: #5e3e1e;
+            color: var(--muted);
             font-size: 0.88rem;
         }
 
-        /* 与围棋限时协商弹窗同系样式（大厅页未加载 qi.css） */
-        .qi-time-control-modal {
-            position: fixed;
-            inset: 0;
-            z-index: 1100;
-            background: rgba(0, 0, 0, 0.45);
-            align-items: center;
-            justify-content: center;
-            padding: 16px;
+        .lobby-qr-textarea,
+        .modal-panel input {
+            width: 100%;
+            box-sizing: border-box;
+            margin: 0 0 16px;
+            padding: 12px 14px;
+            border: 1px solid rgba(108, 76, 46, 0.18);
+            border-radius: 16px;
+            background: rgba(255, 251, 244, 0.92);
+            color: var(--ink);
+            font: inherit;
+            font-size: 0.98rem;
+            outline: none;
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.78);
+            user-select: text;
+            -webkit-user-select: text;
+            transition: border-color 0.16s ease, box-shadow 0.16s ease;
         }
 
-        .qi-time-control-dialog {
-            background: #f9eed7;
-            color: #3e2e21;
-            max-width: 400px;
-            width: 90%;
-            border-radius: 22px;
-            padding: 18px 20px 16px;
-            box-shadow: 0 10px 28px rgba(0, 0, 0, 0.35);
-            border: 2px solid #8f6b4f;
+        .lobby-qr-textarea {
+            min-height: 96px;
+            margin-top: 0;
+            resize: vertical;
+            line-height: 1.5;
         }
 
-        .qi-time-control-title {
-            margin: 0 0 12px;
-            text-align: center;
-            font-size: 1.1rem;
-            color: #5e2b3b;
+        .lobby-qr-textarea:focus,
+        .modal-panel input:focus {
+            border-color: rgba(184, 110, 52, 0.45);
+            box-shadow: 0 0 0 3px rgba(184, 110, 52, 0.12);
         }
 
         .qi-time-control-hint {
             margin: 10px 0 6px;
             font-size: 0.85rem;
-            color: #6b5344;
+            color: var(--muted);
             min-height: 1.2em;
         }
 
-        .qi-time-control-footer {
+        .qi-time-control-footer,
+        .modal-buttons {
             display: flex;
             flex-wrap: wrap;
             gap: 10px;
             justify-content: center;
-            margin-top: 12px;
+            margin-top: 4px;
         }
 
-        .qi-time-control-primary {
-            background: #b88a4b;
-            color: #fff;
+        .qi-time-control-primary,
+        .modal-buttons button#confirmCreateBtn,
+        .modal-buttons button:first-child {
+            min-height: 42px;
+            padding: 0 22px;
             border: none;
-            padding: 8px 22px;
-            border-radius: 16px;
-            font-weight: bold;
+            border-radius: 999px;
+            background: linear-gradient(135deg, #b76e34, #8e4a1a);
+            color: #fff8ef;
+            font: inherit;
+            font-weight: 500;
             cursor: pointer;
-            border-bottom: 2px solid #5e3e1e;
-            font-size: 0.95rem;
+            box-shadow: 0 14px 26px rgba(133, 73, 25, 0.16);
+            transition: transform 0.14s ease, box-shadow 0.14s ease;
         }
 
-        .qi-time-control-secondary {
-            background: #e8dcc8;
-            color: #3e2e21;
-            border: 1px solid #8f6b4f;
-            padding: 8px 18px;
-            border-radius: 16px;
-            font-weight: bold;
+        .qi-time-control-secondary,
+        .modal-buttons button#cancelCreateBtn,
+        .modal-buttons button:last-child {
+            min-height: 42px;
+            padding: 0 20px;
+            border: 1px solid rgba(108, 76, 46, 0.16);
+            border-radius: 999px;
+            background: rgba(255, 251, 244, 0.88);
+            color: var(--ink);
+            font: inherit;
+            font-weight: 500;
             cursor: pointer;
-            font-size: 0.95rem;
+            transition: transform 0.14s ease, background 0.14s ease, border-color 0.14s ease;
         }
 
-        .catalog-title {
-            color: #ffd966;
-            font-size: 1.3rem;
-            font-weight: bold;
+        .qi-time-control-primary:hover,
+        .modal-buttons button#confirmCreateBtn:hover,
+        .modal-buttons button:first-child:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 18px 30px rgba(133, 73, 25, 0.2);
         }
 
-        .random-level-hint {
-            font-size: 0.8rem;
-            color: #ffd966;
+        .qi-time-control-secondary:hover,
+        .modal-buttons button#cancelCreateBtn:hover,
+        .modal-buttons button:last-child:hover {
+            transform: translateY(-1px);
+            border-color: rgba(138, 75, 28, 0.28);
+            background: rgba(255, 244, 228, 0.95);
+            color: var(--accent-strong);
+        }
+
+        .qi-time-control-primary:active,
+        .qi-time-control-secondary:active,
+        .modal-buttons button:active {
+            transform: translateY(1px);
+        }
+
+        .qi-message-modal.qi-message-modal--open {
             display: flex;
-            align-items: center;
-            gap: 6px;
         }
 
-        .help-icon {
-            display: inline-block;
-            width: 14px;
-            height: 14px;
-            background: #846645;
-            color: white;
+        .qi-message-dialog {
+            max-width: 360px;
+            outline: none;
+        }
+
+        .qi-message-text {
+            color: var(--ink);
+            font-size: 0.98rem;
+            line-height: 1.55;
+            min-height: 1.6em;
             text-align: center;
-            line-height: 14px;
-            border-radius: 50%;
-            font-weight: bold;
-            cursor: pointer;
-            font-size: 10px;
-            margin-left: 4px;
-            position: relative;
+            white-space: pre-wrap;
+            word-break: break-word;
         }
 
-        .temp-tooltip {
-            position: fixed;
-            background: #2c1f15;
-            color: #fef0cf;
-            font-size: 0.8rem;
-            padding: 8px 16px;
-            border-radius: 20px;
-            white-space: nowrap;
-            z-index: 10000;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.3);
-            pointer-events: none;
-            transition: opacity 0.2s;
-            opacity: 0;
+        .qi-message-footer {
+            margin-top: 16px;
         }
 
-            .temp-tooltip.show {
-                opacity: 1;
+        @media (max-width: 1220px) {
+            .game-category-cards {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
             }
 
-        .games-scroll {
-            position: relative;
-            overflow-x: auto;
-            flex: 1;
-            height: 100%;
-            overflow-y: auto;
-            overflow-x: auto;
-            column-width: 160px;
-            column-fill: auto;
-            break-inside: avoid;
-            page-break-inside: avoid;
-            padding-left: 20px;
-            -webkit-column-break-inside: avoid;
-        }
-
-
-        @media (max-width: 640px) {
-            .lobby-card {
-                padding: 20px 10px 32px;
+            .landing-main {
+                grid-template-columns: minmax(0, 1fr) minmax(220px, 280px);
             }
 
-            .rooms-section {
-                padding: 8px 12px;
-                margin-left: 5px;
-                margin-right: 5px;
-                min-height: auto;
-                max-height: 280px;
+            .site-header {
+                grid-template-columns: 1fr;
+                justify-items: start;
+                border-radius: 30px;
+            }
+
+            .header-actions {
+                justify-content: flex-start;
+            }
+        }
+
+        @media (max-width: 900px) {
+            .landing-main {
+                grid-template-columns: 1fr;
+            }
+
+            .rooms-panel {
+                position: static;
+                max-height: 360px;
+                min-height: 260px;
+                order: -1;
+            }
+
+            .game-category-cards {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+        }
+
+        @media (max-width: 760px) {
+            .home-shell {
+                width: min(100%, calc(100vw - 20px));
+                padding-top: 12px;
+            }
+
+            .site-header,
+            .matrix-section,
+            .rooms-panel {
+                padding: 18px;
+                border-radius: 28px;
+            }
+
+            .brand-title {
+                font-size: 22px;
             }
 
             .room-item {
-                margin: 6px 0;
-                padding: 8px 10px;
-                gap: 6px;
-                border-radius: 16px;
-                flex-wrap: nowrap;
-            }
-
-            .room-info {
-                gap: 6px;
-                flex-wrap: wrap;
-            }
-
-            .room-id {
-                padding: 2px 8px;
-                font-size: 0.7rem;
-                letter-spacing: 0;
-            }
-
-            .game-badge,
-            .player-count {
-                padding: 2px 8px;
-                font-size: 0.6rem;
-            }
-
-            .enter-btn {
-                padding: 4px 10px;
-                font-size: 0.7rem;
-                border-bottom-width: 2px;
-            }
-
-            .rooms-list-container {
-                max-height: 45vh;
-            }
-
-            .games-catalog {
-                height: auto;
-                margin-top: 5px;
-                margin-left: 5px;
-                margin-right: 5px;
-                min-height: auto;
-                max-height: none;
-            }
-
-            .catalog-top-actions {
-                top: 10px;
-                right: 8px;
+                margin-bottom: 8px;
+                padding: 10px 12px;
                 gap: 8px;
             }
 
-            .catalog-title-wrapper {
-                padding-right: 200px;
+            .room-id,
+            .game-badge,
+            .player-count {
+                min-height: 24px;
+                padding: 0 8px;
+                font-size: 0.75rem;
             }
 
-            .games-scroll {
-                column-width: auto;
-                column-count: 1;
-                overflow-x: visible;
-                overflow-y: visible;
-                display: block;
-                padding-left: 0;
-                max-height: none;
-            }
-
-            .game-entry {
-                white-space: normal;
+            .enter-btn {
+                padding: 5px 12px;
+                font-size: 0.8rem;
             }
         }
 
-        .scroll-hint {
-            display: none;
-            text-align: center;
-            color: #fef0cf;
-            font-size: 0.7rem;
-            padding: 8px 0 4px;
-            opacity: 0.8;
-            transition: opacity 0.5s;
-        }
-
-        @media (max-width: 640px) {
-            .scroll-hint {
-                display: block;
-                animation: fadeInOut 3s ease forwards;
-            }
-        }
-
-        @keyframes fadeInOut {
-            0% {
-                opacity: 0;
-                transform: translateY(5px);
+        @media (max-width: 560px) {
+            .game-category-cards {
+                grid-template-columns: 1fr;
             }
 
-            20% {
-                opacity: 0.9;
-                transform: translateY(0);
+            body.platform-home button.game-view-toggle {
+                padding: 0 9px;
+                font: 400 12px/22px var(--body-font);
             }
 
-            80% {
-                opacity: 0.9;
-                transform: translateY(0);
+            .game-category-head .game-search-input {
+                width: min(120px, 34vw);
+                font-size: 12px;
+                padding: 0 10px;
             }
 
-            100% {
-                opacity: 0;
-                visibility: hidden;
-            }
-        }
-
-        .game-entry {
-            break-inside: avoid;
-            page-break-inside: avoid;
-            -webkit-column-break-inside: avoid;
-            display: block;
-            width: 100%;
-            padding-top: 4px;
-            padding-bottom: 4px;
-            padding-left: 2px;
-            text-align: left;
-            font-weight: 500;
-            color: #fef0cf;
-            cursor: pointer;
-            transition: color 0.2s ease;
-            white-space: nowrap;
-            background: none;
-            border: none;
-            border-radius: 0;
-            box-shadow: none;
-            margin-bottom: 4px;
-            line-height: 1.4;
-            font-size: 1rem;
-            position: relative;
-        }
-
-        .game-entry:hover {
-            color: #ffd966;
-        }
-
-        .game-entry.disabled {
-            color: #9e9a8a;
-            cursor: pointer;
-        }
-
-        .game-entry.disabled:hover {
-            color: #9e9a8a;
-            cursor: pointer;
-        }
-
-        .game-entry.category-title {
-            font-size: 1.3rem;
-            font-weight: bold;
-            color: #ffd966;
-            cursor: default;
-            margin-top: 8px;
-            margin-bottom: 4px;
-            pointer-events: none;
-            line-height: 1.3;
-        }
-
-        .game-entry.category-title:hover {
-            color: #ffd966;
-        }
-
-        .random-level-badge {
-            color: #fef0cf;
-            font-size: 0.7rem;
-            border-radius: 12px;
-            margin-left: -2px;
-            vertical-align: super;
-            line-height: 1.2;
-        }
-
-        .random-level-badge.disabled {
-            color: #9e9a8a;
-            cursor: pointer;
-        }
-
-        .category-spacer {
-            display: block;
-            width: 100%;
-            padding: 4px 2px;
-            margin-bottom: 4px;
-            line-height: 1.4;
-            font-size: 1rem;
-            background: transparent;
-            color: transparent;
-            pointer-events: none;
-            break-inside: avoid;
-            page-break-inside: avoid;
-            -webkit-column-break-inside: avoid;
-            white-space: nowrap;
-        }
-
-        .modal-mask {
-            display: none;
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0,0,0,0.7);
-            justify-content: center;
-            align-items: center;
-            z-index: 2000;
-            backdrop-filter: blur(3px);
-        }
-
-        .modal-panel {
-            background: #d9c8ac;
-            border-radius: 48px;
-            padding: 28px 24px;
-            width: 360px;
-            text-align: center;
-            border: 2px solid #b78f5a;
-            box-shadow: 0 20px 30px black;
-        }
-
-            .modal-panel h3 {
-                margin: 0 0 20px 0;
-                color: #2c2118;
+            #platform-games.games-view-list .game-category-cards {
+                grid-template-columns: repeat(auto-fill, 132px);
             }
 
-            .modal-panel input {
-                width: 100%;
-                padding: 12px;
-                border-radius: 60px;
-                border: none;
-                background: #f4e8cf;
-                font-size: 1rem;
-                margin-bottom: 20px;
-                outline: none;
+            #platform-games.games-view-list .game-card {
+                width: 132px;
             }
-
-        .modal-buttons {
-            display: flex;
-            gap: 15px;
-            justify-content: center;
-        }
-
-            .modal-buttons button {
-                background: #b88a4b;
-                border: none;
-                color: white;
-                padding: 8px 25px;
-                margin: 0 10px;
-                border-radius: 30px;
-                font-weight: bold;
-                cursor: pointer;
-                border-bottom: 3px solid #5e3e1e;
-            }
-
-                .modal-buttons button:active {
-                    transform: translateY(2px);
-                }
-
-        footer {
-            text-align: center;
-            font-size: 0.75rem;
-            color: #2c1f15;
-            margin-top: 28px;
-            opacity: 0.7;
         }
     </style>
 </head>
-<body>
-    <div class="lobby-card">
-        <h1>变体棋类研究中心</h1>
+<body class="platform-home">
+    <div class="home-shell">
+        <header class="site-header">
+            <a class="brand-lockup" href="/qi" aria-label="变体棋类研究中心">
+                <div class="brand-emblem" aria-hidden="true">棋</div>
+                <div class="brand-copy">
+                    <div class="brand-title">变体棋类研究中心</div>
+                    <div class="brand-subtitle">变体棋类在线对弈入口</div>
+                </div>
+            </a>
 
-        <div class="rooms-section">
-            <div class="rooms-header">
-                <button class="refresh-btn" id="refreshRoomsBtn">刷新房间</button>
-            </div>
-            <div class="rooms-list-container" id="roomsListContainer">
-                <div class="empty-rooms">暂无房间</div>
-            </div>
-        </div>
+            <nav class="site-nav" aria-hidden="true">
+                <button type="button" class="site-nav-btn" hidden>公告</button>
+                <a href="#" hidden>进入大厅</a>
+                <button type="button" class="site-nav-btn" hidden>设定</button>
+            </nav>
 
-        <div class="games-catalog">
-            <div class="catalog-top-actions">
-                <button type="button" class="catalog-import-btn" id="lobbyQrCodeBtn" title="根据文本生成二维码局面">生成二维码</button>
-                <button type="button" class="catalog-import-btn" id="lobbyImportRecordBtn" title="导入棋谱">导入棋谱</button>
+            <div class="header-actions">
+                <button type="button" class="header-action-btn" id="lobbyQrCodeBtn" title="根据文本生成二维码局面">生成二维码</button>
+                <button type="button" class="header-action-btn" id="lobbyImportRecordBtn" title="导入棋谱">导入棋谱</button>
             </div>
-            <div class="catalog-title-wrapper">
-                <div class="catalog-title">创建房间</div>
+        </header>
+
+        <main class="landing-main">
+            <section id="platform-games" class="matrix-section matrix-section-minimal">
+                <div id="platform-games-grid" class="matrix-grid"></div>
                 <div class="random-level-hint">
-                    右上角的数字代表随机级别
+                    右上角标签代表随机级别
                     <span class="help-icon">?</span>
                 </div>
-            </div>
-            <div class="games-scroll" id="gamesScroll"></div>
-        </div>
+            </section>
+
+            <aside class="rooms-panel" aria-label="房间列表">
+                <div class="rooms-header">
+                    <h2 class="rooms-title">房间列表</h2>
+                    <button class="refresh-btn" id="refreshRoomsBtn" type="button">刷新</button>
+                </div>
+                <div class="rooms-list-container" id="roomsListContainer">
+                    <div class="empty-rooms">暂无房间</div>
+                </div>
+            </aside>
+        </main>
     </div>
 
     <input type="file" id="lobbyImportFileInput" accept=".json,application/json" style="display:none;" aria-hidden="true">
@@ -716,78 +1124,87 @@
             <h3 id="modalGameName">创建房间</h3>
             <input type="text" id="roomPasswordInput" placeholder="房间密码 (可选)" autocomplete="off">
             <div class="modal-buttons">
-                <button id="confirmCreateBtn">创建</button>
-                <button id="cancelCreateBtn">取消</button>
+                <button id="confirmCreateBtn" type="button">创建</button>
+                <button id="cancelCreateBtn" type="button">取消</button>
             </div>
         </div>
     </div>
 
+    <script src="/qi/qi.js"></script>
     <script src="/qi/qrcode.min.js"></script>
     <script>
         const GAMES_DATA = [
             // 围棋类
-            { id: 'choice-weiqi', name: '选点围棋', randomLevel: 4, path: 'choice-weiqi', enabled: true, category: '围棋' },
-            { id: 'triangle-weiqi', name: '三角围棋', randomLevel: 0, path: 'triangle-weiqi', enabled: true, category: '围棋' },
-            { id: 'hexagon-weiqi', name: '六角围棋', randomLevel: 0, path: 'hexagon-weiqi', enabled: true, category: '围棋' },
-             { id: 'biliberty-weiqi', name: '二气围棋', randomLevel: 0, path: 'biliberty-weiqi', enabled: true, category: '围棋' },
-            { id: 'zeroliberty-weiqi', name: '零气围棋', randomLevel: 0, path: 'zeroliberty-weiqi', enabled: true, category: '围棋' },
-            { id: 'weight-weiqi', name: '权重围棋', randomLevel: 2, path: 'weight-weiqi', enabled: true, category: '围棋' },
-            { id: 'hole-weiqi', name: '洞围棋', randomLevel: 2, path: 'hole-weiqi', enabled: true, category: '围棋' },
-            { id: 'bridge-weiqi', name: '桥围棋', randomLevel: 2, path: 'bridge-weiqi', enabled: true, category: '围棋' },
-            { id: 'ukrainian-weiqi', name: '乌克兰围棋', randomLevel: 0, path: 'ukrainian-weiqi', enabled: true, category: '围棋' },
-            { id: 'rus-weiqi', name: '罗斯围棋', randomLevel: 0, path: 'rus-weiqi', enabled: true, category: '围棋' },
-            { id: 'mirror-image-weiqi', name: '镜像围棋', randomLevel: 4, path: 'mirror-image-weiqi', enabled: true, category: '围棋' },
-            { id: 'weak-magnetism-weiqi', name: '弱磁性围棋', randomLevel: 0, path: 'weak-magnetism-weiqi', enabled: true, category: '围棋' },
-            { id: 'translocation-weiqi', name: '易位围棋', randomLevel: 0, path: 'translocation-weiqi', enabled: true, category: '围棋' },
-            { id: 'rotation-weiqi', name: '旋转围棋', randomLevel: 0, path: 'rotation-weiqi', enabled: true, category: '围棋' },
-            { id: 'nogrid-weiqi', name: '无格线围棋', randomLevel: 0, path: 'nogrid-weiqi', enabled: true, category: '围棋' },
-            { id: 'instability-weiqi', name: '不稳定围棋', randomLevel: 0, path: 'instability-weiqi', enabled: true, category: '围棋' },
-            { id: 'fog-weiqi', name: '迷雾围棋', randomLevel: 3, path: 'fog-weiqi', enabled: true, category: '围棋' },
-            { id: 'sync-weiqi', name: '同步围棋', randomLevel: 3, path: 'sync-weiqi', enabled: true, category: '围棋' },
-            { id: 'invisible-stone-weiqi', name: '隐身子围棋', randomLevel: 3, path: 'invisible-stone-weiqi', enabled: true, category: '围棋' },
-            { id: 'radar-weiqi', name: '雷达围棋', randomLevel: 3, path: 'radar-weiqi', enabled: true, category: '围棋' },
-            { id: 'ghost-weiqi', name: '幽灵围棋', randomLevel: 3, path: 'ghost-weiqi', enabled: false, category: '围棋' },
-            { id: 'twisted-space-weiqi', name: '扭曲空间围棋', randomLevel: 2, path: 'twisted-space-weiqi', enabled: true, category: '围棋' },
-            { id: 'renju-weiqi', name: '连珠围棋', randomLevel: 0, path: 'renju-weiqi', enabled: false, category: '围棋' },
+            { id: 'choice-weiqi', name: '选点围棋', randomLevel: 4, path: 'choice-weiqi', enabled: true, category: '围棋', intro: '每步棋只能从随机候选点中选点落子！' },
+            { id: 'triangle-weiqi', name: '三角围棋', randomLevel: 0, path: 'triangle-weiqi', enabled: true, category: '围棋', intro: '三角形棋盘！' },
+            { id: 'hexagon-weiqi', name: '六角围棋', randomLevel: 0, path: 'hexagon-weiqi', enabled: true, category: '围棋', intro: '六角形棋盘！' },
+            { id: 'biliberty-weiqi', name: '二气围棋', randomLevel: 0, path: 'biliberty-weiqi', enabled: true, category: '围棋', intro: '每片棋子必须至少有两口气才能留在棋盘上！' },
+            { id: 'zeroliberty-weiqi', name: '零气围棋', randomLevel: 0, path: 'zeroliberty-weiqi', enabled: true, category: '围棋', intro: '棋子没有气后，还需要花额外的一手棋来提子！' },
+            { id: 'weight-weiqi', name: '权重围棋', randomLevel: 2, path: 'weight-weiqi', enabled: true, category: '围棋', intro: '棋盘上每个点的价值不同！' },
+            { id: 'hole-weiqi', name: '洞围棋', randomLevel: 2, path: 'hole-weiqi', enabled: true, category: '围棋', intro: '棋盘上破了一些洞！' },
+            { id: 'bridge-weiqi', name: '桥围棋', randomLevel: 2, path: 'bridge-weiqi', enabled: true, category: '围棋', intro: '棋盘上建了一些桥！' },
+            { id: 'ukrainian-weiqi', name: '乌克兰围棋', randomLevel: 0, path: 'ukrainian-weiqi', enabled: true, category: '围棋', intro: '一次下三颗子！' },
+            { id: 'rus-weiqi', name: '罗斯围棋', randomLevel: 0, path: 'rus-weiqi', enabled: true, category: '围棋', intro: '一次下三颗子，还有一颗是对方的！' },
+            { id: 'mirror-image-weiqi', name: '镜像围棋', randomLevel: 4, path: 'mirror-image-weiqi', enabled: true, category: '围棋', intro: '落子时会同时在镜像位置落子！' },
+            { id: 'weak-magnetism-weiqi', name: '弱磁性围棋', randomLevel: 0, path: 'weak-magnetism-weiqi', enabled: true, category: '围棋', intro: '落子时会吸引或排斥棋盘上的棋子！' },
+            { id: 'translocation-weiqi', name: '易位围棋', randomLevel: 0, path: 'translocation-weiqi', enabled: true, category: '围棋', intro: '除了落子，还可以交换棋子的位置！' },
+            { id: 'rotation-weiqi', name: '旋转围棋', randomLevel: 0, path: 'rotation-weiqi', enabled: true, category: '围棋', intro: '下着下着，棋盘旋转了！' },
+            { id: 'nogrid-weiqi', name: '无格线围棋', randomLevel: 0, path: 'nogrid-weiqi', enabled: true, category: '围棋', intro: '棋盘忘记画格线了！' },
+            { id: 'instability-weiqi', name: '不稳定围棋', randomLevel: 0, path: 'instability-weiqi', enabled: true, category: '围棋', intro: '棋子落下后还会消失！' },
+            { id: 'fog-weiqi', name: '迷雾围棋', randomLevel: 3, path: 'fog-weiqi', enabled: true, category: '围棋', intro: '棋盘上笼罩着迷雾！' },
+            { id: 'sync-weiqi', name: '同步围棋', randomLevel: 3, path: 'sync-weiqi', enabled: true, category: '围棋', intro: '双方同步骡子！' },
+            { id: 'invisible-stone-weiqi', name: '隐身子围棋', randomLevel: 3, path: 'invisible-stone-weiqi', enabled: true, category: '围棋', intro: '每第3手棋会隐身！' },
+            { id: 'radar-weiqi', name: '雷达围棋', randomLevel: 3, path: 'radar-weiqi', enabled: true, category: '围棋', intro: '看不到对方的棋子，只能感知到每个棋子最近的对方棋子的距离！' },
+            { id: 'ghost-weiqi', name: '幽灵围棋', randomLevel: 3, path: 'ghost-weiqi', enabled: false, category: '围棋', intro: '看不到对方的棋子！' },
+            { id: 'twisted-space-weiqi', name: '扭曲空间围棋', randomLevel: 2, path: 'twisted-space-weiqi', enabled: true, category: '围棋', intro: '棋盘在扭曲空间中！' },
+            { id: 'renju-weiqi', name: '连珠围棋', randomLevel: 0, path: 'renju-weiqi', enabled: false, category: '围棋', intro: '' },
 
             // 五子棋类
-            { id: 'choice-wuziqi', name: '选点五子棋', randomLevel: 4, path: 'choice-wuziqi', enabled: true, category: '五子棋' },
-            { id: 'guess-wuziqi', name: '猜点五子棋', randomLevel: 4, path: 'guess-wuziqi', enabled: true, category: '五子棋' },
-            { id: 'triangle-wuziqi', name: '三角五子棋', randomLevel: 0, path: 'triangle-wuziqi', enabled: true, category: '五子棋' },
-            { id: 'random-instability-wuziqi', name: '随机不稳定五子棋', randomLevel: 4, path: 'random-instability-wuziqi', enabled: true, category: '五子棋' },
-            { id: 'match-wuziqi', name: '消除五子棋', randomLevel: 0, path: 'match-wuziqi', enabled: true, category: '五子棋' },
+            { id: 'choice-wuziqi', name: '选点五子棋', randomLevel: 4, path: 'choice-wuziqi', enabled: true, category: '五子棋', intro: '每步棋只能从随机候选点中选点落子！' },
+            { id: 'guess-wuziqi', name: '猜点五子棋', randomLevel: 4, path: 'guess-wuziqi', enabled: true, category: '五子棋', intro: '猜对方的选点，并且让对方猜错！' },
+            { id: 'triangle-wuziqi', name: '三角五子棋', randomLevel: 0, path: 'triangle-wuziqi', enabled: true, category: '五子棋', intro: '三角形棋盘！' },
+            { id: 'random-instability-wuziqi', name: '随机不稳定五子棋', randomLevel: 4, path: 'random-instability-wuziqi', enabled: true, category: '五子棋', intro: '每个棋子都有随机寿命！' },
+            { id: 'match-wuziqi', name: '消除五子棋', randomLevel: 0, path: 'match-wuziqi', enabled: true, category: '五子棋', intro: '' },
 
             // 象棋类
-            { id: 'dyeing-xiangqi', name: '染色象棋', randomLevel: 0, path: 'dyeing-xiangqi', enabled: false, category: '象棋' },
-            
+            { id: 'double-xiangqi', name: '二象棋', randomLevel: 0, path: 'double-xiangqi', enabled: true, category: '象棋', intro: '两副象棋，但是只有一个棋盘！' },
+            { id: 'dyeing-xiangqi', name: '染色象棋', randomLevel: 0, path: 'dyeing-xiangqi', enabled: false, category: '象棋', intro: '' },
+
             // 其它类
-            { id: 'quoridor', name: '路墙棋', randomLevel: 0, path: 'quoridor', enabled: true, category: '其它' },
-            { id: 'no-weiqi', name: '不围棋', randomLevel: 0, path: 'no-weiqi', enabled: true, category: '其它' },
-            { id: 'reverse-wuziqi', name: '反五子棋', randomLevel: 0, path: 'reverse-wuziqi', enabled: true, category: '其它' },
-            { id: 'wxd', name: 'WxD棋', randomLevel: 2, path: 'wxd', enabled: true, category: '其它' },
+            { id: 'quoridor', name: '路墙棋', randomLevel: 0, path: 'quoridor', enabled: true, category: '其它', intro: '' },
+            { id: 'noweiqi', name: '不围棋', randomLevel: 0, path: 'noweiqi', enabled: true, category: '其它', intro: '谁先提子谁输！' },
+            { id: 'reverse-wuziqi', name: '反五子棋', randomLevel: 0, path: 'reverse-wuziqi', enabled: true, category: '其它', intro: '谁先连成五子谁输！' },
+            { id: 'wxd', name: 'WxD棋', randomLevel: 2, path: 'wxd', enabled: true, category: '其它', intro: '' },
 
             // 废案类
-            { id: 'snub-quadrangle-weiqi', name: '扭棱四角围棋', randomLevel: 0, path: 'snub-quadrangle-weiqi', enabled: true, category: '废案' },
-            { id: 'cairo-pentagon-weiqi', name: '开罗五角围棋', randomLevel: 0, path: 'cairo-pentagon-weiqi', enabled: true, category: '废案' },
-            { id: 'floret-pentagon-weiqi', name: '花形五角围棋', randomLevel: 0, path: 'floret-pentagon-weiqi', enabled: true, category: '废案' },
-            { id: 'big-small-circle-weiqi', name: '大小圆围棋', randomLevel: 0, path: 'big-small-circle-weiqi', enabled: false, category: '废案' },
-            { id: 'triliberty-weiqi', name: '三气围棋', randomLevel: 0, path: 'triliberty-weiqi', enabled: true, category: '废案' },
-            { id: 'quadriliberty-weiqi', name: '四气围棋', randomLevel: 0, path: 'quadriliberty-weiqi', enabled: true, category: '废案' },
-            { id: 'various-liberty-weiqi', name: '异气围棋', randomLevel: 0, path: 'various-liberty-weiqi', enabled: true, category: '废案' },
-            { id: 'triweight-weiqi', name: '三权重围棋', randomLevel: 2, path: 'triweight-weiqi', enabled: true, category: '废案' },
-            { id: 'neutral-stone-weiqi', name: '中立子围棋', randomLevel: 2, path: 'neutral-stone-weiqi', enabled: true, category: '废案' },
-            { id: 'family-weiqi', name: '全家福围棋', randomLevel: 2, path: 'family-weiqi', enabled: true, category: '废案' },
-            { id: 'russian-weiqi', name: '俄罗斯围棋', randomLevel: 4, path: 'russian-weiqi', enabled: true, category: '废案' },
-            { id: 'medium-magnetism-weiqi', name: '中磁性围棋', randomLevel: 0, path: 'medium-magnetism-weiqi', enabled: true, category: '废案' },
-            { id: 'strong-magnetism-weiqi', name: '强磁性围棋', randomLevel: 0, path: 'strong-magnetism-weiqi', enabled: true, category: '废案' },
-            { id: 'front-back-weiqi', name: '正反面围棋', randomLevel: 0, path: 'front-back-weiqi', enabled: true, category: '废案' },
-            { id: 'auction-weiqi', name: '竞叫围棋', randomLevel: 0, path: 'auction-weiqi', enabled: false, category: '废案' },
-            { id: 'minesweeper-weiqi', name: '扫雷围棋', randomLevel: 4, path: 'minesweeper-weiqi', enabled: true, category: '废案' },
-            { id: 'real-time-weiqi', name: '即时围棋', randomLevel: 0, path: 'real-time-weiqi', enabled: true, category: '废案' },
-            { id: 'rotation-wuziqi', name: '旋转五子棋', randomLevel: 0, path: 'rotation-wuziqi', enabled: true, category: '废案' },
-            { id: 'capture-shiziqi', name: '提子十子棋', randomLevel: 0, path: 'capture-shiziqi', enabled: true, category: '废案' },
-            { id: 'weiqi', name: '围棋', randomLevel: 0, path: 'weiqi', enabled: true, category: '废案' },
-            { id: 'wuziqi', name: '五子棋', randomLevel: 0, path: 'wuziqi', enabled: true, category: '废案' },
+            { id: 'snub-quadrangle-weiqi', name: '扭棱四角围棋', randomLevel: 0, path: 'snub-quadrangle-weiqi', enabled: true, category: '废案', intro: '扭棱四角棋盘！' },
+            { id: 'cairo-pentagon-weiqi', name: '开罗五角围棋', randomLevel: 0, path: 'cairo-pentagon-weiqi', enabled: true, category: '废案', intro: '开罗五角棋盘！' },
+            { id: 'floret-pentagon-weiqi', name: '花形五角围棋', randomLevel: 0, path: 'floret-pentagon-weiqi', enabled: true, category: '废案', intro: '花形五角棋盘！' },
+            { id: 'penrose-p2-weiqi', name: '彭罗斯P2围棋', randomLevel: 0, path: 'penrose-p2-weiqi', enabled: false, category: '废案', intro: '' },
+            { id: 'sigmoid-triangle-weiqi', name: 'Sigmoid三角围棋', randomLevel: 0, path: 'sigmoid-triangle-weiqi', enabled: true, category: '废案', intro: 'Sigmoid三角棋盘！' },
+            { id: 'big-small-circle-weiqi', name: '大小圆围棋', randomLevel: 0, path: 'big-small-circle-weiqi', enabled: false, category: '废案', intro: '' },
+            { id: 'triliberty-weiqi', name: '三气围棋', randomLevel: 0, path: 'triliberty-weiqi', enabled: true, category: '废案', intro: '' },
+            { id: 'quadriliberty-weiqi', name: '四气围棋', randomLevel: 0, path: 'quadriliberty-weiqi', enabled: true, category: '废案', intro: '' },
+            { id: 'various-liberty-weiqi', name: '异气围棋', randomLevel: 0, path: 'various-liberty-weiqi', enabled: true, category: '废案', intro: '' },
+            { id: 'triweight-weiqi', name: '三权重围棋', randomLevel: 2, path: 'triweight-weiqi', enabled: true, category: '废案', intro: '' },
+            { id: 'neutral-stone-weiqi', name: '中立子围棋', randomLevel: 2, path: 'neutral-stone-weiqi', enabled: true, category: '废案', intro: '' },
+            { id: 'family-weiqi', name: '全家福围棋', randomLevel: 2, path: 'family-weiqi', enabled: true, category: '废案', intro: '' },
+            { id: 'russian-weiqi', name: '俄罗斯围棋', randomLevel: 4, path: 'russian-weiqi', enabled: true, category: '废案', intro: '' },
+            { id: 'medium-magnetism-weiqi', name: '中磁性围棋', randomLevel: 0, path: 'medium-magnetism-weiqi', enabled: true, category: '废案', intro: '更强的磁性！' },
+            { id: 'strong-magnetism-weiqi', name: '强磁性围棋', randomLevel: 0, path: 'strong-magnetism-weiqi', enabled: true, category: '废案', intro: '更更强的磁性！' },
+            { id: 'front-back-weiqi', name: '正反面围棋', randomLevel: 0, path: 'front-back-weiqi', enabled: true, category: '废案', intro: '' },
+            { id: 'auction-weiqi', name: '竞叫围棋', randomLevel: 0, path: 'auction-weiqi', enabled: false, category: '废案', intro: '' },
+            { id: 'continuous-weiqi', name: '连续围棋', randomLevel: 0, path: 'continuous-weiqi', enabled: true, category: '废案', intro: '' },
+            { id: 'minesweeper-weiqi', name: '扫雷围棋', randomLevel: 4, path: 'minesweeper-weiqi', enabled: true, category: '废案', intro: '' },
+            { id: 'real-time-weiqi', name: 'RealTime围棋', randomLevel: 0, path: 'real-time-weiqi', enabled: true, category: '废案', intro: '拼手速！' },
+            { id: 'rotation-wuziqi', name: '旋转五子棋', randomLevel: 0, path: 'rotation-wuziqi', enabled: true, category: '废案', intro: '' },
+            { id: 'capture-shiziqi', name: '提子十子棋', randomLevel: 0, path: 'capture-shiziqi', enabled: true, category: '废案', intro: '' },
+            { id: 'weiqi', name: '围棋', randomLevel: 0, path: 'weiqi', enabled: true, category: '废案', intro: '普通的围棋有什么好玩的！' },
+            { id: 'wuziqi', name: '五子棋', randomLevel: 0, path: 'wuziqi', enabled: true, category: '废案', intro: '普通的五子棋有什么好玩的！' },
+            { id: 'xiangqi', name: '象棋', randomLevel: 0, path: 'xiangqi', enabled: true, category: '废案', intro: '普通的象棋棋有什么好玩的！' },
+            { id: 'super-24', name: '超级24点', randomLevel: 0, path: 'super-24', enabled: true, category: '废案', intro: '' },
+            { id: 'versus-minesweeper', name: '对战扫雷', randomLevel: 0, path: 'versus-minesweeper', enabled: true, category: '废案', intro: '' },
+            { id: 'speed-minesweeper', name: '竞速扫雷', randomLevel: 0, path: 'speed-minesweeper', enabled: true, category: '废案', intro: '' },
         ];
 
         let pendingGame = null;
@@ -853,7 +1270,7 @@
             const gameId = 'weiqi';
             const game = GAMES_DATA.find(g => g.id === gameId);
             if (!game || !game.enabled) {
-                alert('标准围棋未开放，无法创建房间');
+                qiAlert('标准围棋未开放，无法创建房间');
                 return;
             }
             try {
@@ -864,7 +1281,7 @@
                 });
                 const result = await res.json();
                 if (!result.success) {
-                    alert('创建房间失败：' + (result.error || '未知错误'));
+                    qiAlert('创建房间失败：' + (result.error || '未知错误'));
                     return;
                 }
                 const roomId = String(result.roomId);
@@ -877,7 +1294,7 @@
                 }));
                 window.location.href = `/qi/${game.path}/${roomId}`;
             } catch (err) {
-                alert('网络错误，请稍后重试');
+                qiAlert('网络错误，请稍后重试');
             }
         }
 
@@ -886,17 +1303,17 @@
             try {
                 data = JSON.parse(await file.text());
             } catch (e) {
-                alert('棋谱文件解析失败');
+                qiAlert('棋谱文件解析失败');
                 return;
             }
             const gameId = data && data.gameId;
             if (!gameId || typeof gameId !== 'string') {
-                alert('无法识别棋类或该棋类未开放');
+                qiAlert('无法识别棋类或该棋类未开放');
                 return;
             }
             const game = GAMES_DATA.find(g => g.id === gameId);
             if (!game || !game.enabled) {
-                alert('无法识别棋类或该棋类未开放');
+                qiAlert('无法识别棋类或该棋类未开放');
                 return;
             }
             try {
@@ -907,7 +1324,7 @@
                 });
                 const result = await res.json();
                 if (!result.success) {
-                    alert('创建房间失败：' + (result.error || '未知错误'));
+                    qiAlert('创建房间失败：' + (result.error || '未知错误'));
                     return;
                 }
                 const roomId = String(result.roomId);
@@ -920,12 +1337,11 @@
                 }));
                 window.location.href = `/qi/${game.path}/${roomId}`;
             } catch (err) {
-                alert('网络错误，请稍后重试');
+                qiAlert('网络错误，请稍后重试');
             }
         }
 
-        async function fetchAllRooms()
-        {
+        async function fetchAllRooms() {
             const activeGames = GAMES_DATA.filter(g => g.enabled === true);
             const results = await Promise.all(activeGames.map(async (game) => {
                 try {
@@ -964,7 +1380,7 @@
                                     <span class="player-count">${room.playerCount || 0}/2</span>
                                     ${room.hasPassword ? '<span class="player-count">私密</span>' : '<span class="player-count">公开</span>'}
                                 </div>
-                                <button class="enter-btn" data-room-id="${room.roomId}" data-game-id="${room.gameId}" data-game-path="${room.gamePath}" data-has-password="${room.hasPassword}">进入房间</button>
+                                <button class="enter-btn" type="button" data-room-id="${room.roomId}" data-game-id="${room.gameId}" data-game-path="${room.gamePath}" data-has-password="${room.hasPassword}">进入房间</button>
                             </div>
                         `).join('');
             container.innerHTML = html;
@@ -991,15 +1407,14 @@
                         });
                         const data = await res.json();
                         if (data.success) {
-                            // 存储密码，供游戏页面使用
                             sessionStorage.setItem(`roomPassword_${roomId}`, password || '');
                             try { sessionStorage.removeItem('qiLobbyFreshRoom'); } catch (e) {}
                             window.location.href = `/qi/${gamePath}/${roomId}`;
                         } else {
-                            alert('加入失败：' + (data.error || '密码错误或房间不存在'));
+                            qiAlert('加入失败：' + (data.error || '密码错误或房间不存在'));
                         }
                     } catch (err) {
-                        alert('网络错误，请稍后重试');
+                        qiAlert('网络错误，请稍后重试');
                     }
                 });
             });
@@ -1016,60 +1431,200 @@
             }
         }
 
-        // 核心渲染函数：使用多列布局，按类别顺序添加标题、棋类，并在每个分类的最后一个棋类后插入空行（最后一个分类除外）
+        function createGameCard(game) {
+            const card = document.createElement('article');
+            card.className = 'game-card';
+            card.dataset.gameId = game.id;
+            card.dataset.gameName = game.name;
+            card.dataset.gameIntro = game.intro || '';
+            card.dataset.gameCategory = game.category || '';
+            if (game.enabled) {
+                card.classList.add('is-live', 'game-card-linkable');
+                card.tabIndex = 0;
+            } else {
+                card.classList.add('is-disabled');
+                card.setAttribute('aria-disabled', 'true');
+            }
+
+            const head = document.createElement('div');
+            head.className = 'game-card-head';
+
+            const namePill = document.createElement('span');
+            namePill.className = 'game-name-pill';
+            namePill.textContent = game.name;
+            namePill.title = game.name;
+
+            const level = document.createElement('span');
+            level.className = 'game-index';
+            level.title = '随机级别';
+            const levelFull = document.createElement('span');
+            levelFull.className = 'game-index-full';
+            levelFull.textContent = `${game.randomLevel}级随机`;
+            const levelNum = document.createElement('span');
+            levelNum.className = 'game-index-num';
+            levelNum.textContent = String(game.randomLevel);
+            level.append(levelFull, levelNum);
+
+            head.append(namePill, level);
+
+            const intro = document.createElement('p');
+            intro.className = 'game-intro';
+            intro.textContent = game.intro || '';
+
+            card.append(head, intro);
+
+            if (game.enabled) {
+                const hint = document.createElement('p');
+                hint.className = 'game-create-hint';
+                hint.textContent = '点击创建房间';
+                card.append(hint);
+
+                const openCreate = () => {
+                    pendingGame = game;
+                    document.getElementById('modalGameName').innerText = `创建「${game.name}」房间`;
+                    document.getElementById('roomPasswordInput').value = '';
+                    document.getElementById('createModal').style.display = 'flex';
+                };
+
+                card.addEventListener('click', openCreate);
+                card.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        openCreate();
+                    }
+                });
+            }
+
+            return card;
+        }
+
+        let gamesViewMode = 'card'; // 'card' | 'list'
+
+        function syncGamesViewMode() {
+            const section = document.getElementById('platform-games');
+            const toggle = document.getElementById('gameViewToggle');
+            if (section) {
+                section.classList.toggle('games-view-list', gamesViewMode === 'list');
+            }
+            if (toggle) {
+                const toList = gamesViewMode === 'card';
+                toggle.textContent = toList ? '显示列表' : '显示卡片';
+                toggle.setAttribute('aria-pressed', gamesViewMode === 'list' ? 'true' : 'false');
+                toggle.title = toList ? '切换为列表视图' : '切换为卡片视图';
+            }
+        }
+
         function renderGamesCatalog() {
-            const gridContainer = document.getElementById('gamesScroll');
+            const gridContainer = document.getElementById('platform-games-grid');
+            const prevQuery = document.getElementById('gameSearchInput')?.value || '';
             gridContainer.innerHTML = '';
 
             const categories = ['围棋', '五子棋', '象棋', '其它', '废案'];
             const fragment = document.createDocumentFragment();
+            let firstCategoryRendered = false;
 
             for (let catIdx = 0; catIdx < categories.length; catIdx++) {
                 const cat = categories[catIdx];
-                // 添加分类标题
-                const titleDiv = document.createElement('div');
-                titleDiv.className = 'game-entry category-title';
-                titleDiv.textContent = cat;
-                fragment.appendChild(titleDiv);
-
                 const catGames = GAMES_DATA.filter(g => g.category === cat);
-                for (let i = 0; i < catGames.length; i++) {
-                    const game = catGames[i];
-                    const gameDiv = document.createElement('div');
-                    gameDiv.className = `game-entry ${!game.enabled ? 'disabled' : ''}`;
-                    gameDiv.innerHTML = `${game.name} <span class="random-level-badge ${!game.enabled ? 'disabled' : ''}">${game.randomLevel}</span>`;
-                    if (game.enabled) {
-                        gameDiv.addEventListener('click', () => {
-                            pendingGame = game;
-                            document.getElementById('modalGameName').innerText = `创建「${game.name}」房间`;
-                            document.getElementById('roomPasswordInput').value = '';
-                            document.getElementById('createModal').style.display = 'flex';
-                        });
-                    } else {
-                        gameDiv.addEventListener('click', () => {
-                            alert('该棋类尚未上线，敬请期待！');
-                        });
-                    }
-                    fragment.appendChild(gameDiv);
+                if (!catGames.length) continue;
 
-                    // 如果是当前分类的最后一个棋类，并且不是最后一个分类，则添加一个空行间隔
-                    const isLastGameInCategory = (i === catGames.length - 1);
-                    const isNotLastCategory = (catIdx !== categories.length - 1);
-                    if (isLastGameInCategory && isNotLastCategory) {
-                        const spacer = document.createElement('div');
-                        spacer.className = 'category-spacer';
-                        // 空行不需要任何内容，但需要占位
-                        spacer.textContent = '';
-                        fragment.appendChild(spacer);
-                    }
+                const section = document.createElement('section');
+                section.className = 'game-category-row';
+                const titleId = `game-category-title-${catIdx}`;
+                section.setAttribute('aria-labelledby', titleId);
+
+                const head = document.createElement('div');
+                head.className = 'game-category-head';
+
+                const title = document.createElement('h2');
+                title.className = 'game-category-title';
+                title.id = titleId;
+                title.textContent = cat;
+
+                const divider = document.createElement('span');
+                divider.className = 'game-category-divider';
+                divider.setAttribute('aria-hidden', 'true');
+
+                head.append(title, divider);
+
+                if (!firstCategoryRendered) {
+                    firstCategoryRendered = true;
+                    head.classList.add('is-first-category');
+
+                    const tools = document.createElement('div');
+                    tools.className = 'game-category-head-tools';
+
+                    const toggle = document.createElement('button');
+                    toggle.type = 'button';
+                    toggle.id = 'gameViewToggle';
+                    toggle.className = 'game-view-toggle';
+                    toggle.addEventListener('click', () => {
+                        gamesViewMode = gamesViewMode === 'card' ? 'list' : 'card';
+                        syncGamesViewMode();
+                    });
+
+                    const search = document.createElement('input');
+                    search.type = 'search';
+                    search.id = 'gameSearchInput';
+                    search.className = 'game-search-input';
+                    search.placeholder = '搜索棋类…';
+                    search.autocomplete = 'off';
+                    search.setAttribute('enterkeyhint', 'search');
+                    search.setAttribute('aria-label', '搜索棋类');
+                    search.value = prevQuery;
+                    search.addEventListener('input', applyGameSearchFilter);
+                    search.addEventListener('search', applyGameSearchFilter);
+
+                    tools.append(toggle, search);
+                    head.appendChild(tools);
                 }
+
+                const cards = document.createElement('div');
+                cards.className = 'game-category-cards';
+                catGames.forEach((game) => {
+                    cards.appendChild(createGameCard(game));
+                });
+
+                section.append(head, cards);
+                fragment.appendChild(section);
             }
 
             gridContainer.appendChild(fragment);
+            syncGamesViewMode();
+            applyGameSearchFilter();
         }
 
-        async function createRoom(game, password)
-        {
+        function applyGameSearchFilter() {
+            const input = document.getElementById('gameSearchInput');
+            const query = (input && input.value ? String(input.value) : '').trim().toLowerCase();
+            const rows = document.querySelectorAll('#platform-games-grid .game-category-row');
+
+            rows.forEach((row) => {
+                const cards = row.querySelectorAll('.game-card');
+                const keepHead = !!row.querySelector('#gameSearchInput');
+                let visibleCount = 0;
+                cards.forEach((card) => {
+                    if (!query) {
+                        card.classList.remove('is-search-hidden');
+                        visibleCount += 1;
+                        return;
+                    }
+                    const haystack = [
+                        card.dataset.gameName || '',
+                        card.dataset.gameId || '',
+                        card.dataset.gameIntro || '',
+                        card.dataset.gameCategory || ''
+                    ].join(' ').toLowerCase();
+                    const matched = haystack.includes(query);
+                    card.classList.toggle('is-search-hidden', !matched);
+                    if (matched) visibleCount += 1;
+                });
+                // 首个分类头含搜索框，即使无匹配也不隐藏整行
+                row.classList.toggle('is-search-hidden', visibleCount === 0 && !keepHead);
+            });
+        }
+
+        async function createRoom(game, password) {
             try {
                 const res = await fetch(`${API_BASE}/qi/create`, {
                     method: 'POST',
@@ -1078,7 +1633,6 @@
                 });
                 const data = await res.json();
                 if (data.success) {
-                    // 如果有密码，存入 sessionStorage，供游戏页面使用
                     if (password) {
                         sessionStorage.setItem(`roomPassword_${data.roomId}`, password);
                     } else {
@@ -1092,10 +1646,10 @@
                     } catch (e) {}
                     window.location.href = `/qi/${game.path}/${data.roomId}`;
                 } else {
-                    alert('创建房间失败：' + (data.error || '未知错误'));
+                    qiAlert('创建房间失败：' + (data.error || '未知错误'));
                 }
             } catch (err) {
-                alert('网络错误，创建失败');
+                qiAlert('网络错误，创建失败');
             }
         }
 
@@ -1145,7 +1699,7 @@
                 const text = raw != null ? String(raw) : '';
                 const built = lobbyBuildWeiqiRecordFromQrText(text);
                 if (built.error) {
-                    alert(built.error);
+                    qiAlert(built.error);
                     return;
                 }
                 closeLobbyQrModal();
@@ -1165,45 +1719,54 @@
             modal.style.display = 'none';
             pendingGame = null;
         });
-        document.addEventListener('click', function (e)
-        {
+        document.addEventListener('click', function (e) {
             const helpIcon = e.target.closest('.help-icon');
 
-            if (helpIcon)
-            {
+            if (helpIcon) {
                 e.preventDefault();
                 e.stopPropagation();
 
-                // 如果已经有气泡且当前显示，则隐藏
                 if (activeTooltip && activeTooltip.classList.contains('show')) {
                     activeTooltip.classList.remove('show');
                     activeTooltip = null;
                     return;
                 }
 
-                // 创建或复用气泡元素
                 let tempTooltip = document.querySelector('.temp-tooltip');
-                if (!tempTooltip)
-                {
+                if (!tempTooltip) {
                     tempTooltip = document.createElement('div');
                     tempTooltip.className = 'temp-tooltip';
                     document.body.appendChild(tempTooltip);
                 }
 
-                tempTooltip.innerHTML = '0级 完全透明，完全无随机性<br />1级 仅开局前有不透明性<br />2级 仅开局前有系统随机性<br />3级 开局后有不透明性<br />4级 开局后有随机性<br /> ';
-                const tooltipRect = tempTooltip.getBoundingClientRect();
-                const rect = helpIcon.getBoundingClientRect();
-                tempTooltip.style.top = (5 + rect.bottom) + 'px';
-                if (5 + rect.right < window.innerWidth - tooltipRect.width)
-                    tempTooltip.style.left = (5 + rect.right) + 'px';
-                else
-                    tempTooltip.style.left = (rect.right - tooltipRect.width - 5) + 'px';
+                tempTooltip.innerHTML = [
+                    '<div class="tooltip-title">随机级别</div>',
+                    '<span class="tooltip-line"><span class="tooltip-level">0级</span>完全透明，完全无随机性</span>',
+                    '<span class="tooltip-line"><span class="tooltip-level">1级</span>仅开局前有不透明性</span>',
+                    '<span class="tooltip-line"><span class="tooltip-level">2级</span>仅开局前有系统随机性</span>',
+                    '<span class="tooltip-line"><span class="tooltip-level">3级</span>开局后有不透明性</span>',
+                    '<span class="tooltip-line"><span class="tooltip-level">4级</span>开局后有随机性</span>'
+                ].join('');
+                tempTooltip.style.top = '0px';
+                tempTooltip.style.left = '0px';
                 tempTooltip.classList.add('show');
                 activeTooltip = tempTooltip;
+
+                const tooltipRect = tempTooltip.getBoundingClientRect();
+                const rect = helpIcon.getBoundingClientRect();
+                let top = 8 + rect.bottom;
+                let left = rect.left;
+                if (left + tooltipRect.width > window.innerWidth - 12) {
+                    left = Math.max(12, window.innerWidth - tooltipRect.width - 12);
+                }
+                if (top + tooltipRect.height > window.innerHeight - 12) {
+                    top = Math.max(12, rect.top - tooltipRect.height - 8);
+                }
+                tempTooltip.style.top = top + 'px';
+                tempTooltip.style.left = left + 'px';
                 return;
             }
 
-            // 点击其他任何位置，如果气泡存在且显示，则隐藏
             if (activeTooltip && activeTooltip.classList.contains('show')) {
                 activeTooltip.classList.remove('show');
                 activeTooltip = null;
@@ -1216,7 +1779,6 @@
             }
         });
 
-        // 处理带密码的房间直接链接（从直接访问有密码房间的URL重定向而来）
         (function () {
             const urlParams = new URLSearchParams(window.location.search);
             const needPassword = urlParams.get('needPassword');
@@ -1224,15 +1786,12 @@
             const roomId = urlParams.get('room');
 
             if (needPassword === '1' && gameId && roomId) {
-                // 延迟一小段时间，确保页面渲染完成
                 setTimeout(() => {
                     const password = prompt(`房间 ${roomId} 设置了密码，请输入密码：`);
                     if (password === null) {
-                        // 用户取消，留在大厅，清除URL参数
                         window.history.replaceState({}, '', '/qi');
                         return;
                     }
-                    // 验证密码
                     fetch(`${API_BASE}/qi/join`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
@@ -1241,22 +1800,21 @@
                         .then(res => res.json())
                         .then(data => {
                             if (data.success) {
-                                // 存储密码，供游戏页面使用
                                 sessionStorage.setItem(`roomPassword_${roomId}`, password);
                                 try { sessionStorage.removeItem('qiLobbyFreshRoom'); } catch (e) {}
                                 const gameInfo = GAMES_DATA.find(g => g.id === gameId);
                                 if (gameInfo) {
                                     window.location.href = `/qi/${gameInfo.path}/${roomId}`;
                                 } else {
-                                    alert('游戏不存在');
+                                    qiAlert('游戏不存在');
                                 }
                             } else {
-                                alert('密码错误，无法进入房间');
+                                qiAlert('密码错误，无法进入房间');
                                 window.history.replaceState({}, '', '/qi');
                             }
                         })
                         .catch(err => {
-                            alert('网络错误，请重试');
+                            qiAlert('网络错误，请重试');
                             window.history.replaceState({}, '', '/qi');
                         });
                 }, 100);

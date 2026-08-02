@@ -50,7 +50,7 @@ function generateHexBoardData(n) {
     return { vertexCount: V, neighbors: neighborList };
 }
 
-const { QiTwoPlayerRoomBase, qiMatchTimeControl, vertexGraphWeiqiRules } = require('../common');
+const { QiTwoPlayerRoomBase, qiMatchTimeControl, vertexGraphWeiqiRules, qiBoardSeatOverlay } = require('../common');
 class HexagonWeiqiRoom extends QiTwoPlayerRoomBase {
     constructor(room, initialSize = 9) {
         super(room);
@@ -874,7 +874,7 @@ class HexagonWeiqiRoom extends QiTwoPlayerRoomBase {
                 if (this.pendingEnd && msg.accept) {
                     this.startScoreCounting(this.pendingEnd.requester, this.pendingEnd.opponent);
                 } else if (this.pendingEnd && !msg.accept) {
-                    this.pendingEnd.requester.send(JSON.stringify({ type: 'error', message: '对方拒绝数子。' }));
+                    this.pendingEnd.requester.send(JSON.stringify({ type: 'error', message: '对方拒绝数点。' }));
                 }
                 this.pendingEnd = null;
                 break;
@@ -1008,6 +1008,7 @@ module.exports = {
     generateHexBoardData,
     initRoom(room) {
         room.gameLogic = new HexagonWeiqiRoom(room);
+        if (typeof qiBoardSeatOverlay !== 'undefined' && qiBoardSeatOverlay) qiBoardSeatOverlay.install(room.gameLogic);
         room.maxPlayers = 2;
     }
 };

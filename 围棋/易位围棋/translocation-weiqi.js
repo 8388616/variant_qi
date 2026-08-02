@@ -1,5 +1,19 @@
 const crypto = require('crypto');
-const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, encodeInitialPositionCompact, applyInitialPositionCompact } = require('../common');
+const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, encodeInitialPositionCompact, applyInitialPositionCompact, qiBoardSeatOverlay } = require('../common');
+
+function komiForSize(boardSize) {
+    if (boardSize === 7) 
+        return 2.5;    
+    if (boardSize === 8) 
+        return 2.0;
+    if (boardSize === 9) 
+        return 1.5;
+    if (boardSize === 10) 
+        return 1.75;
+    if (boardSize === 11) 
+        return 1.75;
+    return 1.25;
+}
 
 class TranspositionWeiqiRoom extends QiTwoPlayerRoomBase
 {
@@ -350,7 +364,7 @@ class TranspositionWeiqiRoom extends QiTwoPlayerRoomBase
         const liveBoard = this.removeDeadAndDying(this.board);
         const territory = this.assignTerritoryWithRange(liveBoard);
         const { blackTotal, whiteTotal } = this.computeScore(liveBoard, territory);
-        const KOMI = 3.25;
+        const KOMI = komiForSize(this.boardSize);
         return blackTotal - whiteTotal - 2 * KOMI;
     }
 
@@ -359,6 +373,7 @@ class TranspositionWeiqiRoom extends QiTwoPlayerRoomBase
     {
         return {
             boardSize: this.boardSize,
+            komi: komiForSize(this.boardSize),
             board: this.board,
             numberOfHands: 1 + this.historyBoards.length,
             currentPlayer: this.currentPlayer,
@@ -474,7 +489,7 @@ class TranspositionWeiqiRoom extends QiTwoPlayerRoomBase
         return true;
     }
 
-    // 数子流程：向双方发送形势判断提议
+    // 数点流程：向双方发送形势判断提议
     startScoreCounting(requester, opponent) {
         if (this.tcClock && this.tcClock.timed) qiMatchTimeControl.setPaused(this.tcClock, true);
         const lead = this.computeLead();
@@ -684,7 +699,7 @@ class TranspositionWeiqiRoom extends QiTwoPlayerRoomBase
                 if (this.pendingEnd && msg.accept) {
                     this.startScoreCounting(this.pendingEnd.requester, this.pendingEnd.opponent);
                 } else if (this.pendingEnd && !msg.accept) {
-                    this.pendingEnd.requester.send(JSON.stringify({ type: 'error', message: '对方拒绝数子。' }));
+                    this.pendingEnd.requester.send(JSON.stringify({ type: 'error', message: '对方拒绝数点。' }));
                 }
                 this.pendingEnd = null;
                 break;
@@ -737,7 +752,7 @@ class TranspositionWeiqiRoom extends QiTwoPlayerRoomBase
             gameType: '易位围棋',
             gameId: 'translocation-weiqi',
             boardSize: this.boardSize,
-            komi: 3.25,
+            komi: komiForSize(this.boardSize),
             players: { black: null, white: null },
             initialPosition: encodeInitialPositionCompact(emptyBoard, this.boardSize),
             moves: this.moveCoords.map(m => {
@@ -1015,6 +1030,7 @@ class TranspositionWeiqiRoom extends QiTwoPlayerRoomBase
 module.exports = {
     initRoom(room) {
         room.gameLogic = new TranspositionWeiqiRoom(room);
+        qiBoardSeatOverlay.install(room.gameLogic);
         room.maxPlayers = 2;
     }
 };

@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="zh">
 <head>
     <meta charset="UTF-8">
@@ -10,10 +10,7 @@
     <div class="game-wrapper">
         <div class="top-panel">
             <div class="left-group">
-                <div class="side-select">
-                    <label id="labelBlack"><input type="radio" name="color" value="black" id="radioBlack"> ⚫ 黑方</label>
-                    <label id="labelWhite"><input type="radio" name="color" value="white" id="radioWhite"> ⚪ 白方</label>
-                </div>
+                <div class="komi-info" id="gameTitleInfo">无格线围棋</div>
                 <div class="komi-info">黑贴白3.25点</div>
                 <div class="color-status" id="colorStatus">观战</div>
                 <select id="roadCountSelect" class="board-size-select" title="棋盘大小不变，路数通过棋子直径调整">
@@ -75,7 +72,7 @@
                 <button class="ctrl-btn" id="undoBtn">悔棋</button>
                 <button class="ctrl-btn" id="resignBtn">认输</button>
                 <button class="ctrl-btn" id="drawBtn">和棋</button>
-                <button class="ctrl-btn" id="endReqBtn">申请数子</button>
+                <button class="ctrl-btn" id="endReqBtn">申请数点</button>
                 <button class="ctrl-btn" id="importBtn">导入棋谱</button>
                 <button class="ctrl-btn" id="exportBtn" style="display:none;">导出棋谱</button>
             </div>
@@ -155,7 +152,7 @@
     const LIBERTY_ANGLE_STEP = Math.PI / 36;
 
     const pathMatch = window.location.pathname.match(/^\/qi\/([^/]+)\/(\d+)$/);
-    if (!pathMatch) { alert('请从大厅进入房间（/qi/nogrid-weiqi/房间号）'); throw new Error('Invalid room URL'); }
+    if (!pathMatch) { qiAlert('请从大厅进入房间（/qi/nogrid-weiqi/房间号）'); throw new Error('Invalid room URL'); }
     const gameType = pathMatch[1];
     const roomId = pathMatch[2];
     const roomPassword = sessionStorage.getItem(`roomPassword_${roomId}`) || '';
@@ -221,11 +218,7 @@
     const ctx = canvas.getContext('2d');
     const turnDisplay = document.getElementById('turnDisplay');
     const colorStatus = document.getElementById('colorStatus');
-    const radioBlack = document.getElementById('radioBlack');
-    const radioWhite = document.getElementById('radioWhite');
-    const labelBlack = document.getElementById('labelBlack');
-    const labelWhite = document.getElementById('labelWhite');
-    const scoreTitle = document.getElementById('scoreTitle');
+const scoreTitle = document.getElementById('scoreTitle');
     const scoreBoard = document.getElementById('scoreBoard');
     const leadInfo = document.getElementById('leadInfo');
     const roadCountSelect = document.getElementById('roadCountSelect');
@@ -748,31 +741,10 @@
         else drawBoard();
     }
 
-    /** 与标准围棋 围棋.html updateRadioStyles 一致：已占座一方 radio 禁用且 checked，label 显示不可选样式 */
     function updateRadioStyles() {
         if (bindingsUpdateRadioStyles) {
             bindingsUpdateRadioStyles();
             return;
-        }
-        labelBlack.classList.remove('self-radio', 'opponent-radio', 'checked-disabled');
-        labelWhite.classList.remove('self-radio', 'opponent-radio', 'checked-disabled');
-        if (slots.black) {
-            labelBlack.classList.add(mySlot === 'black' ? 'self-radio' : 'opponent-radio');
-            labelBlack.classList.add('checked-disabled');
-            radioBlack.disabled = true;
-            radioBlack.checked = true;
-        } else {
-            radioBlack.disabled = false;
-            radioBlack.checked = false;
-        }
-        if (slots.white) {
-            labelWhite.classList.add(mySlot === 'white' ? 'self-radio' : 'opponent-radio');
-            labelWhite.classList.add('checked-disabled');
-            radioWhite.disabled = true;
-            radioWhite.checked = true;
-        } else {
-            radioWhite.disabled = false;
-            radioWhite.checked = false;
         }
         updateRecordButtons();
     }
@@ -1011,11 +983,7 @@
         colorStatus,
         scoreTitle,
         turnDisplay,
-        labelBlack,
-        labelWhite,
-        radioBlack,
-        radioWhite,
-        syncState,
+syncState,
         updateBoardGeometry: () => {},
         initBoardArray: () => [],
         exitReplayMode,
@@ -1029,6 +997,7 @@
         showScoreConfirm,
         isMouseDevice: window.matchMedia('(hover: hover) and (pointer: fine)').matches,
         standardWeiqiMatchTime: true,
+            boardSeatOverlay: true,
         timeControlMainByoScale: 1.5
     });
     const bindingsHandleMessage = _weiqiBindings.handleMessage;
@@ -1055,11 +1024,11 @@
                 return;
             }
             bindingsHandleMessage(msg);
-            if (msg.type === 'importSuccess') alert('棋谱已导入');
+            if (msg.type === 'importSuccess') qiAlert('棋谱已导入');
         };
         ws.onclose = (event) => {
             if (event.code === 1008 && String(event.reason || '').includes('房间')) {
-                alert('房间不存在');
+                qiAlert('房间不存在');
                 window.location.href = '/qi';
                 return;
             }
@@ -1194,12 +1163,12 @@
             ws.send(JSON.stringify({ type: 'resetRoom' }));
             return;
         }
-        if (!mySlot) { alert('只有对局者可以开始新局'); return; }
+        if (!mySlot) { qiAlert('只有对局者可以开始新局'); return; }
         const opp = mySlot === 'black' ? 'white' : 'black';
         if (slots[opp]) {
-            if (confirm('确定向对方申请开始新局吗？')) ws.send(JSON.stringify({ type: 'requestNewGame' }));
+            qiConfirm('确定向对方申请开始新局吗？').then(ok => { if (ok) ws.send(JSON.stringify({ type: 'requestNewGame' })); });
         } else {
-            if (confirm('确定开始新局吗？')) ws.send(JSON.stringify({ type: 'requestNewGame' }));
+            qiConfirm('确定开始新局吗？').then(ok => { if (ok) ws.send(JSON.stringify({ type: 'requestNewGame' })); });
         }
     };
     document.getElementById('estimateBtn').onclick = () => {
@@ -1214,17 +1183,17 @@
         ws.send(JSON.stringify({ type: 'pass' }));
     };
     document.getElementById('undoBtn').onclick = () => {
-        if (!mySlot) { alert('只有对局者可以悔棋'); return; }
+        if (!mySlot) { qiAlert('只有对局者可以悔棋'); return; }
         const opp = mySlot === 'black' ? 'white' : 'black';
         if (slots[opp]) {
-            if (confirm('确定向对方申请悔棋吗？')) ws.send(JSON.stringify({ type: 'requestUndo' }));
+            qiConfirm('确定向对方申请悔棋吗？').then(ok => { if (ok) ws.send(JSON.stringify({ type: 'requestUndo' })); });
         } else {
-            if (confirm('确定悔棋吗？')) ws.send(JSON.stringify({ type: 'requestUndo' }));
+            qiConfirm('确定悔棋吗？').then(ok => { if (ok) ws.send(JSON.stringify({ type: 'requestUndo' })); });
         }
     };
     document.getElementById('resignBtn').onclick = () => {
         if (!mySlot) return;
-        if (confirm('确定认输吗？')) ws.send(JSON.stringify({ type: 'resign' }));
+        qiConfirm('确定认输吗？').then(ok => { if (ok) ws.send(JSON.stringify({ type: 'resign' })); });
     };
     document.getElementById('drawBtn').onclick = () => {
         if (!mySlot) return;
@@ -1244,7 +1213,7 @@
             try {
                 const data = JSON.parse(ev.target.result);
                 ws.send(JSON.stringify({ type: 'importRecord', data }));
-            } catch (err) { alert('棋谱文件解析失败'); }
+            } catch (err) { qiAlert('棋谱文件解析失败'); }
         };
         reader.readAsText(file);
         e.target.value = '';
@@ -1260,13 +1229,6 @@
     document.getElementById('backToLobbyBtn').onclick = () => { window.location.href = '/qi'; };
     document.getElementById('helpBtn').onclick = () => { document.getElementById('rulesModal').style.display = 'flex'; };
     document.getElementById('closeRulesBtn').onclick = () => { document.getElementById('rulesModal').style.display = 'none'; };
-
-    radioBlack.onchange = function () {
-        if (this.checked && !this.disabled) ws.send(JSON.stringify({ type: 'selectColor', color: 'black' }));
-    };
-    radioWhite.onchange = function () {
-        if (this.checked && !this.disabled) ws.send(JSON.stringify({ type: 'selectColor', color: 'white' }));
-    };
 
     scoreConfirmYes.onclick = () => {
         ws.send(JSON.stringify({ type: 'scoreResponse', accept: true }));

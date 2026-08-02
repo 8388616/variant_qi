@@ -1,4 +1,4 @@
-﻿const crypto = require('crypto');
+const crypto = require('crypto');
 
 const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, applyInitialPositionCompact, encodeInitialPositionCompact } = require('../common');
 class WeiqiRoom extends QiTwoPlayerRoomBase
@@ -32,6 +32,10 @@ class WeiqiRoom extends QiTwoPlayerRoomBase
         this.tcClock = null;
         this._clockInterval = null;
         this.matchStarted = false;
+        /** 先落座者为房主（WebSocket） */
+        this.hostWs = null;
+        /** 是否启用棋盘落座蒙版协议（执子由房主在限时对话框选择） */
+        this.boardSeatOverlay = true;
     }
 
     _stopClockTicker() {
@@ -82,6 +86,10 @@ class WeiqiRoom extends QiTwoPlayerRoomBase
     }
 
     _firstPickerSlot() {
+        if (this.hostWs) {
+            const hs = this.room.getSlotByWs(this.hostWs);
+            if (hs) return hs;
+        }
         const tb = this.slotJoinedAt.black;
         const tw = this.slotJoinedAt.white;
         if (tb == null || tw == null) return 'black';
@@ -102,18 +110,82 @@ class WeiqiRoom extends QiTwoPlayerRoomBase
             lastProposerSlot: null
         };
         const ws = room.getPlayerBySlot(first);
-        if (ws) ws.send(JSON.stringify({ type: 'timeControlNegotiation', mode: 'propose' }));
+        if (ws) {
+            ws.send(JSON.stringify({
+                type: 'timeControlNegotiation',
+                mode: 'propose',
+                boardSeatOverlay: !!this.boardSeatOverlay
+            }));
+        }
         const other = first === 'black' ? 'white' : 'black';
         const ws2 = room.getPlayerBySlot(other);
         if (ws2) ws2.send(JSON.stringify({ type: 'timeControlWaitPeer', text: '等待对方设置限时规则...' }));
     }
 
     afterColorAssigned(ws, slot) {
+        if (!this.hostWs) this.hostWs = ws;
         this.slotJoinedAt[slot] = Date.now();
         this._maybeBeginTimeNegotiation();
     }
 
+    /** 按「选择者己方执子」交换座位：colorChoice 为 black|white|random */
+    _applyChooserColorChoice(colorChoice, chooserSlot) {
+        if (!chooserSlot) return null;
+        const room = this.room;
+        if (!room.getPlayerBySlot(chooserSlot)) return null;
+        let raw = colorChoice;
+        if (raw === 'hostWhite') raw = 'white';
+        if (raw === 'hostBlack') raw = 'black';
+        let target = 'black';
+        if (raw === 'white') target = 'white';
+        else if (raw === 'random') target = Math.random() < 0.5 ? 'black' : 'white';
+        if (chooserSlot === target) return target;
+
+        if (typeof room.swapSlots === 'function') {
+            room.swapSlots('black', 'white');
+        } else {
+            const a = room.slotOccupancy.get('black') || null;
+            const b = room.slotOccupancy.get('white') || null;
+            room.slotOccupancy.delete('black');
+            room.slotOccupancy.delete('white');
+            if (a) {
+                room.players.set(a, 'white');
+                room.slotOccupancy.set('white', a);
+            }
+            if (b) {
+                room.players.set(b, 'black');
+                room.slotOccupancy.set('black', b);
+            }
+        }
+        const tb = this.slotJoinedAt.black;
+        const tw = this.slotJoinedAt.white;
+        this.slotJoinedAt.black = tw;
+        this.slotJoinedAt.white = tb;
+        return target;
+    }
+
+    _notifyColorsAfterHostChoice() {
+        const room = this.room;
+        const b = room.getPlayerBySlot('black');
+        const w = room.getPlayerBySlot('white');
+        const hostSlot = this.hostWs ? room.getSlotByWs(this.hostWs) : null;
+        if (b) b.send(JSON.stringify({ type: 'colorAssigned', color: 'black', finalized: true, isHost: b === this.hostWs }));
+        if (w) w.send(JSON.stringify({ type: 'colorAssigned', color: 'white', finalized: true, isHost: w === this.hostWs }));
+        this.broadcast({
+            type: 'colorsFinalized',
+            slots: { black: !!b, white: !!w },
+            hostSlot
+        });
+    }
+
     _finalizeTimeControl(valid) {
+        if (this.boardSeatOverlay) {
+            const chooserSlot = (valid && valid.colorChooserSlot)
+                || (this.tcNego && this.tcNego.lastProposerSlot)
+                || this._firstPickerSlot();
+            this._applyChooserColorChoice((valid && valid.colorChoice) || 'black', chooserSlot);
+            this._notifyColorsAfterHostChoice();
+        }
         this.tcSettings = valid.timed
             ? {
                 timed: true,
@@ -136,7 +208,12 @@ class WeiqiRoom extends QiTwoPlayerRoomBase
         this.broadcast({
             type: 'timeControlAgreed',
             settings: this.tcSettings,
-            clock: this.tcClock ? qiMatchTimeControl.snapshotForClient(this.tcClock) : null
+            clock: this.tcClock ? qiMatchTimeControl.snapshotForClient(this.tcClock) : null,
+            slots: {
+                black: !!this.room.getPlayerBySlot('black'),
+                white: !!this.room.getPlayerBySlot('white')
+            },
+            hostSlot: this.hostWs ? this.room.getSlotByWs(this.hostWs) : null
         });
     }
 
@@ -146,15 +223,38 @@ class WeiqiRoom extends QiTwoPlayerRoomBase
             ws.send(JSON.stringify({
                 type: 'timeControlNegotiation',
                 mode: 'respond',
+                boardSeatOverlay: !!this.boardSeatOverlay,
                 proposal: {
                     ok: true,
                     timed: proposal.timed,
                     mainMinutes: proposal.mainMinutes,
                     byoyomiSeconds: proposal.byoyomiSeconds,
-                    maxTimeouts: proposal.maxTimeouts
+                    maxTimeouts: proposal.maxTimeouts,
+                    colorChoice: proposal.colorChoice || null,
+                    colorChooserSlot: proposal.colorChooserSlot || null
                 }
             }));
         }
+    }
+
+    /** 把当前协商界面重新推给某客户端，避免提交被忽略后卡死 */
+    _resendNegotiationUi(ws) {
+        if (!this.tcNego || !ws) return;
+        const slot = this.room.getSlotByWs(ws);
+        if (!slot) return;
+        if (this.tcNego.waitingSlot === slot && this.tcNego.phase === 'propose') {
+            ws.send(JSON.stringify({
+                type: 'timeControlNegotiation',
+                mode: 'propose',
+                boardSeatOverlay: !!this.boardSeatOverlay
+            }));
+            return;
+        }
+        if (this.tcNego.waitingSlot === slot && this.tcNego.phase === 'respond' && this.tcNego.proposal) {
+            this._sendRespondDialog(slot, this.tcNego.proposal);
+            return;
+        }
+        ws.send(JSON.stringify({ type: 'timeControlWaitPeer', text: '等待对方确认...' }));
     }
 
     _handleTimeControlSubmit(ws, msg) {
@@ -163,11 +263,29 @@ class WeiqiRoom extends QiTwoPlayerRoomBase
         const v = qiMatchTimeControl.validateProposal(msg);
         if (!v.ok) {
             ws.send(JSON.stringify({ type: 'error', message: v.error }));
+            this._resendNegotiationUi(ws);
             return;
+        }
+        if (this.boardSeatOverlay) {
+            // colorChoice 相对提交者己方：black|white|random（兼容旧 hostBlack/hostWhite）
+            const raw = msg && msg.colorChoice;
+            if (raw === 'black' || raw === 'hostBlack')
+                v.colorChoice = 'black';
+            else if (raw === 'white' || raw === 'hostWhite')
+                v.colorChoice = 'white';
+            else if (raw === 'random')
+                v.colorChoice = 'random';
+            else
+                v.colorChoice = 'black';
+            // 选择者永远是本次提交的人
+            v.colorChooserSlot = slot;
         }
         const room = this.room;
         if (this.tcNego.phase === 'propose') {
-            if (slot !== this.tcNego.waitingSlot) return;
+            if (slot !== this.tcNego.waitingSlot) {
+                this._resendNegotiationUi(ws);
+                return;
+            }
             this.tcNego.proposal = v;
             this.tcNego.lastProposerSlot = slot;
             this.tcNego.phase = 'respond';
@@ -178,7 +296,10 @@ class WeiqiRoom extends QiTwoPlayerRoomBase
             return;
         }
         if (this.tcNego.phase === 'respond') {
-            if (slot !== this.tcNego.waitingSlot) return;
+            if (slot !== this.tcNego.waitingSlot) {
+                this._resendNegotiationUi(ws);
+                return;
+            }
             this.tcNego.proposal = v;
             this.tcNego.lastProposerSlot = slot;
             const other = slot === 'black' ? 'white' : 'black';
@@ -191,8 +312,14 @@ class WeiqiRoom extends QiTwoPlayerRoomBase
 
     _handleTimeControlAccept(ws, msg) {
         const slot = this.room.getSlotByWs(ws);
-        if (!slot || !this.tcNego || this.tcNego.phase !== 'respond') return;
-        if (slot !== this.tcNego.waitingSlot) return;
+        if (!slot || !this.tcNego || this.tcNego.phase !== 'respond') {
+            if (this.tcNego) this._resendNegotiationUi(ws);
+            return;
+        }
+        if (slot !== this.tcNego.waitingSlot) {
+            this._resendNegotiationUi(ws);
+            return;
+        }
         const prop = this.tcNego.proposal;
         if (!prop || prop.ok !== true) return;
         this._finalizeTimeControl(prop);
@@ -324,6 +451,8 @@ class WeiqiRoom extends QiTwoPlayerRoomBase
                 black: !!this.room.getPlayerBySlot('black'),
                 white: !!this.room.getPlayerBySlot('white')
             },
+            hostSlot: this.hostWs ? this.room.getSlotByWs(this.hostWs) : null,
+            boardSeatOverlay: !!this.boardSeatOverlay,
             matchTime: {
                 negotiation: this.tcNego,
                 settings: this.tcSettings,
@@ -359,8 +488,29 @@ class WeiqiRoom extends QiTwoPlayerRoomBase
         switch (msg.type)
         {
             case 'selectColor':
-                qiProtocol.selectColor(this, ws, msg);
+            case 'takeSeat': {
+                if (typeof qiProtocol.takeSeat === 'function') {
+                    qiProtocol.takeSeat(this, ws, msg);
+                    break;
+                }
+                // 旧 common 无 takeSeat：开局前自动分配空位，避免无 color 或抢座失败
+                let color = (msg.color === 'black' || msg.color === 'white') ? msg.color : null;
+                if (!this.matchStarted) {
+                    if (!this.room.getPlayerBySlot('black')) color = 'black';
+                    else if (!this.room.getPlayerBySlot('white')) color = 'white';
+                    else {
+                        // 座位已满：静默忽略
+                        break;
+                    }
+                } else if (!color) {
+                    ws.send(JSON.stringify({ type: 'error', message: '请选择继续执黑或执白。' }));
+                    break;
+                }
+                qiProtocol.selectColor(this, ws, { color }, {
+                    colorOccupiedMsg: this.matchStarted ? '该座位已被占用。' : '双方均已落座。'
+                });
                 break;
+            }
 
             case 'timeControlSubmit':
                 this._handleTimeControlSubmit(ws, msg);
@@ -441,7 +591,7 @@ class WeiqiRoom extends QiTwoPlayerRoomBase
                 if (this.pendingEnd && msg.accept) {
                     this.startScoreCounting(this.pendingEnd.requester, this.pendingEnd.opponent);
                 } else if (this.pendingEnd && !msg.accept) {
-                    this.pendingEnd.requester.send(JSON.stringify({ type: 'error', message: '对方拒绝数子。' }));
+                    this.pendingEnd.requester.send(JSON.stringify({ type: 'error', message: '对方拒绝数点。' }));
                 }
                 this.pendingEnd = null;
                 break;
@@ -524,6 +674,7 @@ class WeiqiRoom extends QiTwoPlayerRoomBase
     {
         this._stopClockTicker();
         this.slotJoinedAt = { black: null, white: null };
+        this.hostWs = null;
         this.tcNego = null;
         this.tcSettings = null;
         this.tcClock = null;
@@ -598,6 +749,7 @@ class WeiqiRoom extends QiTwoPlayerRoomBase
     resetToEmpty() {
         this._stopClockTicker();
         this.slotJoinedAt = { black: null, white: null };
+        this.hostWs = null;
         this.tcNego = null;
         this.tcSettings = null;
         this.tcClock = null;
@@ -731,7 +883,14 @@ class WeiqiRoom extends QiTwoPlayerRoomBase
     onPlayerLeave(ws)
     {
         const slot = this.room.getSlotByWs(ws);
-        if (slot) this.room.broadcast({ type: 'playerLeft', slot });
+        if (slot) this.room.broadcast({ type: 'playerLeft', slot, matchStarted: !!this.matchStarted });
+
+        if (this.hostWs === ws) {
+            const other = slot === 'black'
+                ? this.room.getPlayerBySlot('white')
+                : this.room.getPlayerBySlot('black');
+            this.hostWs = other || null;
+        }
 
         if (this.pendingUndo && this.pendingUndo.requester === ws) this.pendingUndo = null;
         if (this.pendingNewGame === ws) this.pendingNewGame = null;

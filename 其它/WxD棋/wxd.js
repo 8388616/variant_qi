@@ -1,6 +1,6 @@
 'use strict';
 
-const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl } = require('../common');
+const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, qiBoardSeatOverlay } = require('../common');
 
 function createBoard(n) {
     return Array.from({ length: n }, () => Array(n).fill(0));
@@ -614,6 +614,7 @@ class WxdRoom extends QiTwoPlayerRoomBase {
 module.exports = {
     initRoom(room) {
         room.gameLogic = new WxdRoom(room);
+        if (typeof qiBoardSeatOverlay !== 'undefined' && qiBoardSeatOverlay) qiBoardSeatOverlay.install(room.gameLogic);
         room.maxPlayers = 2;
     }
 };

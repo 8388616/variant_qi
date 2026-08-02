@@ -1,6 +1,6 @@
 'use strict';
 
-const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWuziqiRules } = require('../common');
+const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWuziqiRules, qiBoardSeatOverlay } = require('../common');
 
 const MAX_ROTATIONS = 8;
 
@@ -753,6 +753,7 @@ class RotationWuziqiRoom extends QiTwoPlayerRoomBase {
 module.exports = {
     initRoom(room) {
         room.gameLogic = new RotationWuziqiRoom(room);
+        if (typeof qiBoardSeatOverlay !== 'undefined' && qiBoardSeatOverlay) qiBoardSeatOverlay.install(room.gameLogic);
         room.maxPlayers = 2;
     }
 };

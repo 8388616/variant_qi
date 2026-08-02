@@ -1,0 +1,1084 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=2.0, user-scalable=yes">
+    <title>超级24点</title>
+    <link rel="stylesheet" href="/qi/qi.css">
+    <style>
+        body:has(> .game-wrapper.s24-page) {
+            background: #5e3b2b;
+        }
+        .game-wrapper.s24-page {
+            font-family: 'Segoe UI', Roboto, 'Microsoft YaHei', 'PingFang SC', sans-serif;
+            --s24-cream: #f9eed7;
+            --s24-cream-dark: #efdfbb;
+            --s24-panel: #8f6b4f;
+            --s24-dark: #3e2e21;
+            --s24-gold: #ffd966;
+            --s24-gold-mid: #e0b34f;
+            --s24-gold-dark: #c9a450;
+            --s24-btn: #b88a4b;
+            --s24-btn-shadow: #5e3e1e;
+            --s24-border: #6b4a2e;
+            --s24-border-deep: #4d2f1b;
+            --s24-text: #3e2e21;
+            --s24-text-muted: #8f6b4f;
+            --s24-divider: rgba(62, 46, 33, 0.22);
+            --s24-divider-th: rgba(77, 47, 27, 0.45);
+        }
+        .s24-page [hidden] {
+            display: none !important;
+        }
+        .s24-main-area {
+            display: flex;
+            justify-content: center;
+            padding: 4px 12px 16px;
+            box-sizing: border-box;
+        }
+        .s24-game-area {
+            width: 100%;
+            max-width: 960px;
+            box-sizing: border-box;
+            min-height: var(--s24-stage-h, auto);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .s24-stage {
+            width: 100%;
+            min-height: var(--s24-stage-h, auto);
+            display: grid;
+            grid-template: 1fr / 1fr;
+            align-items: center;
+            justify-items: stretch;
+        }
+        .s24-stage > .s24-lobby,
+        .s24-stage > .s24-play-panel {
+            grid-area: 1 / 1;
+            width: 100%;
+        }
+        .s24-lobby {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 12px;
+            padding: 8px 0;
+        }
+        .s24-start-btn,
+        .s24-join-btn {
+            font-size: 1.15rem;
+            padding: 12px 28px;
+            border-radius: 30px;
+            border: none;
+            border-bottom: 5px solid var(--s24-btn-shadow);
+            background: var(--s24-btn);
+            color: #fff;
+            cursor: pointer;
+            font-weight: bold;
+            transition: 0.08s;
+        }
+        .s24-start-btn:active:not(:disabled),
+        .s24-join-btn:active:not(:disabled) {
+            border-bottom-width: 2px;
+            transform: translateY(3px);
+        }
+        .s24-start-btn:disabled,
+        .s24-join-btn:disabled {
+            opacity: 0.45;
+            cursor: not-allowed;
+            filter: grayscale(0.35);
+        }
+        .s24-lobby-settings {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 16px;
+            justify-content: center;
+            align-items: center;
+            font-size: 0.95rem;
+            color: var(--s24-text);
+        }
+        .s24-lobby-settings label {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            color: var(--s24-text);
+            font-weight: bold;
+        }
+        .s24-lobby-settings input[type="number"] {
+            width: 3.2em;
+            padding: 4px 8px;
+            border-radius: 8px;
+            border: 1px solid var(--s24-panel);
+            background: var(--s24-cream);
+            color: var(--s24-text);
+            text-align: center;
+            font-family: inherit;
+            font-weight: bold;
+        }
+        .s24-play-panel {
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+        .s24-play-timer {
+            position: absolute;
+            top: 0;
+            right: 12px;
+            font-family: inherit;
+            font-size: 1rem;
+            font-weight: bold;
+            color: var(--s24-gold);
+            padding: 4px 0;
+            z-index: 1;
+        }
+        .s24-puzzle-box {
+            background: var(--s24-panel);
+            border: none;
+            border-bottom: 4px solid var(--s24-border-deep);
+            border-radius: 20px;
+            padding: 16px;
+            padding-top: 28px;
+            box-shadow: 0 4px 12px rgba(62, 46, 33, 0.15);
+        }
+        .s24-numbers,
+        .s24-symbols {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-bottom: 10px;
+        }
+        .s24-pad-btn {
+            min-width: 42px;
+            padding: 6px 10px;
+            text-align: center;
+            background: var(--s24-dark);
+            border: 1px solid var(--s24-gold-dark);
+            border-radius: 10px;
+            font-size: 1.1rem;
+            font-weight: bold;
+            color: var(--s24-gold);
+            cursor: pointer;
+            font-family: inherit;
+            line-height: 1.2;
+        }
+        .s24-pad-btn.s24-num-used {
+            color: var(--s24-text-muted);
+            border-color: var(--s24-border);
+        }
+        .s24-pad-btn:hover:not(:disabled) {
+            background: #4d3828;
+            border-color: var(--s24-gold);
+        }
+        .s24-pad-btn:active:not(:disabled) {
+            background: var(--s24-border-deep);
+        }
+        .s24-pad-btn:disabled {
+            opacity: 0.45;
+            cursor: not-allowed;
+        }
+        .s24-sym-btn {
+            min-width: 36px;
+        }
+        .s24-target {
+            font-size: 1.35rem;
+            font-weight: bold;
+            color: var(--s24-gold);
+            letter-spacing: 0.04em;
+            word-break: break-all;
+        }
+        .s24-expr-row {
+            display: flex;
+            flex-direction: row;
+            gap: 8px;
+            align-items: center;
+            width: 100%;
+        }
+        .s24-expr-input {
+            flex: 1 1 auto;
+            min-width: 0;
+            font-size: 1.05rem;
+            padding: 10px 12px;
+            border-radius: 12px;
+            border: 1px solid var(--s24-panel);
+            background: var(--s24-cream);
+            color: var(--s24-text);
+            font-family: inherit;
+            font-weight: bold;
+        }
+        .s24-result-input {
+            flex: 0 0 140px;
+            width: 140px;
+            font-size: 1rem;
+            padding: 10px 8px;
+            border-radius: 12px;
+            border: 1px solid var(--s24-panel);
+            background: var(--s24-cream-dark);
+            color: var(--s24-text);
+            text-align: right;
+            font-family: inherit;
+            font-weight: bold;
+        }
+        .s24-submit-btn {
+            flex: 0 0 auto;
+            padding: 10px 24px;
+            border-radius: 30px;
+            border: none;
+            border-bottom: 5px solid var(--s24-btn-shadow);
+            background: var(--s24-btn);
+            color: #fff;
+            font-weight: bold;
+            cursor: pointer;
+            transition: 0.08s;
+        }
+        .s24-submit-btn:active:not(:disabled) {
+            border-bottom-width: 2px;
+            transform: translateY(3px);
+        }
+        .s24-submit-btn:disabled {
+            opacity: 0.45;
+            cursor: not-allowed;
+        }
+        .s24-status-line {
+            font-size: 0.78rem;
+            color: var(--s24-text);
+            min-height: 1.2em;
+        }
+        .s24-status-line.is-error {
+            color: #a03030;
+        }
+        .s24-round-info {
+            font-size: 0.95rem;
+            color: var(--s24-gold);
+            font-weight: bold;
+        }
+        .s24-score-section {
+            width: 100%;
+            max-width: 960px;
+            margin: 32px auto 0;
+            padding: 8px 12px 20px;
+            box-sizing: border-box;
+            overflow-x: auto;
+        }
+        .s24-score-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.9rem;
+        }
+        .s24-score-table th,
+        .s24-score-table td {
+            padding: 6px 8px;
+            text-align: center;
+            white-space: nowrap;
+        }
+        .s24-score-table th {
+            border: 1px solid var(--s24-divider-th);
+            background: var(--s24-panel);
+            color: var(--s24-gold);
+            font-weight: bold;
+        }
+        .s24-score-table td {
+            border: 1px solid var(--s24-divider);
+            background: var(--s24-cream);
+            color: var(--s24-text);
+        }
+        .s24-score-table tr.me td {
+            background: var(--s24-cream-dark);
+        }
+        .s24-score-table .rank-col {
+            color: var(--s24-text-muted);
+            width: 2.5em;
+        }
+        .s24-score-table th.summary-col,
+        .s24-score-table td.summary-col {
+            font-weight: bold;
+        }
+        .s24-score-table th.total-col {
+            color: var(--s24-gold);
+            font-weight: bold;
+        }
+        .s24-score-table td.total-col {
+            font-weight: bold;
+            color: var(--s24-text);
+        }
+        .s24-score-table .s24-decimal-part {
+            color: #888;
+        }
+        .s24-player-id-box {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 16px;
+            background: var(--s24-dark);
+            border: none;
+            border-radius: 30px;
+            font-size: 0.95rem;
+            color: var(--s24-gold);
+            font-weight: bold;
+        }
+        .s24-player-id-box span {
+            color: var(--s24-gold);
+            font-weight: bold;
+            font-family: inherit;
+        }
+    </style>
+</head>
+<body>
+    <div class="game-wrapper s24-page">
+        <div class="top-panel">
+            <div class="left-group">
+                <div class="s24-player-id-box" id="playerIdBox" hidden>
+                    ID：<span id="playerIdText"></span>
+                </div>
+                <div class="s24-round-info" id="roundInfo">等待开始</div>
+            </div>
+            <div class="right-buttons">
+                <button type="button" class="help-btn" id="helpBtn">说明</button>
+                <button type="button" class="back-to-lobby-btn" id="backToLobbyBtn">返回大厅</button>
+            </div>
+        </div>
+
+        <div id="rulesModal" class="rules-modal">
+            <div class="rules-content">
+                <span class="close-rules" id="closeRulesBtn">&times;</span>
+                <h3>超级24点</h3>
+                <p>
+                    每局随机给出10个1~100的整数，以及一个十位数的目标整数。<br /><br />
+                    用加、减、乘、除和括号，将10个整数各用恰好一次，得到尽可能接近目标的数值。<br /><br />
+                    共若干局，每局限时由房主设定，全员共用同一倒计时。<br />
+                    每局得分为 max(0, (1 − (log(1 + 误差) / log(1 + 目标)) ** 4) × 100)，误差为最接近结果与目标之差的绝对值；多次提交取本局最佳。得分与平均误差均为已完成各局的均值，得分最高者获胜。
+                </p>
+            </div>
+        </div>
+
+        <div class="main-area s24-main-area">
+            <div class="s24-game-area" id="gameArea">
+                <div class="s24-stage" id="gameStage">
+                <div class="s24-lobby" id="lobbyPanel">
+                    <button type="button" class="s24-start-btn" id="startGameBtn" hidden data-action="start">开始游戏</button>
+                    <div class="s24-lobby-settings" id="hostSettings" hidden>
+                        <label>每局限时 <input type="number" id="roundMinutesInput" min="1" max="60" value="5"> 分钟</label>
+                        <label>局数 <input type="number" id="roundCountInput" min="1" max="30" value="5"></label>
+                    </div>
+                    <button type="button" class="s24-join-btn" id="lobbyJoinBtn" hidden>加入游戏</button>
+                </div>
+                <div id="playPanel" class="s24-play-panel" hidden>
+                    <div class="s24-play-timer" id="playTimer" hidden></div>
+                    <div class="s24-puzzle-box" id="puzzleBox">
+                        <div class="s24-numbers" id="numbersRow"></div>
+                        <div class="s24-symbols" id="symbolsRow"></div>
+                        <div class="s24-target" id="targetDisplay">—</div>
+                    </div>
+                    <div class="s24-expr-row">
+                        <input type="text" class="s24-expr-input" id="exprInput" autocomplete="off" spellcheck="false" placeholder="输入算式">
+                        <input type="text" class="s24-result-input" id="resultDisplay" readonly placeholder="结果" tabindex="-1">
+                        <button type="button" class="s24-submit-btn" id="submitBtn" disabled>提交</button>
+                    </div>
+                    <div class="s24-status-line" id="playStatus"></div>
+                </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="s24-score-section">
+            <table class="s24-score-table" id="scoreTable">
+                <thead id="scoreHead"></thead>
+                <tbody id="scoreBody"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <script src="/qi/qi.js"></script>
+    <script>
+    (function () {
+        const pathParts = location.pathname.split('/').filter(Boolean);
+        const gameType = 'super-24';
+        const roomId = pathParts[pathParts.length - 1];
+        const ROUND_COUNT_DEFAULT = 8;
+        const ALLOWED_CHARS = /^[0-9+\-*/().]*$/;
+
+        const ps = {
+            ws: null,
+            reconnectTimer: null,
+            myPlayerId: null,
+            hostId: null,
+            phase: 'lobby',
+            gameStarted: false,
+            finished: false,
+            currentRound: 0,
+            roundCount: ROUND_COUNT_DEFAULT,
+            roundMinutes: 3,
+            puzzle: null,
+            players: [],
+            ranking: [],
+            clock: null
+        };
+
+        const playerIdBox = document.getElementById('playerIdBox');
+        const playerIdText = document.getElementById('playerIdText');
+        const roundInfo = document.getElementById('roundInfo');
+        const gameArea = document.getElementById('gameArea');
+        const lobbyPanel = document.getElementById('lobbyPanel');
+        const startGameBtn = document.getElementById('startGameBtn');
+        const lobbyJoinBtn = document.getElementById('lobbyJoinBtn');
+        const hostSettings = document.getElementById('hostSettings');
+        const roundMinutesInput = document.getElementById('roundMinutesInput');
+        const roundCountInput = document.getElementById('roundCountInput');
+        const playPanel = document.getElementById('playPanel');
+        const playTimer = document.getElementById('playTimer');
+        const numbersRow = document.getElementById('numbersRow');
+        const symbolsRow = document.getElementById('symbolsRow');
+        const puzzleBox = document.getElementById('puzzleBox');
+        const targetDisplay = document.getElementById('targetDisplay');
+        const exprInput = document.getElementById('exprInput');
+        const resultDisplay = document.getElementById('resultDisplay');
+        const submitBtn = document.getElementById('submitBtn');
+        const playStatus = document.getElementById('playStatus');
+        const scoreHead = document.getElementById('scoreHead');
+        const scoreBody = document.getElementById('scoreBody');
+        const helpBtn = document.getElementById('helpBtn');
+        const backToLobbyBtn = document.getElementById('backToLobbyBtn');
+        const rulesModal = document.getElementById('rulesModal');
+        const closeRulesBtn = document.getElementById('closeRulesBtn');
+
+        let previewTimer = null;
+        let rafId = 0;
+        let stageResizeTimer = null;
+
+        const PAD_SYMBOLS = ['+', '-', '*', '/', '(', ')'];
+
+        function updateGameStageHeight() {
+            let maxH = 0;
+
+            function measureEl(el, prepare, cleanup) {
+                const savedHidden = el.hidden;
+                const savedStyle = el.getAttribute('style');
+                prepare?.();
+                el.hidden = false;
+                el.style.visibility = 'hidden';
+                el.style.position = 'absolute';
+                el.style.left = '0';
+                el.style.right = '0';
+                el.style.top = '0';
+                el.style.width = '100%';
+                el.style.pointerEvents = 'none';
+                maxH = Math.max(maxH, el.offsetHeight);
+                cleanup?.();
+                el.hidden = savedHidden;
+                if (savedStyle != null) el.setAttribute('style', savedStyle);
+                else el.removeAttribute('style');
+            }
+
+            measureEl(lobbyPanel, () => {
+                lobbyPanel._s24MeasureSave = {
+                    start: startGameBtn.hidden,
+                    settings: hostSettings.hidden,
+                    join: lobbyJoinBtn.hidden
+                };
+                startGameBtn.hidden = false;
+                hostSettings.hidden = false;
+                lobbyJoinBtn.hidden = false;
+            }, () => {
+                const s = lobbyPanel._s24MeasureSave;
+                if (s) {
+                    startGameBtn.hidden = s.start;
+                    hostSettings.hidden = s.settings;
+                    lobbyJoinBtn.hidden = s.join;
+                    delete lobbyPanel._s24MeasureSave;
+                }
+            });
+
+            let numbersRestore = null;
+            measureEl(playPanel, () => {
+                playPanel._s24MeasureSave = {
+                    timer: playTimer.hidden,
+                    numbers: numbersRow.hidden,
+                    symbols: symbolsRow.hidden
+                };
+                playTimer.hidden = false;
+                numbersRow.hidden = false;
+                symbolsRow.hidden = false;
+                if (!numbersRow.children.length) {
+                    numbersRestore = numbersRow.innerHTML;
+                    numbersRow.innerHTML = Array.from({ length: 10 }, () =>
+                        '<button type="button" class="s24-pad-btn s24-num-btn" disabled>88</button>'
+                    ).join('');
+                }
+            }, () => {
+                const s = playPanel._s24MeasureSave;
+                if (s) {
+                    playTimer.hidden = s.timer;
+                    numbersRow.hidden = s.numbers;
+                    symbolsRow.hidden = s.symbols;
+                    delete playPanel._s24MeasureSave;
+                }
+                if (numbersRestore !== null) numbersRow.innerHTML = numbersRestore;
+            });
+
+            gameArea.style.setProperty('--s24-stage-h', `${maxH}px`);
+        }
+
+        function insertAtCursor(text) {
+            const el = exprInput;
+            el.focus();
+            const start = el.selectionStart != null ? el.selectionStart : el.value.length;
+            const end = el.selectionEnd != null ? el.selectionEnd : el.value.length;
+            el.value = el.value.slice(0, start) + text + el.value.slice(end);
+            const pos = start + text.length;
+            el.setSelectionRange(pos, pos);
+            el.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+
+        function updatePadButtonsDisabled() {
+            const disabled = !ps.myPlayerId;
+            puzzleBox.querySelectorAll('.s24-pad-btn').forEach(btn => {
+                btn.disabled = disabled;
+            });
+        }
+
+        symbolsRow.innerHTML = PAD_SYMBOLS.map(s =>
+            `<button type="button" class="s24-pad-btn s24-sym-btn" data-insert="${s}">${s}</button>`
+        ).join('');
+        numbersRow.hidden = true;
+        symbolsRow.hidden = true;
+
+        puzzleBox.addEventListener('click', (e) => {
+            const btn = e.target.closest('.s24-pad-btn[data-insert]');
+            if (!btn || btn.disabled) return;
+            insertAtCursor(btn.dataset.insert);
+        });
+
+        function tokenizeNumbers(expr) {
+            const out = [];
+            let i = 0;
+            while (i < expr.length) {
+                const ch = expr[i];
+                if (ch >= '0' && ch <= '9') {
+                    let j = i + 1;
+                    while (j < expr.length && expr[j] >= '0' && expr[j] <= '9') j++;
+                    out.push(parseInt(expr.slice(i, j), 10));
+                    i = j;
+                } else i++;
+            }
+            return out;
+        }
+
+        function numbersMatchRequired(used, required) {
+            return validateNumberUsage(used, required).ok;
+        }
+
+        /** @returns {{ ok: true } | { ok: false, msg: string }} */
+        function validateNumberUsage(used, required) {
+            const reqCount = new Map();
+            for (const n of required) reqCount.set(n, (reqCount.get(n) || 0) + 1);
+            const usedCount = new Map();
+            for (const n of used) usedCount.set(n, (usedCount.get(n) || 0) + 1);
+
+            for (const [n] of usedCount) {
+                if (!reqCount.has(n)) {
+                    return { ok: false, msg: `${formatDisplayNumber(n)}不在给出的整数中。` };
+                }
+            }
+            for (const [n, c] of usedCount) {
+                const need = reqCount.get(n) || 0;
+                if (c > need) return { ok: false, msg: `${formatDisplayNumber(n)}重复。` };
+            }
+            for (const [n, need] of reqCount) {
+                const c = usedCount.get(n) || 0;
+                if (c < need) return { ok: false, msg: `缺少${formatDisplayNumber(n)}。` };
+            }
+            return { ok: true };
+        }
+
+        function updateNumberButtonUsedState() {
+            if (!ps.puzzle) return;
+            const used = tokenizeNumbers(exprInput.value.replace(/\s+/g, '')).slice();
+            numbersRow.querySelectorAll('.s24-num-btn').forEach(btn => {
+                const val = parseInt(btn.dataset.insert, 10);
+                const idx = used.indexOf(val);
+                if (idx >= 0) {
+                    used.splice(idx, 1);
+                    btn.classList.add('s24-num-used');
+                } else {
+                    btn.classList.remove('s24-num-used');
+                }
+            });
+        }
+
+        function normalizeExpressionParens(s) {
+            let t = s;
+            let changed = true;
+            while (changed) {
+                changed = false;
+                let opens = 0;
+                let closes = 0;
+                for (const ch of t) {
+                    if (ch === '(') opens++;
+                    else if (ch === ')') closes++;
+                }
+                if (opens > closes && t[0] === '(') {
+                    t = t.slice(1);
+                    changed = true;
+                } else if (closes > opens && t[t.length - 1] === ')') {
+                    t = t.slice(0, -1);
+                    changed = true;
+                }
+            }
+            return t;
+        }
+
+        function evaluateExpression(expr) {
+            const s = normalizeExpressionParens(expr.replace(/\s+/g, ''));
+            if (!s) return { ok: false };
+            if (!ALLOWED_CHARS.test(s)) return { ok: false };
+            let i = 0;
+            function peek() { return s[i]; }
+            function next() { return s[i++]; }
+            function parsePrimary() {
+                if (peek() === '(') {
+                    next();
+                    const inner = parseExpr();
+                    if (!inner.ok) return inner;
+                    if (peek() !== ')') return { ok: false };
+                    next();
+                    return { ok: true, value: inner.value };
+                }
+                if (peek() === '-' || peek() === '+') {
+                    const sign = next() === '-' ? -1 : 1;
+                    const inner = parsePrimary();
+                    if (!inner.ok) return inner;
+                    return { ok: true, value: sign * inner.value };
+                }
+                if (peek() >= '0' && peek() <= '9') {
+                    let start = i;
+                    while (peek() >= '0' && peek() <= '9') next();
+                    return { ok: true, value: parseInt(s.slice(start, i), 10) };
+                }
+                return { ok: false };
+            }
+            function parseFactor() {
+                let left = parsePrimary();
+                if (!left.ok) return left;
+                while (peek() === '*' || peek() === '/') {
+                    const op = next();
+                    const right = parsePrimary();
+                    if (!right.ok) return right;
+                    if (op === '/' && right.value === 0) return { ok: false };
+                    left = { ok: true, value: op === '/' ? left.value / right.value : left.value * right.value };
+                }
+                return left;
+            }
+            function parseExpr() {
+                let left = parseFactor();
+                if (!left.ok) return left;
+                while (peek() === '+' || peek() === '-') {
+                    const op = next();
+                    const right = parseFactor();
+                    if (!right.ok) return right;
+                    left = { ok: true, value: op === '+' ? left.value + right.value : left.value - right.value };
+                }
+                return { ok: true, value: left.value };
+            }
+            const r = parseExpr();
+            if (!r.ok) return r;
+            if (i < s.length) return { ok: false };
+            if (!Number.isFinite(r.value)) return { ok: false };
+            return r;
+        }
+
+        function formatIntegerGrouped(intStr) {
+            if (!intStr || intStr === '0') return '0';
+            const parts = [];
+            let s = intStr;
+            while (s.length > 4) {
+                parts.unshift(s.slice(-4));
+                s = s.slice(0, -4);
+            }
+            parts.unshift(s);
+            return parts.join(',');
+        }
+
+        function formatDisplayNumber(v) {
+            if (v == null || !Number.isFinite(v)) return '—';
+            const rounded = Math.round(v * 100) / 100;
+            const fixed = rounded.toFixed(2);
+            const dot = fixed.indexOf('.');
+            let intStr = dot >= 0 ? fixed.slice(0, dot) : fixed;
+            let fracStr = dot >= 0 ? fixed.slice(dot + 1).replace(/0+$/, '') : '';
+            const negative = intStr.startsWith('-');
+            if (negative) intStr = intStr.slice(1);
+            const grouped = formatIntegerGrouped(intStr);
+            const body = (negative ? '-' : '') + grouped;
+            return fracStr ? `${body}.${fracStr}` : body;
+        }
+
+        function formatHMS(ms) {
+            if (!Number.isFinite(ms) || ms < 0) ms = 0;
+            const t = Math.floor(ms / 1000);
+            const m = Math.floor(t / 60);
+            const s = t % 60;
+            return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+        }
+
+        function formatScore(v) {
+            return formatDisplayNumber(v);
+        }
+
+        function formatScoreHtml(v) {
+            const text = formatDisplayNumber(v);
+            if (text === '—') return text;
+            const dot = text.lastIndexOf('.');
+            if (dot < 0) return text;
+            return text.slice(0, dot) + '<span class="s24-decimal-part">' + text.slice(dot) + '</span>';
+        }
+
+        function applyState(state) {
+            if (!state) return;
+            ps.phase = state.phase || ps.phase;
+            ps.gameStarted = !!state.gameStarted;
+            ps.finished = !!state.finished;
+            ps.hostId = state.hostId;
+            ps.currentRound = state.currentRound || 0;
+            if (state.roundCount != null) ps.roundCount = state.roundCount;
+            if (state.roundMinutes != null) ps.roundMinutes = state.roundMinutes;
+            ps.puzzle = state.puzzle;
+            ps.players = state.players || [];
+            ps.ranking = state.ranking || ps.players;
+            if (state.myPlayerId !== undefined) ps.myPlayerId = state.myPlayerId;
+            if (state.clock) ps.clock = state.clock;
+            renderAll();
+        }
+
+        function renderAll() {
+            renderJoinUI();
+            renderLobby();
+            renderPlayArea();
+            updatePlayTimer();
+            renderScoreTable();
+            renderRoundInfo();
+            updateGameStageHeight();
+        }
+
+        function renderJoinUI() {
+            if (ps.myPlayerId) {
+                playerIdBox.hidden = false;
+                playerIdText.textContent = ps.myPlayerId;
+            } else {
+                playerIdBox.hidden = true;
+            }
+            updatePadButtonsDisabled();
+        }
+
+        function setPlayStatus(text, isError) {
+            playStatus.textContent = text;
+            playStatus.classList.toggle('is-error', !!isError && !!text);
+        }
+
+        function initPageUI() {
+            exprInput.value = '';
+            resultDisplay.value = '';
+            setPlayStatus('', false);
+            if (rafId) {
+                cancelAnimationFrame(rafId);
+                rafId = 0;
+            }
+            numbersRow.innerHTML = '';
+            numbersRow.hidden = true;
+            symbolsRow.hidden = true;
+            targetDisplay.textContent = '—';
+            startGameBtn.textContent = '开始游戏';
+            startGameBtn.dataset.action = 'start';
+        }
+
+        function renderLobby() {
+            const isHost = ps.myPlayerId && ps.myPlayerId === ps.hostId;
+            const isPlayer = !!ps.myPlayerId;
+            const inActiveGame = ps.gameStarted && !ps.finished;
+            const inPreGameLobby = !ps.gameStarted && !ps.finished;
+            const showRestart = ps.finished && isHost;
+            const showJoinAfterFinish = ps.finished && !isPlayer;
+
+            if (inActiveGame) {
+                lobbyPanel.hidden = true;
+                startGameBtn.hidden = true;
+                hostSettings.hidden = true;
+                lobbyJoinBtn.hidden = true;
+                return;
+            }
+
+            lobbyPanel.hidden = !(inPreGameLobby || showRestart || showJoinAfterFinish);
+            if (lobbyPanel.hidden) return;
+
+            if (showRestart) {
+                startGameBtn.hidden = false;
+                startGameBtn.textContent = '重新开始';
+                startGameBtn.dataset.action = 'restart';
+                hostSettings.hidden = true;
+                lobbyJoinBtn.hidden = true;
+            } else {
+                startGameBtn.hidden = !isHost;
+                startGameBtn.textContent = '开始游戏';
+                startGameBtn.dataset.action = 'start';
+                hostSettings.hidden = !isHost;
+                lobbyJoinBtn.hidden = isHost || isPlayer;
+                if (isHost) {
+                    roundMinutesInput.value = String(ps.roundMinutes);
+                    roundCountInput.value = String(ps.roundCount);
+                }
+            }
+        }
+
+        function renderPlayArea() {
+            const inActiveGame = ps.gameStarted && !ps.finished;
+            const showPads = inActiveGame;
+
+            playPanel.hidden = !inActiveGame;
+            numbersRow.hidden = !showPads;
+            symbolsRow.hidden = !showPads;
+
+            if (inActiveGame && ps.puzzle) {
+                numbersRow.innerHTML = ps.puzzle.numbers.map((n, idx) =>
+                    `<button type="button" class="s24-pad-btn s24-num-btn" data-insert="${n}" data-num-idx="${idx}">${n}</button>`
+                ).join('');
+                targetDisplay.textContent = formatDisplayNumber(ps.puzzle.target);
+                submitBtn.disabled = !ps.myPlayerId;
+                updatePadButtonsDisabled();
+            }
+            updateExprPreview();
+        }
+
+        function renderRoundInfo() {
+            if (ps.finished) {
+                roundInfo.textContent = '对局已结束';
+            } else if (ps.gameStarted && ps.currentRound > 0) {
+                roundInfo.textContent = `第 ${ps.currentRound} / ${ps.roundCount} 局`;
+            } else {
+                roundInfo.textContent = '等待开始';
+            }
+        }
+
+        function updatePlayTimer() {
+            const clk = ps.clock;
+            if (!clk || ps.phase !== 'playing') {
+                playTimer.hidden = true;
+                cancelAnimationFrame(rafId);
+                rafId = 0;
+                return;
+            }
+            playTimer.hidden = false;
+            const skew = clk.serverNow != null ? Date.now() - clk.serverNow : 0;
+            const remain = Math.max(0, (clk.remainingMs || 0) - skew);
+            const total = clk.totalMs != null ? clk.totalMs : ps.roundMinutes * 60 * 1000;
+            playTimer.textContent = `${formatHMS(remain)}/${formatHMS(total)}`;
+            if (!rafId) {
+                function frame() {
+                    updatePlayTimer();
+                    if (ps.clock && ps.phase === 'playing') rafId = requestAnimationFrame(frame);
+                    else rafId = 0;
+                }
+                rafId = requestAnimationFrame(frame);
+            }
+        }
+
+        function renderScoreTable() {
+            const list = ps.ranking.length ? ps.ranking : ps.players;
+            const cols = ps.roundCount || ROUND_COUNT_DEFAULT;
+            let head = '<tr><th class="rank-col">#</th><th>玩家</th>';
+            for (let r = 1; r <= cols; r++) head += `<th>${r}</th>`;
+            head += '<th class="summary-col">平均误差</th><th class="total-col">得分</th></tr>';
+            scoreHead.innerHTML = head;
+
+            let body = '';
+            list.forEach((p, idx) => {
+                const me = p.id === ps.myPlayerId ? ' class="me"' : '';
+                body += `<tr${me}><td class="rank-col">${idx + 1}</td><td>${p.id}</td>`;
+                for (let i = 0; i < cols; i++) {
+                    body += `<td>${formatScoreHtml(p.roundErrors[i])}</td>`;
+                }
+                body += `<td class="summary-col">${formatScoreHtml(p.avgError)}</td>`;
+                body += `<td class="total-col">${formatScoreHtml(p.avgScore)}</td></tr>`;
+            });
+            scoreBody.innerHTML = body || '<tr><td colspan="' + (cols + 4) + '">暂无玩家</td></tr>';
+        }
+
+        function updateExprPreview() {
+            const expr = exprInput.value;
+            const cleaned = expr.replace(/\s+/g, '');
+            if (!cleaned) {
+                resultDisplay.value = '';
+                updateNumberButtonUsedState();
+                return;
+            }
+            const ev = evaluateExpression(cleaned);
+            resultDisplay.value = ev.ok ? formatDisplayNumber(ev.value) : '';
+            updateNumberButtonUsedState();
+        }
+
+        function canSubmit(expr) {
+            if (!ps.puzzle || !ps.myPlayerId) return false;
+            const cleaned = expr.replace(/\s+/g, '');
+            const ev = evaluateExpression(cleaned);
+            if (!ev.ok) return false;
+            const used = tokenizeNumbers(cleaned);
+            return validateNumberUsage(used, ps.puzzle.numbers).ok;
+        }
+
+        function trySubmit() {
+            if (!ps.ws || !ps.myPlayerId || !ps.puzzle) return;
+            const cleaned = exprInput.value.replace(/\s+/g, '');
+            if (!cleaned) {
+                setPlayStatus('', false);
+                return;
+            }
+            const ev = evaluateExpression(cleaned);
+            if (!ev.ok) {
+                setPlayStatus('算式无效', true);
+                return;
+            }
+            const used = tokenizeNumbers(cleaned);
+            const check = validateNumberUsage(used, ps.puzzle.numbers);
+            if (!check.ok) {
+                setPlayStatus(check.msg, true);
+                return;
+            }
+            setPlayStatus('', false);
+            ps.ws.send(JSON.stringify({ type: 'submitExpression', expression: exprInput.value }));
+        }
+
+        function handleMessage(msg) {
+            switch (msg.type) {
+                case 'joined':
+                    applyState({ ...msg.state, myPlayerId: msg.role === 'player' ? msg.slot : null });
+                    if (ps.ws && ps.ws.readyState === WebSocket.OPEN) {
+                        ps.ws.send(JSON.stringify({ type: 'enterRoom' }));
+                    }
+                    break;
+                case 'roomEntered':
+                    ps.hostId = msg.hostId;
+                    applyState(msg.state);
+                    break;
+                case 'playerJoined':
+                    ps.myPlayerId = msg.playerId;
+                    ps.hostId = msg.hostId;
+                    applyState(msg.state);
+                    break;
+                case 'playerListUpdate':
+                    ps.hostId = msg.hostId;
+                    ps.players = msg.players || ps.players;
+                    renderAll();
+                    break;
+                case 'gameState': {
+                    const wasFinished = ps.finished;
+                    if (msg.phase === 'playing') {
+                        exprInput.value = '';
+                        resultDisplay.value = '';
+                        setPlayStatus('', false);
+                    }
+                    if (wasFinished && !msg.finished && !msg.gameStarted) {
+                        initPageUI();
+                    }
+                    applyState(msg);
+                    break;
+                }
+                case 'clockUpdate':
+                    ps.clock = msg.clock;
+                    updatePlayTimer();
+                    break;
+                case 'scoresUpdate':
+                    ps.players = msg.players || ps.players;
+                    renderScoreTable();
+                    break;
+                case 'submitAccepted':
+                    setPlayStatus(`已提交：结果 ${formatDisplayNumber(msg.value)}，本局误差 ${formatScore(msg.diff)}（最佳 ${formatScore(msg.bestThisRound)}）`, false);
+                    break;
+                case 'submitRejected':
+                    setPlayStatus(msg.reason || '提交被拒绝', true);
+                    break;
+                case 'previewResult':
+                    resultDisplay.value = msg.value != null && Number.isFinite(msg.value)
+                        ? formatDisplayNumber(msg.value)
+                        : '';
+                    break;
+                case 'error':
+                    if (msg.message) setPlayStatus(msg.message, true);
+                    break;
+                default:
+                    break;
+            }
+        }
+
+        function connectWebSocket() {
+            if (ps.reconnectTimer) {
+                clearTimeout(ps.reconnectTimer);
+                ps.reconnectTimer = null;
+            }
+            const roomPassword = sessionStorage.getItem('roomPassword_' + roomId);
+            ps.ws = globalThis.qiOpenRoomWebSocket({
+                gameType,
+                roomId,
+                roomPassword,
+                onMessage: handleMessage,
+                onClose: () => {
+                    ps.reconnectTimer = setTimeout(connectWebSocket, 2000);
+                }
+            });
+        }
+
+        lobbyJoinBtn.onclick = () => {
+            if (!ps.ws || ps.ws.readyState !== WebSocket.OPEN) return;
+            ps.ws.send(JSON.stringify({ type: 'joinGame' }));
+        };
+
+        startGameBtn.onclick = () => {
+            if (!ps.ws || ps.ws.readyState !== WebSocket.OPEN) return;
+            if (startGameBtn.dataset.action === 'restart') {
+                ps.ws.send(JSON.stringify({ type: 'restartGame' }));
+                initPageUI();
+                return;
+            }
+            ps.ws.send(JSON.stringify({
+                type: 'startGame',
+                roundMinutes: parseInt(roundMinutesInput.value, 10) || 3,
+                roundCount: parseInt(roundCountInput.value, 10) || 8
+            }));
+        };
+
+        exprInput.addEventListener('input', () => {
+            let v = exprInput.value;
+            let filtered = '';
+            for (const ch of v) {
+                if (/[0-9+\-*/()]/.test(ch)) filtered += ch;
+            }
+            if (filtered !== v) exprInput.value = filtered;
+            clearTimeout(previewTimer);
+            previewTimer = setTimeout(updateExprPreview, 80);
+        });
+
+        exprInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                trySubmit();
+            }
+        });
+
+        submitBtn.onclick = () => {
+            trySubmit();
+        };
+
+        helpBtn.onclick = () => { rulesModal.style.display = 'flex'; };
+        closeRulesBtn.onclick = () => { rulesModal.style.display = 'none'; };
+        rulesModal.onclick = (e) => { if (e.target === rulesModal) rulesModal.style.display = 'none'; };
+        backToLobbyBtn.onclick = () => { location.href = '/qi'; };
+
+        window.addEventListener('resize', () => {
+            clearTimeout(stageResizeTimer);
+            stageResizeTimer = setTimeout(updateGameStageHeight, 100);
+        });
+
+        connectWebSocket();
+        updateGameStageHeight();
+    })();
+    </script>
+</body>
+</html>

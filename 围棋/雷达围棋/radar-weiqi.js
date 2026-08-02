@@ -1,6 +1,6 @@
-const { QiTwoPlayerRoomBase, qiMatchTimeControl, squareWeiqiRules, encodeInitialPositionCompact, applyInitialPositionCompact } = require('../common');
+const { QiTwoPlayerRoomBase, qiMatchTimeControl, squareWeiqiRules, encodeInitialPositionCompact, applyInitialPositionCompact, qiBoardSeatOverlay } = require('../common');
 class InvisibleStone2WeiqiRoom extends QiTwoPlayerRoomBase {
-    constructor(room, initialSize = 19) {
+    constructor(room, initialSize = 9) {
         super(room);
         this.boardSize = initialSize;
         this.board = this.emptyBoard();
@@ -877,7 +877,7 @@ class InvisibleStone2WeiqiRoom extends QiTwoPlayerRoomBase {
                 if (this.pendingEnd && msg.accept)
                     this.startScoreCounting(this.pendingEnd.requester, this.pendingEnd.opponent);
                 else if (this.pendingEnd && !msg.accept)
-                    this.pendingEnd.requester.send(JSON.stringify({ type: 'error', message: '对方拒绝数子。' }));
+                    this.pendingEnd.requester.send(JSON.stringify({ type: 'error', message: '对方拒绝数点。' }));
                 this.pendingEnd = null;
                 break;
 
@@ -1130,7 +1130,7 @@ class InvisibleStone2WeiqiRoom extends QiTwoPlayerRoomBase {
             requesterWs.send(JSON.stringify({ type: 'error', message: '棋谱格式不匹配（需要雷达围棋棋谱）。' }));
             return;
         }
-        const newSize = data.boardSize || 19;
+        const newSize = data.boardSize || 9;
         if (!Number.isInteger(newSize) || newSize < 7 || newSize > 21) {
             requesterWs.send(JSON.stringify({ type: 'error', message: '棋谱中棋盘大小无效' }));
             return;
@@ -1302,6 +1302,7 @@ class InvisibleStone2WeiqiRoom extends QiTwoPlayerRoomBase {
 module.exports = {
     initRoom(room) {
         room.gameLogic = new InvisibleStone2WeiqiRoom(room);
+        qiBoardSeatOverlay.install(room.gameLogic);
         room.maxPlayers = 2;
     }
 };

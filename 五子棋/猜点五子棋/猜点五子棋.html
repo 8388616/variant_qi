@@ -1,19 +1,19 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="zh">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=2.0, user-scalable=yes">
     <title>猜点五子棋</title>
     <link rel="stylesheet" href="/qi/qi.css">
+    <style>
+        body { background: #5e2b3b; }
+    </style>
 </head>
 <body>
     <div class="game-wrapper">
         <div class="top-panel">
             <div class="left-group">
-                <div class="side-select">
-                    <label id="labelBlack"><input type="radio" name="color" value="black" id="radioBlack"> ⚫ 黑方</label>
-                    <label id="labelWhite"><input type="radio" name="color" value="white" id="radioWhite"> ⚪ 白方</label>
-                </div>
+                <div class="komi-info" id="gameTitleInfo">猜点五子棋</div>
                 <div class="komi-info" id="komiInfo">无禁手</div>
                 <div class="color-status" id="colorStatus">未选择阵营</div>
                 <select id="boardSizeSelect" class="board-size-select" style="display: none;">
@@ -122,7 +122,7 @@
     <script>
         const pathMatch = window.location.pathname.match(/^\/qi\/([^/]+)\/(\d+)$/);
         if (!pathMatch) {
-            alert('无效的房间链接');
+            qiAlert('无效的房间链接');
             throw new Error('Invalid room URL');
         }
         const gameType = pathMatch[1];
@@ -205,11 +205,7 @@
         const ctx = canvas.getContext('2d');
         const turnDisplay = document.getElementById('turnDisplay');
         const colorStatus = document.getElementById('colorStatus');
-        const radioBlack = document.getElementById('radioBlack');
-        const radioWhite = document.getElementById('radioWhite');
-        const labelBlack = document.getElementById('labelBlack');
-        const labelWhite = document.getElementById('labelWhite');
-        const scoreTitle = document.getElementById('scoreTitle');
+const scoreTitle = document.getElementById('scoreTitle');
         const scoreBoard = document.getElementById('scoreBoard');
         const leadInfo = document.getElementById('leadInfo');
         const boardMarkSelect = document.getElementById('boardMarkSelect');
@@ -445,50 +441,8 @@
         });
         helpBtn.addEventListener('click', (e) => e.stopPropagation());
 
-        function updateRadioStyles()
-        {
-            labelBlack.classList.remove('self-radio', 'opponent-radio', 'checked-disabled');
-            labelWhite.classList.remove('self-radio', 'opponent-radio', 'checked-disabled');
-
-            // 处理黑方标签
-            if (slots.black) {
-                if (mySlot === 'black') {
-                    labelBlack.classList.add('self-radio');
-                } else {
-                    labelBlack.classList.add('opponent-radio');
-                }
-                labelBlack.classList.add('checked-disabled');
-            }
-            // 处理白方标签
-            if (slots.white) {
-                if (mySlot === 'white') {
-                    labelWhite.classList.add('self-radio');
-                } else {
-                    labelWhite.classList.add('opponent-radio');
-                }
-                labelWhite.classList.add('checked-disabled');
-            }
+        function updateRadioStyles() {
             updateRecordButtons();
-        }
-
-        function syncRadioFromSlots() {
-            if (slots.black) {
-                radioBlack.disabled = true;
-                radioBlack.checked = true;
-            }
-            else {
-                radioBlack.disabled = false;
-                radioBlack.checked = false;
-            }
-            if (slots.white) {
-                radioWhite.disabled = true;
-                radioWhite.checked = true;
-            }
-            else {
-                radioWhite.disabled = false;
-                radioWhite.checked = false;
-            }
-            updateRadioStyles();
         }
 
         function updateRecordButtons() {
@@ -863,11 +817,7 @@
             colorStatus,
             scoreTitle,
             turnDisplay,
-            labelBlack,
-            labelWhite,
-            radioBlack,
-            radioWhite,
-            syncState,
+syncState,
             updateBoardGeometry,
             initBoardArray,
             exitReplayMode,
@@ -880,7 +830,8 @@
             updateTurn,
             showScoreConfirm: () => {},
             isMouseDevice,
-            standardWeiqiMatchTime: true
+            standardWeiqiMatchTime: true,
+            boardSeatOverlay: true
         });
         const baseRoomHandleMessage = _weiqiBindings.handleMessage;
 

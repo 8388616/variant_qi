@@ -268,19 +268,23 @@ const QuoridorEngine = {
 let QiTwoPlayerRoomBase;
 let qiProtocol;
 let qiMatchTimeControl;
+let qiBoardSeatOverlay;
 try {
     const common = require('../../common');
     QiTwoPlayerRoomBase = common.QiTwoPlayerRoomBase;
     qiProtocol = common.qiProtocol;
     qiMatchTimeControl = common.qiMatchTimeControl;
+    qiBoardSeatOverlay = common.qiBoardSeatOverlay;
 } catch (e1) {
     try {
         const common = require('../common');
         QiTwoPlayerRoomBase = common.QiTwoPlayerRoomBase;
         qiProtocol = common.qiProtocol;
         qiMatchTimeControl = common.qiMatchTimeControl;
+        qiBoardSeatOverlay = common.qiBoardSeatOverlay;
     } catch (e2) {
         QiTwoPlayerRoomBase = null;
+        qiBoardSeatOverlay = null;
     }
 }
 
@@ -918,6 +922,7 @@ if (QiTwoPlayerRoomBase) {
         QuoridorEngine,
         initRoom(room) {
             room.gameLogic = new QuoridorRoom(room);
+            if (typeof qiBoardSeatOverlay !== 'undefined' && qiBoardSeatOverlay) qiBoardSeatOverlay.install(room.gameLogic);
             room.maxPlayers = 2;
         }
     };

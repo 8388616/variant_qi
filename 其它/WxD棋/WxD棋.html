@@ -5,15 +5,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=2.0, user-scalable=yes">
     <title>WxD棋</title>
     <link rel="stylesheet" href="/qi/qi.css">
+    <style>
+        body { background: #5e3b2b; }
+    </style>
 </head>
 <body>
     <div class="game-wrapper">
         <div class="top-panel">
             <div class="left-group">
-                <div class="side-select">
-                    <label id="labelBlack"><input type="radio" name="color" value="black" id="radioBlack"> ⚫ 黑方</label>
-                    <label id="labelWhite"><input type="radio" name="color" value="white" id="radioWhite"> ⚪ 白方</label>
-                </div>
+                <div class="komi-info" id="gameTitleInfo">WxD棋</div>
                 <div class="komi-info" id="komiInfo">黑贴白32点</div>
                 <div class="color-status" id="colorStatus">观战</div>
                 <select id="boardSizeSelect" class="board-size-select">
@@ -192,7 +192,7 @@
 
             const pathMatch = window.location.pathname.match(/^\/qi\/([^/]+)\/(\d+)$/);
             if (!pathMatch) {
-                alert('无效的房间链接');
+                qiAlert('无效的房间链接');
                 throw new Error('Invalid room URL');
             }
             const gameType = pathMatch[1];
@@ -207,11 +207,7 @@
             const scoreTitle = document.getElementById('scoreTitle');
             const colorStatus = document.getElementById('colorStatus');
             const komiInfo = document.getElementById('komiInfo');
-            const labelBlack = document.getElementById('labelBlack');
-            const labelWhite = document.getElementById('labelWhite');
-            const radioBlack = document.getElementById('radioBlack');
-            const radioWhite = document.getElementById('radioWhite');
-            const boardSizeSelect = document.getElementById('boardSizeSelect');
+const boardSizeSelect = document.getElementById('boardSizeSelect');
             const showNumbersCheck = document.getElementById('showNumbersCheck');
             const goTimerPanel = document.getElementById('goTimerPanel');
             const tcModal = document.getElementById('timeControlModal');
@@ -930,27 +926,20 @@
                 }
             }
 
+            const _seatOverlay = QiBoardRoomClient.createWeiqiMessageBindings({
+                pageState: ps,
+                boardSeatOverlay: true,
+                seatOverlayOnly: true,
+                getWs: () => ps.ws,
+                getSlots: () => ps.slots,
+                setSlots: (s) => { ps.slots = s; },
+                getMySlot: () => ps.mySlot,
+                setMySlot: (s) => { ps.mySlot = s; },
+                updateTurn,
+                colorStatus});
+
             function updateRadioStyles() {
-                labelBlack.classList.remove('self-radio', 'opponent-radio', 'checked-disabled');
-                labelWhite.classList.remove('self-radio', 'opponent-radio', 'checked-disabled');
-                if (ps.slots.black) {
-                    labelBlack.classList.add(ps.mySlot === 'black' ? 'self-radio' : 'opponent-radio');
-                    labelBlack.classList.add('checked-disabled');
-                    radioBlack.disabled = true;
-                    radioBlack.checked = true;
-                } else {
-                    radioBlack.disabled = false;
-                    radioBlack.checked = false;
-                }
-                if (ps.slots.white) {
-                    labelWhite.classList.add(ps.mySlot === 'white' ? 'self-radio' : 'opponent-radio');
-                    labelWhite.classList.add('checked-disabled');
-                    radioWhite.disabled = true;
-                    radioWhite.checked = true;
-                } else {
-                    radioWhite.disabled = false;
-                    radioWhite.checked = false;
-                }
+                _seatOverlay.updateRadioStyles();
             }
 
             function syncState(state) {
@@ -985,23 +974,24 @@
             }
 
             function handleMessage(msg) {
+                _seatOverlay.handleSeatOverlayMessage(msg);
                 switch (msg.type) {
                     case 'joined':
                         sessionStorage.removeItem(`roomPassword_${roomId}`);
                         if (msg.role === 'player') {
                             ps.mySlot = msg.slot;
-                            colorStatus.textContent = ps.mySlot === 'black' ? '已选择: 黑方' : '已选择: 白方';
                         } else {
                             ps.mySlot = null;
-                            colorStatus.textContent = '观战';
                         }
                         if (msg.state) syncState(msg.state);
+                        _seatOverlay.refreshColorStatus();
+                        updateRadioStyles();
                         break;
                     case 'colorAssigned':
                         ps.mySlot = msg.color;
-                        colorStatus.textContent = ps.mySlot === 'black' ? '已选择: 黑方' : '已选择: 白方';
                         if (msg.color === 'black') ps.slots.black = true;
                         if (msg.color === 'white') ps.slots.white = true;
+                        _seatOverlay.refreshColorStatus();
                         updateRadioStyles();
                         updateTurn();
                         break;
@@ -1021,6 +1011,24 @@
                         }
                         updateRadioStyles();
                         updateRecordButtons();
+                        updateTurn();
+                        break;
+                    case 'playerLeft':
+                        if (msg.slot === 'black') ps.slots.black = false;
+                        if (msg.slot === 'white') ps.slots.white = false;
+                        if (ps.mySlot === msg.slot) {
+                            ps.mySlot = null;
+                            colorStatus.textContent = '观战';
+                        }
+                        if (msg.matchStarted || ps.matchStarted)
+                            ps.seatOverlayLocalHide = false;
+                        updateRadioStyles();
+                        updateRecordButtons();
+                        updateTurn();
+                        break;
+                    case 'colorsFinalized':
+                        if (msg.slots) ps.slots = { black: !!msg.slots.black, white: !!msg.slots.white };
+                        updateRadioStyles();
                         updateTurn();
                         break;
                     case 'boardSizeChanged':
@@ -1046,7 +1054,9 @@
                         ps.matchTime.settings = msg.settings || null;
                         ps.matchTime.clock = msg.clock || null;
                         ps.matchStarted = true;
+                        if (msg.slots) ps.slots = { black: !!msg.slots.black, white: !!msg.slots.white };
                         hideTimeControlModal();
+                        updateRadioStyles();
                         updateTurn();
                         break;
                     case 'timeControlReset':
@@ -1065,9 +1075,9 @@
                             const wasOver = ps.gameOver;
                             syncState(msg);
                             if (!wasOver && msg.gameOver) {
-                                if (msg.winner === 'black') alert('黑胜。');
-                                else if (msg.winner === 'white') alert('白胜。');
-                                else alert('和棋。');
+                                if (msg.winner === 'black') qiAlert('黑胜。');
+                                else if (msg.winner === 'white') qiAlert('白胜。');
+                                else qiAlert('和棋。');
                             }
                         }
                         break;
@@ -1089,19 +1099,16 @@
                         if (msg.data) QiSquareWeiqiCanvas.downloadWeiqiJsonRecord(msg.data, 'WxD棋');
                         break;
                     case 'newGameRequest':
-                        if (confirm('对方请求开始新的一局，是否同意？')) ps.ws.send(JSON.stringify({ type: 'newGameResponse', accept: true }));
-                        else ps.ws.send(JSON.stringify({ type: 'newGameResponse', accept: false }));
+                        qiConfirm('对方请求开始新的一局，是否同意？').then(ok => { ps.ws.send(JSON.stringify({ type: 'newGameResponse', accept: !!ok })); });
                         break;
                     case 'undoRequest':
-                        if (confirm('对方请求悔棋，是否同意？')) ps.ws.send(JSON.stringify({ type: 'undoResponse', accept: true }));
-                        else ps.ws.send(JSON.stringify({ type: 'undoResponse', accept: false }));
+                        qiConfirm('对方请求悔棋，是否同意？').then(ok => { ps.ws.send(JSON.stringify({ type: 'undoResponse', accept: !!ok })); });
                         break;
                     case 'drawRequest':
-                        if (confirm('对方申请和棋，是否同意？')) ps.ws.send(JSON.stringify({ type: 'drawResponse', accept: true }));
-                        else ps.ws.send(JSON.stringify({ type: 'drawResponse', accept: false }));
+                        qiConfirm('对方申请和棋，是否同意？').then(ok => { ps.ws.send(JSON.stringify({ type: 'drawResponse', accept: !!ok })); });
                         break;
                     case 'error':
-                        if (msg.message) alert(msg.message);
+                        if (msg.message) qiAlert(msg.message);
                         break;
                     default:
                         break;
@@ -1169,12 +1176,6 @@
                 });
             }
 
-            radioBlack.addEventListener('change', () => {
-                if (radioBlack.checked && ps.ws && ps.ws.readyState === 1) ps.ws.send(JSON.stringify({ type: 'selectColor', color: 'black' }));
-            });
-            radioWhite.addEventListener('change', () => {
-                if (radioWhite.checked && ps.ws && ps.ws.readyState === 1) ps.ws.send(JSON.stringify({ type: 'selectColor', color: 'white' }));
-            });
             boardSizeSelect.addEventListener('change', () => {
                 const n = parseInt(boardSizeSelect.value, 10);
                 if (ps.ws && ps.ws.readyState === 1) ps.ws.send(JSON.stringify({ type: 'setBoardSize', size: n }));
@@ -1209,7 +1210,7 @@
                         const data = JSON.parse(reader.result);
                         if (ps.ws && ps.ws.readyState === 1) ps.ws.send(JSON.stringify({ type: 'importRecord', data }));
                     } catch (err) {
-                        alert('文件解析失败');
+                        qiAlert('文件解析失败');
                     }
                     e.target.value = '';
                 };

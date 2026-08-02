@@ -1,4 +1,4 @@
-const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, encodeInitialPositionCompact, applyInitialPositionCompact } = require('../common');
+const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, encodeInitialPositionCompact, applyInitialPositionCompact, qiBoardSeatOverlay } = require('../common');
 
 class HoleWeiqiRoom extends QiTwoPlayerRoomBase
 {
@@ -313,7 +313,7 @@ class HoleWeiqiRoom extends QiTwoPlayerRoomBase
     }
 
     computeLead() {
-        const KOMI = 4.75;
+        const KOMI = 3.75;
         const liveBoard = squareWeiqiRules.removeDeadAndDying(
             this.board, this.boardSize, (b) => this.copyBoard(b)
         );
@@ -329,7 +329,7 @@ class HoleWeiqiRoom extends QiTwoPlayerRoomBase
         return {
             board: this.board,
             initialBoard,
-            komi: 4.75,
+            komi: 3.75,
             numberOfHands: 1 + this.historyBoards.length,
             currentPlayer: this.currentPlayer,
             lastMoveMarkers: this.lastMoveMarkers,
@@ -360,7 +360,7 @@ class HoleWeiqiRoom extends QiTwoPlayerRoomBase
         return {
             board: this.board,
             initialBoard,
-            komi: 4.75,
+            komi: 3.75,
             currentPlayer: this.currentPlayer,
             numberOfHands: 1,
             lastMoveMarkers: this.lastMoveMarkers,
@@ -465,7 +465,7 @@ class HoleWeiqiRoom extends QiTwoPlayerRoomBase
                 if (this.pendingEnd && msg.accept) {
                     this.startScoreCounting(this.pendingEnd.requester, this.pendingEnd.opponent);
                 } else if (this.pendingEnd && !msg.accept) {
-                    this.pendingEnd.requester.send(JSON.stringify({ type: 'error', message: '对方拒绝数子。' }));
+                    this.pendingEnd.requester.send(JSON.stringify({ type: 'error', message: '对方拒绝数点。' }));
                 }
                 this.pendingEnd = null;
                 break;
@@ -642,7 +642,7 @@ class HoleWeiqiRoom extends QiTwoPlayerRoomBase
             game: '洞围棋',
             gameId: 'hole-weiqi',
             boardSize: this.boardSize,
-            komi: 4.75,
+            komi: 3.75,
             players: { black: '', white: '' },
             initialPosition: initialPosition,
             moves: this.moveCoords.map(m => {
@@ -848,6 +848,7 @@ class HoleWeiqiRoom extends QiTwoPlayerRoomBase
 module.exports = {
     initRoom(room) {
         room.gameLogic = new HoleWeiqiRoom(room);
+        qiBoardSeatOverlay.install(room.gameLogic);
         room.maxPlayers = 2;
     }
 };

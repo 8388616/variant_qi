@@ -1,4 +1,4 @@
-﻿const { QiTwoPlayerRoomBase, gridGraphWeiqiRules, qiMatchTimeControl } = require('../common');
+﻿const { QiTwoPlayerRoomBase, gridGraphWeiqiRules, qiMatchTimeControl, qiBoardSeatOverlay } = require('../common');
 
 class TriangleWeiqiRoom extends QiTwoPlayerRoomBase
 {
@@ -864,7 +864,7 @@ class TriangleWeiqiRoom extends QiTwoPlayerRoomBase
                 if (this.pendingEnd && msg.accept) {
                     this.startScoreCounting(this.pendingEnd.requester, this.pendingEnd.opponent);
                 } else if (this.pendingEnd && !msg.accept) {
-                    this.pendingEnd.requester.send(JSON.stringify({ type: 'error', message: '对方拒绝数子。' }));
+                    this.pendingEnd.requester.send(JSON.stringify({ type: 'error', message: '对方拒绝数点。' }));
                 }
                 this.pendingEnd = null;
                 break;
@@ -1000,6 +1000,7 @@ class TriangleWeiqiRoom extends QiTwoPlayerRoomBase
 module.exports = {
     initRoom(room) {
         room.gameLogic = new TriangleWeiqiRoom(room);
+        if (typeof qiBoardSeatOverlay !== 'undefined' && qiBoardSeatOverlay) qiBoardSeatOverlay.install(room.gameLogic);
         room.maxPlayers = 2;
     }
 };

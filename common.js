@@ -1,6 +1,5 @@
 'use strict';
 
-
 function copyBoard(src) {
     return src.map(row => row.slice());
 }
@@ -61,23 +60,35 @@ const qiMatchTimeControl = {
      */
     validateProposal(msg) {
         const unlimited = msg.timed === false || msg.unlimited === true || msg.unlimited === '1';
-        if (unlimited) return { ok: true, timed: false };
-        const mainMinutes = parseInt(String(msg.mainMinutes ?? msg.mainMin ?? ''), 10);
-        const byoyomiSeconds = parseInt(String(msg.byoyomiSeconds ?? msg.byoSec ?? ''), 10);
-        const maxTimeouts = parseInt(String(msg.maxTimeouts ?? msg.periods ?? ''), 10);
-        if (!Number.isFinite(mainMinutes) || !Number.isFinite(byoyomiSeconds) || !Number.isFinite(maxTimeouts)) {
-            return { ok: false, error: '限时对局请填写主时间、读秒与超时次数。' };
+        let result;
+        if (unlimited) {
+            result = { ok: true, timed: false };
+        } else {
+            const mainMinutes = parseInt(String(msg.mainMinutes ?? msg.mainMin ?? ''), 10);
+            const byoyomiSeconds = parseInt(String(msg.byoyomiSeconds ?? msg.byoSec ?? ''), 10);
+            const maxTimeouts = parseInt(String(msg.maxTimeouts ?? msg.periods ?? ''), 10);
+            if (!Number.isFinite(mainMinutes) || !Number.isFinite(byoyomiSeconds) || !Number.isFinite(maxTimeouts)) {
+                return { ok: false, error: '限时对局请填写主时间、读秒与超时次数。' };
+            }
+            if (mainMinutes < 1 || mainMinutes > 10080) return { ok: false, error: '主时间须在 1~10080 分钟之间。' };
+            if (byoyomiSeconds < 0 || byoyomiSeconds > 7200) return { ok: false, error: '读秒须在 0~7200 秒之间。' };
+            if (maxTimeouts < 0 || maxTimeouts > 100) return { ok: false, error: '超时次数须在 0~100 之间。' };
+            result = {
+                ok: true,
+                timed: true,
+                mainMinutes,
+                byoyomiSeconds,
+                maxTimeouts
+            };
         }
-        if (mainMinutes < 1 || mainMinutes > 10080) return { ok: false, error: '主时间须在 1~10080 分钟之间。' };
-        if (byoyomiSeconds < 0 || byoyomiSeconds > 7200) return { ok: false, error: '读秒须在 0~7200 秒之间。' };
-        if (maxTimeouts < 0 || maxTimeouts > 100) return { ok: false, error: '超时次数须在 0~100 之间。' };
-        return {
-            ok: true,
-            timed: true,
-            mainMinutes,
-            byoyomiSeconds,
-            maxTimeouts
-        };
+        if (msg.colorChoice != null && msg.colorChoice !== '') {
+            const cc = String(msg.colorChoice);
+            if (cc !== 'hostBlack' && cc !== 'hostWhite' && cc !== 'random'
+                && cc !== 'black' && cc !== 'white')
+                return { ok: false, error: '执子选项无效。' };
+            result.colorChoice = cc === 'hostBlack' ? 'black' : (cc === 'hostWhite' ? 'white' : cc);
+        }
+        return result;
     },
 
     /**
@@ -261,7 +272,7 @@ const qiMatchTimeControl = {
         clock.lastUpdateMs = nowMs != null ? nowMs : Date.now();
     },
 
-    /** 数子等待等：暂停扣时（仍保留 lastUpdateMs） */
+    /** 数点等待等：暂停扣时（仍保留 lastUpdateMs） */
     setPaused(clock, paused) {
         if (!clock) return;
         if (paused) {
@@ -347,6 +358,42 @@ function assignBlackWhiteSlot(room, requestedSlot) {
     if (requestedSlot === 'black' && !room.getPlayerBySlot('black')) return 'black';
     if (requestedSlot === 'white' && !room.getPlayerBySlot('white')) return 'white';
     return null;
+}
+
+/** 房主执子选项 → 房主最终执黑/白 */
+function resolveHostTargetColor(colorChoice) {
+    if (colorChoice === 'hostWhite') return 'white';
+    if (colorChoice === 'random') return Math.random() < 0.5 ? 'black' : 'white';
+    return 'black';
+}
+
+/**
+ * 按房主执子选项交换黑白座位（双方均已入座时）。
+ * @returns {'black'|'white'|null} 房主最终颜色
+ */
+function applyHostColorChoice(room, hostWs, colorChoice) {
+    if (!hostWs || !room) return null;
+    const hostSlot = room.getSlotByWs(hostWs);
+    if (!hostSlot) return null;
+    const target = resolveHostTargetColor(colorChoice);
+    if (hostSlot === target) return target;
+    if (typeof room.swapSlots === 'function')
+        room.swapSlots('black', 'white');
+    else {
+        const a = room.slotOccupancy.get('black') || null;
+        const b = room.slotOccupancy.get('white') || null;
+        room.slotOccupancy.delete('black');
+        room.slotOccupancy.delete('white');
+        if (a) {
+            room.players.set(a, 'white');
+            room.slotOccupancy.set('white', a);
+        }
+        if (b) {
+            room.players.set(b, 'black');
+            room.slotOccupancy.set('black', b);
+        }
+    }
+    return target;
 }
 
 function parseQiRecordResultWinner(resultText) {
@@ -513,13 +560,50 @@ const qiProtocol = {
         const newSlot = self.assignSlot(ws, msg.color);
         if (newSlot) {
             room.setPlayerSlot(ws, newSlot);
-            ws.send(JSON.stringify({ type: 'colorAssigned', color: newSlot }));
+            if (typeof self.afterColorAssigned === 'function') self.afterColorAssigned(ws, newSlot);
+            const isHost = !!(self.hostWs && self.hostWs === ws);
+            ws.send(JSON.stringify({ type: 'colorAssigned', color: newSlot, isHost }));
             self.sendState(ws);
             room.broadcast({ type: 'slotOccupied', slot: newSlot }, ws);
-            if (typeof self.afterColorAssigned === 'function') self.afterColorAssigned(ws, newSlot);
         } else {
             ws.send(JSON.stringify({ type: 'error', message: occupiedMsg }));
         }
+    },
+
+    /**
+     * 棋盘蒙版落座：开局前由服务端分配空位（忽略客户端指定颜色，避免抢座误报）；
+     * 对局中途需指定 color 续坐空缺方。
+     */
+    takeSeat(self, ws, msg, opts = {}) {
+        const occupiedMsg = opts.colorOccupiedMsg ?? '该座位已被占用。';
+        const fullMsg = opts.seatsFullMsg ?? '双方均已落座。';
+        const slot = self.room.getSlotByWs(ws);
+        if (slot) return;
+
+        let color = null;
+        if (self.matchStarted) {
+            color = msg && (msg.color === 'black' || msg.color === 'white') ? msg.color : null;
+            if (!color) {
+                ws.send(JSON.stringify({ type: 'error', message: '请选择继续执黑或执白。' }));
+                return;
+            }
+            if (self.room.getPlayerBySlot(color)) {
+                ws.send(JSON.stringify({ type: 'error', message: occupiedMsg }));
+                return;
+            }
+        } else {
+            // 开局前不采纳客户端 color，按空位依次分配，避免两人同时点落座都抢黑
+            if (!self.room.getPlayerBySlot('black')) color = 'black';
+            else if (!self.room.getPlayerBySlot('white')) color = 'white';
+            else {
+                // 座位已满：静默忽略，不弹错误
+                return;
+            }
+        }
+
+        this.selectColor(self, ws, { color }, Object.assign({}, opts, {
+            colorOccupiedMsg: self.matchStarted ? occupiedMsg : fullMsg
+        }));
     },
 
     exportRecord(self, ws) {
@@ -629,7 +713,7 @@ const qiProtocol = {
     },
 
     endResponse(self, ws, msg, opts = {}) {
-        const denyMsg = opts.endDeniedMsg ?? '对方拒绝数子。';
+        const denyMsg = opts.endDeniedMsg ?? '对方拒绝数点。';
         if (self.pendingEnd && msg.accept) {
             self.startScoreCounting(self.pendingEnd.requester, self.pendingEnd.opponent);
         } else if (self.pendingEnd && !msg.accept) {
@@ -802,6 +886,29 @@ const qiProtocol = {
  * board[r][c]：0 空，1 黑，2 白。
  * 变种若规则不同（如二气/三气），通过 minLib 参数区分；不围棋、零气等特殊逻辑请在各 Room 内单独实现。
  */
+const qiMessageBoxOptions = {
+    defaults: {
+        alertTitle: '提示',
+        confirmTitle: '确认',
+        okText: '确认',
+        cancelText: '取消',
+        yesText: '是',
+        noText: '否'
+    },
+
+    normalize(type, message, options = {}) {
+        const isConfirm = type === 'confirm';
+        const useYesNo = options.buttons === 'yesNo' || options.choice === 'yesNo';
+        return {
+            type: isConfirm ? 'confirm' : 'alert',
+            title: options.title || (isConfirm ? this.defaults.confirmTitle : this.defaults.alertTitle),
+            message: message == null ? '' : String(message),
+            okText: options.okText || options.confirmText || (useYesNo ? this.defaults.yesText : this.defaults.okText),
+            cancelText: options.cancelText || options.noText || (useYesNo ? this.defaults.noText : this.defaults.cancelText)
+        };
+    }
+};
+
 const squareWeiqiRules = {
     countGroupLiberties(board, row, col, boardSize) {
         const color = board[row][col];
@@ -1477,15 +1584,408 @@ const vertexGraphWeiqiRules = {
     }
 };
 
+/**
+ * 棋盘落座蒙版：在已有限时协商的 Room 实例上安装房主/执子/takeSeat 等能力。
+ * 各变体 initRoom 里对 gameLogic 调用一次即可。
+ */
+const qiBoardSeatOverlay = {
+    install(self) {
+        if (!self || self._qiBoardSeatOverlayInstalled) return self;
+        self._qiBoardSeatOverlayInstalled = true;
+        self.boardSeatOverlay = true;
+        if (self.hostWs === undefined) self.hostWs = null;
+        if (!self.slotJoinedAt) self.slotJoinedAt = { black: null, white: null };
+
+        self._qiApplyChooserColorChoice = function (colorChoice, chooserSlot) {
+            if (!chooserSlot) return null;
+            const room = this.room;
+            if (!room.getPlayerBySlot(chooserSlot)) return null;
+            let raw = colorChoice;
+            if (raw === 'hostWhite') raw = 'white';
+            if (raw === 'hostBlack') raw = 'black';
+            let target = 'black';
+            if (raw === 'white') target = 'white';
+            else if (raw === 'random') target = Math.random() < 0.5 ? 'black' : 'white';
+            if (chooserSlot === target) return target;
+            if (typeof room.swapSlots === 'function') {
+                room.swapSlots('black', 'white');
+            } else {
+                const a = room.slotOccupancy.get('black') || null;
+                const b = room.slotOccupancy.get('white') || null;
+                room.slotOccupancy.delete('black');
+                room.slotOccupancy.delete('white');
+                if (a) {
+                    room.players.set(a, 'white');
+                    room.slotOccupancy.set('white', a);
+                }
+                if (b) {
+                    room.players.set(b, 'black');
+                    room.slotOccupancy.set('black', b);
+                }
+            }
+            if (this.slotJoinedAt) {
+                const tb = this.slotJoinedAt.black;
+                const tw = this.slotJoinedAt.white;
+                this.slotJoinedAt.black = tw;
+                this.slotJoinedAt.white = tb;
+            }
+            return target;
+        };
+
+        self._qiNotifyColorsFinalized = function () {
+            const room = this.room;
+            const b = room.getPlayerBySlot('black');
+            const w = room.getPlayerBySlot('white');
+            const hostSlot = this.hostWs ? room.getSlotByWs(this.hostWs) : null;
+            if (b) b.send(JSON.stringify({ type: 'colorAssigned', color: 'black', finalized: true, isHost: b === this.hostWs }));
+            if (w) w.send(JSON.stringify({ type: 'colorAssigned', color: 'white', finalized: true, isHost: w === this.hostWs }));
+            this.broadcast({
+                type: 'colorsFinalized',
+                slots: { black: !!b, white: !!w },
+                hostSlot
+            });
+        };
+
+        self._qiResendNegotiationUi = function (ws) {
+            if (!this.tcNego || !ws) return;
+            const slot = this.room.getSlotByWs(ws);
+            if (!slot) return;
+            if (this.tcNego.waitingSlot === slot && this.tcNego.phase === 'propose') {
+                ws.send(JSON.stringify({
+                    type: 'timeControlNegotiation',
+                    mode: 'propose',
+                    boardSeatOverlay: true
+                }));
+                return;
+            }
+            if (this.tcNego.waitingSlot === slot && this.tcNego.phase === 'respond' && this.tcNego.proposal) {
+                this._qiSendRespondDialog(slot, this.tcNego.proposal);
+                return;
+            }
+            ws.send(JSON.stringify({ type: 'timeControlWaitPeer', text: '等待对方确认...' }));
+        };
+
+        self._qiSendRespondDialog = function (toSlot, proposal) {
+            const ws = this.room.getPlayerBySlot(toSlot);
+            if (!ws) return;
+            ws.send(JSON.stringify({
+                type: 'timeControlNegotiation',
+                mode: 'respond',
+                boardSeatOverlay: true,
+                proposal: {
+                    ok: true,
+                    timed: proposal.timed,
+                    mainMinutes: proposal.mainMinutes,
+                    byoyomiSeconds: proposal.byoyomiSeconds,
+                    maxTimeouts: proposal.maxTimeouts,
+                    colorChoice: proposal.colorChoice || null,
+                    colorChooserSlot: proposal.colorChooserSlot || null
+                }
+            }));
+        };
+
+        self._qiParseColorChoice = function (msg, slot) {
+            const raw = msg && msg.colorChoice;
+            let colorChoice = 'black';
+            if (raw === 'black' || raw === 'hostBlack') colorChoice = 'black';
+            else if (raw === 'white' || raw === 'hostWhite') colorChoice = 'white';
+            else if (raw === 'random') colorChoice = 'random';
+            return { colorChoice, colorChooserSlot: slot };
+        };
+
+        // —— wrap existing methods ——
+        const origFirst = typeof self._firstPickerSlot === 'function' ? self._firstPickerSlot.bind(self) : null;
+        self._firstPickerSlot = function () {
+            if (this.hostWs) {
+                const hs = this.room.getSlotByWs(this.hostWs);
+                if (hs) return hs;
+            }
+            return origFirst ? origFirst() : 'black';
+        };
+
+        const origMaybe = typeof self._maybeBeginTimeNegotiation === 'function'
+            ? self._maybeBeginTimeNegotiation.bind(self) : null;
+        self._maybeBeginTimeNegotiation = function () {
+            // 未接入限时协商的玩法（无 tcNego 字段）跳过
+            if (this.tcNego === undefined) return;
+            if (this.moveHistory && this.moveHistory.length > 0) return;
+            if (this.gameOver) return;
+            const room = this.room;
+            if (!room.getPlayerBySlot('black') || !room.getPlayerBySlot('white')) return;
+            if (this.tcNego !== null) return;
+            if (this.tcSettings !== null) return;
+            const first = this._firstPickerSlot();
+            this.tcNego = {
+                phase: 'propose',
+                proposal: null,
+                waitingSlot: first,
+                lastProposerSlot: null
+            };
+            const ws = room.getPlayerBySlot(first);
+            if (ws) {
+                ws.send(JSON.stringify({
+                    type: 'timeControlNegotiation',
+                    mode: 'propose',
+                    boardSeatOverlay: true
+                }));
+            }
+            const other = first === 'black' ? 'white' : 'black';
+            const ws2 = room.getPlayerBySlot(other);
+            if (ws2) ws2.send(JSON.stringify({ type: 'timeControlWaitPeer', text: '等待对方设置限时规则...' }));
+            void origMaybe;
+        };
+
+        const origAfter = typeof self.afterColorAssigned === 'function'
+            ? self.afterColorAssigned.bind(self) : null;
+        self.afterColorAssigned = function (ws, slot) {
+            // 兼容雷达旧签名 afterColorAssigned(slot)
+            let seatWs = ws;
+            let seatSlot = slot;
+            if (seatSlot == null && (ws === 'black' || ws === 'white')) {
+                seatSlot = ws;
+                seatWs = this.room.getPlayerBySlot(seatSlot);
+            }
+            if (!this.hostWs && seatWs) this.hostWs = seatWs;
+            if (seatSlot && this.slotJoinedAt) this.slotJoinedAt[seatSlot] = Date.now();
+            this._maybeBeginTimeNegotiation();
+            // 无限时协商玩法：双方入座即开始，便于客户端收起蒙版
+            if (this.tcNego === undefined) {
+                const b = this.room.getPlayerBySlot('black');
+                const w = this.room.getPlayerBySlot('white');
+                if (b && w) {
+                    this.matchStarted = true;
+                    this._qiNotifyColorsFinalized();
+                }
+            }
+            if (!origAfter) return;
+            try {
+                origAfter(seatWs, seatSlot);
+            } catch (e) {
+                try { origAfter(seatSlot); } catch (e2) { /* ignore */ }
+            }
+        };
+
+        self._sendRespondDialog = function (toSlot, proposal) {
+            this._qiSendRespondDialog(toSlot, proposal);
+        };
+
+        self._handleTimeControlSubmit = function (ws, msg) {
+            const slot = this.room.getSlotByWs(ws);
+            if (!slot || !this.tcNego) return;
+            const v = qiMatchTimeControl.validateProposal(msg);
+            if (!v.ok) {
+                ws.send(JSON.stringify({ type: 'error', message: v.error }));
+                this._qiResendNegotiationUi(ws);
+                return;
+            }
+            const parsed = this._qiParseColorChoice(msg, slot);
+            v.colorChoice = parsed.colorChoice;
+            v.colorChooserSlot = parsed.colorChooserSlot;
+            const room = this.room;
+            if (slot !== this.tcNego.waitingSlot) {
+                this._qiResendNegotiationUi(ws);
+                return;
+            }
+            this.tcNego.proposal = v;
+            this.tcNego.lastProposerSlot = slot;
+            this.tcNego.phase = 'respond';
+            const other = slot === 'black' ? 'white' : 'black';
+            this.tcNego.waitingSlot = other;
+            const me = room.getPlayerBySlot(slot);
+            if (me) me.send(JSON.stringify({ type: 'timeControlWaitPeer', text: '等待对方确认...' }));
+            this._qiSendRespondDialog(other, v);
+        };
+
+        const origFinalize = typeof self._finalizeTimeControl === 'function'
+            ? self._finalizeTimeControl.bind(self) : null;
+        self._finalizeTimeControl = function (valid) {
+            const chooserSlot = (valid && valid.colorChooserSlot)
+                || (this.tcNego && this.tcNego.lastProposerSlot)
+                || this._firstPickerSlot();
+            this._qiApplyChooserColorChoice((valid && valid.colorChoice) || 'black', chooserSlot);
+            this._qiNotifyColorsFinalized();
+
+            if (origFinalize) {
+                // 原 finalize 会再设 tcSettings / broadcast；先清掉 tcNego 中的 color 已应用
+                // 为带上 slots/hostSlot，拦截 broadcast 一次较难，这里重写标准 finalize
+            }
+            this.tcSettings = valid.timed
+                ? {
+                    timed: true,
+                    mainMinutes: valid.mainMinutes,
+                    byoyomiSeconds: valid.byoyomiSeconds,
+                    maxTimeouts: valid.maxTimeouts
+                }
+                : { timed: false };
+            this.tcNego = null;
+            this.matchStarted = true;
+            const now = Date.now();
+            this.tcClock = qiMatchTimeControl.createClock(this.tcSettings, now);
+            if (this.tcClock.timed) {
+                // 象棋等：sideToMove 为 red/black；围棋等：currentPlayer 1/2 → 座位 black/white
+                let activeSlot = 'black';
+                if (this.sideToMove === 'red') activeSlot = 'black';
+                else if (this.sideToMove === 'black') activeSlot = 'white';
+                else if (this.currentPlayer === 2) activeSlot = 'white';
+                qiMatchTimeControl.setActiveSlot(this.tcClock, activeSlot, now);
+                if (typeof this._startClockTicker === 'function') this._startClockTicker();
+                if (typeof this._broadcastClock === 'function') this._broadcastClock();
+            } else {
+                this.tcClock = null;
+            }
+            this.broadcast({
+                type: 'timeControlAgreed',
+                settings: this.tcSettings,
+                clock: this.tcClock && this.tcClock.timed
+                    ? qiMatchTimeControl.snapshotForClient(this.tcClock)
+                    : null,
+                slots: {
+                    black: !!this.room.getPlayerBySlot('black'),
+                    white: !!this.room.getPlayerBySlot('white')
+                },
+                hostSlot: this.hostWs ? this.room.getSlotByWs(this.hostWs) : null
+            });
+            void origFinalize;
+        };
+
+        self._handleTimeControlAccept = function (ws) {
+            const slot = this.room.getSlotByWs(ws);
+            if (!slot || !this.tcNego || this.tcNego.phase !== 'respond') {
+                if (this.tcNego) this._qiResendNegotiationUi(ws);
+                return;
+            }
+            if (slot !== this.tcNego.waitingSlot) {
+                this._qiResendNegotiationUi(ws);
+                return;
+            }
+            const prop = this.tcNego.proposal;
+            if (!prop || prop.ok !== true) return;
+            this._finalizeTimeControl(prop);
+        };
+
+        const enrichState = (state) => {
+            if (!state || typeof state !== 'object') return state;
+            state.hostSlot = self.hostWs ? self.room.getSlotByWs(self.hostWs) : null;
+            state.boardSeatOverlay = true;
+            if (self.matchStarted !== undefined) state.matchStarted = !!self.matchStarted;
+            return state;
+        };
+        if (typeof self.getState === 'function') {
+            const origGetState = self.getState.bind(self);
+            self.getState = function () {
+                return enrichState(origGetState());
+            };
+        }
+        if (typeof self.getStateForClient === 'function') {
+            const origGSC = self.getStateForClient.bind(self);
+            self.getStateForClient = function (ws) {
+                return enrichState(origGSC(ws));
+            };
+        }
+        if (typeof self.getInitialState === 'function') {
+            const origGIS = self.getInitialState.bind(self);
+            self.getInitialState = function () {
+                return enrichState(origGIS());
+            };
+        }
+
+        const wrapReset = (name) => {
+            if (typeof self[name] !== 'function') return;
+            const orig = self[name].bind(self);
+            self[name] = function (...args) {
+                this.hostWs = null;
+                return orig(...args);
+            };
+        };
+        wrapReset('resetGame');
+        wrapReset('resetToEmpty');
+
+        if (typeof self.onPlayerLeave === 'function') {
+            const origLeave = self.onPlayerLeave.bind(self);
+            self.onPlayerLeave = function (ws) {
+                const slot = this.room.getSlotByWs(ws);
+                if (slot) this.room.broadcast({ type: 'playerLeft', slot, matchStarted: !!this.matchStarted });
+                if (this.hostWs === ws) {
+                    const other = slot === 'black'
+                        ? this.room.getPlayerBySlot('white')
+                        : this.room.getPlayerBySlot('black');
+                    this.hostWs = other || null;
+                }
+                // 原 onPlayerLeave 可能再次 broadcast playerLeft；先清 slotJoinedAt / nego
+                if (this.tcNego) {
+                    this.tcNego = null;
+                    this.room.broadcast({ type: 'timeControlReset', reason: 'playerLeft' });
+                }
+                if (slot && this.slotJoinedAt) this.slotJoinedAt[slot] = null;
+                // 调用原逻辑但不重复 playerLeft：临时 stub broadcast 中的 playerLeft
+                const room = this.room;
+                const origBroadcast = room.broadcast.bind(room);
+                room.broadcast = function (data, exclude) {
+                    if (data && data.type === 'playerLeft') return;
+                    if (data && data.type === 'timeControlReset') return;
+                    return origBroadcast(data, exclude);
+                };
+                try {
+                    origLeave(ws);
+                } finally {
+                    room.broadcast = origBroadcast;
+                }
+            };
+        } else {
+            self.onPlayerLeave = function (ws) {
+                const slot = this.room.getSlotByWs(ws);
+                if (slot) this.room.broadcast({ type: 'playerLeft', slot, matchStarted: !!this.matchStarted });
+                if (this.hostWs === ws) {
+                    const other = slot === 'black'
+                        ? this.room.getPlayerBySlot('white')
+                        : this.room.getPlayerBySlot('black');
+                    this.hostWs = other || null;
+                }
+                if (this.tcNego) {
+                    this.tcNego = null;
+                    this.room.broadcast({ type: 'timeControlReset', reason: 'playerLeft' });
+                }
+                if (slot && this.slotJoinedAt) this.slotJoinedAt[slot] = null;
+            };
+        }
+
+        const origHM = self.handleMessage.bind(self);
+        self.handleMessage = function (ws, msg) {
+            if (msg.type === 'selectColor' || msg.type === 'takeSeat') {
+                if (typeof qiProtocol.takeSeat === 'function')
+                    qiProtocol.takeSeat(this, ws, msg);
+                else
+                    qiProtocol.selectColor(this, ws, msg);
+                return;
+            }
+            if (msg.type === 'timeControlSubmit') {
+                this._handleTimeControlSubmit(ws, msg);
+                return;
+            }
+            if (msg.type === 'timeControlAccept') {
+                this._handleTimeControlAccept(ws, msg);
+                return;
+            }
+            return origHM(ws, msg);
+        };
+
+        return self;
+    }
+};
+
 module.exports = {
     copyBoard,
     boardToString,
     encodeInitialPositionCompact,
     applyInitialPositionCompact,
     assignBlackWhiteSlot,
+    resolveHostTargetColor,
+    applyHostColorChoice,
+    qiBoardSeatOverlay,
     QiTwoPlayerRoomBase,
     qiProtocol,
     qiMatchTimeControl,
+    qiMessageBoxOptions,
     squareWeiqiRules,
     gridGraphWeiqiRules,
     vertexGraphWeiqiRules,

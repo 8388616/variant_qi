@@ -26,7 +26,7 @@ function findGameAiScriptPath(gameId) {
     const flat = path.join(__dirname, 'games', fileName);
     if (fs.existsSync(flat)) return flat;
 
-    const categoryRoots = ['围棋', '五子棋', '其它'];
+    const categoryRoots = ['围棋', '五子棋', '象棋', '其它'];
     for (const cat of categoryRoots) {
         const catPath = path.join(__dirname, cat);
         let entries;
@@ -69,6 +69,29 @@ class BaseGameRoom
         this.observers.delete(ws);
         this.players.set(ws, slot);
         this.slotOccupancy.set(slot, ws);
+    }
+
+    /** 将已入座玩家改到另一座位（先清旧位再占新位） */
+    reassignPlayerSlot(ws, newSlot) {
+        const old = this.players.get(ws);
+        if (old) this.slotOccupancy.delete(old);
+        this.setPlayerSlot(ws, newSlot);
+    }
+
+    /** 交换两个座位上的玩家（允许一侧为空） */
+    swapSlots(slotA, slotB) {
+        const a = this.slotOccupancy.get(slotA) || null;
+        const b = this.slotOccupancy.get(slotB) || null;
+        this.slotOccupancy.delete(slotA);
+        this.slotOccupancy.delete(slotB);
+        if (a) {
+            this.players.set(a, slotB);
+            this.slotOccupancy.set(slotB, a);
+        }
+        if (b) {
+            this.players.set(b, slotA);
+            this.slotOccupancy.set(slotA, b);
+        }
     }
 
     removeClient(ws) {
@@ -237,6 +260,19 @@ Express.get('/qi/rooms', (request, response) => {
 Express.get("/qi", (request, response) => response.sendFile(path.join(__dirname, "public", "qi.html")));
 Express.get("/qi/qi.css", (request, response) => response.sendFile(path.join(__dirname, "public", "qi.css")));
 Express.get("/qi/qi.js", (request, response) => response.sendFile(path.join(__dirname, "public", "qi.js")));
+Express.get("/qi/xiangqi-rules.js", (request, response) => response.sendFile(path.join(__dirname, "games", "xiangqi-rules.js")));
+Express.get("/qi/xiangqi.ttf", (request, response) => response.sendFile(path.join(__dirname, "public", "xiangqi.ttf")));
+// 字体必须在 /qi/:game/:roomId 之前注册，否则 /qi/fonts/... 会被当成房间页返回 HTML
+Express.use("/qi/fonts", express.static(path.join(__dirname, "public", "fonts"), {
+    maxAge: "365d",
+    immutable: true,
+    fallthrough: false,
+    setHeaders(res, filePath) {
+        if (filePath.endsWith(".css")) res.type("text/css; charset=utf-8");
+        else if (filePath.endsWith(".woff2")) res.type("font/woff2");
+        else if (filePath.endsWith(".woff")) res.type("font/woff");
+    }
+}));
 Express.get('/qi/:leaf', (request, response, next) => {
     const leaf = request.params.leaf;
     const m = typeof leaf === 'string' && leaf.match(/^([a-zA-Z0-9_-]+)-ai\.js$/);
@@ -253,6 +289,7 @@ Express.get("/qi/qrcode.min.js", (request, response) => response.sendFile(path.j
 Express.get('/qi/:game/:roomId', (request, response) => {
     try {
         const game = request.params.game;
+        if (game === 'fonts') return response.status(404).type('text/plain').send('Not found');
         if (!/^[a-zA-Z0-9_-]+$/.test(game)) return response.status(400).send('Invalid game');
         let htmlFile = path.join(__dirname, 'public', `${game}.html`);
         if (fs.existsSync(htmlFile) && fs.existsSync(path.join(__dirname, 'games', `${game}.js`)))

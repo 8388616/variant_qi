@@ -1,6 +1,18 @@
 ﻿const crypto = require('crypto');
 
-const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, applyInitialPositionCompact, encodeInitialPositionCompact } = require('../common');
+const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, applyInitialPositionCompact, encodeInitialPositionCompact, qiBoardSeatOverlay } = require('../common');
+
+function komiForSize(boardSize) {
+    if (boardSize === 3) return 4.5;
+    if (boardSize === 4) return 0.0;
+    if (boardSize === 5) return 12.5;
+    if (boardSize === 6) return 0.5;
+    if (boardSize === 7) return 5.5;
+    if (boardSize === 8) return 3.0;
+    if (boardSize % 2 === 0) return 3.25;
+    return 2.75;
+}
+
 class BilibertyWeiqiRoom extends QiTwoPlayerRoomBase
 {
     constructor(room, initialSize = 19) {
@@ -269,7 +281,7 @@ class BilibertyWeiqiRoom extends QiTwoPlayerRoomBase
         const liveBoard = this.removeDeadAndDying(this.board);
         const territory = this.assignTerritoryWithRange(liveBoard);
         const { blackTotal, whiteTotal } = this.computeScore(liveBoard, territory);
-        const KOMI = 3.25;
+        const KOMI = komiForSize(this.boardSize);
         return blackTotal - whiteTotal - 2 * KOMI;
     }
 
@@ -313,7 +325,7 @@ class BilibertyWeiqiRoom extends QiTwoPlayerRoomBase
             boardSize: this.boardSize,
             board: this.board,
             initialBoard,
-            komi: 3.25,
+            komi: komiForSize(this.boardSize),
             numberOfHands: 1 + this.historyBoards.length,
             currentPlayer: this.currentPlayer,
             lastMoveMarkers: this.lastMoveMarkers,
@@ -345,7 +357,7 @@ class BilibertyWeiqiRoom extends QiTwoPlayerRoomBase
             board: this.board,
             initialBoard,
             boardSize: this.boardSize,
-            komi: 3.25,
+            komi: komiForSize(this.boardSize),
             currentPlayer: this.currentPlayer,
             numberOfHands: 1,
             lastMoveMarkers: this.lastMoveMarkers,
@@ -469,7 +481,7 @@ class BilibertyWeiqiRoom extends QiTwoPlayerRoomBase
                 if (this.pendingEnd && msg.accept) {
                     this.startScoreCounting(this.pendingEnd.requester, this.pendingEnd.opponent);
                 } else if (this.pendingEnd && !msg.accept) {
-                    this.pendingEnd.requester.send(JSON.stringify({ type: 'error', message: '对方拒绝数子。' }));
+                    this.pendingEnd.requester.send(JSON.stringify({ type: 'error', message: '对方拒绝数点。' }));
                 }
                 this.pendingEnd = null;
                 break;
@@ -648,7 +660,7 @@ class BilibertyWeiqiRoom extends QiTwoPlayerRoomBase
             gameType: '二气围棋',
             gameId: 'biliberty-weiqi',
             boardSize: this.boardSize,
-            komi: 3.25,
+            komi: komiForSize(this.boardSize),
             players: { black: null, white: null },
             initialPosition: encodeInitialPositionCompact(this.board, this.boardSize),
             moves: this.moveCoords.map(m => {
@@ -821,6 +833,7 @@ class BilibertyWeiqiRoom extends QiTwoPlayerRoomBase
 module.exports = {
     initRoom(room) {
         room.gameLogic = new BilibertyWeiqiRoom(room);
+        qiBoardSeatOverlay.install(room.gameLogic);
         room.maxPlayers = 2;
     }
 };

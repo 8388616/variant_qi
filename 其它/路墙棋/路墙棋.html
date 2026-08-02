@@ -6,6 +6,8 @@
     <title>路墙棋</title>
     <link rel="stylesheet" href="/qi/qi.css">
     <style>
+                body { background: #5e3b2b; }
+
         .qd-bags-wrap {
             margin-top: 22px;
             width: 100%;
@@ -99,10 +101,7 @@
     <div class="game-wrapper" id="gameWrapper">
         <div class="top-panel">
             <div class="left-group">
-                <div class="side-select">
-                    <label id="labelWhite"><input type="radio" name="color" value="white" id="radioWhite"> ⚪ 白方</label>
-                    <label id="labelBlack"><input type="radio" name="color" value="black" id="radioBlack"> ⚫ 黑方</label>
-                </div>
+                <div class="komi-info" id="gameTitleInfo">路墙棋</div>
                 <div class="color-status" id="colorStatus">观战</div>
                 <select id="boardSizeSelect" class="board-size-select" style="display: none;"></select>
                 <label style="display:none;"><input type="checkbox" id="showNumbersCheck"> 显示序号</label>
@@ -493,7 +492,7 @@
             })();
 
             const pathMatch = window.location.pathname.match(/^\/qi\/([^/]+)\/(\d+)$/);
-            if (!pathMatch) { alert('无效的房间链接'); throw new Error('Invalid room URL'); }
+            if (!pathMatch) { qiAlert('无效的房间链接'); throw new Error('Invalid room URL'); }
             const gameType = pathMatch[1];
             const roomId = pathMatch[2];
             let roomPassword = sessionStorage.getItem('roomPassword_' + roomId) || null;
@@ -628,11 +627,7 @@
             const ctx = canvas.getContext('2d');
             const turnDisplay = document.getElementById('turnDisplay');
             const colorStatus = document.getElementById('colorStatus');
-            const radioBlack = document.getElementById('radioBlack');
-            const radioWhite = document.getElementById('radioWhite');
-            const labelBlack = document.getElementById('labelBlack');
-            const labelWhite = document.getElementById('labelWhite');
-            const scoreBoard = document.getElementById('scoreBoard');
+const scoreBoard = document.getElementById('scoreBoard');
             const leadInfo = document.getElementById('leadInfo');
             const isMouseDevice = window.matchMedia('(hover: hover) and (pointer: fine)').matches;
             const goTimerPanel = document.getElementById('goTimerPanel');
@@ -897,27 +892,20 @@
                 }
             }
 
+            const _seatOverlay = QiBoardRoomClient.createWeiqiMessageBindings({
+                pageState: ps,
+                boardSeatOverlay: true,
+                seatOverlayOnly: true,
+                getWs: () => ps.ws,
+                getSlots: () => ps.slots,
+                setSlots: (s) => { ps.slots = s; },
+                getMySlot: () => ps.mySlot,
+                setMySlot: (s) => { ps.mySlot = s; },
+                updateTurn: () => { if (typeof updateTurn === 'function') updateTurn(); },
+                colorStatus});
+
             function updateRadioStyles() {
-                labelBlack.classList.remove('self-radio', 'opponent-radio', 'checked-disabled');
-                labelWhite.classList.remove('self-radio', 'opponent-radio', 'checked-disabled');
-                if (ps.slots.black) {
-                    labelBlack.classList.add(ps.mySlot === 'black' ? 'self-radio' : 'opponent-radio');
-                    labelBlack.classList.add('checked-disabled');
-                    radioBlack.disabled = true;
-                    radioBlack.checked = true;
-                } else {
-                    radioBlack.disabled = false;
-                    radioBlack.checked = false;
-                }
-                if (ps.slots.white) {
-                    labelWhite.classList.add(ps.mySlot === 'white' ? 'self-radio' : 'opponent-radio');
-                    labelWhite.classList.add('checked-disabled');
-                    radioWhite.disabled = true;
-                    radioWhite.checked = true;
-                } else {
-                    radioWhite.disabled = false;
-                    radioWhite.checked = false;
-                }
+                _seatOverlay.updateRadioStyles();
                 updateRecordButtons();
             }
 
@@ -1699,18 +1687,18 @@
             }
 
             function handleMessage(msg) {
+                _seatOverlay.handleSeatOverlayMessage(msg);
                 switch (msg.type) {
                     case 'joined':
                         sessionStorage.removeItem('roomPassword_' + roomId);
                         if (msg.role === 'player') {
                             ps.mySlot = msg.slot;
-                            colorStatus.textContent = ps.mySlot === 'black' ? '已选择: 黑方' : '已选择: 白方';
                             if (msg.state) syncFromState(msg.state);
                         } else {
                             ps.mySlot = null;
-                            colorStatus.textContent = '观战';
                             if (msg.state) syncFromState(msg.state);
                         }
+                        _seatOverlay.refreshColorStatus();
                         updateRadioStyles();
                         break;
                     case 'slotOccupied':
@@ -1724,16 +1712,31 @@
                         else if (msg.slot === 'white') ps.slots.white = false;
                         if (ps.mySlot === msg.slot) {
                             ps.mySlot = null;
-                            colorStatus.textContent = '观战';
                         }
+                        _seatOverlay.refreshColorStatus();
+                        updateRadioStyles();
+                        updateTurn();
+                        break;
+                    case 'playerLeft':
+                        if (msg.slot === 'black') ps.slots.black = false;
+                        else if (msg.slot === 'white') ps.slots.white = false;
+                        if (ps.mySlot === msg.slot) ps.mySlot = null;
+                        if (msg.matchStarted || ps.matchStarted)
+                            ps.seatOverlayLocalHide = false;
+                        _seatOverlay.refreshColorStatus();
                         updateRadioStyles();
                         updateTurn();
                         break;
                     case 'colorAssigned':
                         ps.mySlot = msg.color;
-                        colorStatus.textContent = ps.mySlot === 'black' ? '已选择: 黑方' : '已选择: 白方';
                         if (msg.color === 'black') ps.slots.black = true;
                         else ps.slots.white = true;
+                        _seatOverlay.refreshColorStatus();
+                        updateRadioStyles();
+                        updateTurn();
+                        break;
+                    case 'colorsFinalized':
+                        if (msg.slots) ps.slots = { black: !!msg.slots.black, white: !!msg.slots.white };
                         updateRadioStyles();
                         updateTurn();
                         break;
@@ -1754,7 +1757,9 @@
                         ps.matchTime.settings = msg.settings || null;
                         ps.matchTime.clock = msg.clock || null;
                         ps.matchStarted = true;
+                        if (msg.slots) ps.slots = { black: !!msg.slots.black, white: !!msg.slots.white };
                         hideTimeControlModal();
+                        updateRadioStyles();
                         updateTurn();
                         break;
                     case 'timeControlReset':
@@ -1776,13 +1781,13 @@
                                 if (msg.action === 'timeLoss') {
                                     const loser = msg.player === 'black' ? '黑方' : '白方';
                                     const winText = msg.winner === 'black' ? '黑胜' : (msg.winner === 'white' ? '白胜' : '和棋');
-                                    alert(`${loser}超时，${winText}。`);
-                                } else if (msg.winner === 'black') alert('黑胜。');
-                                else if (msg.winner === 'white') alert('白胜。');
-                                else if (msg.winner === 'draw') alert('和棋。');
-                            } else if (msg.action === 'drawAgreed' && !wasOver) alert('和棋。');
+                                    qiAlert(`${loser}超时，${winText}。`);
+                                } else if (msg.winner === 'black') qiAlert('黑胜。');
+                                else if (msg.winner === 'white') qiAlert('白胜。');
+                                else if (msg.winner === 'draw') qiAlert('和棋。');
+                            } else if (msg.action === 'drawAgreed' && !wasOver) qiAlert('和棋。');
                             else if (msg.action === 'resign' && !wasOver) {
-                                alert((msg.player === 'black' ? '黑方' : '白方') + '认输');
+                                qiAlert((msg.player === 'black' ? '黑方' : '白方') + '认输');
                             }
                         }
                         updateRadioStyles();
@@ -1817,19 +1822,16 @@
                         updateRadioStyles();
                         break;
                     case 'error':
-                        if (msg.message) alert(msg.message);
+                        if (msg.message) qiAlert(msg.message);
                         break;
                     case 'newGameRequest':
-                        if (confirm('对方请求开始新的一局，是否同意？')) ps.ws.send(JSON.stringify({ type: 'newGameResponse', accept: true }));
-                        else ps.ws.send(JSON.stringify({ type: 'newGameResponse', accept: false }));
+                        qiConfirm('对方请求开始新的一局，是否同意？').then(ok => { ps.ws.send(JSON.stringify({ type: 'newGameResponse', accept: !!ok })); });
                         break;
                     case 'undoRequest':
-                        if (confirm('对方请求悔棋，是否同意？')) ps.ws.send(JSON.stringify({ type: 'undoResponse', accept: true }));
-                        else ps.ws.send(JSON.stringify({ type: 'undoResponse', accept: false }));
+                        qiConfirm('对方请求悔棋，是否同意？').then(ok => { ps.ws.send(JSON.stringify({ type: 'undoResponse', accept: !!ok })); });
                         break;
                     case 'drawRequest':
-                        if (confirm('对方申请和棋，是否同意？')) ps.ws.send(JSON.stringify({ type: 'drawResponse', accept: true }));
-                        else ps.ws.send(JSON.stringify({ type: 'drawResponse', accept: false }));
+                        qiConfirm('对方申请和棋，是否同意？').then(ok => { ps.ws.send(JSON.stringify({ type: 'drawResponse', accept: !!ok })); });
                         break;
                     case 'gameRecord': {
                         const data = msg.data;
@@ -1865,15 +1867,6 @@
                     setReconnectTimer: (t) => { ps.reconnectTimer = t; }
                 });
             }
-
-            radioBlack.addEventListener('change', () => {
-                if (radioBlack.checked && ps.ws && ps.ws.readyState === 1)
-                    ps.ws.send(JSON.stringify({ type: 'selectColor', color: 'black' }));
-            });
-            radioWhite.addEventListener('change', () => {
-                if (radioWhite.checked && ps.ws && ps.ws.readyState === 1)
-                    ps.ws.send(JSON.stringify({ type: 'selectColor', color: 'white' }));
-            });
 
             function tcCollectPayload() {
                 const mode = document.querySelector('input[name="tcTimed"]:checked');
@@ -1930,7 +1923,7 @@
                         const data = JSON.parse(reader.result);
                         if (ps.ws && ps.ws.readyState === 1) ps.ws.send(JSON.stringify({ type: 'importRecord', data }));
                     } catch (err) {
-                        alert('文件解析失败');
+                        qiAlert('文件解析失败');
                     }
                     e.target.value = '';
                 };

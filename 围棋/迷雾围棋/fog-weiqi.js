@@ -1,4 +1,4 @@
-const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules } = require('../common');
+const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, qiBoardSeatOverlay } = require('../common');
 
 class FogWeiqiRoom extends QiTwoPlayerRoomBase {
     constructor(room, initialSize = 19) {
@@ -797,7 +797,7 @@ class FogWeiqiRoom extends QiTwoPlayerRoomBase {
                 break;
 
             case 'endResponse':
-                qiProtocol.endResponse(this, ws, msg, { endDeniedMsg: '对方拒绝数子。' });
+                qiProtocol.endResponse(this, ws, msg, { endDeniedMsg: '对方拒绝数点。' });
                 break;
 
             case 'scoreResponse':
@@ -926,8 +926,8 @@ class FogWeiqiRoom extends QiTwoPlayerRoomBase {
     }
 
     /**
-     * 未终局且未进入数子（迷雾未解除）时：只导出己方真实着手；对方每手记为 Bi 或 Wi（落子与虚着均如此）。
-     * 观战者导出为 Bi、Wi 交替。终局或数子阶段导出完整棋谱。
+     * 未终局且未进入数点（迷雾未解除）时：只导出己方真实着手；对方每手记为 Bi 或 Wi（落子与虚着均如此）。
+     * 观战者导出为 Bi、Wi 交替。终局或数点阶段导出完整棋谱。
      */
     exportMovesPartialForSlot(slot) {
         const out = [];
@@ -1180,6 +1180,7 @@ class FogWeiqiRoom extends QiTwoPlayerRoomBase {
 module.exports = {
     initRoom(room) {
         room.gameLogic = new FogWeiqiRoom(room);
+        if (typeof qiBoardSeatOverlay !== 'undefined' && qiBoardSeatOverlay) qiBoardSeatOverlay.install(room.gameLogic);
         room.maxPlayers = 2;
     }
 };

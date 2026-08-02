@@ -1,19 +1,19 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="zh">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=2.0, user-scalable=yes">
     <title>随机不稳定五子棋</title>
     <link rel="stylesheet" href="/qi/qi.css">
+    <style>
+        body { background: #5e2b3b; }
+    </style>
 </head>
 <body>
     <div class="game-wrapper">
         <div class="top-panel">
             <div class="left-group">
-                <div class="side-select">
-                    <label id="labelBlack"><input type="radio" name="color" value="black" id="radioBlack"> ⚫ 黑方</label>
-                    <label id="labelWhite"><input type="radio" name="color" value="white" id="radioWhite"> ⚪ 白方</label>
-                </div>
+                <div class="komi-info" id="gameTitleInfo">随机不稳定五子棋</div>
                 <div class="komi-info" id="komiInfo">无禁手</div>
                 <div class="color-status" id="colorStatus">未选择阵营</div>
                 <select id="boardSizeSelect" class="board-size-select" style="display: none;">
@@ -119,7 +119,7 @@
     <script>
         const pathMatch = window.location.pathname.match(/^\/qi\/([^/]+)\/(\d+)$/);
         if (!pathMatch) {
-            alert('无效的房间链接');
+            qiAlert('无效的房间链接');
             throw new Error('Invalid room URL');
         }
         const gameType = pathMatch[1];
@@ -204,11 +204,7 @@
         const ctx = canvas.getContext('2d');
         const turnDisplay = document.getElementById('turnDisplay');
         const colorStatus = document.getElementById('colorStatus');
-        const radioBlack = document.getElementById('radioBlack');
-        const radioWhite = document.getElementById('radioWhite');
-        const labelBlack = document.getElementById('labelBlack');
-        const labelWhite = document.getElementById('labelWhite');
-        const scoreTitle = document.getElementById('scoreTitle');
+const scoreTitle = document.getElementById('scoreTitle');
         const scoreBoard = document.getElementById('scoreBoard');
         const leadInfo = document.getElementById('leadInfo');
         const boardMarkSelect = document.getElementById('boardMarkSelect');
@@ -470,16 +466,6 @@
         }
 
         function updateRadioStyles() {
-            labelBlack.classList.remove('self-radio', 'opponent-radio', 'checked-disabled');
-            labelWhite.classList.remove('self-radio', 'opponent-radio', 'checked-disabled');
-            if (slots.black) {
-                labelBlack.classList.add(mySlot === 'black' ? 'self-radio' : 'opponent-radio');
-                labelBlack.classList.add('checked-disabled');
-            }
-            if (slots.white) {
-                labelWhite.classList.add(mySlot === 'white' ? 'self-radio' : 'opponent-radio');
-                labelWhite.classList.add('checked-disabled');
-            }
             updateRecordButtons();
         }
 
@@ -501,14 +487,6 @@
                     exportBtn.style.display = '';
                 }
             }
-        }
-
-        function syncRadioFromSlots() {
-            radioBlack.disabled = slots.black;
-            radioWhite.disabled = slots.white;
-            radioBlack.checked = slots.black;
-            radioWhite.checked = slots.white;
-            updateRadioStyles();
         }
 
         // 绘制棋子及其寿命
@@ -757,11 +735,7 @@
             colorStatus,
             scoreTitle,
             turnDisplay,
-            labelBlack,
-            labelWhite,
-            radioBlack,
-            radioWhite,
-            syncState,
+syncState,
             updateBoardGeometry,
             initBoardArray,
             exitReplayMode,
@@ -774,7 +748,8 @@
             updateTurn,
             showScoreConfirm: () => {},
             isMouseDevice,
-            standardWeiqiMatchTime: true
+            standardWeiqiMatchTime: true,
+            boardSeatOverlay: true
         });
         const baseRoomHandleMessage = _weiqiBindings.handleMessage;
 

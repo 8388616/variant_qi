@@ -1,4 +1,4 @@
-const { QiTwoPlayerRoomBase, qiMatchTimeControl, squareWeiqiRules } = require('../common');
+const { QiTwoPlayerRoomBase, qiMatchTimeControl, squareWeiqiRules, qiBoardSeatOverlay } = require('../common');
 
 class FrontBackWeiqiRoom extends QiTwoPlayerRoomBase {
     constructor(room) {
@@ -268,8 +268,8 @@ class FrontBackWeiqiRoom extends QiTwoPlayerRoomBase {
     }
 
     /**
-     * 形势（与洞围棋的洞类似）：距离扩张不可穿行雷；雷点不作 BFS 起点；数子用 computeScoreWithHoles 不计雷目。
-     * 对局作气仍按正反面规则（雷为气），仅形势/数子按上处理。
+     * 形势（与洞围棋的洞类似）：距离扩张不可穿行雷；雷点不作 BFS 起点；数点用 computeScoreWithHoles 不计雷目。
+     * 对局作气仍按正反面规则（雷为气），仅形势/数点按上处理。
      */
     assignTerritoryBlockingMines(liveBoard, mines) {
         const isMine = (r, c) => this.isMine(mines, r, c);
@@ -886,7 +886,7 @@ class FrontBackWeiqiRoom extends QiTwoPlayerRoomBase {
 
             case 'endResponse':
                 if (this.pendingEnd && msg.accept) this.startScoreCounting(this.pendingEnd.requester, this.pendingEnd.opponent);
-                else if (this.pendingEnd && !msg.accept) this.pendingEnd.requester.send(JSON.stringify({ type: 'error', message: '对方拒绝数子。' }));
+                else if (this.pendingEnd && !msg.accept) this.pendingEnd.requester.send(JSON.stringify({ type: 'error', message: '对方拒绝数点。' }));
                 this.pendingEnd = null;
                 break;
 
@@ -962,6 +962,7 @@ class FrontBackWeiqiRoom extends QiTwoPlayerRoomBase {
 module.exports = {
     initRoom(room) {
         room.gameLogic = new FrontBackWeiqiRoom(room);
+        if (typeof qiBoardSeatOverlay !== 'undefined' && qiBoardSeatOverlay) qiBoardSeatOverlay.install(room.gameLogic);
         room.maxPlayers = 2;
     }
 };

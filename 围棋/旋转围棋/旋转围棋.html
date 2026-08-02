@@ -10,10 +10,7 @@
     <div class="game-wrapper">
         <div class="top-panel">
             <div class="left-group">
-                <div class="side-select">
-                    <label id="labelBlack"><input type="radio" name="color" value="black" id="radioBlack"> ⚫ 黑方</label>
-                    <label id="labelWhite"><input type="radio" name="color" value="white" id="radioWhite"> ⚪ 白方</label>
-                </div>
+                <div class="komi-info" id="gameTitleInfo">旋转围棋</div>
                 <div class="komi-info" id="komiInfo">黑贴白3.25点</div>
                 <div class="color-status" id="colorStatus">观战</div>
                 <select id="boardSizeSelect" class="board-size-select" style="display: none;">
@@ -65,7 +62,7 @@
                 <button class="ctrl-btn" id="undoBtn" style="display:none;">悔棋</button>
                 <button class="ctrl-btn" id="resignBtn" style="display:none;">认输</button>
                 <button class="ctrl-btn" id="drawBtn" style="display:none;">和棋</button>
-                <button class="ctrl-btn" id="endReqBtn" style="display:none;">申请数子</button>
+                <button class="ctrl-btn" id="endReqBtn" style="display:none;">申请数点</button>
                 <button class="ctrl-btn" id="importBtn">导入棋谱</button>
                 <button class="ctrl-btn" id="exportBtn" style="display:none;">导出棋谱</button>
             </div>
@@ -544,7 +541,7 @@
         }
 
         const pathMatch = window.location.pathname.match(/^\/qi\/([^/]+)\/(\d+)$/);
-        if (!pathMatch) { alert('无效的房间链接'); throw new Error('Invalid room URL'); }
+        if (!pathMatch) { qiAlert('无效的房间链接'); throw new Error('Invalid room URL'); }
         const gameType = pathMatch[1];
         const roomId = pathMatch[2];
         let roomPassword = sessionStorage.getItem(`roomPassword_${roomId}`) || null;
@@ -631,11 +628,7 @@
         const ctx = canvas.getContext('2d');
         const turnDisplay = document.getElementById('turnDisplay');
         const colorStatus = document.getElementById('colorStatus');
-        const radioBlack = document.getElementById('radioBlack');
-        const radioWhite = document.getElementById('radioWhite');
-        const labelBlack = document.getElementById('labelBlack');
-        const labelWhite = document.getElementById('labelWhite');
-        const scoreTitle = document.getElementById('scoreTitle');
+const scoreTitle = document.getElementById('scoreTitle');
         const scoreBoard = document.getElementById('scoreBoard');
         const leadInfo = document.getElementById('leadInfo');
         const scoreConfirmPanel = document.getElementById('scoreConfirmPanel');
@@ -1351,6 +1344,7 @@
 
         const _weiqiBindings = QiBoardRoomClient.createWeiqiMessageBindings({
             standardWeiqiMatchTime: true,
+            boardSeatOverlay: true,
             roomId,
             gameType,
             pageState: ps,
@@ -1385,11 +1379,7 @@
             colorStatus,
             scoreTitle,
             turnDisplay,
-            labelBlack,
-            labelWhite,
-            radioBlack,
-            radioWhite,
-            syncState: page.syncState,
+syncState: page.syncState,
             updateBoardGeometry,
             initBoardArray,
             exitReplayMode,
@@ -1402,8 +1392,7 @@
             updateTurn,
             updateReplayUI,
             showScoreConfirm,
-            isMouseDevice,
-        });
+            isMouseDevice});
         const baseRoomHandleMessage = _weiqiBindings.handleMessage;
         function handleMessage(msg) {
             if (msg.type === 'joined' || msg.type === 'newGameStarted' || msg.type === 'roomReset' || msg.type === 'importSuccess') {

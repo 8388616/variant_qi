@@ -238,7 +238,7 @@ function computeTerritoryLead(stones, roadCount) {
     return { lead, blackPoints, whitePoints };
 }
 
-const { QiTwoPlayerRoomBase, qiMatchTimeControl } = require('../common');
+const { QiTwoPlayerRoomBase, qiMatchTimeControl, qiBoardSeatOverlay } = require('../common');
 class NogridWeiqiRoom extends QiTwoPlayerRoomBase {
     constructor(room) {
         super(room);
@@ -1012,7 +1012,7 @@ class NogridWeiqiRoom extends QiTwoPlayerRoomBase {
                 if (this.pendingEnd && msg.accept) {
                     this.startScoreCounting(this.pendingEnd.requester, this.pendingEnd.opponent);
                 } else if (this.pendingEnd && !msg.accept) {
-                    this.pendingEnd.requester.send(JSON.stringify({ type: 'error', message: '对方拒绝数子。' }));
+                    this.pendingEnd.requester.send(JSON.stringify({ type: 'error', message: '对方拒绝数点。' }));
                 }
                 this.pendingEnd = null;
                 break;
@@ -1091,6 +1091,7 @@ class NogridWeiqiRoom extends QiTwoPlayerRoomBase {
 module.exports = {
     initRoom(room) {
         room.gameLogic = new NogridWeiqiRoom(room);
+        if (typeof qiBoardSeatOverlay !== 'undefined' && qiBoardSeatOverlay) qiBoardSeatOverlay.install(room.gameLogic);
         room.maxPlayers = 2;
     },
     COORD_SCALE,

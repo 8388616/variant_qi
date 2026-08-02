@@ -10,16 +10,13 @@
     <div class="game-wrapper">
         <div class="top-panel">
             <div class="left-group">
-                <div class="side-select">
-                    <label id="labelBlack"><input type="radio" name="color" value="black" id="radioBlack"> ⚫ 黑方</label>
-                    <label id="labelWhite"><input type="radio" name="color" value="white" id="radioWhite"> ⚪ 白方</label>
-                </div>
+                <div class="komi-info" id="gameTitleInfo">隐身子围棋</div>
                 <div class="komi-info" id="komiInfo">黑贴白4.25点</div>
                 <div class="color-status" id="colorStatus">观战</div>
                 <select id="boardSizeSelect" class="board-size-select" style="display: none;">
                     <option value="7">7路</option>
                     <option value="8">8路</option>
-                    <option value="9">9路</option>
+                    <option value="9" selected>9路</option>
                     <option value="10">10路</option>
                     <option value="11">11路</option>
                     <option value="12">12路</option>
@@ -29,7 +26,7 @@
                     <option value="16">16路</option>
                     <option value="17">17路</option>
                     <option value="18">18路</option>
-                    <option value="19" selected>19路</option>
+                    <option value="19">19路</option>
                     <option value="20">20路</option>
                     <option value="21">21路</option>
                 </select>
@@ -52,7 +49,7 @@
                     每第3的倍数手棋为隐身子，仅己方可见。<br /><br />
                     隐身子在参与提子时显形。<br /><br />
                     落子在对方隐身子上时无效，该隐身子显形，此手视为弃权。<br /><br />
-                    双方同意申请数子后，所有隐身子显形并进行数子；即便不同意数子结果而续弈也不再产生新的隐身子。<br />
+                    双方同意申请数点后，所有隐身子显形并进行数点；即便不同意数点结果而续弈也不再产生新的隐身子。<br />
                 </p>
             </div>
         </div>
@@ -73,7 +70,7 @@
                 <button class="ctrl-btn" id="undoBtn">悔棋</button>
                 <button class="ctrl-btn" id="resignBtn">认输</button>
                 <button class="ctrl-btn" id="drawBtn">和棋</button>
-                <button class="ctrl-btn" id="endReqBtn">申请数子</button>
+                <button class="ctrl-btn" id="endReqBtn">申请数点</button>
                 <button class="ctrl-btn" id="importBtn">导入棋谱</button>
                 <button class="ctrl-btn" id="exportBtn" style="display:none;">导出棋谱</button>
             </div>
@@ -145,7 +142,7 @@
     <script src="/qi/qi.js"></script>
     <script>
         const ps = {
-            BOARD_SIZE: 19,
+            BOARD_SIZE: 9,
             KOMI: 4.25,
             PADDING: 0,
             CELL_SIZE: 0,
@@ -206,7 +203,7 @@
         })();
 
         const pathMatch = window.location.pathname.match(/^\/qi\/([^/]+)\/(\d+)$/);
-        if (!pathMatch) { alert('无效的房间链接'); throw new Error('Invalid room URL'); }
+        if (!pathMatch) { qiAlert('无效的房间链接'); throw new Error('Invalid room URL'); }
         const gameType = pathMatch[1];
         const roomId = pathMatch[2];
         let roomPassword = sessionStorage.getItem(`roomPassword_${roomId}`) || null;
@@ -224,11 +221,7 @@
         const ctx = canvas.getContext('2d');
         const turnDisplay = document.getElementById('turnDisplay');
         const colorStatus = document.getElementById('colorStatus');
-        const radioBlack = document.getElementById('radioBlack');
-        const radioWhite = document.getElementById('radioWhite');
-        const labelBlack = document.getElementById('labelBlack');
-        const labelWhite = document.getElementById('labelWhite');
-        const scoreTitle = document.getElementById('scoreTitle');
+const scoreTitle = document.getElementById('scoreTitle');
         const scoreBoard = document.getElementById('scoreBoard');
         const leadInfo = document.getElementById('leadInfo');
         const scoreConfirmPanel = document.getElementById('scoreConfirmPanel');
@@ -1062,11 +1055,7 @@
             colorStatus,
             scoreTitle,
             turnDisplay,
-            labelBlack,
-            labelWhite,
-            radioBlack,
-            radioWhite,
-            syncState,
+syncState,
             updateBoardGeometry,
             initBoardArray,
             exitReplayMode,
@@ -1080,6 +1069,7 @@
             updateReplayUI,
             showScoreConfirm,
             standardWeiqiMatchTime: true,
+            boardSeatOverlay: true,
             timeControlMainByoScale: 2,
             onNewGameStarted: () => {
                 ps.userBoardMarks = Object.create(null);

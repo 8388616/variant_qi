@@ -112,10 +112,7 @@
     <div class="game-wrapper">
         <div class="top-panel">
             <div class="left-group">
-                <div class="side-select">
-                    <label id="labelBlack"><input type="radio" name="color" value="black" id="radioBlack"> ⚫ 黑方</label>
-                    <label id="labelWhite"><input type="radio" name="color" value="white" id="radioWhite"> ⚪ 白方</label>
-                </div>
+                <div class="komi-info" id="gameTitleInfo">围棋</div>
                 <div class="komi-info" id="komiInfo">黑贴白3.25点</div>
                 <div class="color-status" id="colorStatus">观战</div>
                 <select id="boardSizeSelect" class="board-size-select" style="display: none;">
@@ -242,7 +239,7 @@
                 <button class="ctrl-btn" id="undoBtn" style="display:none;">悔棋</button>
                 <button class="ctrl-btn" id="resignBtn" style="display:none;">认输</button>
                 <button class="ctrl-btn" id="drawBtn" style="display:none;">和棋</button>
-                <button class="ctrl-btn" id="endReqBtn" style="display:none;">申请数子</button>
+                <button class="ctrl-btn" id="endReqBtn" style="display:none;">申请数点</button>
                 <button class="ctrl-btn" id="importBtn">导入棋谱</button>
                 <button class="ctrl-btn" id="exportBtn" style="display:none;">导出棋谱</button>
             </div>
@@ -381,7 +378,7 @@
 
         // 路径参数
         const pathMatch = window.location.pathname.match(/^\/qi\/([^/]+)\/(\d+)$/);
-        if (!pathMatch) { alert('无效的房间链接'); throw new Error('Invalid room URL'); }
+        if (!pathMatch) { qiAlert('无效的房间链接'); throw new Error('Invalid room URL'); }
         const gameType = pathMatch[1];
         const roomId = pathMatch[2];
         let roomPassword = sessionStorage.getItem(`roomPassword_${roomId}`) || null;
@@ -400,10 +397,6 @@
         const ctx = canvas.getContext('2d');
         const turnDisplay = document.getElementById('turnDisplay');
         const colorStatus = document.getElementById('colorStatus');
-        const radioBlack = document.getElementById('radioBlack');
-        const radioWhite = document.getElementById('radioWhite');
-        const labelBlack = document.getElementById('labelBlack');
-        const labelWhite = document.getElementById('labelWhite');
         const scoreTitle = document.getElementById('scoreTitle');
         const scoreBoard = document.getElementById('scoreBoard');
         const leadInfo = document.getElementById('leadInfo');
@@ -449,6 +442,20 @@
             const half = (BOARD_VIEW_CS / 2) / z;
             ps.viewCenterX = Math.min(BOARD_VIEW_CS - half, Math.max(half, ps.viewCenterX));
             ps.viewCenterY = Math.min(BOARD_VIEW_CS - half, Math.max(half, ps.viewCenterY));
+        }
+
+        /** 落座蒙版显示时不允许缩放（含对局中途再入座） */
+        function boardViewZoomAllowed() {
+            const o = document.querySelector('.board-container > .qi-seat-overlay');
+            return !(o && !o.hidden);
+        }
+
+        function resetBoardViewZoom() {
+            ps.viewZoom = 1;
+            ps.viewCenterX = BOARD_VIEW_CS / 2;
+            ps.viewCenterY = BOARD_VIEW_CS / 2;
+            syncScrollbarsFromView();
+            boardUpdateGrabCursor();
         }
 
         function applyZoomKeepingScreenPoint(ssx, ssy, zNew) {
@@ -574,10 +581,6 @@
             colorStatus,
             scoreTitle,
             turnDisplay,
-            labelBlack,
-            labelWhite,
-            radioBlack,
-            radioWhite,
             syncState,
             updateBoardGeometry,
             initBoardArray,
@@ -592,7 +595,11 @@
             updateReplayUI,
             showScoreConfirm,
             isMouseDevice,
-            standardWeiqiMatchTime: true
+            standardWeiqiMatchTime: true,
+            boardSeatOverlay: true,
+            onSeatOverlayUpdated({ visible }) {
+                if (visible && ps.viewZoom > 1) resetBoardViewZoom();
+            }
         });
         const weiqiHandleMessageInner = _weiqiBindings.handleMessage;
         const updateRecordButtons = _weiqiBindings.updateRecordButtons;
@@ -661,6 +668,7 @@
         })();
 
         canvas.addEventListener('wheel', (e) => {
+            if (!boardViewZoomAllowed()) return;
             const z0 = ps.viewZoom;
             const z1 = Math.max(1, Math.min(10, z0 * Math.exp(-e.deltaY * 0.002)));
             if (Math.abs(z1 - z0) < 1e-8) return;
@@ -728,6 +736,7 @@
 
         canvas.addEventListener('touchstart', (e) => {
             if (e.touches.length >= 2) {
+                if (!boardViewZoomAllowed()) return;
                 clearLongMarkTouch();
                 pinchGesture = true;
                 pinchStartDist = Math.max(1e-6, touchDistanceScreen(e.touches));
@@ -740,6 +749,10 @@
 
         canvas.addEventListener('touchmove', (e) => {
             if (pinchGesture && e.touches.length >= 2) {
+                if (!boardViewZoomAllowed()) {
+                    pinchGesture = false;
+                    return;
+                }
                 e.preventDefault();
                 const d = touchDistanceScreen(e.touches);
                 const z1 = Math.max(1, Math.min(10, pinchStartZoom * (d / pinchStartDist)));
@@ -902,7 +915,7 @@
             });
         }
 
-        // 数子确认按钮事件
+        // 数点确认按钮事件
         if (scoreConfirmYes)
         {
             scoreConfirmYes.onclick = () => {

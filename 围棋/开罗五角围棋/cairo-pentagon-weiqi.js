@@ -105,7 +105,7 @@ function generateCairoPentBoardData(n) {
     return { vertexCount: V, neighbors };
 }
 
-const { QiTwoPlayerRoomBase, qiMatchTimeControl, vertexGraphWeiqiRules } = require('../common');
+const { QiTwoPlayerRoomBase, qiMatchTimeControl, vertexGraphWeiqiRules, qiBoardSeatOverlay } = require('../common');
 class CairoPentagonWeiqiRoom extends QiTwoPlayerRoomBase {
     constructor(room, initialSize = 7) {
         super(room);
@@ -955,7 +955,7 @@ class CairoPentagonWeiqiRoom extends QiTwoPlayerRoomBase {
                 if (this.pendingEnd && msg.accept) {
                     this.startScoreCounting(this.pendingEnd.requester, this.pendingEnd.opponent);
                 } else if (this.pendingEnd && !msg.accept) {
-                    this.pendingEnd.requester.send(JSON.stringify({ type: 'error', message: '对方拒绝数子。' }));
+                    this.pendingEnd.requester.send(JSON.stringify({ type: 'error', message: '对方拒绝数点。' }));
                 }
                 this.pendingEnd = null;
                 break;
@@ -1089,6 +1089,7 @@ module.exports = {
     generateCairoPentBoardData,
     initRoom(room) {
         room.gameLogic = new CairoPentagonWeiqiRoom(room);
+        if (typeof qiBoardSeatOverlay !== 'undefined' && qiBoardSeatOverlay) qiBoardSeatOverlay.install(room.gameLogic);
         room.maxPlayers = 2;
     }
 };

@@ -10,10 +10,7 @@
     <div class="game-wrapper">
         <div class="top-panel">
             <div class="left-group">
-                <div class="side-select">
-                    <label id="labelBlack"><input type="radio" name="color" value="black" id="radioBlack"> ⚫ 黑方</label>
-                    <label id="labelWhite"><input type="radio" name="color" value="white" id="radioWhite"> ⚪ 白方</label>
-                </div>
+                <div class="komi-info" id="gameTitleInfo">选点围棋</div>
                 <div class="komi-info" id="komiInfo">黑贴白2.25点</div>
                 <div class="color-status" id="colorStatus">观战</div>
                 <select id="boardSizeSelect" class="board-size-select" style="display: none;">
@@ -47,7 +44,7 @@
                 <button class="ctrl-btn" id="undoBtn" style="display:none;">悔棋</button>
                 <button class="ctrl-btn" id="resignBtn" style="display:none;">认输</button>
                 <button class="ctrl-btn" id="drawBtn" style="display:none;">和棋</button>
-                <button class="ctrl-btn" id="endReqBtn" style="display:none;">申请数子</button>
+                <button class="ctrl-btn" id="endReqBtn" style="display:none;">申请数点</button>
                 <button class="ctrl-btn" id="importBtn">导入棋谱</button>
                 <button class="ctrl-btn" id="exportBtn" style="display:none;">导出棋谱</button>
             </div>
@@ -132,7 +129,7 @@
             ps.board = Array(ps.BOARD_SIZE).fill().map(() => Array(ps.BOARD_SIZE).fill(0));
         })();
         const pathMatch = window.location.pathname.match(/^\/qi\/([^/]+)\/(\d+)$/);
-        if (!pathMatch) { alert('无效的房间链接'); throw new Error('Invalid room URL'); }
+        if (!pathMatch) { qiAlert('无效的房间链接'); throw new Error('Invalid room URL'); }
         const gameType = pathMatch[1], roomId = pathMatch[2];
         let roomPassword = sessionStorage.getItem(`roomPassword_${roomId}`) || null;
         const BOARD_MARK_CHAR_LIST = (() => {
@@ -141,9 +138,7 @@
         })();
         const komiInfo = document.getElementById('komiInfo'), canvas = document.getElementById('goBoard'), ctx = canvas.getContext('2d');
         const turnDisplay = document.getElementById('turnDisplay'), colorStatus = document.getElementById('colorStatus');
-        const radioBlack = document.getElementById('radioBlack'), radioWhite = document.getElementById('radioWhite');
-        const labelBlack = document.getElementById('labelBlack'), labelWhite = document.getElementById('labelWhite');
-        const scoreTitle = document.getElementById('scoreTitle'), scoreBoard = document.getElementById('scoreBoard'), leadInfo = document.getElementById('leadInfo');
+const scoreTitle = document.getElementById('scoreTitle'), scoreBoard = document.getElementById('scoreBoard'), leadInfo = document.getElementById('leadInfo');
         const scoreConfirmPanel = document.getElementById('scoreConfirmPanel'), scoreConfirmText = document.getElementById('scoreConfirmText');
         const scoreConfirmYes = document.getElementById('scoreConfirmYes'), scoreConfirmNo = document.getElementById('scoreConfirmNo');
         const boardMarkSelect = document.getElementById('boardMarkSelect');
@@ -428,7 +423,7 @@
                 ps.replayMovesForNumbers = (data.moves || []).slice();
                 const snapshots = buildChoiceWeiqiReplaySnapshotsFromMoves(data);
                 if (!snapshots) {
-                    alert('棋谱数据无法重建打谱步序（请确认含候选点的选点围棋棋谱）。');
+                    qiAlert('棋谱数据无法重建打谱步序（请确认含候选点的选点围棋棋谱）。');
                     ps.replayMovesForNumbers = [];
                     return;
                 }
@@ -550,9 +545,10 @@
             getShowEstimateActive: () => ps.showEstimateActive, setShowEstimateActive: (v) => { ps.showEstimateActive = v; },
             getWaitingScoreConfirm: () => ps.waitingScoreConfirm, setWaitingScoreConfirm: (v) => { ps.waitingScoreConfirm = v; },
             getIRejected: () => ps.iRejected, setIRejected: (v) => { ps.iRejected = v; },
-            colorStatus, scoreTitle, turnDisplay, labelBlack, labelWhite, radioBlack, radioWhite, syncState, updateBoardGeometry, initBoardArray,
+            colorStatus, scoreTitle, turnDisplay, syncState, updateBoardGeometry, initBoardArray,
             exitReplayMode, clearEstimate, hideScoreConfirm, showEstimate, clearMobileMovePreview, downloadRecord, enterReplayMode, updateTurn, updateReplayUI,
-            showScoreConfirm, isMouseDevice, standardWeiqiMatchTime: true, onNewGameStarted: () => { colorStatus.innerText = '未选择阵营'; }
+            showScoreConfirm, isMouseDevice, standardWeiqiMatchTime: true,
+            boardSeatOverlay: true, onNewGameStarted: () => { colorStatus.innerText = '未选择阵营'; }
         });
         (function wrapReplayNewGame() {
             const b = document.getElementById('newGameBtn'); if (!b) return;
