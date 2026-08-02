@@ -21,27 +21,24 @@ Express.use(ExpressRateLimit);
 
 const rooms = {};
 
+/** 有 room-plugins/{id}-room.js 则走统一房间页（按文件探测，无需改白名单/重启） */
+function usesRoomShell(gameId) {
+    return fs.existsSync(path.join(__dirname, 'public', 'room-plugins', `${gameId}-room.js`));
+}
+
 function findGameAiScriptPath(gameId) {
     const fileName = `${gameId}-ai.js`;
     const flat = path.join(__dirname, 'games', fileName);
     if (fs.existsSync(flat)) return flat;
-
-    const categoryRoots = ['围棋', '五子棋', '象棋', '其它'];
-    for (const cat of categoryRoots) {
-        const catPath = path.join(__dirname, cat);
-        let entries;
-        try {
-            entries = fs.readdirSync(catPath, { withFileTypes: true });
-        } catch {
-            continue;
-        }
-        for (const ent of entries) {
-            if (!ent.isDirectory()) continue;
-            const candidate = path.join(catPath, ent.name, fileName);
-            if (fs.existsSync(candidate)) return candidate;
-        }
-    }
+    const publicAi = path.join(__dirname, 'public', fileName);
+    if (fs.existsSync(publicAi)) return publicAi;
     return null;
+}
+
+/** 房间逻辑：games/{id}.js（部署约定） */
+function findGameModulePath(gameId) {
+    const flat = path.join(__dirname, 'games', `${gameId}.js`);
+    return fs.existsSync(flat) ? flat : null;
 }
 
 class BaseGameRoom
@@ -194,15 +191,19 @@ Express.post('/qi/create', (request, response) => {
         const room = new BaseGameRoom(roomId, game, hasPassword, passwordHash, 2);
         rooms[game][roomId] = room;
 
+        const gameModulePath = findGameModulePath(game);
+        if (!gameModulePath) {
+            delete rooms[game][roomId];
+            return response.json({ success: false, error: '游戏模块不存在' });
+        }
         try {
-            const modulePath = require.resolve(`./games/${game}`);
-            delete require.cache[modulePath];
+            delete require.cache[require.resolve(gameModulePath)];
         }
         catch (error) {
         }
 
         try {
-            const gameModule = require(`./games/${game}`);
+            const gameModule = require(gameModulePath);
             gameModule.initRoom(room);
         }
         catch (error) {
@@ -257,11 +258,43 @@ Express.get('/qi/rooms', (request, response) => {
     }
 });
 
-Express.get("/qi", (request, response) => response.sendFile(path.join(__dirname, "public", "qi.html")));
-Express.get("/qi/qi.css", (request, response) => response.sendFile(path.join(__dirname, "public", "qi.css")));
-Express.get("/qi/qi.js", (request, response) => response.sendFile(path.join(__dirname, "public", "qi.js")));
-Express.get("/qi/xiangqi-rules.js", (request, response) => response.sendFile(path.join(__dirname, "games", "xiangqi-rules.js")));
-Express.get("/qi/xiangqi.ttf", (request, response) => response.sendFile(path.join(__dirname, "public", "xiangqi.ttf")));
+function sendPublicOrRoot(response, fileName) {
+    const inPublic = path.join(__dirname, 'public', fileName);
+    if (fs.existsSync(inPublic)) return response.sendFile(inPublic);
+    const inRoot = path.join(__dirname, fileName);
+    if (fs.existsSync(inRoot)) return response.sendFile(inRoot);
+    return response.status(404).send('Not found');
+}
+
+Express.get("/qi", (request, response) => sendPublicOrRoot(response, "qi.html"));
+Express.get("/qi/qi.css", (request, response) => sendPublicOrRoot(response, "qi.css"));
+Express.get("/qi/qi.js", (request, response) => sendPublicOrRoot(response, "qi.js"));
+Express.get("/qi/room.css", (request, response) => response.sendFile(path.join(__dirname, "public", "room.css")));
+Express.get("/qi/room.js", (request, response) => response.sendFile(path.join(__dirname, "public", "room.js")));
+Express.get("/qi/room-plugins/:plugin", (request, response) => {
+    const plugin = request.params.plugin;
+    if (!/^[a-zA-Z0-9_-]+-room\.js$/.test(plugin)) return response.status(400).send('Invalid plugin');
+    const abs = path.join(__dirname, "public", "room-plugins", plugin);
+    if (!fs.existsSync(abs)) return response.status(404).send('Plugin not found');
+    response.sendFile(abs);
+});
+function findXiangqiRulesPath() {
+    const candidates = [
+        path.join(__dirname, 'games', 'xiangqi-rules.js'),
+        path.join(__dirname, '象棋', 'xiangqi-rules.js'),
+        path.join(__dirname, 'public', 'xiangqi-rules.js')
+    ];
+    for (const p of candidates) {
+        if (fs.existsSync(p)) return p;
+    }
+    return null;
+}
+
+Express.get("/qi/xiangqi-rules.js", (request, response) => {
+    const abs = findXiangqiRulesPath();
+    if (!abs) return response.status(404).send('Not found');
+    return response.sendFile(abs);
+});
 // 字体必须在 /qi/:game/:roomId 之前注册，否则 /qi/fonts/... 会被当成房间页返回 HTML
 Express.use("/qi/fonts", express.static(path.join(__dirname, "public", "fonts"), {
     maxAge: "365d",
@@ -271,6 +304,7 @@ Express.use("/qi/fonts", express.static(path.join(__dirname, "public", "fonts"),
         if (filePath.endsWith(".css")) res.type("text/css; charset=utf-8");
         else if (filePath.endsWith(".woff2")) res.type("font/woff2");
         else if (filePath.endsWith(".woff")) res.type("font/woff");
+        else if (filePath.endsWith(".ttf")) res.type("font/ttf");
     }
 }));
 Express.get('/qi/:leaf', (request, response, next) => {
@@ -278,24 +312,30 @@ Express.get('/qi/:leaf', (request, response, next) => {
     const m = typeof leaf === 'string' && leaf.match(/^([a-zA-Z0-9_-]+)-ai\.js$/);
     if (!m) return next();
     const gameId = m[1];
-    const publicAi = path.join(__dirname, 'public', `${gameId}-ai.js`);
-    if (fs.existsSync(publicAi)) return response.sendFile(publicAi);
     const abs = findGameAiScriptPath(gameId);
     if (!abs) return response.status(404).type('text/plain').send('AI script not found');
     response.sendFile(abs);
 });
-Express.get("/qi/qrcode.min.js", (request, response) => response.sendFile(path.join(__dirname, "public", "qrcode.min.js")));
+Express.get("/qi/qrcode.min.js", (request, response) => sendPublicOrRoot(response, "qrcode.min.js"));
 
 Express.get('/qi/:game/:roomId', (request, response) => {
     try {
         const game = request.params.game;
-        if (game === 'fonts') return response.status(404).type('text/plain').send('Not found');
+        if (game === 'fonts' || game === 'room-plugins') {
+            return response.status(404).type('text/plain').send('Not found');
+        }
         if (!/^[a-zA-Z0-9_-]+$/.test(game)) return response.status(400).send('Invalid game');
-        let htmlFile = path.join(__dirname, 'public', `${game}.html`);
-        if (fs.existsSync(htmlFile) && fs.existsSync(path.join(__dirname, 'games', `${game}.js`)))
-            response.sendFile(htmlFile);
-        else
-            response.status(404).send('Game not found');
+        if (!findGameModulePath(game)) return response.status(404).send('Game not found');
+
+        if (usesRoomShell(game)) {
+            const roomHtml = path.join(__dirname, 'public', 'room.html');
+            if (fs.existsSync(roomHtml)) return response.sendFile(roomHtml);
+        }
+
+        const htmlPublic = path.join(__dirname, 'public', `${game}.html`);
+        if (fs.existsSync(htmlPublic)) return response.sendFile(htmlPublic);
+
+        return response.status(404).send('Game not found');
     }
     catch (error) {
         console.error(error);

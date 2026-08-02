@@ -5,6 +5,7 @@ class RussianWeiqiRoom extends QiTwoPlayerRoomBase {
         super(room);
         this.boardSize = 19;
         this.board = Array(this.boardSize).fill().map(() => Array(this.boardSize).fill(0));
+        if (this.openingBoard === undefined) this.openingBoard = (typeof this.copyBoard === 'function' ? this.copyBoard(this.board) : (Array.isArray(this.board[0]) ? this.board.map(r => r.slice()) : this.board.slice()));
         this.moveCoords = [];
         this.currentPlayer = 1;
         this.historyBoards = [];

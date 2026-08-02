@@ -6,6 +6,7 @@ class TriangleWeiqiRoom extends QiTwoPlayerRoomBase
         super(room);
         this.boardSize = initialSize;
         this.board = this.createEmptyBoard();
+        if (this.openingBoard === undefined) this.openingBoard = (typeof this.copyBoard === 'function' ? this.copyBoard(this.board) : (Array.isArray(this.board[0]) ? this.board.map(r => r.slice()) : this.board.slice()));
         this.currentPlayer = 1;
         this.historyBoards = [];
         this.historyBoardSet = new Set();

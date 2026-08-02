@@ -109,11 +109,13 @@ const { QiTwoPlayerRoomBase, qiMatchTimeControl, vertexGraphWeiqiRules, qiBoardS
 class CairoPentagonWeiqiRoom extends QiTwoPlayerRoomBase {
     constructor(room, initialSize = 7) {
         super(room);
+        this.editBoardMode = 'flat';
         this.boardSize = initialSize;
         const { vertexCount, neighbors } = generateCairoPentBoardData(initialSize);
         this.vertexCount = vertexCount;
         this.neighbors = neighbors;
         this.board = Array(this.vertexCount).fill(0);
+        if (this.openingBoard === undefined) this.openingBoard = (typeof this.copyBoard === 'function' ? this.copyBoard(this.board) : (Array.isArray(this.board[0]) ? this.board.map(r => r.slice()) : this.board.slice()));
         this.currentPlayer = 1;
         this.historyBoards = [];
         this.historyBoardSet = new Set();

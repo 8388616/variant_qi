@@ -376,6 +376,7 @@ function validateOpeningStones(stones, boardLength) {
 class ContinuousWeiqiRoom extends QiTwoPlayerRoomBase {
     constructor(room) {
         super(room);
+        this.useCustomEditBoard = true;
         this.boardLength = DEFAULT_BOARD_LENGTH;
         this.komi = DEFAULT_KOMI;
         this.openingStones = [];

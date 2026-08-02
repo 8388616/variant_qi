@@ -1,0 +1,1607 @@
+window.RoomPlugins = window.RoomPlugins || {};
+window.RoomPlugins['triangle-weiqi'] = {
+    shell: {
+        "title": "三角围棋",
+        "rulesHtml": "基本规则同标准围棋。<br /><br />采用三角棋盘。<br />",
+        "defaultKomiText": "黑贴白4.75点",
+        "boardSizeMin": 9,
+        "boardSizeMax": 31,
+        "defaultBoardSize": 27,
+        "minLib": 1,
+        "recordDownloadPrefix": "三角围棋",
+        "standardWeiqiMatchTime": true,
+        "features": {
+            "zoomScroll": false,
+            "editBoard": true,
+            "compoundPalette": false,
+            "transparentCanvas": true
+        },
+        "editTools": [
+            {
+                "value": "empty",
+                "label": "空"
+            },
+            {
+                "value": "black",
+                "label": "黑子"
+            },
+            {
+                "value": "white",
+                "label": "白子"
+            }
+        ]
+    },
+    mount: function (ctx) {
+        var gameType = ctx.gameType;
+        var roomId = ctx.roomId;
+        var roomPassword = ctx.roomPassword || null;
+        var config = ctx.config || {};
+        var recordDownloadPrefix = config.recordDownloadPrefix != null ? config.recordDownloadPrefix : "三角围棋";
+        var standardWeiqiMatchTime = config.standardWeiqiMatchTime != null ? config.standardWeiqiMatchTime : true;
+
+        (function () {
+// ======================== 配置 ========================
+        // 路数 = 最外圈边线上的交点数 = 三角棋盘行数 ROWS
+        let ROWS = 27;
+        const KOMI = 4.75;
+        const BASE_WIDTH = 500;        // 参考 27 路时的底边宽度（像素），用于确定固定外框
+        const CENTER_X_REF = 300;      // 画布水平中心（参考）
+        const ROWS_REF = 27;
+
+        function gridCornersFromParams(rows, dx, dy, topY, centerX) {
+            const rMax = rows - 1;
+            const A = { x: centerX, y: topY };
+            const leftX = centerX - (rMax * dx) / 2;
+            const B = { x: leftX, y: topY + rMax * dy };
+            const C = { x: leftX + rMax * dx, y: topY + rMax * dy };
+            return { A, B, C };
+        }
+
+        function outwardExpandTriangle(A, B, C, margin) {
+            const cx = (A.x + B.x + C.x) / 3;
+            const cy = (A.y + B.y + C.y) / 3;
+            const expand = (P) => {
+                const vx = P.x - cx, vy = P.y - cy;
+                const len = Math.hypot(vx, vy);
+                return { x: P.x + (vx / len) * margin, y: P.y + (vy / len) * margin };
+            };
+            return { outerA: expand(A), outerB: expand(B), outerC: expand(C) };
+        }
+
+        const dxRef = BASE_WIDTH / (ROWS_REF - 1);
+        const dyRef = (Math.sqrt(3) / 2) * dxRef;
+        const totalHRef = dyRef * (ROWS_REF - 1);
+        const topYRef = (600 - totalHRef) / 2;
+        const { A: refGridA, B: refGridB, C: refGridC } = gridCornersFromParams(ROWS_REF, dxRef, dyRef, topYRef, CENTER_X_REF);
+        const { outerA: FIXED_OUTER_A, outerB: FIXED_OUTER_B, outerC: FIXED_OUTER_C } = outwardExpandTriangle(refGridA, refGridB, refGridC, 45);
+
+        const TRI_CENTROID = {
+            x: (FIXED_OUTER_A.x + FIXED_OUTER_B.x + FIXED_OUTER_C.x) / 3,
+            y: (FIXED_OUTER_A.y + FIXED_OUTER_B.y + FIXED_OUTER_C.y) / 3
+        };
+        const k27 = Math.hypot(refGridA.x - TRI_CENTROID.x, refGridA.y - TRI_CENTROID.y)
+            / Math.hypot(FIXED_OUTER_A.x - TRI_CENTROID.x, FIXED_OUTER_A.y - TRI_CENTROID.y);
+
+        /** 与 drawRoundedTriangle(FIXED_OUTER_*) 顶点一致的外接包围盒（600×600 坐标），用于标记条对齐三角外框 */
+        const TRI_OUTER_BOUNDS = (() => {
+            const pts = [FIXED_OUTER_A, FIXED_OUTER_B, FIXED_OUTER_C];
+            let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+            for (const p of pts) {
+                minX = Math.min(minX, p.x);
+                maxX = Math.max(maxX, p.x);
+                minY = Math.min(minY, p.y);
+                maxY = Math.max(maxY, p.y);
+            }
+            return { minX, maxX, minY, maxY };
+        })();
+
+        function updateBoardMarkOuterPosition() {
+            const el = document.getElementById('boardMarkOuter');
+            if (!el) return;
+            /* 窄屏与标准围棋相同：由 CSS 贴视口右缘、向左展开；勿保留桌面用的 left/bottom 内联 */
+            if (window.matchMedia('(max-width: 700px)').matches) {
+                el.style.left = '';
+                el.style.right = '';
+                el.style.bottom = '';
+                el.style.top = '';
+                return;
+            }
+            const { maxX, maxY } = TRI_OUTER_BOUNDS;
+            const gap = 6;
+            el.style.left = `calc(${(maxX / 600) * 100}% + ${gap}px)`;
+            el.style.bottom = `${((600 - maxY) / 600) * 100}%`;
+            el.style.right = 'auto';
+            el.style.top = 'auto';
+        }
+
+        let PADDING;
+        let DX, DY, TOP_Y, CENTER_X;
+
+        function updateBoardGeometry() {
+            if (ROWS < 2) 
+            return;
+            PADDING = 50.4 - 0.2 * ROWS;
+            let factor = k27 * (45 / PADDING);
+            if (factor > 1) factor = 1;
+            const G = TRI_CENTROID;
+            const innerFromOuter = (O) => ({
+                x: G.x + factor * (O.x - G.x),
+                y: G.y + factor * (O.y - G.y)
+            });
+            const innerA = innerFromOuter(FIXED_OUTER_A);
+            const innerB = innerFromOuter(FIXED_OUTER_B);
+            const innerC = innerFromOuter(FIXED_OUTER_C);
+            DX = (innerC.x - innerB.x) / (ROWS - 1);
+            DY = (innerB.y - innerA.y) / (ROWS - 1);
+            TOP_Y = innerA.y;
+            CENTER_X = innerA.x;
+        }
+        updateBoardGeometry();
+
+function getTriangleStars(rows) {
+            if (rows < 11) 
+                return [];
+            const base = [{ r: 4, c: 2 }, { r: rows - 3, c: 2 }, { r: rows - 3, c: rows - 5 }]
+            if (rows % 2 == 1 & rows >= 15)
+            {
+                base.push({ r: (1 + rows) / 2, c: 2 });
+                base.push({ r: (1 + rows) / 2, c: (rows - 3) / 2 });
+                base.push({ r: rows - 3, c: (rows - 3) / 2 });
+            }
+            return base;
+        }
+
+// 全局状态
+        function initBoardArray(rows) {
+            return Array(rows).fill().map((_, r) => Array(r + 1).fill(0));
+        }
+        let board = initBoardArray(ROWS);
+        let numberOfHands = 1;
+        let currentPlayer = 1;
+        let mySlot = null;
+        let gameOver = false;
+        let winner = null;
+        let lastMoveMarkers = [];
+        let showEstimateActive = false;
+        let cachedLiveBoard = null;
+        let cachedTerritory = null;
+        let waitingScoreConfirm = false;
+        let iRejected = false;
+        let matchTime = null;
+        let matchStarted = false;
+
+        let ws;
+        let isMyTurn = false;
+        let slots = { black: false, white: false };
+        let reconnectTimer = null;
+
+        let replayMode = false;
+        let replayBoards = [];
+        let replayMarkers = [];
+        let replayStepPlayers = [];
+        let replayStep = 0;
+        let replayTotalSteps = 0;
+
+        let showMoveNumbers = false;
+        let moveLog = [];
+
+        let tryPlayMode = false;
+        let tryPlayBaseStep = 0;
+        let tryPlayBoards = [];
+        let tryPlayMarkers = [];
+        let tryPlayCurrentPlayer = 1;
+        let tryPlayStep = 0;
+        let tryPlayTotalSteps = 0;
+
+        let liveReplayBoards = [];
+        let liveReplayMarkers = [];
+        let liveReplayStepPlayers = [];
+        let liveViewStep = 0;
+        let liveFollowLatest = true;
+
+        /** 本地棋盘标记（仅本机）键 "r,c" → 字符 */
+        let userBoardMarks = Object.create(null);
+        const BOARD_MARK_CHAR_LIST = (() => {
+            const a = [];
+            a.push('?', '!');
+            for (let i = 0; i < 26; i++) a.push(String.fromCharCode(65 + i));
+            a.push('△', '▽', '♡', '○', '◇', '□', '☆', '×', '🚩');
+            return a;
+        })();
+
+        // DOM
+        const canvas = document.getElementById('goBoard');
+        const ctx = canvas.getContext('2d');
+        const turnDisplay = document.getElementById('turnDisplay');
+        const colorStatus = document.getElementById('colorStatus');
+const scoreTitle = document.getElementById('scoreTitle');
+        const scoreBoard = document.getElementById('scoreBoard');
+        const leadInfo = document.getElementById('leadInfo');
+        const scoreConfirmPanel = document.getElementById('scoreConfirmPanel');
+        const scoreConfirmText = document.getElementById('scoreConfirmText');
+        const scoreConfirmYes = document.getElementById('scoreConfirmYes');
+        const scoreConfirmNo = document.getElementById('scoreConfirmNo');
+        const boardMarkSelect = document.getElementById('boardMarkSelect');
+
+        QiSquareWeiqiCanvas.initBoardMarkSelectDom(boardMarkSelect, BOARD_MARK_CHAR_LIST);
+        QiSquareWeiqiCanvas.initBoardMarkFoldDom(
+            document.getElementById('boardMarkPanel'),
+            document.getElementById('boardMarkFoldBtn'),
+            document.getElementById('boardMarkExpandBtn')
+        );
+
+        updateBoardMarkOuterPosition();
+        window.addEventListener('resize', updateBoardMarkOuterPosition);
+
+        let hoverR = -1, hoverC = -1, isHoverValid = false;
+        const isTouchDevice = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+        const isMouseDevice = window.matchMedia('(hover: hover) and (pointer: fine)').matches;
+        document.body.classList.add(isTouchDevice ? 'touch-device' : 'no-touch');
+
+        function mobileTwoStepPlacing() {
+            return !isMouseDevice && ROWS > 9;
+        }
+        function clearMobileMovePreview() {
+            hoverR = -1;
+            hoverC = -1;
+            isHoverValid = false;
+        }
+
+        // ======================== 三角网格辅助 ========================
+        function isValidCoord(r, c) {
+            return r >= 0 && r < ROWS && c >= 0 && c <= r;
+        }
+
+        function isUserBoardMarkVisibleAt(r, c) {
+            if (showEstimateActive) return false;
+            if (!isValidCoord(r, c)) return false;
+            if (board[r][c] !== 0) return false;
+            return true;
+        }
+
+        function triCoordToPixel(r, c) {
+            const y = TOP_Y + r * DY;
+            const leftX = CENTER_X - (r * DX) / 2;
+            const x = leftX + c * DX;
+            return { x, y };
+        }
+
+        function getClosestIntersection(px, py) {
+            let minDist = Infinity;
+            let bestR = -1, bestC = -1;
+            for (let r = 0; r < ROWS; r++) {
+                for (let c = 0; c <= r; c++) {
+                    let { x, y } = triCoordToPixel(r, c);
+                    let dist = Math.hypot(px - x, py - y);
+                    if (dist < minDist) {
+                        minDist = dist;
+                        bestR = r;
+                        bestC = c;
+                    }
+                }
+            }
+            return { row: bestR, col: bestC };
+        }
+
+        // 六个方向 (三角形网格)
+        const DIRS = [
+            [0, 1],   // 右
+            [0, -1],  // 左
+            [1, 0],   // 下 (左斜向下)
+            [-1, 0],  // 上 (左斜向上)
+            [1, 1],   // 右下 (右斜向下)
+            [-1, -1]  // 左上 (右斜向上)
+        ];
+
+        function gridDistance(r1, c1, r2, c2) {
+            return Math.abs(r1 - r2) + Math.min(Math.abs(c1 - c2), Math.abs((r1 - c1) - (r2 - c2)));
+        }
+
+        // ======================== 围棋规则 ========================
+        function deepCopyBoard(src)
+        {
+            return src.map(row => row.slice());
+        }
+
+        function countGroupLiberties(board, row, col)
+        {
+            const color = board[row][col];
+            if (color === 0) return 0;
+            const visited = Array(ROWS).fill().map(() => []);
+            const queue = [[row, col]];
+            visited[row][col] = true;
+            const liberties = new Set();
+            while (queue.length) {
+                const [r, c] = queue.shift();
+                for (let [dr, dc] of DIRS) {
+                    const nr = r + dr, nc = c + dc;
+                    if (!isValidCoord(nr, nc)) continue;
+                    if (board[nr][nc] === 0) {
+                        liberties.add(nr + ',' + nc);
+                    } else if (board[nr][nc] === color && !visited[nr][nc]) {
+                        visited[nr][nc] = true;
+                        queue.push([nr, nc]);
+                    }
+                }
+            }
+            return liberties.size;
+        }
+
+        function hasLiberty(board, row, col) {
+            return countGroupLiberties(board, row, col) > 0;
+        }
+
+        function removeGroup(board, row, col, color) {
+            const queue = [[row, col]];
+            board[row][col] = 0;
+            while (queue.length) {
+                const [r, c] = queue.shift();
+                for (let [dr, dc] of DIRS) {
+                    const nr = r + dr, nc = c + dc;
+                    if (isValidCoord(nr, nc) && board[nr][nc] === color) {
+                        board[nr][nc] = 0;
+                        queue.push([nr, nc]);
+                    }
+                }
+            }
+        }
+
+        function tryPlaceStone(boardBefore, row, col, playerVal) {
+            if (!isValidCoord(row, col) || boardBefore[row][col] !== 0)
+                return null;
+            let newBoard = deepCopyBoard(boardBefore);
+            newBoard[row][col] = playerVal;
+            for (let [dr, dc] of DIRS) {
+                const nr = row + dr, nc = col + dc;
+                if (isValidCoord(nr, nc) && newBoard[nr][nc] === 3 - playerVal) {
+                    if (!hasLiberty(newBoard, nr, nc))
+                        removeGroup(newBoard, nr, nc, 3 - playerVal);
+                }
+            }
+            if (!hasLiberty(newBoard, row, col))
+                removeGroup(newBoard, row, col, playerVal);
+            return newBoard;
+        }
+
+        // ======================== 形势判断 ========================
+        function removeDeadGroups(srcBoard) {
+            let boardCopy = deepCopyBoard(srcBoard);
+            let changed = true;
+            while (changed) {
+                changed = false;
+                let visited = Array(ROWS).fill().map(() => []);
+                for (let r = 0; r < ROWS; r++) {
+                    for (let c = 0; c <= r; c++) {
+                        if (boardCopy[r][c] !== 0 && !visited[r][c]) {
+                            let color = boardCopy[r][c];
+                            let queue = [[r, c]];
+                            visited[r][c] = true;
+                            let stones = [[r, c]];
+                            let hasLib = false;
+                            let idx = 0;
+                            while (idx < queue.length) {
+                                let [rr, cc] = queue[idx++];
+                                for (let [dr, dc] of DIRS) {
+                                    let nr = rr + dr, nc = cc + dc;
+                                    if (!isValidCoord(nr, nc)) continue;
+                                    if (boardCopy[nr][nc] === 0) {
+                                        hasLib = true;
+                                    } else if (boardCopy[nr][nc] === color && !visited[nr][nc]) {
+                                        visited[nr][nc] = true;
+                                        queue.push([nr, nc]);
+                                        stones.push([nr, nc]);
+                                    }
+                                }
+                            }
+                            if (!hasLib) {
+                                for (let [rr, cc] of stones) boardCopy[rr][cc] = 0;
+                                changed = true;
+                            }
+                        }
+                    }
+                }
+            }
+            return boardCopy;
+        }
+
+        // 计算领地归属（基于格线距离，范围限制）
+        function assignTerritoryWithRange(liveBoard) {
+            const territory = Array(ROWS).fill().map((_, r) => Array(r + 1).fill(0));
+            // 收集活子坐标
+            let blackStones = [], whiteStones = [];
+            for (let r = 0; r < ROWS; r++) {
+                for (let c = 0; c <= r; c++) {
+                    if (liveBoard[r][c] === 1) blackStones.push([r, c]);
+                    else if (liveBoard[r][c] === 2) whiteStones.push([r, c]);
+                }
+            }
+            for (let r = 0; r < ROWS; r++) {
+                for (let c = 0; c <= r; c++) {
+                    if (liveBoard[r][c] !== 0) continue; // 只处理空点
+                    // 确定最大距离：边角（r<=1 或 r>=ROWS-2 或 c<=1 或 c>=r-1）为5，否则4
+                    const isEdge = (r <= 1 || r >= ROWS - 2 || c <= 1 || c >= r - 1);
+                    const maxDist = isEdge ? 5 : 4;
+                    let minBlack = Infinity, minWhite = Infinity;
+                    for (let [br, bc] of blackStones) {
+                        let d = gridDistance(r, c, br, bc);
+                        if (d < minBlack) minBlack = d;
+                    }
+                    for (let [wr, wc] of whiteStones) {
+                        let d = gridDistance(r, c, wr, wc);
+                        if (d < minWhite) minWhite = d;
+                    }
+                    // 只有距离在范围内的才归属，否则为公共地（0）
+                    if (minBlack <= maxDist && minWhite <= maxDist) {
+                        if (minBlack < minWhite) territory[r][c] = 1;
+                        else if (minWhite < minBlack) territory[r][c] = 2;
+                        else territory[r][c] = 3; // 平局
+                    } else if (minBlack <= maxDist) {
+                        territory[r][c] = 1;
+                    } else if (minWhite <= maxDist) {
+                        territory[r][c] = 2;
+                    } else {
+                        territory[r][c] = 3; // 公共地
+                    }
+                }
+            }
+            return territory;
+        }
+
+        function computeScore(liveBoard, territory) {
+            let blackStones = 0, whiteStones = 0;
+            let blackTerritory = 0, whiteTerritory = 0, publicTerritory = 0;
+            for (let r = 0; r < ROWS; r++) {
+                for (let c = 0; c <= r; c++) {
+                    if (liveBoard[r][c] === 1) blackStones++;
+                    else if (liveBoard[r][c] === 2) whiteStones++;
+                    else if (liveBoard[r][c] === 0) {
+                        if (territory[r][c] === 1) blackTerritory++;
+                        else if (territory[r][c] === 2) whiteTerritory++;
+                        else if (territory[r][c] === 3) publicTerritory++;
+                    }
+                }
+            }
+            const blackTotal = blackStones + blackTerritory + publicTerritory / 2;
+            const whiteTotal = whiteStones + whiteTerritory + publicTerritory / 2;
+            return { blackTotal, whiteTotal };
+        }
+
+        function computeLead() {
+            const liveBoard = removeDeadGroups(board);
+            const territory = assignTerritoryWithRange(liveBoard);
+            const { blackTotal, whiteTotal } = computeScore(liveBoard, territory);
+            return blackTotal - whiteTotal - 2 * KOMI;
+        }
+
+        function updateEstimateData() {
+            cachedLiveBoard = removeDeadGroups(board);
+            cachedTerritory = assignTerritoryWithRange(cachedLiveBoard);
+            const { blackTotal, whiteTotal } = computeScore(cachedLiveBoard, cachedTerritory);
+            const lead = blackTotal - whiteTotal - 2 * KOMI;
+            scoreTitle.innerText = '形势判断';
+            scoreBoard.innerText = `黑: ${blackTotal.toFixed(0)}　白: ${whiteTotal.toFixed(0)}`;
+            leadInfo.innerText = `黑${lead >= 0 ? '+' : ''}${lead.toFixed(1)}点`;
+        }
+
+        // ======================== 绘制 ========================
+        function computeStoneNumbers() {
+            const nums = Array(ROWS).fill().map((_, r) => Array(r + 1).fill(0));
+            if (replayMode && tryPlayMode) {
+                for (let i = 1; i <= tryPlayStep; i++) {
+                    const markers = tryPlayMarkers[i];
+                    if (markers && markers.length > 0) {
+                        const m = markers[0];
+                        if (isValidCoord(m.row, m.col) && board[m.row][m.col] !== 0)
+                            nums[m.row][m.col] = i;
+                    }
+                }
+            } else if (replayMode) {
+                for (let i = 1; i <= replayStep; i++) {
+                    const markers = replayMarkers[i];
+                    if (markers && markers.length > 0) {
+                        const m = markers[0];
+                        if (isValidCoord(m.row, m.col) && board[m.row][m.col] !== 0)
+                            nums[m.row][m.col] = i;
+                    }
+                }
+            } else if (liveReplayBoards.length && liveViewStep < liveReplayBoards.length - 1) {
+                for (let i = 1; i <= liveViewStep; i++) {
+                    const markers = liveReplayMarkers[i];
+                    if (markers && markers.length > 0) {
+                        const m = markers[0];
+                        if (isValidCoord(m.row, m.col) && board[m.row][m.col] !== 0)
+                            nums[m.row][m.col] = i;
+                    }
+                }
+            } else {
+                for (let i = 0; i < moveLog.length; i++) {
+                    const m = moveLog[i];
+                    if (m && isValidCoord(m.row, m.col) && board[m.row][m.col] !== 0)
+                        nums[m.row][m.col] = i + 1;
+                }
+            }
+            return nums;
+        }
+
+        function rightEdgeLabel(r) {
+            if (r < 26) return String.fromCharCode(65 + r);
+            return String(r + 1);
+        }
+
+        function drawBoard() {
+            ctx.clearRect(0, 0, 600, 600);
+
+            const outerA = FIXED_OUTER_A;
+            const outerB = FIXED_OUTER_B;
+            const outerC = FIXED_OUTER_C;
+            ctx.save();
+            ctx.shadowBlur = 20;
+            ctx.shadowColor = 'rgba(0,0,0,0.8)';
+            ctx.shadowOffsetY = 8;
+            ctx.fillStyle = '#edbc80';
+            ctx.strokeStyle = '#6b4a2e';
+            ctx.lineWidth = 1;
+            const cornerRadius = 3;
+            (function drawRoundedTriangle(vertices, radius) {
+                if (vertices.length !== 3) return;
+                const startPoints = [], endPoints = [];
+                for (let i = 0; i < 3; i++) {
+                    const curr = vertices[i];
+                    const prev = vertices[(i - 1 + 3) % 3];
+                    const next = vertices[(i + 1) % 3];
+                    const v1 = { x: prev.x - curr.x, y: prev.y - curr.y };
+                    const v2 = { x: next.x - curr.x, y: next.y - curr.y };
+                    const len1 = Math.hypot(v1.x, v1.y);
+                    const len2 = Math.hypot(v2.x, v2.y);
+                    const dx1 = v1.x / len1, dy1 = v1.y / len1;
+                    const dx2 = v2.x / len2, dy2 = v2.y / len2;
+                    startPoints.push({ x: curr.x + dx1 * radius, y: curr.y + dy1 * radius });
+                    endPoints.push({ x: curr.x + dx2 * radius, y: curr.y + dy2 * radius });
+                }
+                ctx.beginPath();
+                ctx.moveTo(endPoints[2].x, endPoints[2].y);
+                for (let i = 0; i < 3; i++) {
+                    ctx.arcTo(vertices[i].x, vertices[i].y, endPoints[i].x, endPoints[i].y, radius);
+                }
+                ctx.closePath();
+                ctx.fill();
+                ctx.stroke();
+            })([outerA, outerB, outerC], cornerRadius);
+            ctx.restore();
+
+            // 网格线
+            ctx.lineWidth = 1.2;
+            ctx.strokeStyle = '#3a281c';
+            for (let r = 0; r < ROWS; r++) {
+                let start = triCoordToPixel(r, 0);
+                let end = triCoordToPixel(r, r);
+                ctx.beginPath();
+                ctx.moveTo(start.x, start.y);
+                ctx.lineTo(end.x, end.y);
+                ctx.stroke();
+            }
+            for (let c = 0; c < ROWS; c++) {
+                let start = triCoordToPixel(c, c);
+                let end = triCoordToPixel(ROWS - 1, c);
+                ctx.beginPath();
+                ctx.moveTo(start.x, start.y);
+                ctx.lineTo(end.x, end.y);
+                ctx.stroke();
+            }
+            for (let s = 0; s < ROWS; s++) {
+                let start = triCoordToPixel(s, 0);
+                let end = triCoordToPixel(ROWS - 1, ROWS - 1 - s);
+                ctx.beginPath();
+                ctx.moveTo(start.x, start.y);
+                ctx.lineTo(end.x, end.y);
+                ctx.stroke();
+            }
+
+            // 星位
+            const stars = getTriangleStars(ROWS);
+            ctx.fillStyle = '#3a281c';
+            for (let { r, c } of stars) {
+                let { x, y } = triCoordToPixel(r, c);
+                ctx.beginPath();
+                ctx.arc(x, y, 10.1 - 0.3 * ROWS, 0, 2 * Math.PI);
+                ctx.fill();
+            }
+
+            ctx.font = `bold ${16.4 - 0.2 * ROWS}px Arial`;
+            ctx.fillStyle = '#3a281c';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            for (let r = 0; r < ROWS; r++) {
+                let { x, y } = triCoordToPixel(r, 0);
+                x -= (17.4 - 0.2 * ROWS);
+                ctx.fillText((r + 1).toString(), x, y);
+            }
+            ctx.textAlign = 'center';
+            for (let r = 0; r < ROWS; r++) {
+                let { x, y } = triCoordToPixel(r, r);
+                x += (17.4 - 0.2 * ROWS);
+                ctx.fillText(rightEdgeLabel(r), x, y);
+            }
+
+            const stoneRadius = DX * 0.42;
+            const markSizeDefault = DX * 0.34;
+            const lowerLastMoveMarker = showMoveNumbers || showEstimateActive;
+            if (lowerLastMoveMarker) {
+                for (let { row, col, color } of lastMoveMarkers) {
+                    if (!isValidCoord(row, col)) continue;
+                    let { x, y } = triCoordToPixel(row, col);
+                    ctx.beginPath();
+                    ctx.moveTo(x + stoneRadius, y + stoneRadius);
+                    ctx.lineTo(x, y + stoneRadius);
+                    ctx.lineTo(x + stoneRadius, y);
+                    ctx.closePath();
+                    ctx.fillStyle = color === 1 ? '#ffffff' : '#222222';
+                    ctx.fill();
+                }
+            }
+
+            // 棋子
+            for (let r = 0; r < ROWS; r++) {
+                for (let c = 0; c <= r; c++) {
+                    const val = board[r][c];
+                    if (val === 0) 
+                        continue;
+                    const radius = stoneRadius;
+                    let { x, y } = triCoordToPixel(r, c);
+                    ctx.save();
+                    ctx.shadowBlur = 6;
+                    ctx.shadowColor = 'rgba(0,0,0,0.5)';
+                    ctx.shadowOffsetY = 2;
+                    const grad = ctx.createRadialGradient(x - 3, y - 3, radius * 0.2, x, y, radius * 1.2);
+                    if (val === 1) {
+                        grad.addColorStop(0, '#444');
+                        grad.addColorStop(0.6, '#222');
+                        grad.addColorStop(1, '#111');
+                    } else {
+                        grad.addColorStop(0, '#fff');
+                        grad.addColorStop(0.5, '#eee');
+                        grad.addColorStop(1, '#aaa');
+                    }
+                    ctx.beginPath();
+                    ctx.arc(x, y, radius, 0, 2 * Math.PI);
+                    ctx.fillStyle = grad;
+                    ctx.fill();
+                    ctx.restore();
+                    if (!showMoveNumbers) {
+                        ctx.beginPath();
+                        ctx.arc(x - 3, y - 3, radius * 0.15, 0, 2 * Math.PI);
+                        ctx.fillStyle = val === 1 ? '#444' : '#fff';
+                        ctx.fill();
+                    }
+                }
+            }
+
+            if (showMoveNumbers) {
+                const nums = computeStoneNumbers();
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                for (let r = 0; r < ROWS; r++) {
+                    for (let c = 0; c <= r; c++) {
+                        if (nums[r][c] > 0 && board[r][c] !== 0) {
+                            const { x, y } = triCoordToPixel(r, c);
+                            const numStr = nums[r][c].toString();
+                            const fontSize = Math.max(8, Math.floor(DX * (numStr.length >= 3 ? 0.28 : 0.36)));
+                            ctx.font = `bold ${fontSize}px Arial`;
+                            ctx.fillStyle = board[r][c] === 1 ? '#fff' : '#000';
+                            ctx.fillText(numStr, x, y + 1);
+                        }
+                    }
+                }
+            }
+
+            // 最后一步标记（平常：棋子之上）
+            if (!lowerLastMoveMarker) {
+                const markSize = markSizeDefault;
+                for (let { row, col, color } of lastMoveMarkers) {
+                    if (!isValidCoord(row, col)) continue;
+                    let { x, y } = triCoordToPixel(row, col);
+                    ctx.beginPath();
+                    ctx.moveTo(x, y);
+                    ctx.lineTo(x + markSize, y);
+                    ctx.lineTo(x, y + markSize);
+                    ctx.closePath();
+                    ctx.fillStyle = color === 1 ? '#ffffff' : '#222222';
+                    ctx.fill();
+                }
+            }
+
+            for (const key of Object.keys(userBoardMarks)) {
+                const [r, c] = key.split(',').map(Number);
+                if (!isUserBoardMarkVisibleAt(r, c)) continue;
+                const ch = userBoardMarks[key];
+                let { x, y } = triCoordToPixel(r, c);
+                const markBgR = DX * 0.3;
+                ctx.beginPath();
+                ctx.arc(x, y, markBgR, 0, 2 * Math.PI);
+                ctx.fillStyle = '#edbc80';
+                ctx.fill();
+                const fontPx = DX * (ch === '🚩' ? 0.47 : 0.52);
+                ctx.font = `bold ${fontPx}px "Segoe UI", "Apple Color Emoji", "Segoe UI Emoji", sans-serif`;
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillStyle = '#3a281c';
+                ctx.fillText(ch, x, y + 1);
+            }
+
+            // 悬停预览
+            const canHover = tryPlayMode || (!gameOver && isMyTurn);
+            if ((isMouseDevice || mobileTwoStepPlacing()) && canHover && isHoverValid && hoverR >= 0 && hoverC >= 0 && board[hoverR][hoverC] === 0) {
+                let { x, y } = triCoordToPixel(hoverR, hoverC);
+                ctx.globalAlpha = 0.45;
+                ctx.beginPath();
+                ctx.arc(x, y, DX * 0.35, 0, 2 * Math.PI);
+                const hoverColor = tryPlayMode ? (tryPlayCurrentPlayer === 1 ? '#222' : '#ddd') : (mySlot === 'black' ? '#222' : '#ddd');
+                ctx.fillStyle = hoverColor;
+                ctx.fill();
+                ctx.globalAlpha = 1.0;
+            }
+
+            // 形势判断叠加层（死子标记 + 领地归属点）
+            if (showEstimateActive && cachedLiveBoard && cachedTerritory) {
+                const dotRadius = 3;
+                for (let r = 0; r < ROWS; r++) {
+                    for (let c = 0; c <= r; c++) {
+                        // 死子标记（原棋盘有子，活棋盘无子）
+                        if (board[r][c] !== 0 && cachedLiveBoard[r][c] === 0) {
+                            let { x, y } = triCoordToPixel(r, c);
+                            ctx.fillStyle = board[r][c] === 1 ? '#ffffff' : '#222222';
+                            ctx.fillRect(x - dotRadius, y - dotRadius, dotRadius * 2, dotRadius * 2);
+                        }
+                        // 领地归属点（仅当空点且归属明确且不为公共地）
+                        else if (board[r][c] === 0 && cachedTerritory[r][c] === 1) {
+                            let { x, y } = triCoordToPixel(r, c);
+                            ctx.fillStyle = '#222222';
+                            ctx.fillRect(x - dotRadius, y - dotRadius, dotRadius * 2, dotRadius * 2);
+                        } else if (board[r][c] === 0 && cachedTerritory[r][c] === 2) {
+                            let { x, y } = triCoordToPixel(r, c);
+                            ctx.fillStyle = '#ffffff';
+                            ctx.fillRect(x - dotRadius, y - dotRadius, dotRadius * 2, dotRadius * 2);
+                        }
+                    }
+                }
+            }
+        }
+
+        function drawBoardWithOverlay() {
+            drawBoard();
+        }
+
+        function updateTurn() {
+            if (replayMode) {
+                isMyTurn = false;
+                if (showEstimateActive) updateEstimateData();
+                else drawBoardWithOverlay();
+                return;
+            }
+            const liveTotal = liveReplayBoards.length > 0 ? liveReplayBoards.length - 1 : 0;
+            const browsingLive = liveReplayBoards.length > 0 && liveViewStep < liveTotal;
+            if (browsingLive) {
+                if (liveViewStep === 0) {
+                    turnDisplay.innerText = '初始局面';
+                } else {
+                    const emoji = liveReplayStepPlayers[liveViewStep] === 1 ? '⚫' : '⚪';
+                    turnDisplay.innerText = `${emoji} 第${liveViewStep}手`;
+                }
+                isMyTurn = false;
+                if (showEstimateActive) updateEstimateData();
+                else drawBoardWithOverlay();
+                return;
+            }
+            if (gameOver) {
+                turnDisplay.innerText = '对局结束';
+                if (winner === 'black') scoreTitle.innerText = '黑胜';
+                else if (winner === 'white') scoreTitle.innerText = '白胜';
+                else if (winner === 'draw') scoreTitle.innerText = '和棋';
+                else scoreTitle.innerText = '　';
+                isMyTurn = false;
+                drawBoardWithOverlay();
+                return;
+            }
+            if (tryPlayMode) {
+                if (showEstimateActive) updateEstimateData();
+                else drawBoardWithOverlay();
+                return;
+            }
+            if (!slots.black || !slots.white) {
+                turnDisplay.innerText = '等待双方入座';
+                isMyTurn = false;
+                if (showEstimateActive) updateEstimateData();
+                else drawBoardWithOverlay();
+                return;
+            }
+            if (!matchStarted) {
+                turnDisplay.innerText = '等待双方确认限时规则';
+                isMyTurn = false;
+                if (showEstimateActive) updateEstimateData();
+                else drawBoardWithOverlay();
+                return;
+            }
+            const total = liveReplayBoards.length > 0 ? liveReplayBoards.length - 1 : 0;
+            if (liveReplayBoards.length === 0) {
+                const emptyBoard = !board.some(row => row.some(v => v === 1 || v === 2));
+                if (emptyBoard) {
+                    turnDisplay.innerText = '初始局面';
+                } else {
+                    const lastPlayer = currentPlayer === 1 ? 2 : 1;
+                    const lastHand = Math.max(1, numberOfHands - 1);
+                    turnDisplay.innerText = `${lastPlayer === 1 ? '⚫' : '⚪'} 第${lastHand}手`;
+                }
+            } else if (total === 0) {
+                turnDisplay.innerText = '初始局面';
+            } else {
+                const p = liveReplayStepPlayers[total];
+                turnDisplay.innerText = `${p === 1 ? '⚫' : '⚪'} 第${total}手`;
+            }
+            isMyTurn = (mySlot !== null) && ((mySlot === 'black' && currentPlayer === 1) || (mySlot === 'white' && currentPlayer === 2));
+            if (showEstimateActive) updateEstimateData();
+            else drawBoardWithOverlay();
+        }
+
+        function showEstimate() {
+            if (!showEstimateActive) {
+                clearEstimate();
+                return;
+            }
+            updateEstimateData();
+            drawBoardWithOverlay();
+        }
+
+        function clearEstimate() {
+            cachedLiveBoard = null;
+            cachedTerritory = null;
+            scoreTitle.innerText = '　';
+            scoreBoard.innerText = '　';
+            leadInfo.innerText = '　';
+            drawBoardWithOverlay();
+        }
+
+        function showScoreConfirm(lead) {
+            QiSquareWeiqiCanvas.fillScoreConfirmText(scoreConfirmText, lead);
+            scoreConfirmPanel.style.display = 'block';
+        }
+
+        function hideScoreConfirm() {
+            scoreConfirmPanel.style.display = 'none';
+        }
+
+        function downloadRecord(data) {
+            QiSquareWeiqiCanvas.downloadWeiqiJsonRecord(data, recordDownloadPrefix);
+        }
+
+        function enterReplayMode(data) {
+            clearMobileMovePreview();
+            const size = ROWS;
+            replayBoards = [];
+            replayMarkers = [];
+            replayStepPlayers = [0];
+
+            let curBoard = initBoardArray(size);
+            if (data.initialPosition) {
+                if (Array.isArray(data.initialPosition)) {
+                    for (const s of data.initialPosition) {
+                        if (typeof s !== 'string' || s.length < 4) continue;
+                        const p = s[0];
+                        if (p !== 'B' && p !== 'W') continue;
+                        const comma = s.indexOf(',');
+                        if (comma <= 1) continue;
+                        const r = parseInt(s.slice(1, comma), 10);
+                        const c = parseInt(s.slice(comma + 1), 10);
+                        if (!isValidCoord(r, c)) continue;
+                        curBoard[r][c] = p === 'B' ? 1 : 2;
+                    }
+                } else if (Array.isArray(data.initialPosition.black)) {
+                    for (const pos of data.initialPosition.black) {
+                        if (Array.isArray(pos) && pos.length === 2)
+                            curBoard[pos[0]][pos[1]] = 1;
+                    }
+                }
+                if (Array.isArray(data.initialPosition.white)) {
+                    for (const pos of data.initialPosition.white) {
+                        if (Array.isArray(pos) && pos.length === 2)
+                            curBoard[pos[0]][pos[1]] = 2;
+                    }
+                }
+            }
+            replayBoards.push(deepCopyBoard(curBoard));
+            replayMarkers.push([]);
+
+            for (const move of (data.moves || [])) {
+                const playerVal = move.player === 'black' ? 1 : 2;
+                replayStepPlayers.push(playerVal);
+                if (move.type === 'move') {
+                    const newBoard = tryPlaceStone(curBoard, move.row, move.col, playerVal);
+                    if (newBoard) curBoard = newBoard;
+                    replayBoards.push(deepCopyBoard(curBoard));
+                    replayMarkers.push([{ row: move.row, col: move.col, color: playerVal }]);
+                } else if (move.type === 'pass') {
+                    replayBoards.push(deepCopyBoard(curBoard));
+                    replayMarkers.push([]);
+                }
+            }
+
+            replayTotalSteps = replayBoards.length - 1;
+            replayMode = true;
+
+            const slider = document.getElementById('replaySlider');
+            slider.max = replayTotalSteps;
+            setReplayStep(replayTotalSteps);
+            updateReplayUI();
+        }
+
+        function exitReplayMode() {
+            clearMobileMovePreview();
+            tryPlayMode = false;
+            tryPlayBoards = [];
+            tryPlayMarkers = [];
+            tryPlayStep = 0;
+            tryPlayTotalSteps = 0;
+            replayMode = false;
+            replayBoards = [];
+            replayMarkers = [];
+            replayStepPlayers = [];
+            replayStep = 0;
+            replayTotalSteps = 0;
+            updateReplayUI();
+        }
+
+        function setReplayStep(step) {
+            clearMobileMovePreview();
+            if (step < 0) step = 0;
+            if (step > replayTotalSteps) step = replayTotalSteps;
+            replayStep = step;
+            board = deepCopyBoard(replayBoards[step]);
+            lastMoveMarkers = replayMarkers[step].map(m => ({ ...m }));
+
+            document.getElementById('replaySlider').value = step;
+            document.getElementById('replayStepDisplay').innerText = `${step} / ${replayTotalSteps}`;
+
+            if (step === 0) {
+                turnDisplay.innerText = '初始局面';
+            } else {
+                const emoji = replayStepPlayers[step] === 1 ? '⚫' : '⚪';
+                turnDisplay.innerText = `${emoji} 第${step}手`;
+            }
+            isMyTurn = false;
+
+            if (showEstimateActive) updateEstimateData();
+            drawBoardWithOverlay();
+        }
+
+        function updateReplayUI() {
+            const gameButtonIds = ['passBtn', 'undoBtn', 'resignBtn', 'drawBtn', 'endReqBtn'];
+            const replayPanel = document.getElementById('replayPanel');
+            const tryPlayBtn = document.getElementById('tryPlayBtn');
+            const isPlayer = !!mySlot;
+            const started = !!(matchStarted || (matchTime && matchTime.settings));
+            const showMatchButtons = isPlayer && started && !replayMode;
+            for (const id of gameButtonIds)
+                document.getElementById(id).style.display = showMatchButtons ? '' : 'none';
+            replayPanel.style.display = '';
+            tryPlayBtn.style.display = showMatchButtons ? 'none' : '';
+            tryPlayBtn.innerText = tryPlayMode ? '试下结束' : '试下';
+            updateRecordButtons();
+        }
+
+        function enterTryPlay() {
+            clearMobileMovePreview();
+            tryPlayMode = true;
+            tryPlayBaseStep = replayStep;
+            tryPlayBoards = [deepCopyBoard(board)];
+            tryPlayMarkers = [lastMoveMarkers.map(m => ({ ...m }))];
+
+            if (replayStep === 0) {
+                tryPlayCurrentPlayer = 1;
+            } else {
+                tryPlayCurrentPlayer = replayStepPlayers[replayStep] === 1 ? 2 : 1;
+            }
+            tryPlayStep = 0;
+            tryPlayTotalSteps = 0;
+
+            const slider = document.getElementById('replaySlider');
+            slider.min = 0;
+            slider.max = 0;
+            slider.value = 0;
+            updateTryPlayDisplay();
+            updateReplayUI();
+        }
+
+        function exitTryPlay() {
+            clearMobileMovePreview();
+            tryPlayMode = false;
+            tryPlayBoards = [];
+            tryPlayMarkers = [];
+            tryPlayStep = 0;
+            tryPlayTotalSteps = 0;
+
+            const slider = document.getElementById('replaySlider');
+            slider.min = 0;
+            slider.max = replayTotalSteps;
+            setReplayStep(tryPlayBaseStep);
+            updateReplayUI();
+        }
+
+        function tryPlayMove(row, col) {
+            if (board[row][col] !== 0) return false;
+            const playerVal = tryPlayCurrentPlayer;
+            const newBoard = tryPlaceStone(board, row, col, playerVal);
+            if (!newBoard) return false;
+
+            if (tryPlayStep < tryPlayTotalSteps) {
+                tryPlayBoards.length = tryPlayStep + 1;
+                tryPlayMarkers.length = tryPlayStep + 1;
+            }
+
+            tryPlayBoards.push(deepCopyBoard(newBoard));
+            tryPlayMarkers.push([{ row, col, color: playerVal }]);
+            tryPlayTotalSteps = tryPlayBoards.length - 1;
+            tryPlayStep = tryPlayTotalSteps;
+            tryPlayCurrentPlayer = 3 - tryPlayCurrentPlayer;
+
+            board = deepCopyBoard(newBoard);
+            lastMoveMarkers = [{ row, col, color: playerVal }];
+
+            const slider = document.getElementById('replaySlider');
+            slider.max = tryPlayTotalSteps;
+            slider.value = tryPlayStep;
+            updateTryPlayDisplay();
+            if (showEstimateActive) updateEstimateData();
+            else drawBoardWithOverlay();
+            return true;
+        }
+
+        function setTryPlayStep(step) {
+            clearMobileMovePreview();
+            if (step < 0) step = 0;
+            if (step > tryPlayTotalSteps) step = tryPlayTotalSteps;
+            tryPlayStep = step;
+            board = deepCopyBoard(tryPlayBoards[step]);
+            lastMoveMarkers = tryPlayMarkers[step].map(m => ({ ...m }));
+
+            const basePlayer = tryPlayBaseStep === 0 ? 1 : (3 - replayStepPlayers[tryPlayBaseStep]);
+            tryPlayCurrentPlayer = step % 2 === 0 ? basePlayer : (3 - basePlayer);
+
+            document.getElementById('replaySlider').value = step;
+            updateTryPlayDisplay();
+            if (showEstimateActive) updateEstimateData();
+            else drawBoardWithOverlay();
+        }
+
+        function updateTryPlayDisplay() {
+            const stepDisplay = document.getElementById('replayStepDisplay');
+            if (tryPlayMode) {
+                stepDisplay.innerText = `试下 ${tryPlayStep} / ${tryPlayTotalSteps}`;
+                const emoji = tryPlayCurrentPlayer === 1 ? '⚫' : '⚪';
+                turnDisplay.innerText = `${emoji} 试下`;
+            }
+        }
+
+        function rebuildLiveReplayFromMoveCoords(moveCoords) {
+            liveReplayBoards = [];
+            liveReplayMarkers = [];
+            liveReplayStepPlayers = [0];
+            let curBoard = initBoardArray(ROWS);
+            liveReplayBoards.push(deepCopyBoard(curBoard));
+            liveReplayMarkers.push([]);
+            for (const move of (moveCoords || [])) {
+                const playerVal = move.player === 'black' ? 1 : 2;
+                liveReplayStepPlayers.push(playerVal);
+                if (move.type === 'move') {
+                    const newBoard = tryPlaceStone(curBoard, move.row, move.col, playerVal);
+                    if (newBoard) curBoard = newBoard;
+                    liveReplayBoards.push(deepCopyBoard(curBoard));
+                    liveReplayMarkers.push([{ row: move.row, col: move.col, color: playerVal }]);
+                } else if (move.type === 'pass') {
+                    liveReplayBoards.push(deepCopyBoard(curBoard));
+                    liveReplayMarkers.push([]);
+                }
+            }
+        }
+
+        function applyLiveViewBoard() {
+            if (!liveReplayBoards.length) {
+                board = initBoardArray(ROWS);
+                lastMoveMarkers = [];
+                return;
+            }
+            if (liveViewStep < 0) liveViewStep = 0;
+            if (liveViewStep >= liveReplayBoards.length) liveViewStep = liveReplayBoards.length - 1;
+            board = deepCopyBoard(liveReplayBoards[liveViewStep]);
+            lastMoveMarkers = liveReplayMarkers[liveViewStep].map(m => ({ ...m }));
+        }
+
+        function updateLiveReplayPanelUI() {
+            if (replayMode) return;
+            const total = Math.max(0, liveReplayBoards.length - 1);
+            const slider = document.getElementById('replaySlider');
+            slider.min = 0;
+            slider.max = total;
+            slider.value = liveViewStep;
+            document.getElementById('replayStepDisplay').innerText = `${liveViewStep} / ${total}`;
+        }
+
+        function setLiveViewStep(step) {
+            clearMobileMovePreview();
+            if (replayMode) return;
+            const total = Math.max(0, liveReplayBoards.length - 1);
+            if (step < 0) step = 0;
+            if (step > total) step = total;
+            liveViewStep = step;
+            liveFollowLatest = step >= total;
+            applyLiveViewBoard();
+            updateLiveReplayPanelUI();
+            if (showEstimateActive) showEstimate();
+            else updateTurn();
+        }
+
+        let updateRecordButtons = () => {};
+
+        // ======================== WebSocket ========================
+
+        function connectWebSocket() {
+            ws = QiSquareWeiqiCanvas.connectWeiqiRoomWebSocket({
+                gameType,
+                roomId,
+                roomPassword,
+                onMessage: handleMessage,
+                colorStatus: document.getElementById('colorStatus') || colorStatus,
+                connectWebSocket,
+                clearReconnectTimer: () => {
+                    if (typeof reconnectTimer !== 'undefined' && reconnectTimer) {
+                        clearTimeout(reconnectTimer);
+                        reconnectTimer = null;
+                    } else if (typeof ps !== 'undefined' && ps && ps.reconnectTimer) {
+                        clearTimeout(ps.reconnectTimer);
+                        ps.reconnectTimer = null;
+                    }
+                },
+                getReconnectTimer: () => (typeof reconnectTimer !== 'undefined' ? reconnectTimer : (ps && ps.reconnectTimer)),
+                setReconnectTimer: (id) => {
+                    if (typeof reconnectTimer !== 'undefined') reconnectTimer = id;
+                    else if (ps) ps.reconnectTimer = id;
+                }
+            });
+        }
+
+        function connectWebSocket() {
+            ws = QiSquareWeiqiCanvas.connectWeiqiRoomWebSocket({
+                gameType,
+                roomId,
+                roomPassword,
+                onMessage: handleMessage,
+                colorStatus,
+                connectWebSocket,
+                clearReconnectTimer: () => {
+                    if (reconnectTimer) {
+                        clearTimeout(reconnectTimer);
+                        reconnectTimer = null;
+                    }
+                },
+                getReconnectTimer: () => reconnectTimer,
+                setReconnectTimer: (id) => { reconnectTimer = id; }
+            });
+        }
+
+        function syncState(state)
+        {
+            clearMobileMovePreview();
+            if (state.boardSize && state.boardSize !== ROWS)
+            {
+                ROWS = state.boardSize;
+                board = initBoardArray(ROWS);
+                updateBoardGeometry();
+                const sizeSelect = document.getElementById('boardSizeSelect');
+                if (sizeSelect) sizeSelect.value = ROWS;
+            }
+            numberOfHands = state.numberOfHands || 1;
+            currentPlayer = state.currentPlayer;
+            gameOver = state.gameOver || false;
+            winner = state.winner || null;
+            matchTime = state.matchTime || null;
+            matchStarted = !!state.matchStarted;
+            if (state.moveCoords)
+                moveLog = state.moveCoords.map(m => m.type === 'move' ? { row: m.row, col: m.col } : null);
+            if (state.slots)
+                slots = state.slots;
+
+            if (!replayMode) {
+                const prevTotal = Math.max(0, liveReplayBoards.length - 1);
+                const wasAtEnd = liveFollowLatest || liveViewStep >= prevTotal;
+                rebuildLiveReplayFromMoveCoords(state.moveCoords || []);
+                const newTotal = Math.max(0, liveReplayBoards.length - 1);
+                if (newTotal === 0) {
+                    liveViewStep = 0;
+                    liveFollowLatest = true;
+                } else if (wasAtEnd) {
+                    liveViewStep = newTotal;
+                    liveFollowLatest = true;
+                } else {
+                    liveViewStep = Math.min(liveViewStep, newTotal);
+                    if (liveViewStep === newTotal)
+                        liveFollowLatest = true;
+                }
+                applyLiveViewBoard();
+                updateLiveReplayPanelUI();
+            } else {
+                board = state.board;
+                lastMoveMarkers = state.lastMoveMarkers || [];
+            }
+
+            const hasAnyStone = board.some(row => row.some(v => v !== 0));
+            const hasPlayer = slots.black || slots.white;
+            const sizeSelect = document.getElementById('boardSizeSelect');
+            if (!hasAnyStone && !hasPlayer && !gameOver && mySlot === null)
+                sizeSelect.style.display = 'inline-block';
+            else
+                sizeSelect.style.display = 'none';
+
+            if (showEstimateActive)
+            {
+                updateEstimateData();
+                updateTurn();
+            } else {
+                updateTurn();
+            }
+            updateReplayUI();
+        }
+
+        let updateRadioStyles = () => {};
+        let handleMessage = () => {};
+        const _weiqiBindings = QiBoardRoomClient.createWeiqiMessageBindings({
+            roomId,
+            gameType,
+            pageState: {
+                get mySlot() { return mySlot; },
+                set mySlot(v) { mySlot = v; },
+                get slots() { return slots; },
+                set slots(v) { slots = v; },
+                get isMyTurn() { return isMyTurn; },
+                set isMyTurn(v) { isMyTurn = v; },
+                get gameOver() { return gameOver; },
+                set gameOver(v) { gameOver = v; },
+                get waitingScoreConfirm() { return waitingScoreConfirm; },
+                set waitingScoreConfirm(v) { waitingScoreConfirm = v; },
+                get showEstimateActive() { return showEstimateActive; },
+                set showEstimateActive(v) { showEstimateActive = v; },
+                get replayMode() { return replayMode; },
+                set replayMode(v) { replayMode = v; },
+                get tryPlayMode() { return tryPlayMode; },
+                set tryPlayMode(v) { tryPlayMode = v; },
+                get tryPlayStep() { return tryPlayStep; },
+                set tryPlayStep(v) { tryPlayStep = v; },
+                get replayStep() { return replayStep; },
+                set replayStep(v) { replayStep = v; },
+                get liveViewStep() { return liveViewStep; },
+                set liveViewStep(v) { liveViewStep = v; },
+                get ws() { return ws; },
+                set ws(v) { ws = v; },
+                get showMoveNumbers() { return showMoveNumbers; },
+                set showMoveNumbers(v) { showMoveNumbers = v; },
+                get matchTime() { return matchTime; },
+                set matchTime(v) { matchTime = v; },
+                get matchStarted() { return matchStarted; },
+                set matchStarted(v) { matchStarted = !!v; }
+            },
+            drawBoard: drawBoardWithOverlay,
+            exitTryPlay,
+            enterTryPlay,
+            setTryPlayStep,
+            setReplayStep,
+            setLiveViewStep,
+            getWs: () => ws,
+            getBoardSize: () => ROWS,
+            setBoardSize: (n) => { ROWS = n; },
+            getKomi: () => KOMI,
+            setKomi: () => {},
+            getBoard: () => board,
+            setBoard: (b) => { board = b; },
+            getSlots: () => slots,
+            setSlots: (s) => { slots = s; },
+            getMySlot: () => mySlot,
+            setMySlot: (s) => { mySlot = s; },
+            getGameOver: () => gameOver,
+            setGameOver: (v) => { gameOver = v; },
+            getWinner: () => winner,
+            setWinner: (w) => { winner = w; },
+            getReplayMode: () => replayMode,
+            getShowEstimateActive: () => showEstimateActive,
+            setShowEstimateActive: (v) => { showEstimateActive = v; },
+            getWaitingScoreConfirm: () => waitingScoreConfirm,
+            setWaitingScoreConfirm: (v) => { waitingScoreConfirm = v; },
+            getIRejected: () => iRejected,
+            setIRejected: (v) => { iRejected = v; },
+            colorStatus,
+            scoreTitle,
+            turnDisplay,
+syncState,
+            updateBoardGeometry,
+            initBoardArray,
+            exitReplayMode,
+            clearEstimate,
+            hideScoreConfirm,
+            showEstimate,
+            clearMobileMovePreview,
+            downloadRecord,
+            enterReplayMode,
+            updateTurn,
+            showScoreConfirm,
+            // 限时协商/计时逻辑由 message bindings 托管（不要放到 page runtime 参数）
+            standardWeiqiMatchTime,
+            boardSeatOverlay: true,
+            seatOverlayShape: 'triangle',
+            onBoardSizeChanged: (msg) => {
+                if (!msg.boardSize) return;
+                const bs = msg.boardSize;
+                if (bs !== ROWS) {
+                    ROWS = bs;
+                    board = initBoardArray(ROWS);
+                    updateBoardGeometry();
+                }
+                const sel = document.getElementById('boardSizeSelect');
+                if (sel) sel.value = msg.boardSize;
+                drawBoardWithOverlay();
+            }
+        });
+        handleMessage = _weiqiBindings.handleMessage;
+        updateRecordButtons = _weiqiBindings.updateRecordButtons;
+        updateRadioStyles = _weiqiBindings.updateRadioStyles;
+
+        function commitMove(row, col) {
+            if (gameOver) return false;
+            if (!isMyTurn) return false;
+            if (!isValidCoord(row, col) || board[row][col] !== 0) return false;
+            ws.send(JSON.stringify({ type: 'move', row, col }));
+            return true;
+        }
+
+        function canvasCoordsFromClient(clientX, clientY) {
+            const rect = canvas.getBoundingClientRect();
+            const scale = 600 / rect.width;
+            return {
+                x: (clientX - rect.left) * scale,
+                y: (clientY - rect.top) * scale
+            };
+        }
+
+        function getSelectedBoardMark() {
+            if (!boardMarkSelect) return { clear: false, ch: '?' };
+            const v = boardMarkSelect.value;
+            if (v === '') return { clear: true, ch: '' };
+            return { clear: false, ch: v };
+        }
+
+        function applyUserBoardMark(row, col) {
+            if (!isValidCoord(row, col)) return;
+            if (board[row][col] !== 0) return;
+            const { clear, ch } = getSelectedBoardMark();
+            const key = row + ',' + col;
+            const existing = userBoardMarks[key];
+            if (clear) {
+                if (existing !== undefined) {
+                    delete userBoardMarks[key];
+                    drawBoardWithOverlay();
+                }
+                return;
+            }
+            if (existing === undefined) {
+                userBoardMarks[key] = ch;
+            } else if (existing !== ch) {
+                userBoardMarks[key] = ch;
+            } else {
+                delete userBoardMarks[key];
+            }
+            drawBoardWithOverlay();
+        }
+
+        let suppressCanvasClickAfterLongMark = false;
+
+        canvas.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            const { x, y } = canvasCoordsFromClient(e.clientX, e.clientY);
+            const { row, col } = getClosestIntersection(x, y);
+            applyUserBoardMark(row, col);
+        });
+
+        const LONG_MARK_MS = 500;
+        const LONG_MARK_MOVE_CANCEL = 14;
+        let longMarkTimer = null;
+        let longMarkStart = null;
+
+        canvas.addEventListener('touchstart', (e) => {
+            if (e.touches.length !== 1) return;
+            const t = e.touches[0];
+            longMarkStart = { x: t.clientX, y: t.clientY };
+            longMarkTimer = setTimeout(() => {
+                longMarkTimer = null;
+                if (!longMarkStart) return;
+                const { x, y } = canvasCoordsFromClient(longMarkStart.x, longMarkStart.y);
+                const { row, col } = getClosestIntersection(x, y);
+                applyUserBoardMark(row, col);
+                suppressCanvasClickAfterLongMark = true;
+                setTimeout(() => { suppressCanvasClickAfterLongMark = false; }, 450);
+                longMarkStart = null;
+            }, LONG_MARK_MS);
+        }, { passive: true });
+
+        canvas.addEventListener('touchmove', (e) => {
+            if (!longMarkTimer || !longMarkStart || e.touches.length !== 1) return;
+            const t = e.touches[0];
+            const dx = t.clientX - longMarkStart.x;
+            const dy = t.clientY - longMarkStart.y;
+            if (dx * dx + dy * dy > LONG_MARK_MOVE_CANCEL * LONG_MARK_MOVE_CANCEL) {
+                clearTimeout(longMarkTimer);
+                longMarkTimer = null;
+            }
+        }, { passive: true });
+
+        function clearLongMarkTouch() {
+            if (longMarkTimer) {
+                clearTimeout(longMarkTimer);
+                longMarkTimer = null;
+            }
+            longMarkStart = null;
+        }
+        canvas.addEventListener('touchend', clearLongMarkTouch);
+        canvas.addEventListener('touchcancel', clearLongMarkTouch);
+
+        canvas.addEventListener('click', (e) => {
+            if (suppressCanvasClickAfterLongMark) {
+                e.preventDefault();
+                return;
+            }
+            const rect = canvas.getBoundingClientRect();
+            const scale = 600 / rect.width;
+            const x = (e.clientX - rect.left) * scale;
+            const y = (e.clientY - rect.top) * scale;
+            const { row, col } = getClosestIntersection(x, y);
+            if (tryPlayMode && replayMode) {
+                if (row < 0 || col < 0 || !isValidCoord(row, col)) {
+                    if (mobileTwoStepPlacing()) clearMobileMovePreview();
+                    drawBoardWithOverlay();
+                    return;
+                }
+                if (board[row][col] !== 0) return;
+                if (mobileTwoStepPlacing()) {
+                    if (hoverR === row && hoverC === col && isHoverValid) {
+                        clearMobileMovePreview();
+                        tryPlayMove(row, col);
+                    } else {
+                        hoverR = row;
+                        hoverC = col;
+                        isHoverValid = true;
+                        drawBoardWithOverlay();
+                    }
+                    return;
+                }
+                tryPlayMove(row, col);
+                return;
+            }
+            if (gameOver) return;
+            if (!isMyTurn) return;
+            if (waitingScoreConfirm) return;
+            if (row < 0 || col < 0 || !isValidCoord(row, col)) {
+                if (mobileTwoStepPlacing()) clearMobileMovePreview();
+                drawBoardWithOverlay();
+                return;
+            }
+            if (board[row][col] !== 0) return;
+            if (mobileTwoStepPlacing()) {
+                if (hoverR === row && hoverC === col && isHoverValid) {
+                    clearMobileMovePreview();
+                    commitMove(row, col);
+                    drawBoardWithOverlay();
+                } else {
+                    hoverR = row;
+                    hoverC = col;
+                    isHoverValid = true;
+                    drawBoardWithOverlay();
+                }
+                return;
+            }
+            commitMove(row, col);
+        });
+
+        if (isMouseDevice)
+        {
+            canvas.addEventListener('mousemove', (e) =>
+            {
+                if (waitingScoreConfirm) {
+                    if (isHoverValid) { isHoverValid = false; hoverR = -1; hoverC = -1; drawBoardWithOverlay(); }
+                    return;
+                }
+                const rect = canvas.getBoundingClientRect();
+                const scale = 600 / rect.width;
+                const x = (e.clientX - rect.left) * scale;
+                const y = (e.clientY - rect.top) * scale;
+                const { row, col } = getClosestIntersection(x, y);
+                hoverR = row; hoverC = col;
+                isHoverValid = (row >= 0 && col >= 0 && isValidCoord(row, col) && board[row][col] === 0);
+                drawBoardWithOverlay();
+            });
+            canvas.addEventListener('mouseleave', () => {
+                if (!waitingScoreConfirm) {
+                    isHoverValid = false;
+                    hoverR = -1; hoverC = -1;
+                    drawBoardWithOverlay();
+                }
+            });
+        }
+
+        // 数点确认按钮
+        if (scoreConfirmYes) {
+            scoreConfirmYes.onclick = () => {
+                ws.send(JSON.stringify({ type: 'scoreResponse', accept: true }));
+                hideScoreConfirm();
+            };
+            scoreConfirmNo.onclick = () => {
+                iRejected = true;
+                ws.send(JSON.stringify({ type: 'scoreResponse', accept: false }));
+                hideScoreConfirm();
+                if (showEstimateActive) {
+                    showEstimateActive = false;
+                    clearEstimate();
+                }
+                waitingScoreConfirm = false;
+            };
+        }
+
+        /* board edit UI */
+        if (typeof QiWeiqiSquarePageRuntime !== 'undefined' && QiWeiqiSquarePageRuntime.installBoardEditUI) {
+            const _editPs = {
+                get board() { return board; },
+                set board(v) { board = v; },
+                get gameOver() { return typeof gameOver !== 'undefined' ? gameOver : false; },
+                get mySlot() { return typeof mySlot !== 'undefined' ? mySlot : null; },
+                get gameStarted() {
+                    if (typeof gameStarted !== 'undefined') return !!gameStarted;
+                    return (typeof numberOfHands !== 'undefined' ? numberOfHands : 1) > 1;
+                },
+                set gameStarted(v) { if (typeof gameStarted !== 'undefined') gameStarted = !!v; },
+                editModeEnabled: false,
+                editTool: 'empty',
+                get ws() { return typeof ws !== 'undefined' ? ws : null; }
+            };
+            const _editApi = QiWeiqiSquarePageRuntime.installBoardEditUI({
+                ps: _editPs,
+                canvas: document.getElementById('goBoard'),
+                mode: 'grid2d',
+                pickAtClient(clientX, clientY) {
+                    if (typeof canvasCoordsFromClient === 'function' && typeof getClosestIntersection === 'function') {
+                        const p = canvasCoordsFromClient(clientX, clientY);
+                        return getClosestIntersection(p.x, p.y);
+                    }
+                    if (typeof pickIntersectionAtCanvas === 'function') {
+                        const canvasEl = document.getElementById('goBoard');
+                        const rect = canvasEl.getBoundingClientRect();
+                        const scale = canvasEl.width / rect.width;
+                        return pickIntersectionAtCanvas((clientX - rect.left) * scale, (clientY - rect.top) * scale);
+                    }
+                    return null;
+                },
+                drawBoard: typeof drawBoard === 'function' ? drawBoard : function () {},
+                getBoard() { return board; },
+                setBoard(b) { board = b; },
+                emptyBoard() {
+                    const n = (typeof BOARD_SIZE !== 'undefined' ? BOARD_SIZE
+                        : (typeof ROWS !== 'undefined' ? ROWS : board.length));
+                    return Array(n).fill(null).map(function () { return Array(n).fill(0); });
+                }
+            });
+            if (typeof syncState === 'function') {
+                const _sync0 = syncState;
+                syncState = function (state) {
+                    if (state) _editPs.gameStarted = (state.numberOfHands || 1) > 1;
+                    _sync0(state);
+                    _editApi.updateEditModeUI();
+                };
+            }
+        }
+
+        connectWebSocket();
+        })();
+    }
+};

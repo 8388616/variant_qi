@@ -4,6 +4,7 @@ class MinesweeperWeiqiRoom extends QiTwoPlayerRoomBase
 {
     constructor(room, initialSize = 19) {
         super(room);
+        this.useCustomEditBoard = true;
         this.boardSize = initialSize;
         this.board = Array(this.boardSize).fill().map(() => Array(this.boardSize).fill(0));
         this.holes = [];

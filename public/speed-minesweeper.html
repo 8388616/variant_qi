@@ -1,0 +1,859 @@
+<!DOCTYPE html>
+<html lang="zh-Hans">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=2.0, user-scalable=yes">
+    <title>竞速扫雷</title>
+    <link rel="stylesheet" href="/qi/fonts/lxgw-wenkai-gb/index.css">
+    <link rel="stylesheet" href="/qi/qi.css">
+    <link rel="stylesheet" href="/qi/room.css">
+    <style>
+        body.qi-room.sms-page > .game-wrapper {
+            display: contents;
+        }
+
+        .sms-page [hidden],
+        .sms-play-area[hidden],
+        .sms-lobby[hidden],
+        body.qi-room.sms-page .button-panel,
+        body.qi-room.sms-page .button-panel[hidden],
+        body.qi-room.sms-page .main-area-right[hidden] {
+            display: none !important;
+        }
+
+        /* 彻底脱离房间页三列网格，避免左栏空位把大厅挤窄偏左 */
+        body.qi-room.sms-page .main-area {
+            display: flex !important;
+            flex-direction: column !important;
+            align-items: center !important;
+            justify-content: flex-start !important;
+            grid-template-columns: none !important;
+            grid-template-rows: none !important;
+            column-gap: 0 !important;
+            width: 100% !important;
+            max-width: min(960px, 100%) !important;
+            margin: 0 auto !important;
+        }
+
+        body.qi-room.sms-page .board-and-info,
+        body.qi-room.sms-page .board-and-info.board-and-info--palette-stack {
+            display: flex !important;
+            flex-direction: row !important;
+            flex-wrap: wrap !important;
+            justify-content: center !important;
+            align-items: flex-start !important;
+            gap: 16px !important;
+            width: 100% !important;
+            max-width: 100% !important;
+            margin: 0 auto !important;
+        }
+
+        body.qi-room.sms-page .main-area-right:not([hidden]) {
+            display: flex !important;
+            width: auto !important;
+            max-width: 280px !important;
+            grid-column: auto !important;
+            grid-row: auto !important;
+        }
+
+        body.qi-room.sms-page .board-container,
+        body.qi-room.sms-page .board-and-info.board-and-info--palette-stack > .board-container {
+            display: flex !important;
+            flex-direction: column !important;
+            align-items: center !important;
+            grid-area: auto !important;
+            grid-column: auto !important;
+            grid-row: auto !important;
+            width: 100% !important;
+            max-width: 100% !important;
+            justify-self: center !important;
+            margin: 0 auto !important;
+        }
+
+        .sms-page .ms-board-wrap {
+            display: inline-block;
+            padding: 10px;
+            background: var(--qi-room-board);
+            border: 1px solid var(--qi-room-line);
+            border-radius: var(--qi-room-radius-lg);
+            box-shadow: 0 8px 20px rgba(94, 68, 38, 0.1);
+            user-select: none;
+            touch-action: none;
+        }
+
+        .sms-page .ms-grid {
+            display: grid;
+            gap: 1px;
+            background: #c9a06e;
+        }
+
+        .sms-page .ms-cell {
+            position: relative;
+            box-sizing: border-box;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-family: var(--qi-room-font);
+            cursor: pointer;
+            line-height: 1;
+        }
+
+        .sms-page .ms-cell.closed {
+            background: linear-gradient(145deg, #f0d9b0 0%, #edbc80 55%, #c9a06e 100%);
+            border: 1px solid #b8956a;
+            box-shadow: inset 1px 1px 0 rgba(255, 255, 255, 0.45), inset -1px -1px 0 rgba(0, 0, 0, 0.18);
+        }
+
+        .sms-page .ms-cell.open,
+        .sms-page .ms-cell.empty,
+        .sms-page .ms-cell.chord-preview {
+            background: var(--qi-room-board);
+            border: none;
+            box-shadow: none;
+            cursor: default;
+        }
+
+        .sms-page .ms-cell.chord-preview::after {
+            content: none !important;
+        }
+
+        .sms-page .ms-cell.flag,
+        .sms-page .ms-cell.question {
+            background: linear-gradient(145deg, #f0d9b0 0%, #edbc80 55%, #c9a06e 100%);
+            border: 1px solid #b8956a;
+            box-shadow: inset 1px 1px 0 rgba(255, 255, 255, 0.45), inset -1px -1px 0 rgba(0, 0, 0, 0.18);
+        }
+
+        .sms-page .ms-cell.flag::after { content: '🚩'; font-size: 0.72em; }
+        .sms-page .ms-cell.question::after {
+            content: '?';
+            color: #1a5fb4;
+            font-size: 0.85em;
+            font-weight: 900;
+        }
+        .sms-page .ms-cell.n1 { color: #1a5fb4; }
+        .sms-page .ms-cell.n2 { color: #26a269; }
+        .sms-page .ms-cell.n3 { color: #c01c28; }
+        .sms-page .ms-cell.n4 { color: #1c1c7a; }
+        .sms-page .ms-cell.n5 { color: #813d00; }
+        .sms-page .ms-cell.n6 { color: #0d7377; }
+        .sms-page .ms-cell.n7 { color: #1e1e1e; }
+        .sms-page .ms-cell.n8 { color: #5e5c64; }
+        .sms-page .ms-cell.mine,
+        .sms-page .ms-cell.mine-hit {
+            background: var(--qi-room-board);
+            border: none;
+            box-shadow: none;
+            overflow: hidden;
+        }
+        .sms-page .ms-cell canvas.ms-mine-canvas {
+            width: 100%;
+            height: 100%;
+            display: block;
+            pointer-events: none;
+        }
+
+        body.qi-room.sms-page .sms-lobby {
+            display: flex !important;
+            flex-direction: column !important;
+            align-items: center !important;
+            align-self: center !important;
+            gap: 14px;
+            padding: 18px 24px;
+            width: min(960px, calc(100vw - 16px)) !important;
+            max-width: 960px !important;
+            margin: 0 auto !important;
+            box-sizing: border-box;
+            border: 1px solid var(--qi-room-line);
+            border-radius: var(--qi-room-radius-lg);
+            background: linear-gradient(180deg, rgba(255, 251, 244, 0.92), rgba(255, 246, 233, 0.82));
+            box-shadow: 0 8px 20px rgba(94, 68, 38, 0.08);
+        }
+
+        body.qi-room.sms-page .sms-lobby[hidden] {
+            display: none !important;
+        }
+
+        .sms-start-btn,
+        .sms-join-btn {
+            font-family: var(--qi-room-font);
+            font-size: 1.05rem;
+            font-weight: 500;
+            min-height: 42px;
+            padding: 8px 28px;
+            border-radius: 999px;
+            border: 1px solid var(--qi-room-line);
+            background: rgba(255, 250, 241, 0.96);
+            color: var(--qi-room-accent-strong);
+            box-shadow: 0 4px 12px rgba(94, 68, 38, 0.08);
+            cursor: pointer;
+            transition: background 0.16s ease, border-color 0.16s ease;
+        }
+
+        .sms-start-btn:hover:not(:disabled),
+        .sms-join-btn:hover:not(:disabled) {
+            background: #fff;
+            border-color: var(--qi-room-accent);
+        }
+
+        .sms-start-btn:disabled,
+        .sms-join-btn:disabled {
+            opacity: 0.45;
+            cursor: not-allowed;
+        }
+
+        .sms-lobby-settings {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 16px;
+            justify-content: center;
+            font-weight: 500;
+            color: var(--qi-room-muted);
+        }
+
+        .sms-lobby-settings label {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .sms-lobby-settings input {
+            width: 3.5em;
+            min-height: 34px;
+            text-align: center;
+            padding: 4px 8px;
+            border-radius: 999px;
+            border: 1px solid var(--qi-room-line);
+            background: rgba(255, 249, 240, 0.96);
+            color: var(--qi-room-ink);
+            font-family: inherit;
+            font-weight: 500;
+        }
+
+        .sms-player-list {
+            margin-top: 4px;
+            width: 100%;
+            max-width: none;
+            border-collapse: separate;
+            border-spacing: 0;
+            font-size: 0.92rem;
+            border: 1px solid var(--qi-room-line);
+            border-radius: var(--qi-room-radius-lg);
+            overflow: hidden;
+            background: rgba(255, 250, 241, 0.9);
+            box-shadow: 0 8px 20px rgba(94, 68, 38, 0.08);
+        }
+
+        .sms-player-list th,
+        .sms-player-list td {
+            border-bottom: 1px solid var(--qi-room-line);
+            padding: 8px 10px;
+            text-align: center;
+            color: var(--qi-room-ink);
+        }
+
+        .sms-player-list tr:last-child td {
+            border-bottom: none;
+        }
+
+        .sms-player-list th {
+            background: rgba(255, 246, 233, 0.96);
+            color: var(--qi-room-accent-strong);
+            font-weight: 500;
+        }
+
+        .sms-player-id-box {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 5px 14px;
+            border-radius: 999px;
+            background: rgba(255, 250, 241, 0.92);
+            border: 1px solid var(--qi-room-line);
+            color: var(--qi-room-ink);
+            font-weight: 500;
+        }
+
+        .sms-player-id-box span {
+            color: var(--qi-room-accent-strong);
+        }
+
+        .sms-page #scoreBoard {
+            white-space: pre-line;
+            line-height: 1.55;
+        }
+
+        .sms-page #leadInfo {
+            color: var(--qi-room-accent-strong) !important;
+        }
+
+        .sms-score-section {
+            width: 100%;
+            max-width: min(960px, 100%);
+            margin: 0 auto;
+            padding: 0 0 8px;
+            box-sizing: border-box;
+        }
+
+        body.qi-room.sms-page .top-panel {
+            max-width: min(960px, 100%) !important;
+        }
+
+        .sms-score-section .sms-player-list {
+            margin: 0 auto;
+        }
+
+        @media (max-width: 900px) {
+            .sms-page .main-area-right {
+                width: 100%;
+                max-width: 100%;
+            }
+        }
+    </style>
+</head>
+<body class="qi-room sms-page">
+    <div class="game-wrapper">
+        <div class="top-panel">
+            <div class="left-group">
+                <div class="sms-player-id-box" id="playerIdBox" hidden>ID：<span id="playerIdText"></span></div>
+                <div class="color-status" id="roundInfo">等待开始</div>
+            </div>
+            <div class="right-buttons">
+                <button type="button" class="help-btn" id="helpBtn">说明</button>
+                <button type="button" class="back-to-lobby-btn" id="backToLobbyBtn">返回大厅</button>
+            </div>
+        </div>
+
+        <div id="rulesModal" class="rules-modal">
+            <div class="rules-content">
+                <span class="close-rules" id="closeRulesBtn">&times;</span>
+                <h3>竞速扫雷</h3>
+                <p>
+                    基本规则同扫雷。<br /><br />
+                    所有人共用相同的地图及起始点。<br /><br />
+                    踩雷时进入下一局。<br /><br />
+                </p>
+            </div>
+        </div>
+
+        <div class="sms-lobby" id="lobbyPanel">
+            <button type="button" class="sms-start-btn" id="startGameBtn" hidden>开始游戏</button>
+            <div class="sms-lobby-settings" id="hostSettings" hidden>
+                <label>棋盘路数 <input type="number" id="boardSizeInput" min="7" max="27" value="19"></label>
+                <label>雷数 <input type="number" id="mineCountInput" min="1" max="900" value="72"></label>
+            </div>
+            <button type="button" class="sms-join-btn" id="lobbyJoinBtn" hidden>加入游戏</button>
+            <table class="sms-player-list" id="lobbyPlayerTable">
+                <thead><tr><th>玩家</th><th>身份</th></tr></thead>
+                <tbody id="lobbyPlayerBody"></tbody>
+            </table>
+        </div>
+
+        <div class="main-area">
+            <div class="board-and-info">
+                <div class="board-container">
+                    <div class="sms-play-area" id="playArea" hidden>
+                        <div class="ms-board-wrap">
+                            <div class="ms-grid" id="msGrid"></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="main-area-right" id="rightPanel" hidden>
+                    <div class="info-panel">
+                        <div class="turn-box" id="turnDisplay">　</div>
+                        <div class="score-box">
+                            <div class="score-title" id="scoreTitle">己方进度</div>
+                            <div class="score-content">
+                                <div id="scoreBoard">　</div>
+                                <div id="leadInfo" style="margin-top:6px;">　</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="sms-score-section">
+            <table class="sms-player-list" id="scoreTable">
+                <thead>
+                    <tr><th>名次</th><th>玩家</th><th>局数</th><th>进度</th><th>完成用时</th></tr>
+                </thead>
+                <tbody id="scoreBody"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <script src="/qi/qi.js"></script>
+    <script>
+    (function () {
+        const pathParts = location.pathname.split('/').filter(Boolean);
+        const gameType = 'speed-minesweeper';
+        const roomId = pathParts[pathParts.length - 1];
+
+        const ps = {
+            ws: null,
+            reconnectTimer: null,
+            myPlayerId: null,
+            hostId: null,
+            phase: 'lobby',
+            gameStarted: false,
+            finished: false,
+            boardSize: 19,
+            mineCount: 72,
+            players: [],
+            ranking: [],
+            myBoard: null
+        };
+
+        const grid = document.getElementById('msGrid');
+        const lobbyPanel = document.getElementById('lobbyPanel');
+        const playArea = document.getElementById('playArea');
+        const rightPanel = document.getElementById('rightPanel');
+        const startGameBtn = document.getElementById('startGameBtn');
+        const lobbyJoinBtn = document.getElementById('lobbyJoinBtn');
+        const hostSettings = document.getElementById('hostSettings');
+        const boardSizeInput = document.getElementById('boardSizeInput');
+        const mineCountInput = document.getElementById('mineCountInput');
+        const playerIdBox = document.getElementById('playerIdBox');
+        const playerIdText = document.getElementById('playerIdText');
+        const roundInfo = document.getElementById('roundInfo');
+        const turnDisplay = document.getElementById('turnDisplay');
+        const scoreBoard = document.getElementById('scoreBoard');
+        const leadInfo = document.getElementById('leadInfo');
+        const scoreBody = document.getElementById('scoreBody');
+        const lobbyPlayerBody = document.getElementById('lobbyPlayerBody');
+
+        let chordArmed = false;
+        let chordRow = -1;
+        let chordCol = -1;
+        const DIRS8 = [
+            [-1, -1], [-1, 0], [-1, 1],
+            [0, -1],           [0, 1],
+            [1, -1],  [1, 0],  [1, 1]
+        ];
+
+        function drawMineOnCanvas(canvas, hit) {
+            const size = canvas.width;
+            const ctx = canvas.getContext('2d');
+            ctx.clearRect(0, 0, size, size);
+            const cx = size / 2, cy = size / 2, cellSize = size;
+            const spikeOuter = cellSize * 0.43, spikeInner = cellSize * 0.26, bodyRadius = cellSize * 0.24;
+            ctx.fillStyle = hit ? '#4a0000' : '#303030';
+            for (let i = 0; i < 8; i++) {
+                const a = (Math.PI / 4) * i;
+                const ax = Math.cos(a), ay = Math.sin(a);
+                const px = Math.cos(a + Math.PI / 2), py = Math.sin(a + Math.PI / 2);
+                ctx.beginPath();
+                ctx.moveTo(cx + ax * spikeOuter, cy + ay * spikeOuter);
+                ctx.lineTo(cx + ax * spikeInner + px * cellSize * 0.05, cy + ay * spikeInner + py * cellSize * 0.05);
+                ctx.lineTo(cx + ax * spikeInner - px * cellSize * 0.05, cy + ay * spikeInner - py * cellSize * 0.05);
+                ctx.closePath();
+                ctx.fill();
+            }
+            const g = ctx.createRadialGradient(cx - bodyRadius * 0.35, cy - bodyRadius * 0.35, bodyRadius * 0.2, cx, cy, bodyRadius * 1.15);
+            if (hit) {
+                g.addColorStop(0, '#ff8080'); g.addColorStop(0.45, '#cc2020'); g.addColorStop(1, '#5a0000');
+            } else {
+                g.addColorStop(0, '#6c6c6c'); g.addColorStop(0.45, '#4e4e4e'); g.addColorStop(1, '#252525');
+            }
+            ctx.fillStyle = g;
+            ctx.beginPath();
+            ctx.arc(cx, cy, bodyRadius, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = 'rgba(255,255,255,0.8)';
+            ctx.beginPath();
+            ctx.arc(cx - bodyRadius * 0.38, cy - bodyRadius * 0.45, bodyRadius * 0.23, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        function cellSizePx() {
+            const max = Math.min(560, Math.floor(window.innerWidth * 0.72));
+            return Math.max(14, Math.floor(max / ps.boardSize));
+        }
+
+        function formatDuration(ms) {
+            if (ms == null) return '—';
+            const totalMs = Math.max(0, Math.floor(ms));
+            const m = Math.floor(totalMs / 60000);
+            const s = Math.floor((totalMs % 60000) / 1000);
+            const milli = totalMs % 1000;
+            return `${m}:${String(s).padStart(2, '0')}.${String(milli).padStart(3, '0')}`;
+        }
+
+        function renderBoard() {
+            const n = ps.boardSize;
+            const sz = cellSizePx();
+            const board = ps.myBoard;
+            grid.style.gridTemplateColumns = `repeat(${n}, ${sz}px)`;
+            grid.style.gridTemplateRows = `repeat(${n}, ${sz}px)`;
+            grid.innerHTML = '';
+            for (let r = 0; r < n; r++) {
+                for (let c = 0; c < n; c++) {
+                    const cell = board && board.cells ? board.cells[r][c] : { kind: 'closed', number: 0 };
+                    const el = document.createElement('div');
+                    el.style.width = sz + 'px';
+                    el.style.height = sz + 'px';
+                    el.style.fontSize = Math.max(10, Math.floor(sz * 0.62)) + 'px';
+                    el.dataset.row = r;
+                    el.dataset.col = c;
+                    let cls = 'ms-cell ';
+                    if (cell.kind === 'closed') cls += 'closed';
+                    else if (cell.kind === 'empty') cls += 'open empty';
+                    else if (cell.kind === 'number') cls += 'open n' + cell.number;
+                    else if (cell.kind === 'flag') cls += 'flag';
+                    else if (cell.kind === 'question') cls += 'question';
+                    else if (cell.kind === 'mine') cls += 'mine';
+                    else if (cell.kind === 'mine-hit') cls += 'mine-hit';
+                    else cls += 'closed';
+                    el.className = cls;
+                    if (cell.kind === 'number') el.textContent = String(cell.number);
+                    if (cell.kind === 'mine' || cell.kind === 'mine-hit') {
+                        const cv = document.createElement('canvas');
+                        cv.className = 'ms-mine-canvas';
+                        cv.width = 64; cv.height = 64;
+                        drawMineOnCanvas(cv, cell.kind === 'mine-hit');
+                        el.appendChild(cv);
+                    }
+                    grid.appendChild(el);
+                }
+            }
+            if (chordArmed && chordRow >= 0 && chordCol >= 0) {
+                applyChordPreview(chordRow, chordCol);
+            }
+        }
+
+        function updateLobbyButtons() {
+            const isHost = ps.myPlayerId && ps.myPlayerId === ps.hostId;
+            const inGame = !!ps.myPlayerId;
+            if (ps.finished) {
+                startGameBtn.hidden = !isHost;
+                startGameBtn.textContent = '重新开始';
+                startGameBtn.dataset.action = 'restart';
+                hostSettings.hidden = true;
+                lobbyJoinBtn.hidden = true;
+            } else if (ps.gameStarted) {
+                startGameBtn.hidden = true;
+                hostSettings.hidden = true;
+                lobbyJoinBtn.hidden = true;
+            } else {
+                startGameBtn.hidden = !isHost;
+                startGameBtn.textContent = '开始游戏';
+                startGameBtn.dataset.action = 'start';
+                hostSettings.hidden = !isHost;
+                lobbyJoinBtn.hidden = inGame;
+            }
+        }
+
+        function renderPlayerTables() {
+            const list = ps.ranking.length ? ps.ranking : ps.players;
+            let body = '';
+            list.forEach((p, i) => {
+                const rank = p.finished ? (i + 1) : '—';
+                body += `<tr>
+                    <td>${rank}</td>
+                    <td>${p.id}${p.id === ps.myPlayerId ? '（我）' : ''}${p.id === ps.hostId ? '★' : ''}</td>
+                    <td>第${p.round}局</td>
+                    <td>${p.finished ? '完成' : (p.progressPercent + '%')}</td>
+                    <td>${formatDuration(p.finishDurationMs)}</td>
+                </tr>`;
+            });
+            scoreBody.innerHTML = body || '<tr><td colspan="5">暂无玩家</td></tr>';
+
+            let lobby = '';
+            (ps.players || []).forEach(p => {
+                lobby += `<tr><td>${p.id}</td><td>${p.id === ps.hostId ? '房主' : '选手'}</td></tr>`;
+            });
+            lobbyPlayerBody.innerHTML = lobby || '<tr><td colspan="2">暂无玩家</td></tr>';
+        }
+
+        function updateScore() {
+            const b = ps.myBoard;
+            const me = (ps.players || []).find(p => p.id === ps.myPlayerId);
+            if (!ps.gameStarted || !b) {
+                scoreBoard.textContent = '　';
+                leadInfo.textContent = '　';
+                return;
+            }
+            scoreBoard.textContent =
+                `已打开: ${b.opened}\n剩余格: ${b.remainingSafe}\n已标记雷: ${b.flagged}\n剩余雷: ${b.remainingMines}`;
+            if (ps.finished && b.finished) leadInfo.textContent = '已完成！';
+            else if (b.failed) leadInfo.textContent = '踩雷！即将进入下一局…';
+            else if (b.waitingFirstClick) leadInfo.textContent = '点击任意格生成/开始本局地图';
+            else if (me) leadInfo.textContent = `第 ${me.round} 局 · 进度 ${me.progressPercent}%`;
+            else leadInfo.textContent = '　';
+        }
+
+        function renderAll() {
+            const playing = ps.gameStarted && !ps.finished;
+            const showBoard = ps.gameStarted;
+            lobbyPanel.hidden = showBoard && !ps.finished ? true : false;
+            if (ps.finished) lobbyPanel.hidden = false;
+            playArea.hidden = !showBoard;
+            rightPanel.hidden = !showBoard;
+            if (ps.myPlayerId) {
+                playerIdBox.hidden = false;
+                playerIdText.textContent = ps.myPlayerId;
+            } else {
+                playerIdBox.hidden = true;
+            }
+            if (!ps.gameStarted) roundInfo.textContent = '等待开始';
+            else if (ps.finished) roundInfo.textContent = '比赛结束';
+            else {
+                const me = (ps.players || []).find(p => p.id === ps.myPlayerId);
+                roundInfo.textContent = me ? `第 ${me.round} 局` : '比赛中';
+            }
+            if (ps.finished) turnDisplay.textContent = '全员完成，见下方排名';
+            else if (ps.myBoard && ps.myBoard.failed) turnDisplay.textContent = '踩雷失败';
+            else if (ps.myBoard && ps.myBoard.waitingFirstClick) turnDisplay.textContent = '扫雷中';
+            else turnDisplay.textContent = '扫雷中';
+            updateLobbyButtons();
+            renderBoard();
+            updateScore();
+            renderPlayerTables();
+            boardSizeInput.value = ps.boardSize;
+            mineCountInput.value = ps.mineCount;
+        }
+
+        function applyState(msg) {
+            if (msg.phase != null) ps.phase = msg.phase;
+            if (msg.gameStarted != null) ps.gameStarted = msg.gameStarted;
+            if (msg.finished != null) ps.finished = msg.finished;
+            if (msg.hostId != null) ps.hostId = msg.hostId;
+            if (msg.boardSize != null) ps.boardSize = msg.boardSize;
+            if (msg.mineCount != null) ps.mineCount = msg.mineCount;
+            if (msg.players) ps.players = msg.players;
+            if (msg.ranking) ps.ranking = msg.ranking;
+            if (msg.myBoard !== undefined) ps.myBoard = msg.myBoard;
+            if (msg.myPlayerId !== undefined) ps.myPlayerId = msg.myPlayerId;
+            renderAll();
+        }
+
+        function sendOpen(r, c) {
+            if (!ps.ws || !ps.myPlayerId || !ps.gameStarted || ps.finished) return;
+            if (ps.myBoard && (ps.myBoard.failed || ps.myBoard.finished)) return;
+            ps.ws.send(JSON.stringify({ type: 'openCell', row: r, col: c }));
+        }
+        function sendMark(r, c) {
+            if (!ps.ws || !ps.myPlayerId || !ps.gameStarted || ps.finished) return;
+            if (ps.myBoard && (ps.myBoard.failed || ps.myBoard.finished)) return;
+            ps.ws.send(JSON.stringify({ type: 'markCell', row: r, col: c }));
+        }
+        function sendChord(r, c) {
+            if (!ps.ws || !ps.myPlayerId || !ps.gameStarted || ps.finished) return;
+            if (ps.myBoard && (ps.myBoard.failed || ps.myBoard.finished)) return;
+            ps.ws.send(JSON.stringify({ type: 'chordCell', row: r, col: c }));
+        }
+
+        function getChordInfo(r, c) {
+            const board = ps.myBoard;
+            if (!board || !board.cells || !ps.gameStarted || ps.finished) return null;
+            if (board.failed || board.finished) return null;
+            const cell = board.cells[r] && board.cells[r][c];
+            if (!cell || cell.kind !== 'number' || !(cell.number > 0)) return null;
+            const n = ps.boardSize;
+            let flagCnt = 0;
+            const targets = [];
+            for (const [dr, dc] of DIRS8) {
+                const rr = r + dr;
+                const cc = c + dc;
+                if (rr < 0 || rr >= n || cc < 0 || cc >= n) continue;
+                const nc = board.cells[rr][cc];
+                if (!nc) continue;
+                if (nc.kind === 'flag') flagCnt++;
+                else if (nc.kind === 'closed' || nc.kind === 'question') targets.push([rr, cc]);
+            }
+            if (flagCnt !== cell.number) return null;
+            return { targets };
+        }
+
+        function clearChordPreview() {
+            grid.querySelectorAll('.ms-cell.chord-preview').forEach((el) => {
+                el.classList.remove('chord-preview', 'open', 'empty');
+            });
+        }
+
+        function applyChordPreview(r, c) {
+            clearChordPreview();
+            const info = getChordInfo(r, c);
+            if (!info) return false;
+            for (const [rr, cc] of info.targets) {
+                const el = grid.querySelector(`.ms-cell[data-row="${rr}"][data-col="${cc}"]`);
+                if (!el) continue;
+                el.className = 'ms-cell open empty chord-preview';
+                el.textContent = '';
+                el.querySelectorAll('canvas').forEach((cv) => cv.remove());
+            }
+            return true;
+        }
+
+        function cancelChord() {
+            if (!chordArmed) return;
+            chordArmed = false;
+            chordRow = -1;
+            chordCol = -1;
+            clearChordPreview();
+            renderBoard();
+        }
+
+        function releaseChord() {
+            if (!chordArmed) return;
+            const r = chordRow;
+            const c = chordCol;
+            chordArmed = false;
+            chordRow = -1;
+            chordCol = -1;
+            sendChord(r, c);
+        }
+
+        function chordPointerStillOnCell(clientX, clientY) {
+            if (chordRow < 0 || chordCol < 0) return false;
+            const el = document.elementFromPoint(clientX, clientY);
+            const cell = el && el.closest ? el.closest('.ms-cell') : null;
+            if (!cell || !grid.contains(cell)) return false;
+            return parseInt(cell.dataset.row, 10) === chordRow
+                && parseInt(cell.dataset.col, 10) === chordCol;
+        }
+
+        grid.addEventListener('contextmenu', e => e.preventDefault());
+        grid.addEventListener('mousedown', e => {
+            const cell = e.target.closest('.ms-cell');
+            if (!cell) return;
+            e.preventDefault();
+            const r = parseInt(cell.dataset.row, 10);
+            const c = parseInt(cell.dataset.col, 10);
+            if ((e.buttons & 3) === 3) {
+                if (applyChordPreview(r, c)) {
+                    chordArmed = true;
+                    chordRow = r;
+                    chordCol = c;
+                } else {
+                    chordArmed = false;
+                    chordRow = -1;
+                    chordCol = -1;
+                }
+                return;
+            }
+            if (chordArmed) return;
+            if (e.button === 0) sendOpen(r, c);
+            else if (e.button === 2) sendMark(r, c);
+        });
+        grid.addEventListener('mousemove', e => {
+            if (!chordArmed) return;
+            if (!chordPointerStillOnCell(e.clientX, e.clientY)) {
+                cancelChord();
+            }
+        });
+        grid.addEventListener('mouseleave', () => {
+            if (chordArmed) cancelChord();
+        });
+        window.addEventListener('mouseup', e => {
+            if (!chordArmed || (e.buttons & 3) !== 0) return;
+            if (chordPointerStillOnCell(e.clientX, e.clientY)) {
+                releaseChord();
+            } else {
+                cancelChord();
+            }
+        });
+
+        let longPressTimer = null;
+        grid.addEventListener('touchstart', e => {
+            const cell = e.target.closest('.ms-cell');
+            if (!cell) return;
+            const r = parseInt(cell.dataset.row, 10);
+            const c = parseInt(cell.dataset.col, 10);
+            longPressTimer = setTimeout(() => { longPressTimer = null; sendMark(r, c); }, 480);
+        }, { passive: true });
+        grid.addEventListener('touchend', e => {
+            const cell = e.target.closest('.ms-cell');
+            if (longPressTimer) {
+                clearTimeout(longPressTimer);
+                longPressTimer = null;
+                if (cell) sendOpen(parseInt(cell.dataset.row, 10), parseInt(cell.dataset.col, 10));
+            }
+        });
+        grid.addEventListener('touchmove', () => {
+            if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
+        }, { passive: true });
+
+        lobbyJoinBtn.onclick = () => {
+            if (ps.ws) ps.ws.send(JSON.stringify({ type: 'joinGame' }));
+        };
+        startGameBtn.onclick = () => {
+            if (!ps.ws) return;
+            if (startGameBtn.dataset.action === 'restart') {
+                ps.ws.send(JSON.stringify({ type: 'restartGame' }));
+                return;
+            }
+            ps.ws.send(JSON.stringify({
+                type: 'startGame',
+                boardSize: parseInt(boardSizeInput.value, 10) || 19,
+                mineCount: parseInt(mineCountInput.value, 10) || 72
+            }));
+        };
+
+        document.getElementById('helpBtn').onclick = () => {
+            document.getElementById('rulesModal').style.display = 'flex';
+        };
+        document.getElementById('closeRulesBtn').onclick = () => {
+            document.getElementById('rulesModal').style.display = 'none';
+        };
+        document.getElementById('rulesModal').onclick = e => {
+            if (e.target.id === 'rulesModal') e.target.style.display = 'none';
+        };
+        document.getElementById('backToLobbyBtn').onclick = () => { location.href = '/qi'; };
+
+        function handleMessage(msg) {
+            switch (msg.type) {
+                case 'joined':
+                    if (ps.ws && ps.ws.readyState === WebSocket.OPEN) {
+                        ps.ws.send(JSON.stringify({ type: 'enterRoom' }));
+                    }
+                    break;
+                case 'roomEntered':
+                    ps.hostId = msg.hostId;
+                    applyState(msg.state || {});
+                    break;
+                case 'playerJoined':
+                    ps.myPlayerId = msg.playerId;
+                    ps.hostId = msg.hostId;
+                    applyState(msg.state || {});
+                    break;
+                case 'playerListUpdate':
+                    ps.hostId = msg.hostId;
+                    if (msg.players) ps.players = msg.players;
+                    renderAll();
+                    break;
+                case 'gameState':
+                    applyState(msg);
+                    break;
+                case 'error':
+                    if (msg.message) qiAlert(msg.message);
+                    break;
+                default:
+                    break;
+            }
+        }
+
+        function connectWebSocket() {
+            if (ps.reconnectTimer) {
+                clearTimeout(ps.reconnectTimer);
+                ps.reconnectTimer = null;
+            }
+            const roomPassword = sessionStorage.getItem('roomPassword_' + roomId);
+            ps.ws = qiOpenRoomWebSocket({
+                gameType,
+                roomId,
+                roomPassword,
+                onMessage: handleMessage,
+                onClose: () => { ps.reconnectTimer = setTimeout(connectWebSocket, 2000); }
+            });
+        }
+
+        window.addEventListener('resize', () => { if (ps.gameStarted) renderBoard(); });
+        connectWebSocket();
+        renderAll();
+    })();
+    </script>
+</body>
+</html>

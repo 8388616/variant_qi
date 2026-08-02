@@ -1,0 +1,1831 @@
+<!DOCTYPE html>
+<html lang="zh-Hans">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>变体棋类研究中心</title>
+    <link rel="stylesheet" href="/qi/fonts/lxgw-wenkai-gb/index.css">
+    <style>
+        :root {
+            --bg: #f6f0e3;
+            --bg-deep: #eadcc2;
+            --paper: rgba(255, 250, 241, 0.84);
+            --ink: #4e3219;
+            --muted: #806350;
+            --line: rgba(108, 76, 46, 0.16);
+            --accent: #b86e34;
+            --accent-strong: #8e4a1a;
+            --forest: #3e7053;
+            --shadow-soft: 0 22px 44px rgba(94, 68, 38, 0.12);
+            --shadow-strong: 0 30px 70px rgba(87, 58, 28, 0.16);
+            --radius-xl: 34px;
+            --radius-lg: 24px;
+            /* 全站统一霞鹜文楷 GB，避免缺字回退到系统楷体/宋体 */
+            --body-font: "LXGW WenKai GB", "PingFang SC", "Microsoft YaHei", sans-serif;
+            --serif-font: "LXGW WenKai GB", "PingFang SC", "Microsoft YaHei", sans-serif;
+        }
+
+        * {
+            box-sizing: border-box;
+            user-select: none;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        html {
+            scroll-behavior: smooth;
+        }
+
+        body.platform-home {
+            margin: 0;
+            min-height: 100vh;
+            font-family: var(--body-font);
+            color: var(--ink);
+            background:
+                radial-gradient(circle at 14% 18%, rgba(171, 212, 189, 0.38), transparent 0 24rem),
+                radial-gradient(circle at 84% 12%, rgba(248, 206, 145, 0.44), transparent 0 26rem),
+                radial-gradient(circle at 50% 78%, rgba(255, 236, 202, 0.52), transparent 0 28rem),
+                linear-gradient(180deg, #fcf8f1 0%, var(--bg) 46%, var(--bg-deep) 100%);
+            overflow-x: hidden;
+        }
+
+        body.platform-home::before,
+        body.platform-home::after {
+            content: "";
+            position: fixed;
+            inset: auto;
+            z-index: 0;
+            pointer-events: none;
+            filter: blur(12px);
+        }
+
+        body.platform-home::before {
+            top: -8rem;
+            right: -5rem;
+            width: 24rem;
+            height: 24rem;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(255, 219, 165, 0.7) 0%, rgba(255, 219, 165, 0) 72%);
+        }
+
+        body.platform-home::after {
+            left: -9rem;
+            bottom: -10rem;
+            width: 26rem;
+            height: 26rem;
+            border-radius: 40%;
+            background: radial-gradient(circle, rgba(133, 187, 160, 0.5) 0%, rgba(133, 187, 160, 0) 74%);
+        }
+
+        body.platform-home a {
+            color: inherit;
+            text-decoration: none;
+        }
+
+        body.platform-home button {
+            font: inherit;
+        }
+
+        .home-shell {
+            position: relative;
+            z-index: 1;
+            width: min(1480px, calc(100% - 32px));
+            margin: 0 auto;
+            padding: 14px 0 18px;
+        }
+
+        .site-header {
+            display: grid;
+            grid-template-columns: auto 1fr auto;
+            gap: 14px;
+            align-items: center;
+            padding: 12px 18px;
+            border: 1px solid var(--line);
+            border-radius: 999px;
+            background: rgba(255, 250, 241, 0.7);
+            backdrop-filter: blur(12px);
+            box-shadow: var(--shadow-soft);
+        }
+
+        .brand-lockup {
+            display: inline-flex;
+            align-items: center;
+            gap: 14px;
+            min-width: 0;
+        }
+
+        .brand-emblem {
+            width: 48px;
+            height: 48px;
+            display: grid;
+            place-items: center;
+            border-radius: 15px;
+            border: 1px solid rgba(108, 76, 46, 0.18);
+            background: linear-gradient(145deg, rgba(255, 249, 240, 0.96), rgba(245, 229, 202, 0.9));
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85);
+            color: var(--accent-strong);
+            font-family: var(--body-font);
+            font-size: 22px;
+            font-weight: 500;
+        }
+
+        .brand-copy {
+            display: grid;
+            gap: 4px;
+        }
+
+        .brand-title {
+            font-size: 23px;
+            font-weight: 500;
+            letter-spacing: 0.01em;
+        }
+
+        .brand-subtitle {
+            color: var(--muted);
+            font-size: 12px;
+        }
+
+        .site-nav {
+            display: none;
+        }
+
+        .header-actions {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: flex-end;
+            gap: 8px;
+        }
+
+        .header-action-btn {
+            min-height: 38px;
+            padding: 0 14px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border: none;
+            border-radius: 999px;
+            background: transparent;
+            color: var(--muted);
+            cursor: pointer;
+            transition:
+                transform 0.16s ease,
+                background 0.16s ease,
+                color 0.16s ease;
+        }
+
+        .header-action-btn:hover,
+        .header-action-btn:focus-visible {
+            background: rgba(184, 110, 52, 0.12);
+            color: var(--accent-strong);
+        }
+
+        .landing-main {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) minmax(260px, 320px);
+            gap: 16px;
+            align-items: start;
+            margin-top: 14px;
+        }
+
+        .matrix-section,
+        .rooms-panel {
+            border: 1px solid var(--line);
+            border-radius: var(--radius-xl);
+            background: linear-gradient(180deg, rgba(255, 251, 244, 0.88), rgba(255, 246, 233, 0.74));
+            box-shadow: var(--shadow-soft);
+            backdrop-filter: blur(10px);
+        }
+
+        .matrix-section {
+            position: relative;
+            padding: 18px;
+            min-width: 0;
+        }
+
+        .game-category-head-tools {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex: 0 0 auto;
+            margin-left: auto;
+            min-width: 0;
+        }
+
+        /* 需压过 body.platform-home button { font: inherit }（约 16px） */
+        body.platform-home button.game-view-toggle {
+            flex: 0 0 auto;
+            height: 24px;
+            padding: 0 11px;
+            border: 1px solid rgba(108, 76, 46, 0.18);
+            border-radius: 999px;
+            background: rgba(255, 251, 244, 0.92);
+            color: var(--muted);
+            font: 400 13px/22px var(--body-font);
+            cursor: pointer;
+            white-space: nowrap;
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.78);
+            transition: background 0.16s ease, border-color 0.16s ease, color 0.16s ease;
+        }
+
+        body.platform-home button.game-view-toggle:hover,
+        body.platform-home button.game-view-toggle:focus-visible {
+            background: rgba(184, 110, 52, 0.12);
+            border-color: rgba(184, 110, 52, 0.28);
+            color: var(--accent-strong);
+            outline: none;
+        }
+
+        .game-category-head .game-search-input {
+            flex: 0 1 auto;
+            width: min(220px, 36vw);
+            height: 24px; /* 与 .game-category-title 行高一致，不抬高分类头 */
+            margin: 0;
+            padding: 0 12px;
+            border: 1px solid rgba(108, 76, 46, 0.18);
+            border-radius: 999px;
+            background: rgba(255, 251, 244, 0.92);
+            color: var(--ink);
+            font-family: var(--body-font);
+            font-size: 13px;
+            font-weight: 400;
+            line-height: 22px;
+            outline: none;
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.78);
+            user-select: text;
+            -webkit-user-select: text;
+        }
+
+        .game-category-head .game-search-input::placeholder {
+            color: rgba(128, 99, 80, 0.7);
+        }
+
+        .game-category-head .game-search-input:focus {
+            border-color: rgba(184, 110, 52, 0.45);
+            box-shadow: 0 0 0 3px rgba(184, 110, 52, 0.12);
+        }
+
+        .game-category-head.is-first-category .game-category-divider {
+            flex: 1 1 auto;
+            min-width: 12px;
+        }
+
+        .matrix-grid {
+            display: grid;
+            gap: 22px;
+        }
+
+        .game-category-row.is-search-hidden,
+        .game-card.is-search-hidden {
+            display: none !important;
+        }
+
+        .game-category-row {
+            display: grid;
+            gap: 12px;
+            margin-bottom: 28px;
+        }
+
+        .game-category-row:last-child {
+            margin-bottom: 0;
+        }
+
+        .game-category-head {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            padding: 0 4px;
+        }
+
+        .game-category-title {
+            margin: 0;
+            flex: 0 0 auto;
+            color: var(--ink);
+            font-family: var(--body-font);
+            font-size: 20px;
+            font-weight: 500;
+            line-height: 1.2;
+        }
+
+        .game-category-divider {
+            display: block;
+            height: 1px;
+            flex: 1 1 auto;
+            background: linear-gradient(90deg, rgba(108, 76, 46, 0.32), rgba(108, 76, 46, 0.06));
+        }
+
+        .game-category-cards {
+            display: grid;
+            gap: 12px;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            grid-auto-rows: 170px;
+        }
+
+        .game-card {
+            position: relative;
+            height: 100%;
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            align-items: stretch;
+            gap: 8px;
+            border: 1px solid rgba(108, 76, 46, 0.14);
+            border-radius: 24px;
+            background: linear-gradient(180deg, rgba(255, 252, 247, 0.95), rgba(247, 238, 223, 0.82));
+            box-shadow: 0 14px 26px rgba(97, 71, 39, 0.08);
+            transition:
+                transform 0.14s ease,
+                box-shadow 0.14s ease,
+                border-color 0.14s ease,
+                background 0.14s ease;
+        }
+
+        .game-card.is-live {
+            border-color: rgba(62, 112, 83, 0.24);
+            box-shadow: 0 20px 34px rgba(62, 112, 83, 0.12);
+        }
+
+        .game-card.is-disabled {
+            opacity: 1;
+            cursor: default;
+            pointer-events: none;
+            border-color: rgba(108, 76, 46, 0.1);
+            box-shadow: none;
+            background: linear-gradient(180deg, rgba(245, 240, 232, 0.9), rgba(236, 230, 220, 0.82));
+            color: #9a8b7a;
+        }
+
+        .game-card-linkable {
+            cursor: pointer;
+        }
+
+        .game-card-linkable:hover,
+        .game-card-linkable:focus-visible {
+            transform: translateY(-2px);
+            border-color: rgba(138, 75, 28, 0.22);
+            box-shadow: 0 20px 34px rgba(97, 71, 39, 0.12);
+        }
+
+        .game-card-linkable:active {
+            transform: translateY(1px) scale(0.986);
+            border-color: rgba(138, 75, 28, 0.28);
+            box-shadow: 0 10px 18px rgba(97, 71, 39, 0.12);
+            background: linear-gradient(180deg, rgba(251, 243, 229, 0.98), rgba(240, 226, 202, 0.9));
+        }
+
+        .game-card-linkable:focus-visible {
+            outline: 2px solid rgba(138, 75, 28, 0.26);
+            outline-offset: 3px;
+        }
+
+        .game-card-head {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .game-name-pill {
+            margin: 0;
+            padding: 0;
+            border: none;
+            border-radius: 0;
+            background: none;
+            font-family: var(--body-font);
+            font-size: 1.17em;
+            font-weight: 500;
+            line-height: 1.3;
+            letter-spacing: 0.01em;
+            color: var(--ink);
+            max-width: calc(100% - 5.5rem);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .game-card.is-disabled .game-name-pill {
+            color: #9a8b7a;
+        }
+
+        .game-index {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            flex: 0 0 auto;
+            min-height: 28px;
+            padding: 0 10px;
+            border-radius: 999px;
+            background: rgba(62, 112, 83, 0.12);
+            color: #2f6044;
+            font-size: 12px;
+            font-weight: 500;
+            letter-spacing: 0.02em;
+            line-height: 1.2;
+            white-space: nowrap;
+        }
+
+        .game-card.is-disabled .game-index {
+            background: rgba(154, 139, 122, 0.14);
+            color: #9a8b7a;
+        }
+
+        .game-intro {
+            margin: 5px 0 0;
+            color: var(--muted);
+            font-family: "KaiTi", "Kaiti SC", "STKaiti", "DFKai-SB", "BiauKai", serif;
+            font-size: 12px;
+            font-weight: 400;
+            line-height: 1.55;
+            min-height: 1.2em;
+        }
+
+        .game-card.is-disabled .game-intro,
+        .game-card.is-disabled .game-create-hint {
+            color: #9a8b7a;
+        }
+
+        .game-create-hint {
+            margin: auto 0 0;
+            color: rgba(128, 99, 80, 0.75);
+            font-size: 12px;
+            line-height: 1.4;
+            font-weight: 500;
+        }
+
+        .game-index-num {
+            display: none;
+        }
+
+        /* —— 列表视图：名称 + 右上角数字等级，纵向滚动 —— */
+        #platform-games.games-view-list .game-category-row {
+            gap: 8px;
+            margin-bottom: 18px;
+        }
+
+        #platform-games.games-view-list .game-category-cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, 148px);
+            grid-auto-rows: auto;
+            justify-content: start;
+            gap: 6px 10px;
+        }
+
+        #platform-games.games-view-list .game-card {
+            width: 148px;
+            height: auto;
+            min-height: 0;
+            min-width: 0;
+            padding: 7px 10px;
+            gap: 0;
+            border-radius: 14px;
+            box-shadow: none;
+            background: rgba(255, 251, 244, 0.55);
+        }
+
+        #platform-games.games-view-list .game-card.is-live {
+            box-shadow: none;
+            border-color: rgba(108, 76, 46, 0.14);
+            background: rgba(255, 251, 244, 0.72);
+        }
+
+        #platform-games.games-view-list .game-card-linkable:hover,
+        #platform-games.games-view-list .game-card-linkable:focus-visible {
+            transform: none;
+            border-color: rgba(184, 110, 52, 0.32);
+            background: rgba(255, 246, 230, 0.95);
+            box-shadow: 0 6px 14px rgba(97, 71, 39, 0.08);
+        }
+
+        #platform-games.games-view-list .game-card-linkable:active {
+            transform: scale(0.99);
+            box-shadow: none;
+        }
+
+        #platform-games.games-view-list .game-card-head {
+            align-items: flex-start;
+            gap: 4px;
+            min-width: 0;
+        }
+
+        #platform-games.games-view-list .game-name-pill {
+            flex: 1 1 auto;
+            min-width: 0;
+            max-width: none;
+            font-size: 0.98rem;
+            font-weight: 500;
+            line-height: 1.35;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        #platform-games.games-view-list .game-index {
+            min-height: 0;
+            padding: 0;
+            border-radius: 0;
+            background: none;
+            color: var(--accent-strong);
+            font-size: 0.72rem;
+            font-weight: 500;
+            line-height: 1.1;
+            margin-top: 1px;
+        }
+
+        #platform-games.games-view-list .game-card.is-disabled .game-index {
+            background: none;
+            color: #9a8b7a;
+        }
+
+        #platform-games.games-view-list .game-index-full {
+            display: none;
+        }
+
+        #platform-games.games-view-list .game-index-num {
+            display: inline;
+        }
+
+        #platform-games.games-view-list .game-intro,
+        #platform-games.games-view-list .game-create-hint {
+            display: none;
+        }
+
+        .rooms-panel {
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            min-height: 420px;
+            max-height: calc(100vh - 120px);
+            position: sticky;
+            top: 14px;
+        }
+
+        .rooms-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 10px;
+            padding: 0 4px 10px;
+            border-bottom: 1px solid var(--line);
+            margin-bottom: 10px;
+        }
+
+        .rooms-title {
+            margin: 0;
+            font-family: var(--body-font);
+            font-size: 20px;
+            font-weight: 500;
+        }
+
+        .refresh-btn {
+            min-height: 34px;
+            padding: 0 12px;
+            border: none;
+            border-radius: 999px;
+            background: rgba(184, 110, 52, 0.12);
+            color: var(--accent-strong);
+            font-weight: 800;
+            cursor: pointer;
+            transition: background 0.16s ease, transform 0.16s ease;
+        }
+
+        .refresh-btn:hover {
+            background: rgba(184, 110, 52, 0.2);
+            transform: translateY(-1px);
+        }
+
+        .rooms-list-container {
+            flex: 1;
+            overflow-y: auto;
+            padding-right: 4px;
+            min-height: 0;
+        }
+
+        .rooms-list-container::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        .rooms-list-container::-webkit-scrollbar-track {
+            background: rgba(108, 76, 46, 0.06);
+            border-radius: 10px;
+        }
+
+        .rooms-list-container::-webkit-scrollbar-thumb {
+            background: rgba(184, 110, 52, 0.45);
+            border-radius: 10px;
+        }
+
+        .room-item {
+            background: rgba(255, 251, 244, 0.9);
+            margin: 0 0 10px;
+            padding: 12px 14px;
+            border-radius: 18px;
+            border: 1px solid rgba(108, 76, 46, 0.12);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 10px;
+            transition: border-color 0.14s ease, box-shadow 0.14s ease;
+        }
+
+        .room-item:hover {
+            border-color: rgba(138, 75, 28, 0.22);
+            box-shadow: 0 10px 18px rgba(97, 71, 39, 0.08);
+        }
+
+        .room-info {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+            font-weight: 600;
+            color: var(--ink);
+        }
+
+        .room-id,
+        .game-badge,
+        .player-count {
+            display: inline-flex;
+            align-items: center;
+            min-height: 28px;
+            padding: 0 10px;
+            border-radius: 999px;
+            font-size: 0.85rem;
+        }
+
+        .room-id {
+            background: rgba(78, 50, 25, 0.08);
+            letter-spacing: 1px;
+        }
+
+        .game-badge,
+        .player-count {
+            background: rgba(62, 112, 83, 0.12);
+            color: #2f6044;
+        }
+
+        .enter-btn {
+            background: linear-gradient(135deg, #edac70, #dd8c50);
+            border: none;
+            color: #fff8ef;
+            font-weight: 800;
+            padding: 6px 16px;
+            border-radius: 999px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            box-shadow: 0 10px 18px rgba(133, 73, 25, 0.16);
+            transition: transform 0.14s ease, box-shadow 0.14s ease;
+        }
+
+        .enter-btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 14px 22px rgba(133, 73, 25, 0.2);
+        }
+
+        .enter-btn:active {
+            transform: translateY(1px);
+        }
+
+        .empty-rooms {
+            text-align: center;
+            color: var(--muted);
+            padding: 28px 12px;
+            font-style: italic;
+        }
+
+        .random-level-hint {
+            margin-top: 12px;
+            padding: 0 6px;
+            font-size: 0.8rem;
+            color: var(--muted);
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .help-icon {
+            display: inline-grid;
+            place-items: center;
+            width: 18px;
+            height: 18px;
+            border: 1px solid rgba(108, 76, 46, 0.16);
+            background: rgba(184, 110, 52, 0.12);
+            color: var(--accent-strong);
+            border-radius: 50%;
+            font-weight: 700;
+            cursor: pointer;
+            font-size: 11px;
+            line-height: 1;
+            position: relative;
+            transition: background 0.16s ease, border-color 0.16s ease, color 0.16s ease;
+        }
+
+        .help-icon:hover,
+        .help-icon:focus-visible {
+            background: rgba(184, 110, 52, 0.2);
+            border-color: rgba(184, 110, 52, 0.28);
+            color: var(--accent-strong);
+        }
+
+        .temp-tooltip {
+            position: fixed;
+            z-index: 10000;
+            max-width: min(300px, calc(100vw - 24px));
+            padding: 14px 16px 12px;
+            border: 1px solid var(--line);
+            border-radius: 22px;
+            background: linear-gradient(180deg, rgba(255, 251, 244, 0.98), rgba(255, 245, 230, 0.94));
+            color: var(--ink);
+            font-family: var(--body-font);
+            font-size: 0.88rem;
+            line-height: 1.55;
+            white-space: normal;
+            box-shadow: var(--shadow-strong);
+            pointer-events: none;
+            transition: opacity 0.18s ease;
+            opacity: 0;
+            text-align: left;
+        }
+
+        .temp-tooltip.show {
+            opacity: 1;
+        }
+
+        .temp-tooltip .tooltip-title {
+            margin: 0 0 8px;
+            color: var(--ink);
+            font-size: 0.95rem;
+            font-weight: 500;
+            letter-spacing: 0.02em;
+        }
+
+        .temp-tooltip .tooltip-line {
+            display: flex;
+            align-items: baseline;
+            gap: 8px;
+            color: var(--muted);
+        }
+
+        .temp-tooltip .tooltip-line + .tooltip-line {
+            margin-top: 4px;
+        }
+
+        .temp-tooltip .tooltip-level {
+            flex: 0 0 auto;
+            min-width: 2.2em;
+            color: var(--accent-strong);
+            font-weight: 500;
+        }
+
+        /* —— 首页风格弹窗（创建房间 / 生成二维码） —— */
+        .lobby-qr-modal.qi-time-control-modal {
+            display: none;
+        }
+
+        .lobby-qr-modal.qi-time-control-modal.lobby-qr-modal--open {
+            display: flex;
+        }
+
+        .qi-time-control-modal,
+        .modal-mask {
+            display: none;
+            position: fixed;
+            inset: 0;
+            z-index: 2000;
+            align-items: center;
+            justify-content: center;
+            padding: 24px;
+            background: rgba(63, 39, 18, 0.28);
+            backdrop-filter: blur(10px);
+        }
+
+        .qi-message-modal {
+            display: none;
+        }
+
+        .qi-time-control-dialog,
+        .modal-panel {
+            position: relative;
+            width: min(420px, calc(100vw - 36px));
+            padding: 22px 24px 20px;
+            border: 1px solid var(--line);
+            border-radius: var(--radius-xl);
+            background: linear-gradient(180deg, rgba(255, 251, 244, 0.98), rgba(255, 245, 230, 0.94));
+            box-shadow: var(--shadow-strong);
+            color: var(--ink);
+            text-align: center;
+        }
+
+        .qi-time-control-title,
+        .modal-panel h3 {
+            margin: 0 0 16px;
+            font-family: var(--body-font);
+            font-size: 1.25rem;
+            font-weight: 500;
+            color: var(--ink);
+            letter-spacing: 0.02em;
+        }
+
+        .lobby-qr-field-block {
+            display: block;
+            width: 100%;
+            margin-bottom: 4px;
+            text-align: left;
+        }
+
+        .lobby-qr-field-block > span {
+            color: var(--muted);
+            font-size: 0.88rem;
+        }
+
+        .lobby-qr-textarea,
+        .modal-panel input {
+            width: 100%;
+            box-sizing: border-box;
+            margin: 0 0 16px;
+            padding: 12px 14px;
+            border: 1px solid rgba(108, 76, 46, 0.18);
+            border-radius: 16px;
+            background: rgba(255, 251, 244, 0.92);
+            color: var(--ink);
+            font: inherit;
+            font-size: 0.98rem;
+            outline: none;
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.78);
+            user-select: text;
+            -webkit-user-select: text;
+            transition: border-color 0.16s ease, box-shadow 0.16s ease;
+        }
+
+        .lobby-qr-textarea {
+            min-height: 96px;
+            margin-top: 0;
+            resize: vertical;
+            line-height: 1.5;
+        }
+
+        .lobby-qr-textarea:focus,
+        .modal-panel input:focus {
+            border-color: rgba(184, 110, 52, 0.45);
+            box-shadow: 0 0 0 3px rgba(184, 110, 52, 0.12);
+        }
+
+        .qi-time-control-hint {
+            margin: 10px 0 6px;
+            font-size: 0.85rem;
+            color: var(--muted);
+            min-height: 1.2em;
+        }
+
+        .qi-time-control-footer,
+        .modal-buttons {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            justify-content: center;
+            margin-top: 4px;
+        }
+
+        .qi-time-control-primary,
+        .modal-buttons button#confirmCreateBtn,
+        .modal-buttons button:first-child {
+            min-height: 42px;
+            padding: 0 22px;
+            border: none;
+            border-radius: 999px;
+            background: linear-gradient(135deg, #b76e34, #8e4a1a);
+            color: #fff8ef;
+            font: inherit;
+            font-weight: 500;
+            cursor: pointer;
+            box-shadow: 0 14px 26px rgba(133, 73, 25, 0.16);
+            transition: transform 0.14s ease, box-shadow 0.14s ease;
+        }
+
+        .qi-time-control-secondary,
+        .modal-buttons button#cancelCreateBtn,
+        .modal-buttons button:last-child {
+            min-height: 42px;
+            padding: 0 20px;
+            border: 1px solid rgba(108, 76, 46, 0.16);
+            border-radius: 999px;
+            background: rgba(255, 251, 244, 0.88);
+            color: var(--ink);
+            font: inherit;
+            font-weight: 500;
+            cursor: pointer;
+            transition: transform 0.14s ease, background 0.14s ease, border-color 0.14s ease;
+        }
+
+        .qi-time-control-primary:hover,
+        .modal-buttons button#confirmCreateBtn:hover,
+        .modal-buttons button:first-child:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 18px 30px rgba(133, 73, 25, 0.2);
+        }
+
+        .qi-time-control-secondary:hover,
+        .modal-buttons button#cancelCreateBtn:hover,
+        .modal-buttons button:last-child:hover {
+            transform: translateY(-1px);
+            border-color: rgba(138, 75, 28, 0.28);
+            background: rgba(255, 244, 228, 0.95);
+            color: var(--accent-strong);
+        }
+
+        .qi-time-control-primary:active,
+        .qi-time-control-secondary:active,
+        .modal-buttons button:active {
+            transform: translateY(1px);
+        }
+
+        .qi-message-modal.qi-message-modal--open {
+            display: flex;
+        }
+
+        .qi-message-dialog {
+            max-width: 360px;
+            outline: none;
+        }
+
+        .qi-message-text {
+            color: var(--ink);
+            font-size: 0.98rem;
+            line-height: 1.55;
+            min-height: 1.6em;
+            text-align: center;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
+        .qi-message-footer {
+            margin-top: 16px;
+        }
+
+        @media (max-width: 1220px) {
+            .game-category-cards {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+
+            .landing-main {
+                grid-template-columns: minmax(0, 1fr) minmax(220px, 280px);
+            }
+
+            .site-header {
+                grid-template-columns: 1fr;
+                justify-items: start;
+                border-radius: 30px;
+            }
+
+            .header-actions {
+                justify-content: flex-start;
+            }
+        }
+
+        @media (max-width: 900px) {
+            .landing-main {
+                grid-template-columns: 1fr;
+            }
+
+            .rooms-panel {
+                position: static;
+                max-height: 360px;
+                min-height: 260px;
+                order: -1;
+            }
+
+            .game-category-cards {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+        }
+
+        @media (max-width: 760px) {
+            .home-shell {
+                width: min(100%, calc(100vw - 20px));
+                padding-top: 12px;
+            }
+
+            .site-header,
+            .matrix-section,
+            .rooms-panel {
+                padding: 18px;
+                border-radius: 28px;
+            }
+
+            .brand-title {
+                font-size: 22px;
+            }
+
+            .room-item {
+                margin-bottom: 8px;
+                padding: 10px 12px;
+                gap: 8px;
+            }
+
+            .room-id,
+            .game-badge,
+            .player-count {
+                min-height: 24px;
+                padding: 0 8px;
+                font-size: 0.75rem;
+            }
+
+            .enter-btn {
+                padding: 5px 12px;
+                font-size: 0.8rem;
+            }
+        }
+
+        @media (max-width: 560px) {
+            .game-category-cards {
+                grid-template-columns: 1fr;
+            }
+
+            body.platform-home button.game-view-toggle {
+                padding: 0 9px;
+                font: 400 12px/22px var(--body-font);
+            }
+
+            .game-category-head .game-search-input {
+                width: min(120px, 34vw);
+                font-size: 12px;
+                padding: 0 10px;
+            }
+
+            #platform-games.games-view-list .game-category-cards {
+                grid-template-columns: repeat(auto-fill, 132px);
+            }
+
+            #platform-games.games-view-list .game-card {
+                width: 132px;
+            }
+        }
+    </style>
+</head>
+<body class="platform-home">
+    <div class="home-shell">
+        <header class="site-header">
+            <a class="brand-lockup" href="/qi" aria-label="变体棋类研究中心">
+                <div class="brand-emblem" aria-hidden="true">棋</div>
+                <div class="brand-copy">
+                    <div class="brand-title">变体棋类研究中心</div>
+                    <div class="brand-subtitle">变体棋类在线对弈入口</div>
+                </div>
+            </a>
+
+            <nav class="site-nav" aria-hidden="true">
+                <button type="button" class="site-nav-btn" hidden>公告</button>
+                <a href="#" hidden>进入大厅</a>
+                <button type="button" class="site-nav-btn" hidden>设定</button>
+            </nav>
+
+            <div class="header-actions">
+                <button type="button" class="header-action-btn" id="lobbyQrCodeBtn" title="根据文本生成二维码局面">生成二维码</button>
+                <button type="button" class="header-action-btn" id="lobbyImportRecordBtn" title="导入棋谱">导入棋谱</button>
+            </div>
+        </header>
+
+        <main class="landing-main">
+            <section id="platform-games" class="matrix-section matrix-section-minimal">
+                <div id="platform-games-grid" class="matrix-grid"></div>
+                <div class="random-level-hint">
+                    右上角标签代表随机级别
+                    <span class="help-icon">?</span>
+                </div>
+            </section>
+
+            <aside class="rooms-panel" aria-label="房间列表">
+                <div class="rooms-header">
+                    <h2 class="rooms-title">房间列表</h2>
+                    <button class="refresh-btn" id="refreshRoomsBtn" type="button">刷新</button>
+                </div>
+                <div class="rooms-list-container" id="roomsListContainer">
+                    <div class="empty-rooms">暂无房间</div>
+                </div>
+            </aside>
+        </main>
+    </div>
+
+    <input type="file" id="lobbyImportFileInput" accept=".json,application/json" style="display:none;" aria-hidden="true">
+
+    <div id="lobbyQrModal" class="qi-time-control-modal lobby-qr-modal" aria-hidden="true">
+        <div class="qi-time-control-dialog" role="dialog" aria-modal="true" aria-labelledby="lobbyQrModalTitle">
+            <h3 class="qi-time-control-title" id="lobbyQrModalTitle">生成二维码</h3>
+            <label class="lobby-qr-field-block" for="lobbyQrTextInput">
+                <textarea id="lobbyQrTextInput" class="lobby-qr-textarea" rows="4" placeholder="输入要编码为二维码的字符串…"></textarea>
+            </label>
+            <div class="qi-time-control-footer">
+                <button type="button" class="qi-time-control-primary" id="lobbyQrConfirmBtn">生成并进入房间</button>
+                <button type="button" class="qi-time-control-secondary" id="lobbyQrCancelBtn">取消</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="createModal" class="modal-mask">
+        <div class="modal-panel">
+            <h3 id="modalGameName">创建房间</h3>
+            <input type="text" id="roomPasswordInput" placeholder="房间密码 (可选)" autocomplete="off">
+            <div class="modal-buttons">
+                <button id="confirmCreateBtn" type="button">创建</button>
+                <button id="cancelCreateBtn" type="button">取消</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/qi/qi.js"></script>
+    <script src="/qi/qrcode.min.js"></script>
+    <script>
+        const GAMES_DATA = [
+            // 围棋类
+            { id: 'choice-weiqi', name: '选点围棋', randomLevel: 4, path: 'choice-weiqi', enabled: true, category: '围棋', intro: '每步棋只能从随机候选点中选点落子！' },
+            { id: 'triangle-weiqi', name: '三角围棋', randomLevel: 0, path: 'triangle-weiqi', enabled: true, category: '围棋', intro: '三角形棋盘！' },
+            { id: 'hexagon-weiqi', name: '六角围棋', randomLevel: 0, path: 'hexagon-weiqi', enabled: true, category: '围棋', intro: '六角形棋盘！' },
+            { id: 'biliberty-weiqi', name: '二气围棋', randomLevel: 0, path: 'biliberty-weiqi', enabled: true, category: '围棋', intro: '每片棋子少一口气！' },
+            { id: 'zeroliberty-weiqi', name: '零气围棋', randomLevel: 0, path: 'zeroliberty-weiqi', enabled: true, category: '围棋', intro: '棋子没有气后，还需要花额外的一手棋来提子！' },
+            { id: 'weight-weiqi', name: '权重围棋', randomLevel: 2, path: 'weight-weiqi', enabled: true, category: '围棋', intro: '棋盘上每个点的价值不同！' },
+            { id: 'hole-weiqi', name: '洞围棋', randomLevel: 2, path: 'hole-weiqi', enabled: true, category: '围棋', intro: '棋盘上破了一些洞！' },
+            { id: 'bridge-weiqi', name: '桥围棋', randomLevel: 2, path: 'bridge-weiqi', enabled: true, category: '围棋', intro: '棋盘上建了一些桥！' },
+            { id: 'ukrainian-weiqi', name: '乌克兰围棋', randomLevel: 0, path: 'ukrainian-weiqi', enabled: true, category: '围棋', intro: '一次下三颗子！' },
+            { id: 'rus-weiqi', name: '罗斯围棋', randomLevel: 0, path: 'rus-weiqi', enabled: true, category: '围棋', intro: '一次下三颗子，其中有一颗是对方的！' },
+            { id: 'mirror-image-weiqi', name: '镜像围棋', randomLevel: 4, path: 'mirror-image-weiqi', enabled: true, category: '围棋', intro: '落子时会同时在镜像位置落子！' },
+            { id: 'weak-magnetism-weiqi', name: '弱磁性围棋', randomLevel: 0, path: 'weak-magnetism-weiqi', enabled: true, category: '围棋', intro: '落子时会吸引或排斥棋盘上的棋子！' },
+            { id: 'translocation-weiqi', name: '易位围棋', randomLevel: 0, path: 'translocation-weiqi', enabled: true, category: '围棋', intro: '除了落子，还可以交换棋子的位置！' },
+            { id: 'rotation-weiqi', name: '旋转围棋', randomLevel: 0, path: 'rotation-weiqi', enabled: true, category: '围棋', intro: '下着下着，棋盘旋转了！' },
+            { id: 'nogrid-weiqi', name: '无格线围棋', randomLevel: 0, path: 'nogrid-weiqi', enabled: true, category: '围棋', intro: '棋盘忘记画格线了！' },
+            { id: 'instability-weiqi', name: '不稳定围棋', randomLevel: 0, path: 'instability-weiqi', enabled: true, category: '围棋', intro: '棋子落下后还会消失！' },
+            { id: 'fog-weiqi', name: '迷雾围棋', randomLevel: 3, path: 'fog-weiqi', enabled: true, category: '围棋', intro: '棋盘上笼罩着迷雾！' },
+            { id: 'sync-weiqi', name: '同步围棋', randomLevel: 3, path: 'sync-weiqi', enabled: true, category: '围棋', intro: '双方同步骡子！' },
+            { id: 'invisible-stone-weiqi', name: '隐身子围棋', randomLevel: 3, path: 'invisible-stone-weiqi', enabled: true, category: '围棋', intro: '每第3手棋会隐身！' },
+            { id: 'radar-weiqi', name: '雷达围棋', randomLevel: 3, path: 'radar-weiqi', enabled: true, category: '围棋', intro: '看不到对方的棋子，只能感知到每个棋子最近的对方棋子的距离！' },
+            { id: 'ghost-weiqi', name: '幽灵围棋', randomLevel: 3, path: 'ghost-weiqi', enabled: false, category: '围棋', intro: '看不到对方的棋子！' },
+            { id: 'twisted-space-weiqi', name: '扭曲空间围棋', randomLevel: 2, path: 'twisted-space-weiqi', enabled: true, category: '围棋', intro: '棋盘在扭曲空间中！' },
+            { id: 'renju-weiqi', name: '连珠围棋', randomLevel: 0, path: 'renju-weiqi', enabled: false, category: '围棋', intro: '' },
+
+            // 五子棋类
+            { id: 'choice-wuziqi', name: '选点五子棋', randomLevel: 4, path: 'choice-wuziqi', enabled: true, category: '五子棋', intro: '每步棋只能从随机候选点中选点落子！' },
+            { id: 'guess-wuziqi', name: '猜点五子棋', randomLevel: 4, path: 'guess-wuziqi', enabled: true, category: '五子棋', intro: '猜对方的选点，并且让对方猜错！' },
+            { id: 'triangle-wuziqi', name: '三角五子棋', randomLevel: 0, path: 'triangle-wuziqi', enabled: true, category: '五子棋', intro: '三角形棋盘！' },
+            { id: 'random-instability-wuziqi', name: '随机不稳定五子棋', randomLevel: 4, path: 'random-instability-wuziqi', enabled: true, category: '五子棋', intro: '每个棋子都有随机寿命！' },
+            { id: 'match-wuziqi', name: '消除五子棋', randomLevel: 0, path: 'match-wuziqi', enabled: true, category: '五子棋', intro: '' },
+
+            // 象棋类
+            { id: 'double-xiangqi', name: '二象棋', randomLevel: 0, path: 'double-xiangqi', enabled: true, category: '象棋', intro: '两副象棋，但是只有一个棋盘！' },
+            { id: 'dyeing-xiangqi', name: '染色象棋', randomLevel: 0, path: 'dyeing-xiangqi', enabled: false, category: '象棋', intro: '' },
+
+            // 其它类
+            { id: 'quoridor', name: '路墙棋', randomLevel: 0, path: 'quoridor', enabled: true, category: '其它', intro: '' },
+            { id: 'noweiqi', name: '不围棋', randomLevel: 0, path: 'noweiqi', enabled: true, category: '其它', intro: '谁先提子谁输！' },
+            { id: 'reverse-wuziqi', name: '反五子棋', randomLevel: 0, path: 'reverse-wuziqi', enabled: true, category: '其它', intro: '谁先连成五子谁输！' },
+            { id: 'wxd', name: 'WxD棋', randomLevel: 2, path: 'wxd', enabled: true, category: '其它', intro: '' },
+
+            // 废案类
+            { id: 'snub-quadrangle-weiqi', name: '扭棱四角围棋', randomLevel: 0, path: 'snub-quadrangle-weiqi', enabled: true, category: '废案', intro: '扭棱四角棋盘！' },
+            { id: 'cairo-pentagon-weiqi', name: '开罗五角围棋', randomLevel: 0, path: 'cairo-pentagon-weiqi', enabled: true, category: '废案', intro: '开罗五角棋盘！' },
+            { id: 'floret-pentagon-weiqi', name: '花形五角围棋', randomLevel: 0, path: 'floret-pentagon-weiqi', enabled: true, category: '废案', intro: '花形五角棋盘！' },
+            { id: 'penrose-p2-weiqi', name: '彭罗斯P2围棋', randomLevel: 0, path: 'penrose-p2-weiqi', enabled: false, category: '废案', intro: '' },
+            { id: 'sigmoid-triangle-weiqi', name: 'Sigmoid三角围棋', randomLevel: 0, path: 'sigmoid-triangle-weiqi', enabled: true, category: '废案', intro: 'Sigmoid三角棋盘！' },
+            { id: 'big-small-circle-weiqi', name: '大小圆围棋', randomLevel: 0, path: 'big-small-circle-weiqi', enabled: false, category: '废案', intro: '' },
+            { id: 'triliberty-weiqi', name: '三气围棋', randomLevel: 0, path: 'triliberty-weiqi', enabled: true, category: '废案', intro: '每片棋子少两口气！' },
+            { id: 'quadriliberty-weiqi', name: '四气围棋', randomLevel: 0, path: 'quadriliberty-weiqi', enabled: true, category: '废案', intro: '每片棋子少三口气！' },
+            { id: 'various-liberty-weiqi', name: '异气围棋', randomLevel: 0, path: 'various-liberty-weiqi', enabled: true, category: '废案', intro: '每个棋子的气数不同！' },
+            { id: 'triweight-weiqi', name: '三权重围棋', randomLevel: 2, path: 'triweight-weiqi', enabled: true, category: '废案', intro: '棋盘上的点有三种价值！' },
+            { id: 'neutral-stone-weiqi', name: '中立子围棋', randomLevel: 2, path: 'neutral-stone-weiqi', enabled: true, category: '废案', intro: '' },
+            { id: 'family-weiqi', name: '全家福围棋', randomLevel: 2, path: 'family-weiqi', enabled: true, category: '废案', intro: '啥都有！' },
+            { id: 'russian-weiqi', name: '俄罗斯围棋', randomLevel: 4, path: 'russian-weiqi', enabled: true, category: '废案', intro: '' },
+            { id: 'medium-magnetism-weiqi', name: '中磁性围棋', randomLevel: 0, path: 'medium-magnetism-weiqi', enabled: true, category: '废案', intro: '更强的磁性！' },
+            { id: 'strong-magnetism-weiqi', name: '强磁性围棋', randomLevel: 0, path: 'strong-magnetism-weiqi', enabled: true, category: '废案', intro: '更更强的磁性！' },
+            { id: 'front-back-weiqi', name: '正反面围棋', randomLevel: 0, path: 'front-back-weiqi', enabled: true, category: '废案', intro: '' },
+            { id: 'auction-weiqi', name: '竞叫围棋', randomLevel: 0, path: 'auction-weiqi', enabled: false, category: '废案', intro: '' },
+            { id: 'continuous-weiqi', name: '连续围棋', randomLevel: 0, path: 'continuous-weiqi', enabled: true, category: '废案', intro: '' },
+            { id: 'minesweeper-weiqi', name: '扫雷围棋', randomLevel: 4, path: 'minesweeper-weiqi', enabled: true, category: '废案', intro: '' },
+            { id: 'real-time-weiqi', name: 'RealTime围棋', randomLevel: 0, path: 'real-time-weiqi', enabled: true, category: '废案', intro: '拼手速！' },
+            { id: 'rotation-wuziqi', name: '旋转五子棋', randomLevel: 0, path: 'rotation-wuziqi', enabled: true, category: '废案', intro: '' },
+            { id: 'capture-shiziqi', name: '提子十子棋', randomLevel: 0, path: 'capture-shiziqi', enabled: true, category: '废案', intro: '' },
+            { id: 'weiqi', name: '围棋', randomLevel: 0, path: 'weiqi', enabled: true, category: '废案', intro: '普通的围棋有什么好玩的！' },
+            { id: 'wuziqi', name: '五子棋', randomLevel: 0, path: 'wuziqi', enabled: true, category: '废案', intro: '普通的五子棋有什么好玩的！' },
+            { id: 'xiangqi', name: '象棋', randomLevel: 0, path: 'xiangqi', enabled: true, category: '废案', intro: '普通的象棋棋有什么好玩的！' },
+            { id: 'super-24', name: '超级24点', randomLevel: 0, path: 'super-24', enabled: true, category: '废案', intro: '' },
+            { id: 'versus-minesweeper', name: '对战扫雷', randomLevel: 0, path: 'versus-minesweeper', enabled: true, category: '废案', intro: '' },
+            { id: 'speed-minesweeper', name: '竞速扫雷', randomLevel: 0, path: 'speed-minesweeper', enabled: true, category: '废案', intro: '' },
+        ];
+
+        let pendingGame = null;
+        let activeTooltip = null;
+        const API_BASE = `${location.protocol}//${location.hostname}`;
+
+        /** 与 qi.js 中 sessionStorage 键一致：大厅导入成功后由游戏页在 joined 时发送 importRecord */
+        const QI_LOBBY_PENDING_IMPORT_KEY = 'qiLobbyPendingImport';
+
+        function lobbyGetQrcodeFactory() {
+            if (typeof qrcode === 'function') return qrcode;
+            return null;
+        }
+
+        /**
+         * @param {string} text
+         * @returns {{ record: object } | { error: string }}
+         */
+        function lobbyBuildWeiqiRecordFromQrText(text) {
+            const mk = lobbyGetQrcodeFactory();
+            if (!mk) {
+                return { error: '二维码库未加载，请检查网络后刷新页面重试。' };
+            }
+            let qr;
+            try {
+                qr = mk(0, 'L');
+                qr.addData(text);
+                qr.make();
+            } catch (e) {
+                return { error: '无法生成二维码：' + (e && e.message ? e.message : String(e)) };
+            }
+            const n = qr.getModuleCount();
+            if (!Number.isFinite(n) || n < 1) {
+                return { error: '二维码生成结果无效。' };
+            }
+            if (n > 49) {
+                return { error: `二维码过大，无法显视。` };
+            }
+            const initialPosition = [];
+            for (let r = 0; r < n; r++) {
+                for (let c = 0; c < n; c++) {
+                    if (qr.isDark(r, c)) initialPosition.push(`B${r},${c}`);
+                    else initialPosition.push(`W${r},${c}`);
+                }
+            }
+            const boardSize = n;
+            return {
+                record: {
+                    format: 'muzei',
+                    version: 1,
+                    gameType: '围棋',
+                    gameId: 'weiqi',
+                    boardSize,
+                    komi: boardSize <= 8 ? 4.25 : 3.25,
+                    players: { black: null, white: null },
+                    initialPosition,
+                    moves: []
+                }
+            };
+        }
+
+        async function lobbyCreateRoomWithPendingWeiqiImport(record) {
+            const gameId = 'weiqi';
+            const game = GAMES_DATA.find(g => g.id === gameId);
+            if (!game || !game.enabled) {
+                qiAlert('标准围棋未开放，无法创建房间');
+                return;
+            }
+            try {
+                const res = await fetch(`${API_BASE}/qi/create`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ game: game.id, password: null })
+                });
+                const result = await res.json();
+                if (!result.success) {
+                    qiAlert('创建房间失败：' + (result.error || '未知错误'));
+                    return;
+                }
+                const roomId = String(result.roomId);
+                sessionStorage.setItem(`roomPassword_${roomId}`, '');
+                try { sessionStorage.removeItem('qiLobbyFreshRoom'); } catch (e) {}
+                sessionStorage.setItem(QI_LOBBY_PENDING_IMPORT_KEY, JSON.stringify({
+                    record,
+                    expectedGameId: gameId,
+                    expectedRoomId: roomId
+                }));
+                window.location.href = `/qi/${game.path}/${roomId}`;
+            } catch (err) {
+                qiAlert('网络错误，请稍后重试');
+            }
+        }
+
+        async function lobbyImportRecordFromFile(file) {
+            let data;
+            try {
+                data = JSON.parse(await file.text());
+            } catch (e) {
+                qiAlert('棋谱文件解析失败');
+                return;
+            }
+            const gameId = data && data.gameId;
+            if (!gameId || typeof gameId !== 'string') {
+                qiAlert('无法识别棋类或该棋类未开放');
+                return;
+            }
+            const game = GAMES_DATA.find(g => g.id === gameId);
+            if (!game || !game.enabled) {
+                qiAlert('无法识别棋类或该棋类未开放');
+                return;
+            }
+            try {
+                const res = await fetch(`${API_BASE}/qi/create`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ game: game.id, password: null })
+                });
+                const result = await res.json();
+                if (!result.success) {
+                    qiAlert('创建房间失败：' + (result.error || '未知错误'));
+                    return;
+                }
+                const roomId = String(result.roomId);
+                sessionStorage.setItem(`roomPassword_${roomId}`, '');
+                try { sessionStorage.removeItem('qiLobbyFreshRoom'); } catch (e) {}
+                sessionStorage.setItem(QI_LOBBY_PENDING_IMPORT_KEY, JSON.stringify({
+                    record: data,
+                    expectedGameId: gameId,
+                    expectedRoomId: roomId
+                }));
+                window.location.href = `/qi/${game.path}/${roomId}`;
+            } catch (err) {
+                qiAlert('网络错误，请稍后重试');
+            }
+        }
+
+        async function fetchAllRooms() {
+            const activeGames = GAMES_DATA.filter(g => g.enabled === true);
+            const results = await Promise.all(activeGames.map(async (game) => {
+                try {
+                    const res = await fetch(`${API_BASE}/qi/rooms?game=${game.id}`);
+                    if (res.ok) {
+                        const rooms = await res.json();
+                        return rooms.map(room => ({
+                            ...room,
+                            gameId: game.id,
+                            gameName: game.name,
+                            gamePath: game.path
+                        }));
+                    }
+                } catch (e) { console.warn(`获取${game.id}房间失败`, e); }
+                return [];
+            }));
+            return results.flat();
+        }
+
+        function renderRooms(rooms) {
+            const container = document.getElementById('roomsListContainer');
+            if (!rooms.length) {
+                container.innerHTML = '<div class="empty-rooms">暂无房间</div>';
+                return;
+            }
+            rooms.sort((a, b) => {
+                const playerDiff = (b.playerCount || 0) - (a.playerCount || 0);
+                if (playerDiff !== 0) return playerDiff;
+                return a.roomId - b.roomId;
+            });
+            const html = rooms.map(room => `
+                            <div class="room-item" data-room-id="${room.roomId}" data-game-id="${room.gameId}" data-game-path="${room.gamePath}" data-has-password="${room.hasPassword}">
+                                <div class="room-info">
+                                    <span class="room-id">${room.roomId}</span>
+                                    <span class="game-badge">${room.gameName}</span>
+                                    <span class="player-count">${room.playerCount || 0}/2</span>
+                                    ${room.hasPassword ? '<span class="player-count">私密</span>' : '<span class="player-count">公开</span>'}
+                                </div>
+                                <button class="enter-btn" type="button" data-room-id="${room.roomId}" data-game-id="${room.gameId}" data-game-path="${room.gamePath}" data-has-password="${room.hasPassword}">进入房间</button>
+                            </div>
+                        `).join('');
+            container.innerHTML = html;
+
+            document.querySelectorAll('.enter-btn').forEach(btn => {
+                btn.addEventListener('click', async (e) => {
+                    e.stopPropagation();
+                    const roomId = btn.getAttribute('data-room-id');
+                    const gameId = btn.getAttribute('data-game-id');
+                    const gamePath = btn.getAttribute('data-game-path');
+                    const hasPassword = btn.getAttribute('data-has-password') === 'true';
+
+                    let password = null;
+                    if (hasPassword) {
+                        password = prompt('房间设置了密码，请输入密码：');
+                        if (password === null) return;
+                    }
+
+                    try {
+                        const res = await fetch(`${API_BASE}/qi/join`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ game: gameId, roomId, password: password || '' })
+                        });
+                        const data = await res.json();
+                        if (data.success) {
+                            sessionStorage.setItem(`roomPassword_${roomId}`, password || '');
+                            try { sessionStorage.removeItem('qiLobbyFreshRoom'); } catch (e) {}
+                            window.location.href = `/qi/${gamePath}/${roomId}`;
+                        } else {
+                            qiAlert('加入失败：' + (data.error || '密码错误或房间不存在'));
+                        }
+                    } catch (err) {
+                        qiAlert('网络错误，请稍后重试');
+                    }
+                });
+            });
+        }
+
+        async function refreshRoomList() {
+            const container = document.getElementById('roomsListContainer');
+            try {
+                const rooms = await fetchAllRooms();
+                renderRooms(rooms);
+            } catch (err) {
+                console.error(err);
+                container.innerHTML = '<div class="empty-rooms">加载房间失败，请刷新页面重试</div>';
+            }
+        }
+
+        function createGameCard(game) {
+            const card = document.createElement('article');
+            card.className = 'game-card';
+            card.dataset.gameId = game.id;
+            card.dataset.gameName = game.name;
+            card.dataset.gameIntro = game.intro || '';
+            card.dataset.gameCategory = game.category || '';
+            if (game.enabled) {
+                card.classList.add('is-live', 'game-card-linkable');
+                card.tabIndex = 0;
+            } else {
+                card.classList.add('is-disabled');
+                card.setAttribute('aria-disabled', 'true');
+            }
+
+            const head = document.createElement('div');
+            head.className = 'game-card-head';
+
+            const namePill = document.createElement('span');
+            namePill.className = 'game-name-pill';
+            namePill.textContent = game.name;
+            namePill.title = game.name;
+
+            const level = document.createElement('span');
+            level.className = 'game-index';
+            level.title = '随机级别';
+            const levelFull = document.createElement('span');
+            levelFull.className = 'game-index-full';
+            levelFull.textContent = `${game.randomLevel}级随机`;
+            const levelNum = document.createElement('span');
+            levelNum.className = 'game-index-num';
+            levelNum.textContent = String(game.randomLevel);
+            level.append(levelFull, levelNum);
+
+            head.append(namePill, level);
+
+            const intro = document.createElement('p');
+            intro.className = 'game-intro';
+            intro.textContent = game.intro || '';
+
+            card.append(head, intro);
+
+            if (game.enabled) {
+                const hint = document.createElement('p');
+                hint.className = 'game-create-hint';
+                hint.textContent = '点击创建房间';
+                card.append(hint);
+
+                const openCreate = () => {
+                    pendingGame = game;
+                    document.getElementById('modalGameName').innerText = `创建「${game.name}」房间`;
+                    document.getElementById('roomPasswordInput').value = '';
+                    document.getElementById('createModal').style.display = 'flex';
+                };
+
+                card.addEventListener('click', openCreate);
+                card.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        openCreate();
+                    }
+                });
+            }
+
+            return card;
+        }
+
+        let gamesViewMode = 'card'; // 'card' | 'list'
+
+        function syncGamesViewMode() {
+            const section = document.getElementById('platform-games');
+            const toggle = document.getElementById('gameViewToggle');
+            if (section) {
+                section.classList.toggle('games-view-list', gamesViewMode === 'list');
+            }
+            if (toggle) {
+                const toList = gamesViewMode === 'card';
+                toggle.textContent = toList ? '显示列表' : '显示卡片';
+                toggle.setAttribute('aria-pressed', gamesViewMode === 'list' ? 'true' : 'false');
+                toggle.title = toList ? '切换为列表视图' : '切换为卡片视图';
+            }
+        }
+
+        function renderGamesCatalog() {
+            const gridContainer = document.getElementById('platform-games-grid');
+            const prevQuery = document.getElementById('gameSearchInput')?.value || '';
+            gridContainer.innerHTML = '';
+
+            const categories = ['围棋', '五子棋', '象棋', '其它', '废案'];
+            const fragment = document.createDocumentFragment();
+            let firstCategoryRendered = false;
+
+            for (let catIdx = 0; catIdx < categories.length; catIdx++) {
+                const cat = categories[catIdx];
+                const catGames = GAMES_DATA.filter(g => g.category === cat);
+                if (!catGames.length) continue;
+
+                const section = document.createElement('section');
+                section.className = 'game-category-row';
+                const titleId = `game-category-title-${catIdx}`;
+                section.setAttribute('aria-labelledby', titleId);
+
+                const head = document.createElement('div');
+                head.className = 'game-category-head';
+
+                const title = document.createElement('h2');
+                title.className = 'game-category-title';
+                title.id = titleId;
+                title.textContent = cat;
+
+                const divider = document.createElement('span');
+                divider.className = 'game-category-divider';
+                divider.setAttribute('aria-hidden', 'true');
+
+                head.append(title, divider);
+
+                if (!firstCategoryRendered) {
+                    firstCategoryRendered = true;
+                    head.classList.add('is-first-category');
+
+                    const tools = document.createElement('div');
+                    tools.className = 'game-category-head-tools';
+
+                    const toggle = document.createElement('button');
+                    toggle.type = 'button';
+                    toggle.id = 'gameViewToggle';
+                    toggle.className = 'game-view-toggle';
+                    toggle.addEventListener('click', () => {
+                        gamesViewMode = gamesViewMode === 'card' ? 'list' : 'card';
+                        syncGamesViewMode();
+                    });
+
+                    const search = document.createElement('input');
+                    search.type = 'search';
+                    search.id = 'gameSearchInput';
+                    search.className = 'game-search-input';
+                    search.placeholder = '搜索棋类…';
+                    search.autocomplete = 'off';
+                    search.setAttribute('enterkeyhint', 'search');
+                    search.setAttribute('aria-label', '搜索棋类');
+                    search.value = prevQuery;
+                    search.addEventListener('input', applyGameSearchFilter);
+                    search.addEventListener('search', applyGameSearchFilter);
+
+                    tools.append(toggle, search);
+                    head.appendChild(tools);
+                }
+
+                const cards = document.createElement('div');
+                cards.className = 'game-category-cards';
+                catGames.forEach((game) => {
+                    cards.appendChild(createGameCard(game));
+                });
+
+                section.append(head, cards);
+                fragment.appendChild(section);
+            }
+
+            gridContainer.appendChild(fragment);
+            syncGamesViewMode();
+            applyGameSearchFilter();
+        }
+
+        function applyGameSearchFilter() {
+            const input = document.getElementById('gameSearchInput');
+            const query = (input && input.value ? String(input.value) : '').trim().toLowerCase();
+            const rows = document.querySelectorAll('#platform-games-grid .game-category-row');
+
+            rows.forEach((row) => {
+                const cards = row.querySelectorAll('.game-card');
+                const keepHead = !!row.querySelector('#gameSearchInput');
+                let visibleCount = 0;
+                cards.forEach((card) => {
+                    if (!query) {
+                        card.classList.remove('is-search-hidden');
+                        visibleCount += 1;
+                        return;
+                    }
+                    const haystack = [
+                        card.dataset.gameName || '',
+                        card.dataset.gameId || '',
+                        card.dataset.gameIntro || '',
+                        card.dataset.gameCategory || ''
+                    ].join(' ').toLowerCase();
+                    const matched = haystack.includes(query);
+                    card.classList.toggle('is-search-hidden', !matched);
+                    if (matched) visibleCount += 1;
+                });
+                // 首个分类头含搜索框，即使无匹配也不隐藏整行
+                row.classList.toggle('is-search-hidden', visibleCount === 0 && !keepHead);
+            });
+        }
+
+        async function createRoom(game, password) {
+            try {
+                const res = await fetch(`${API_BASE}/qi/create`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ game: game.id, password: password || null })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    if (password) {
+                        sessionStorage.setItem(`roomPassword_${data.roomId}`, password);
+                    } else {
+                        sessionStorage.setItem(`roomPassword_${data.roomId}`, '');
+                    }
+                    try {
+                        sessionStorage.setItem('qiLobbyFreshRoom', JSON.stringify({
+                            roomId: String(data.roomId),
+                            gameId: game.id
+                        }));
+                    } catch (e) {}
+                    window.location.href = `/qi/${game.path}/${data.roomId}`;
+                } else {
+                    qiAlert('创建房间失败：' + (data.error || '未知错误'));
+                }
+            } catch (err) {
+                qiAlert('网络错误，创建失败');
+            }
+        }
+
+        document.getElementById('refreshRoomsBtn').addEventListener('click', refreshRoomList);
+
+        const lobbyImportBtn = document.getElementById('lobbyImportRecordBtn');
+        const lobbyImportInput = document.getElementById('lobbyImportFileInput');
+        if (lobbyImportBtn && lobbyImportInput) {
+            lobbyImportBtn.addEventListener('click', () => lobbyImportInput.click());
+            lobbyImportInput.addEventListener('change', (e) => {
+                const file = e.target.files && e.target.files[0];
+                e.target.value = '';
+                if (file) lobbyImportRecordFromFile(file);
+            });
+        }
+
+        (function setupLobbyQrModal() {
+            const qrModal = document.getElementById('lobbyQrModal');
+            const qrBtn = document.getElementById('lobbyQrCodeBtn');
+            const qrText = document.getElementById('lobbyQrTextInput');
+            const qrConfirm = document.getElementById('lobbyQrConfirmBtn');
+            const qrCancel = document.getElementById('lobbyQrCancelBtn');
+            if (!qrModal || !qrBtn || !qrText || !qrConfirm || !qrCancel) return;
+
+            function openLobbyQrModal() {
+                qrModal.classList.add('lobby-qr-modal--open');
+                qrModal.setAttribute('aria-hidden', 'false');
+                qrText.focus();
+            }
+
+            function closeLobbyQrModal() {
+                qrModal.classList.remove('lobby-qr-modal--open');
+                qrModal.setAttribute('aria-hidden', 'true');
+            }
+
+            qrBtn.addEventListener('click', () => {
+                openLobbyQrModal();
+            });
+            qrCancel.addEventListener('click', () => {
+                closeLobbyQrModal();
+            });
+            qrModal.addEventListener('click', (e) => {
+                if (e.target === qrModal) closeLobbyQrModal();
+            });
+            qrConfirm.addEventListener('click', async () => {
+                const raw = qrText.value;
+                const text = raw != null ? String(raw) : '';
+                const built = lobbyBuildWeiqiRecordFromQrText(text);
+                if (built.error) {
+                    qiAlert(built.error);
+                    return;
+                }
+                closeLobbyQrModal();
+                await lobbyCreateRoomWithPendingWeiqiImport(built.record);
+            });
+        })();
+
+        const modal = document.getElementById('createModal');
+        document.getElementById('confirmCreateBtn').addEventListener('click', () => {
+            if (!pendingGame) return;
+            const password = document.getElementById('roomPasswordInput').value.trim();
+            createRoom(pendingGame, password || null);
+            modal.style.display = 'none';
+            pendingGame = null;
+        });
+        document.getElementById('cancelCreateBtn').addEventListener('click', () => {
+            modal.style.display = 'none';
+            pendingGame = null;
+        });
+        document.addEventListener('click', function (e) {
+            const helpIcon = e.target.closest('.help-icon');
+
+            if (helpIcon) {
+                e.preventDefault();
+                e.stopPropagation();
+
+                if (activeTooltip && activeTooltip.classList.contains('show')) {
+                    activeTooltip.classList.remove('show');
+                    activeTooltip = null;
+                    return;
+                }
+
+                let tempTooltip = document.querySelector('.temp-tooltip');
+                if (!tempTooltip) {
+                    tempTooltip = document.createElement('div');
+                    tempTooltip.className = 'temp-tooltip';
+                    document.body.appendChild(tempTooltip);
+                }
+
+                tempTooltip.innerHTML = [
+                    '<div class="tooltip-title">随机级别</div>',
+                    '<span class="tooltip-line"><span class="tooltip-level">0级</span>完全透明，完全无随机性</span>',
+                    '<span class="tooltip-line"><span class="tooltip-level">1级</span>仅开局前有不透明性</span>',
+                    '<span class="tooltip-line"><span class="tooltip-level">2级</span>仅开局前有系统随机性</span>',
+                    '<span class="tooltip-line"><span class="tooltip-level">3级</span>开局后有不透明性</span>',
+                    '<span class="tooltip-line"><span class="tooltip-level">4级</span>开局后有随机性</span>'
+                ].join('');
+                tempTooltip.style.top = '0px';
+                tempTooltip.style.left = '0px';
+                tempTooltip.classList.add('show');
+                activeTooltip = tempTooltip;
+
+                const tooltipRect = tempTooltip.getBoundingClientRect();
+                const rect = helpIcon.getBoundingClientRect();
+                let top = 8 + rect.bottom;
+                let left = rect.left;
+                if (left + tooltipRect.width > window.innerWidth - 12) {
+                    left = Math.max(12, window.innerWidth - tooltipRect.width - 12);
+                }
+                if (top + tooltipRect.height > window.innerHeight - 12) {
+                    top = Math.max(12, rect.top - tooltipRect.height - 8);
+                }
+                tempTooltip.style.top = top + 'px';
+                tempTooltip.style.left = left + 'px';
+                return;
+            }
+
+            if (activeTooltip && activeTooltip.classList.contains('show')) {
+                activeTooltip.classList.remove('show');
+                activeTooltip = null;
+            }
+        });
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) {
+                modal.style.display = 'none';
+                pendingGame = null;
+            }
+        });
+
+        (function () {
+            const urlParams = new URLSearchParams(window.location.search);
+            const needPassword = urlParams.get('needPassword');
+            const gameId = urlParams.get('game');
+            const roomId = urlParams.get('room');
+
+            if (needPassword === '1' && gameId && roomId) {
+                setTimeout(() => {
+                    const password = prompt(`房间 ${roomId} 设置了密码，请输入密码：`);
+                    if (password === null) {
+                        window.history.replaceState({}, '', '/qi');
+                        return;
+                    }
+                    fetch(`${API_BASE}/qi/join`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ game: gameId, roomId, password })
+                    })
+                        .then(res => res.json())
+                        .then(data => {
+                            if (data.success) {
+                                sessionStorage.setItem(`roomPassword_${roomId}`, password);
+                                try { sessionStorage.removeItem('qiLobbyFreshRoom'); } catch (e) {}
+                                const gameInfo = GAMES_DATA.find(g => g.id === gameId);
+                                if (gameInfo) {
+                                    window.location.href = `/qi/${gameInfo.path}/${roomId}`;
+                                } else {
+                                    qiAlert('游戏不存在');
+                                }
+                            } else {
+                                qiAlert('密码错误，无法进入房间');
+                                window.history.replaceState({}, '', '/qi');
+                            }
+                        })
+                        .catch(err => {
+                            qiAlert('网络错误，请重试');
+                            window.history.replaceState({}, '', '/qi');
+                        });
+                }, 100);
+            }
+        })();
+
+        renderGamesCatalog();
+        refreshRoomList();
+        setInterval(() => {
+            refreshRoomList();
+        }, 15000);
+    </script>
+</body>
+</html>

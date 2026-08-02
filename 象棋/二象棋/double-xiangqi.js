@@ -1,10 +1,31 @@
+const path = require('path');
 const {
     QiTwoPlayerRoomBase,
     qiProtocol,
     qiMatchTimeControl,
     qiBoardSeatOverlay
 } = require('../common');
-const R = require('./xiangqi-rules');
+
+function loadXiangqiRules() {
+    const candidates = [
+        path.join(__dirname, 'xiangqi-rules.js'),
+        path.join(__dirname, '..', 'xiangqi-rules.js'),
+        path.join(__dirname, '..', '象棋', 'xiangqi-rules.js'),
+        path.join(__dirname, '..', 'public', 'xiangqi-rules.js')
+    ];
+    let lastErr = null;
+    for (const p of candidates) {
+        try {
+            const mod = require(p);
+            if (mod && typeof mod.createInitialBoard === 'function') return mod;
+            lastErr = new Error('invalid exports from ' + p);
+        } catch (e) {
+            lastErr = e;
+        }
+    }
+    throw new Error('xiangqi-rules.js not found or invalid (need createInitialBoard)' + (lastErr ? ': ' + lastErr.message : ''));
+}
+const R = loadXiangqiRules();
 
 /** 二象棋专属开局（子力加倍，花心多一将） */
 function createDoubleInitialBoard() {

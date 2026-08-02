@@ -69,6 +69,7 @@ function assignTerritoryBridgeAware(liveBoard, boardSize, options = {}) {
 class FamilyWeiqiRoom extends QiTwoPlayerRoomBase {
     constructor(room, initialSize = 19) {
         super(room);
+        this.useCustomEditBoard = true;
         this.boardSize = initialSize;
         this.board = this.generateFamilyBoard();
         this.openingBoard = this.copyBoard(this.board);

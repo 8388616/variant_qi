@@ -115,6 +115,7 @@ class RotationWuziqiRoom extends QiTwoPlayerRoomBase {
         super(room);
         this.BOARD_SIZE = initialSize;
         this.board = Array(this.BOARD_SIZE).fill().map(() => Array(this.BOARD_SIZE).fill(0));
+        if (this.openingBoard === undefined) this.openingBoard = (typeof this.copyBoard === 'function' ? this.copyBoard(this.board) : (Array.isArray(this.board[0]) ? this.board.map(r => r.slice()) : this.board.slice()));
         this.handNumAt = initZero2D(this.BOARD_SIZE);
         this.rotationCount = 0;
         this.rotationInterval = computeRotationInterval(this.BOARD_SIZE);

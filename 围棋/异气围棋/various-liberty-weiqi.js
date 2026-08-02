@@ -135,6 +135,7 @@ class VariousLibertyWeiqiRoom extends QiTwoPlayerRoomBase {
         super(room);
         this.boardSize = initialSize;
         this.board = Array(this.boardSize).fill().map(() => Array(this.boardSize).fill(0));
+        if (this.openingBoard === undefined) this.openingBoard = (typeof this.copyBoard === 'function' ? this.copyBoard(this.board) : (Array.isArray(this.board[0]) ? this.board.map(r => r.slice()) : this.board.slice()));
         this.levelBoard = copyLevelBoard(this.boardSize);
         this.blackBag = initialBag();
         this.whiteBag = initialBag();

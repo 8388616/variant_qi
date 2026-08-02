@@ -22,6 +22,7 @@ class TranspositionWeiqiRoom extends QiTwoPlayerRoomBase
         super(room);
         this.boardSize = initialSize;
         this.board = Array(this.boardSize).fill().map(() => Array(this.boardSize).fill(0));
+        if (this.openingBoard === undefined) this.openingBoard = (typeof this.copyBoard === 'function' ? this.copyBoard(this.board) : (Array.isArray(this.board[0]) ? this.board.map(r => r.slice()) : this.board.slice()));
         this.currentPlayer = 1;          // 1:黑, 2:白
         this.historyBoards = [];          // 历史棋盘（深拷贝）
         this.historyBoardSet = new Set(); // 历史棋盘字符串集合，用于禁全同

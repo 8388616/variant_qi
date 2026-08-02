@@ -7,6 +7,7 @@ class WeiqiRoom extends QiTwoPlayerRoomBase
         super(room);
         this.boardSize = initialSize;
         this.board = Array(this.boardSize).fill().map(() => Array(this.boardSize).fill(0));
+        this.openingBoard = this.copyBoard(this.board);
         this.currentPlayer = 1;
         this.historyBoards = [];
         this.historyBoardSet = new Set();
@@ -437,10 +438,14 @@ class WeiqiRoom extends QiTwoPlayerRoomBase
 
     getState()
     {
+        const initialBoard = this.openingBoard
+            ? this.copyBoard(this.openingBoard)
+            : this.copyBoard(this.board);
         return {
             boardSize: this.boardSize,
             komi: this.boardSize <= 8 ? 4.25 : 3.25,
             board: this.board,
+            initialBoard,
             numberOfHands: 1 + this.historyBoards.length,
             currentPlayer: this.currentPlayer,
             lastMoveMarkers: this.lastMoveMarkers,
@@ -464,6 +469,10 @@ class WeiqiRoom extends QiTwoPlayerRoomBase
             },
             matchStarted: this.matchStarted
         };
+    }
+
+    getInitialState() {
+        return this.getState();
     }
 
     getStateForClient() {
@@ -913,5 +922,8 @@ module.exports = {
     initRoom(room) {
         room.gameLogic = new WeiqiRoom(room);
         room.maxPlayers = 2;
+        if (typeof qiProtocol.installStandardEditBoard === 'function') {
+            qiProtocol.installStandardEditBoard(room.gameLogic);
+        }
     }
 };

@@ -67,6 +67,7 @@ class BridgeWeiqiRoom extends QiTwoPlayerRoomBase
 {
     constructor(room, initialSize = 19) {
         super(room);
+        this.useCustomEditBoard = true;
         this.boardSize = initialSize;
         this.BRIDGE_COUNT = Math.floor(0.083 * this.boardSize * this.boardSize);
         const { board, bridges } = this.generateBridgesAndBoard();

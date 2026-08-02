@@ -1,10 +1,32 @@
+const path = require('path');
 const {
     QiTwoPlayerRoomBase,
     qiProtocol,
     qiMatchTimeControl,
     qiBoardSeatOverlay
 } = require('../common');
-const R = require('./xiangqi-rules');
+
+function loadXiangqiRules() {
+    // 部署到 games/ 后 __dirname 为 .../games；源码在 象棋/象棋/ 时也能命中上级
+    const candidates = [
+        path.join(__dirname, 'xiangqi-rules.js'),
+        path.join(__dirname, '..', 'xiangqi-rules.js'),
+        path.join(__dirname, '..', '象棋', 'xiangqi-rules.js'),
+        path.join(__dirname, '..', 'public', 'xiangqi-rules.js')
+    ];
+    let lastErr = null;
+    for (const p of candidates) {
+        try {
+            const mod = require(p);
+            if (mod && typeof mod.createInitialBoard === 'function') return mod;
+            lastErr = new Error('invalid exports from ' + p);
+        } catch (e) {
+            lastErr = e;
+        }
+    }
+    throw new Error('xiangqi-rules.js not found or invalid (need createInitialBoard)' + (lastErr ? ': ' + lastErr.message : ''));
+}
+const R = loadXiangqiRules();
 
 /**
  * 协议座位：black=红方(先手)，white=黑方(后手)

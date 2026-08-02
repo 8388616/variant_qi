@@ -1,139 +1,291 @@
 <!DOCTYPE html>
-<html lang="zh">
+<html lang="zh-Hans">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=2.0, user-scalable=yes">
     <title>竞速扫雷</title>
+    <link rel="stylesheet" href="/qi/fonts/lxgw-wenkai-gb/index.css">
     <link rel="stylesheet" href="/qi/qi.css">
+    <link rel="stylesheet" href="/qi/room.css">
     <style>
-                body { background: #5e3b2b; }
+        body.qi-room.sms-page > .game-wrapper {
+            display: contents;
+        }
 
-        .ms-page .ms-board-wrap {
+        .sms-page [hidden],
+        .sms-play-area[hidden],
+        .sms-lobby[hidden] {
+            display: none !important;
+        }
+
+        body.qi-room.sms-page .main-area {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            grid-template-columns: none;
+            width: 100%;
+            max-width: var(--qi-room-stage);
+            column-gap: 0;
+        }
+
+        body.qi-room.sms-page .button-panel[hidden] {
+            display: none !important;
+        }
+
+        body.qi-room.sms-page .board-and-info {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            align-items: flex-start;
+            gap: 16px;
+            width: 100%;
+            max-width: 100%;
+        }
+
+        body.qi-room.sms-page .board-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            grid-column: auto;
+            grid-row: auto;
+            width: 100%;
+            max-width: 100%;
+            justify-self: center;
+        }
+
+        .sms-page .ms-board-wrap {
             display: inline-block;
-            padding: 8px;
-            background: #deb887;
-            border: 3px solid #8b6914;
-            border-radius: 4px;
-            box-shadow: inset 0 0 0 2px #e8d4a8;
+            padding: 10px;
+            background: var(--qi-room-board);
+            border: 1px solid var(--qi-room-line);
+            border-radius: var(--qi-room-radius-lg);
+            box-shadow: 0 8px 20px rgba(94, 68, 38, 0.1);
             user-select: none;
             touch-action: none;
         }
-        .ms-grid {
+
+        .sms-page .ms-grid {
             display: grid;
             gap: 1px;
-            background: #b8956a;
+            background: #c9a06e;
         }
-        .ms-cell {
+
+        .sms-page .ms-cell {
             position: relative;
             box-sizing: border-box;
             display: flex;
             align-items: center;
             justify-content: center;
-            font-weight: 800;
-            font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif;
+            font-weight: 700;
+            font-family: var(--qi-room-font);
             cursor: pointer;
             line-height: 1;
         }
-        .ms-cell.closed {
-            background: linear-gradient(145deg, #f0d9b0 0%, #deb887 55%, #c9a06e 100%);
+
+        .sms-page .ms-cell.closed {
+            background: linear-gradient(145deg, #f0d9b0 0%, #edbc80 55%, #c9a06e 100%);
             border: 1px solid #b8956a;
-            box-shadow: inset 1px 1px 0 rgba(255,255,255,0.45), inset -1px -1px 0 rgba(0,0,0,0.18);
+            box-shadow: inset 1px 1px 0 rgba(255, 255, 255, 0.45), inset -1px -1px 0 rgba(0, 0, 0, 0.18);
         }
-        .ms-cell.open, .ms-cell.empty, .ms-cell.chord-preview {
-            background: #deb887;
+
+        .sms-page .ms-cell.open,
+        .sms-page .ms-cell.empty,
+        .sms-page .ms-cell.chord-preview {
+            background: var(--qi-room-board);
             border: none;
             box-shadow: none;
             cursor: default;
         }
-        .ms-cell.chord-preview::after {
+
+        .sms-page .ms-cell.chord-preview::after {
             content: none !important;
         }
-        .ms-cell.flag, .ms-cell.question {
-            background: linear-gradient(145deg, #f0d9b0 0%, #deb887 55%, #c9a06e 100%);
+
+        .sms-page .ms-cell.flag,
+        .sms-page .ms-cell.question {
+            background: linear-gradient(145deg, #f0d9b0 0%, #edbc80 55%, #c9a06e 100%);
             border: 1px solid #b8956a;
-            box-shadow: inset 1px 1px 0 rgba(255,255,255,0.45), inset -1px -1px 0 rgba(0,0,0,0.18);
+            box-shadow: inset 1px 1px 0 rgba(255, 255, 255, 0.45), inset -1px -1px 0 rgba(0, 0, 0, 0.18);
         }
-        .ms-cell.flag::after { content: '🚩'; font-size: 0.72em; }
-        .ms-cell.question::after { content: '?'; color: #1a5fb4; font-size: 0.85em; font-weight: 900; }
-        .ms-cell.n1 { color: #1a5fb4; } .ms-cell.n2 { color: #26a269; }
-        .ms-cell.n3 { color: #c01c28; } .ms-cell.n4 { color: #1c1c7a; }
-        .ms-cell.n5 { color: #813d00; } .ms-cell.n6 { color: #0d7377; }
-        .ms-cell.n7 { color: #1e1e1e; } .ms-cell.n8 { color: #5e5c64; }
-        .ms-cell.mine, .ms-cell.mine-hit {
-            background: #deb887;
+
+        .sms-page .ms-cell.flag::after { content: '🚩'; font-size: 0.72em; }
+        .sms-page .ms-cell.question::after {
+            content: '?';
+            color: #1a5fb4;
+            font-size: 0.85em;
+            font-weight: 900;
+        }
+        .sms-page .ms-cell.n1 { color: #1a5fb4; }
+        .sms-page .ms-cell.n2 { color: #26a269; }
+        .sms-page .ms-cell.n3 { color: #c01c28; }
+        .sms-page .ms-cell.n4 { color: #1c1c7a; }
+        .sms-page .ms-cell.n5 { color: #813d00; }
+        .sms-page .ms-cell.n6 { color: #0d7377; }
+        .sms-page .ms-cell.n7 { color: #1e1e1e; }
+        .sms-page .ms-cell.n8 { color: #5e5c64; }
+        .sms-page .ms-cell.mine,
+        .sms-page .ms-cell.mine-hit {
+            background: var(--qi-room-board);
             border: none;
             box-shadow: none;
             overflow: hidden;
         }
-        .ms-cell canvas.ms-mine-canvas {
+        .sms-page .ms-cell canvas.ms-mine-canvas {
             width: 100%;
             height: 100%;
             display: block;
             pointer-events: none;
         }
+
         .sms-lobby {
             display: flex;
             flex-direction: column;
             align-items: center;
-            gap: 12px;
-            padding: 12px 0;
+            gap: 14px;
+            padding: 18px 20px;
+            width: min(960px, 100%);
+            margin: 0 auto;
+            box-sizing: border-box;
+            border: 1px solid var(--qi-room-line);
+            border-radius: var(--qi-room-radius-lg);
+            background: linear-gradient(180deg, rgba(255, 251, 244, 0.92), rgba(255, 246, 233, 0.82));
+            box-shadow: 0 8px 20px rgba(94, 68, 38, 0.08);
         }
-        .sms-start-btn, .sms-join-btn {
-            font-size: 1.1rem;
-            padding: 10px 24px;
-            border-radius: 8px;
-            border: 1px solid #8b6914;
-            background: #c9a450;
-            color: #2a1e10;
+
+        .sms-start-btn,
+        .sms-join-btn {
+            font-family: var(--qi-room-font);
+            font-size: 1.05rem;
+            font-weight: 500;
+            min-height: 42px;
+            padding: 8px 28px;
+            border-radius: 999px;
+            border: 1px solid var(--qi-room-line);
+            background: rgba(255, 250, 241, 0.96);
+            color: var(--qi-room-accent-strong);
+            box-shadow: 0 4px 12px rgba(94, 68, 38, 0.08);
             cursor: pointer;
-            font-weight: bold;
+            transition: background 0.16s ease, border-color 0.16s ease;
         }
-        .sms-start-btn:disabled, .sms-join-btn:disabled {
+
+        .sms-start-btn:hover:not(:disabled),
+        .sms-join-btn:hover:not(:disabled) {
+            background: #fff;
+            border-color: var(--qi-room-accent);
+        }
+
+        .sms-start-btn:disabled,
+        .sms-join-btn:disabled {
             opacity: 0.45;
             cursor: not-allowed;
         }
+
         .sms-lobby-settings {
             display: flex;
             flex-wrap: wrap;
             gap: 16px;
             justify-content: center;
-            font-weight: bold;
+            font-weight: 500;
+            color: var(--qi-room-muted);
         }
+
+        .sms-lobby-settings label {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+
         .sms-lobby-settings input {
             width: 3.5em;
+            min-height: 34px;
             text-align: center;
-            padding: 4px 6px;
+            padding: 4px 8px;
+            border-radius: 999px;
+            border: 1px solid var(--qi-room-line);
+            background: rgba(255, 249, 240, 0.96);
+            color: var(--qi-room-ink);
+            font-family: inherit;
+            font-weight: 500;
         }
+
         .sms-player-list {
-            margin-top: 8px;
+            margin-top: 4px;
             width: 100%;
-            max-width: 520px;
-            border-collapse: collapse;
+            max-width: none;
+            border-collapse: separate;
+            border-spacing: 0;
             font-size: 0.92rem;
+            border: 1px solid var(--qi-room-line);
+            border-radius: var(--qi-room-radius-lg);
+            overflow: hidden;
+            background: rgba(255, 250, 241, 0.9);
+            box-shadow: 0 8px 20px rgba(94, 68, 38, 0.08);
         }
-        .sms-player-list th, .sms-player-list td {
-            border: 1px solid #8b7355;
-            padding: 6px 8px;
+
+        .sms-player-list th,
+        .sms-player-list td {
+            border-bottom: 1px solid var(--qi-room-line);
+            padding: 8px 10px;
             text-align: center;
-            background: rgba(255,255,255,0.12);
+            color: var(--qi-room-ink);
         }
-        .sms-player-list th { background: rgba(0,0,0,0.2); }
+
+        .sms-player-list tr:last-child td {
+            border-bottom: none;
+        }
+
+        .sms-player-list th {
+            background: rgba(255, 246, 233, 0.96);
+            color: var(--qi-room-accent-strong);
+            font-weight: 500;
+        }
+
         .sms-player-id-box {
             display: inline-flex;
             align-items: center;
             gap: 6px;
-            padding: 4px 12px;
-            border-radius: 20px;
-            background: #2a2a2a;
-            color: #ffd966;
-            font-weight: bold;
+            padding: 5px 14px;
+            border-radius: 999px;
+            background: rgba(255, 250, 241, 0.92);
+            border: 1px solid var(--qi-room-line);
+            color: var(--qi-room-ink);
+            font-weight: 500;
         }
-        #scoreBoard { white-space: pre-line; line-height: 1.55; }
-        .sms-play-area[hidden], .sms-lobby[hidden], [hidden] { display: none !important; }
+
+        .sms-player-id-box span {
+            color: var(--qi-room-accent-strong);
+        }
+
+        .sms-page #scoreBoard {
+            white-space: pre-line;
+            line-height: 1.55;
+        }
+
+        .sms-page #leadInfo {
+            color: var(--qi-room-accent-strong) !important;
+        }
+
+        .sms-score-section {
+            width: 100%;
+            max-width: var(--qi-room-stage);
+            padding: 0 0 8px;
+            box-sizing: border-box;
+        }
+
+        .sms-score-section .sms-player-list {
+            margin: 0 auto;
+        }
+
+        @media (max-width: 900px) {
+            .sms-page .main-area-right {
+                width: 100%;
+                max-width: 100%;
+            }
+        }
     </style>
 </head>
-<body>
-    <div class="game-wrapper ms-page">
+<body class="qi-room sms-page">
+    <div class="game-wrapper">
         <div class="top-panel">
             <div class="left-group">
                 <div class="sms-player-id-box" id="playerIdBox" hidden>ID：<span id="playerIdText"></span></div>
@@ -186,7 +338,7 @@
                             <div class="score-title" id="scoreTitle">己方进度</div>
                             <div class="score-content">
                                 <div id="scoreBoard">　</div>
-                                <div id="leadInfo" style="margin-top:6px; color:#ffb870;">　</div>
+                                <div id="leadInfo" style="margin-top:6px;">　</div>
                             </div>
                         </div>
                     </div>
@@ -194,8 +346,8 @@
             </div>
         </div>
 
-        <div style="padding: 8px 16px 20px;">
-            <table class="sms-player-list" id="scoreTable" style="max-width:720px; margin:0 auto;">
+        <div class="sms-score-section">
+            <table class="sms-player-list" id="scoreTable">
                 <thead>
                     <tr><th>名次</th><th>玩家</th><th>局数</th><th>进度</th><th>完成用时</th></tr>
                 </thead>

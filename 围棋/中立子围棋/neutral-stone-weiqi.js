@@ -6,6 +6,7 @@ class NeutralStoneWeiqiRoom extends QiTwoPlayerRoomBase
 {
     constructor(room, initialSize = 19) {
         super(room);
+        this.useCustomEditBoard = true;
         this.boardSize = initialSize;
         this.NEUTRAL_COUNT = Math.floor(0.083 * this.boardSize * this.boardSize);
         const { board, initialNeutralStones } = this.generateNeutralStonesAndBoard();
