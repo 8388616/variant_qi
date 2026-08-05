@@ -791,7 +791,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                 } else if (!ps.replayMode) {
                     const prevTotal = Math.max(0, ps.liveReplayBoards.length - 1);
                     const wasAtEnd = ps.liveFollowLatest || ps.liveViewStep >= prevTotal;
-                    page.rebuildLiveReplayFromMoveCoords(state.moveCoords || []);
+                    page.rebuildLiveReplayFromMoveCoords(state.moveCoords || [], ((typeof QiWeiqiSquarePageRuntime !== 'undefined' && QiWeiqiSquarePageRuntime.pickRichestBoard) ? QiWeiqiSquarePageRuntime.pickRichestBoard(state.initialBoard, state.board) : (state.initialBoard || state.board)));
                     const newTotal = Math.max(0, ps.liveReplayBoards.length - 1);
                     if (newTotal === 0) {
                         ps.liveViewStep = 0;

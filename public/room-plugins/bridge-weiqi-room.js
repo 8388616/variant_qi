@@ -81,9 +81,6 @@ const scoreTitle = document.getElementById('scoreTitle');
         const scoreConfirmYes = document.getElementById('scoreConfirmYes');
         const scoreConfirmNo = document.getElementById('scoreConfirmNo');
         const boardMarkSelect = document.getElementById('boardMarkSelect');
-        const editModeCheckbox = document.getElementById('editModeCheckbox');
-        const editToolSelect = document.getElementById('editToolSelect');
-        const clearBoardBtn = document.getElementById('clearBoardBtn');
         QiSquareWeiqiCanvas.initBoardMarkSelectDom(boardMarkSelect, BOARD_MARK_CHAR_LIST);
         QiSquareWeiqiCanvas.initBoardMarkFoldDom(document.getElementById('boardMarkPanel'), document.getElementById('boardMarkFoldBtn'), document.getElementById('boardMarkExpandBtn'));
 
@@ -289,6 +286,7 @@ const scoreTitle = document.getElementById('scoreTitle');
         const pageHolder = {};
         const page = QiWeiqiSquarePageRuntime.create(ps, domPage, {
             enableEditBoard: true,
+            editTools: config.editTools,
             recordDownloadPrefix, minLib, maxWeakLiberties: 2, gameType, roomId, roomPassword, isMouseDevice,
             tryPlaceStone: bridgeTryPlaceStone, drawBoard: bridgeDrawBoard,
             removeDeadAndDying: (src) => bridgeRemoveDeadAndDying(src),
@@ -314,59 +312,14 @@ const scoreTitle = document.getElementById('scoreTitle');
             showScoreConfirm, hideScoreConfirm, enterReplayMode, exitReplayMode, setReplayStep, updateReplayUI, enterTryPlay, exitTryPlay,
             tryPlayMove, setTryPlayStep, updateTryPlayDisplay, applyLiveViewBoard, updateLiveReplayPanelUI, setLiveViewStep, connectWebSocket, initBoardArray,
             updateBoardGeometry, syncState: syncStateBase, commitMove, getClosestIntersection, canvasCoordsFromClient,
-            applyUserBoardMark } = page;
+            applyUserBoardMark, updateEditModeUI, clearEditModeUi } = page;
 
         function syncState(state) {
             ps.bridges = state.bridges || [];
-            ps.liveOpeningBoard = state.initialBoard ? QiSquareWeiqiCanvas.deepCopyBoard(state.initialBoard) : null;
             ps.gameStarted = (state.numberOfHands || 1) > 1;
             syncStateBase(state);
             updateEditModeUI();
         }
-        function updateEditModeUI() {
-            const canEdit = !ps.gameStarted && !ps.gameOver && ps.mySlot === null;
-            if (editModeCheckbox) editModeCheckbox.disabled = !canEdit;
-            if (!canEdit && ps.editModeEnabled) {
-                ps.editModeEnabled = false;
-                if (editModeCheckbox) editModeCheckbox.checked = false;
-                if (editToolSelect) editToolSelect.classList.add('hidden');
-                if (clearBoardBtn) clearBoardBtn.classList.add('hidden');
-            }
-        }
-        function sendEditBoard(newBoard) {
-            if (!ps.ws || ps.ws.readyState !== WebSocket.OPEN) return;
-            ps.ws.send(JSON.stringify({ type: 'editBoard', board: newBoard }));
-        }
-        function applyEditChange(newBoard) {
-            ps.board = QiSquareWeiqiCanvas.deepCopyBoard(newBoard);
-            if (!ps.replayMode) {
-                const preGame = !ps.gameStarted && (ps.numberOfHands || 1) <= 1;
-                if (preGame) {
-                    ps.liveOpeningBoard = QiSquareWeiqiCanvas.deepCopyBoard(ps.board);
-                    if (ps.liveReplayBoards.length === 0) {
-                        ps.liveReplayBoards = [QiSquareWeiqiCanvas.deepCopyBoard(ps.board)];
-                        ps.liveReplayMarkers = [[]];
-                        ps.liveReplayStepPlayers = [0];
-                        ps.liveViewStep = 0;
-                    } else {
-                        const i = Math.min(ps.liveViewStep, ps.liveReplayBoards.length - 1);
-                        ps.liveReplayBoards[i] = QiSquareWeiqiCanvas.deepCopyBoard(ps.board);
-                    }
-                } else if (ps.liveReplayBoards.length > 0) {
-                    const i = Math.min(ps.liveViewStep, ps.liveReplayBoards.length - 1);
-                    ps.liveReplayBoards[i] = QiSquareWeiqiCanvas.deepCopyBoard(ps.board);
-                }
-            }
-            drawBoard();
-            sendEditBoard(ps.board);
-        }
-        if (editModeCheckbox) editModeCheckbox.addEventListener('change', () => {
-            ps.editModeEnabled = editModeCheckbox.checked;
-            if (editToolSelect) editToolSelect.classList.toggle('hidden', !ps.editModeEnabled);
-            if (clearBoardBtn) clearBoardBtn.classList.toggle('hidden', !ps.editModeEnabled);
-        });
-        if (editToolSelect) editToolSelect.addEventListener('change', () => { ps.editTool = editToolSelect.value; });
-        if (clearBoardBtn) clearBoardBtn.addEventListener('click', () => applyEditChange(Array(ps.BOARD_SIZE).fill().map(() => Array(ps.BOARD_SIZE).fill(0))));
 
         const _weiqiBindings = QiBoardRoomClient.createWeiqiMessageBindings({
             roomId, gameType, pageState: ps, drawBoard, exitTryPlay, enterTryPlay, setTryPlayStep, setReplayStep, setLiveViewStep,
@@ -383,10 +336,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             enterReplayMode, updateTurn, updateReplayUI, showScoreConfirm, isMouseDevice, standardWeiqiMatchTime,
             boardSeatOverlay: true,
             onNewGameStarted() {
-                ps.editModeEnabled = false;
-                if (editModeCheckbox) editModeCheckbox.checked = false;
-                if (editToolSelect) editToolSelect.classList.add('hidden');
-                if (clearBoardBtn) clearBoardBtn.classList.add('hidden');
+                clearEditModeUi();
             },
             onBoardSizeChanged(msg) { syncState(msg); }
         });
@@ -401,14 +351,6 @@ const scoreTitle = document.getElementById('scoreTitle');
             e.preventDefault();
             const { x, y } = canvasCoordsFromClient(e.clientX, e.clientY);
             const { row, col } = getClosestIntersection(x, y);
-            if (ps.editModeEnabled) {
-                if (row >= 0 && col >= 0 && ps.board[row][col] !== 0) {
-                    const nb = QiSquareWeiqiCanvas.deepCopyBoard(ps.board);
-                    nb[row][col] = 0;
-                    applyEditChange(nb);
-                }
-                return;
-            }
             applyUserBoardMark(row, col);
         });
 
@@ -443,19 +385,6 @@ const scoreTitle = document.getElementById('scoreTitle');
             const rect = canvas.getBoundingClientRect(), scale = 600 / rect.width;
             const x = (e.clientX - rect.left) * scale, y = (e.clientY - rect.top) * scale;
             const { row, col } = getClosestIntersection(x, y);
-            if (ps.editModeEnabled) {
-                if (row >= 0 && col >= 0) {
-                    let newVal = 0;
-                    if (ps.editTool === 'black') newVal = 1;
-                    else if (ps.editTool === 'white') newVal = 2;
-                    else if (ps.editTool === 'bridge') newVal = BRIDGE;
-                    if (ps.board[row][col] === newVal) return;
-                    const nb = QiSquareWeiqiCanvas.deepCopyBoard(ps.board);
-                    nb[row][col] = newVal;
-                    applyEditChange(nb);
-                }
-                return;
-            }
             if (ps.tryPlayMode && ps.replayMode) {
                 if (row < 0 || col < 0) { if (mobileTwoStepPlacing()) clearMobileMovePreview(); drawBoard(); return; }
                 if (ps.board[row][col] !== 0) return;

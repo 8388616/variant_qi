@@ -300,7 +300,7 @@ const N = Q.N;
             const CELL = 50;
             const GAP = 12;
             const MARGIN = Math.floor((600 - (N * CELL + (N - 1) * GAP)) / 2);
-            const CELL_FILL = '#edbc80';
+            const CELL_FILL = '#fdcc90';
             /** 沟槽底色与交叉处小叉的颜色 */
             const GROOVE_LINE = '#a08058';
             /** 棋盘最外一圈方框的颜色（仅描边，与 GROOVE_LINE 可分开调） */
@@ -508,7 +508,7 @@ const scoreBoard = document.getElementById('scoreBoard');
                 if (bothSelected && ps.matchTime && ps.matchTime.settings) ps.matchStartedOnce = true;
                 if ((ps.moveLog && ps.moveLog.length > 0)) ps.matchStartedOnce = true;
                 if (!ps.matchStarted) {
-                    turnDisplay.textContent = bothSelected ? '等待双方确认限时规则' : '等待双方入座';
+                    turnDisplay.textContent = QiWeiqiSquarePageRuntime.waitingSeatTurnText(ps.slots, ps.mySlot);
                     if (_seatOverlay.matchTimeCtl) _seatOverlay.matchTimeCtl.updateTimerPanel();
                     return;
                 }

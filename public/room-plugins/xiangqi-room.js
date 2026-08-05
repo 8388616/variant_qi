@@ -37,8 +37,8 @@ const canvas = document.getElementById('goBoard');
         const ctx2d = canvas.getContext('2d');
         // 房间壳默认 600×600；象棋须用与格口边距一致的像素比，否则左右空隙过大
         const XQ_PAD_X = 0.62;
-        const XQ_PAD_TOP = 0.72;
-        const XQ_PAD_BOT = 0.8;
+        const XQ_PAD_TOP = 0.82;
+        const XQ_PAD_BOT = 0.9;
         const xqUnitsW = (R.BOARD_W - 1) + 2 * XQ_PAD_X;
         const xqUnitsH = (R.BOARD_H - 1) + XQ_PAD_TOP + XQ_PAD_BOT;
         canvas.width = 560;
@@ -89,10 +89,44 @@ const canvas = document.getElementById('goBoard');
             recordResultText: null,
             waitingScoreConfirm: false,
             iRejected: false,
-            showEstimateActive: false
+            showEstimateActive: false,
+            checkBannerUntil: 0
         };
 
         let cellSize = 0, offsetX = 0, offsetY = 0;
+        let checkBannerTimer = null;
+
+        function triggerCheckBanner() {
+            ps.checkBannerUntil = Date.now() + 2000;
+            if (checkBannerTimer) clearTimeout(checkBannerTimer);
+            checkBannerTimer = setTimeout(() => {
+                checkBannerTimer = null;
+                ps.checkBannerUntil = 0;
+                drawBoard();
+            }, 2000);
+            drawBoard();
+        }
+
+        function drawCheckBanner() {
+            if (!ps.checkBannerUntil || Date.now() >= ps.checkBannerUntil) return;
+            const cx = offsetX + ((R.BOARD_W - 1) * cellSize) / 2;
+            const cy = offsetY + ((R.BOARD_H - 1) * cellSize) / 2;
+            const fontSize = Math.max(48, cellSize * 2.0);
+            // 勿用 bold：xiangqi.ttf 仅 Regular，请求粗体时浏览器会回退到系统字体
+            const fontSpec = `${fontSize}px XiangqiPiece`;
+            ctx2d.save();
+            ctx2d.font = fontSpec;
+            ctx2d.textAlign = 'center';
+            ctx2d.textBaseline = 'middle';
+            ctx2d.lineJoin = 'round';
+            ctx2d.lineWidth = Math.max(4, fontSize * 0.12);
+            ctx2d.strokeStyle = '#ffffff';
+            ctx2d.fillStyle = '#c62828';
+            ctx2d.strokeText('将军！', cx, cy);
+            ctx2d.fillText('将军！', cx, cy);
+            ctx2d.restore();
+        }
+
 
         function sideOfSlot(slot) { return R.sideFromSlot(slot); }
         function slotOfSide(side) { return R.slotFromSide(side); }
@@ -129,9 +163,9 @@ const canvas = document.getElementById('goBoard');
             ctx2d.fillStyle = '#5a3a1e';
             ctx2d.textAlign = 'center';
             ctx2d.textBaseline = 'middle';
-            ctx2d.font = `${cellSize * 0.3}px Segoe UI`;
-            const topY = offsetY - cellSize * 0.6;
-            const botY = offsetY + (R.BOARD_H - 1) * cellSize + cellSize * 0.7;
+            ctx2d.font = `${cellSize * 0.22}px Segoe UI`;
+            const topY = offsetY - cellSize * 0.55;
+            const botY = offsetY + (R.BOARD_H - 1) * cellSize + cellSize * 0.65;
             for (let c = 0; c < R.BOARD_W; c++) {
                 const x = offsetX + c * cellSize;
                 ctx2d.fillText(top[c], x, topY);
@@ -251,7 +285,7 @@ const canvas = document.getElementById('goBoard');
                 const half = cellSize * 0.1;
                 const x = offsetX + d.col * cellSize;
                 const y = offsetY + d.row * cellSize;
-                ctx2d.fillStyle = 'rgba(30,140,100,0.65)';
+                ctx2d.fillStyle = 'rgba(163,92,39,0.9)';
                 ctx2d.fillRect(x - half, y - half, half * 2, half * 2);
             }
 
@@ -263,8 +297,8 @@ const canvas = document.getElementById('goBoard');
                     const x = offsetX + d.col * cellSize;
                     const y = offsetY + d.row * cellSize;
                     const radius = cellSize * 0.42;
-                    ctx2d.shadowOffsetY = 5;
-                    ctx2d.shadowBlur = 10;
+                    ctx2d.shadowOffsetY = radius * 0.2;
+                    ctx2d.shadowBlur = radius * 0.4;
                     ctx2d.shadowColor = 'rgba(0,0,0,0.45)';
                     ctx2d.beginPath();
                     ctx2d.arc(x, y, radius, 0, Math.PI * 2);
@@ -292,10 +326,12 @@ const canvas = document.getElementById('goBoard');
                 const d = toDisplayCoord(ps.selectedRow, ps.selectedCol);
                 ctx2d.beginPath();
                 ctx2d.arc(offsetX + d.col * cellSize, offsetY + d.row * cellSize, cellSize * 0.46, 0, Math.PI * 2);
-                ctx2d.strokeStyle = 'rgba(30,140,100,0.9)';
-                ctx2d.lineWidth = 3;
+                ctx2d.strokeStyle = 'rgba(163,92,39,0.9)';
+                ctx2d.lineWidth = 2;
                 ctx2d.stroke();
             }
+
+            drawCheckBanner();
         }
 
         function updateTurn() {
@@ -314,15 +350,7 @@ const canvas = document.getElementById('goBoard');
             const bothSelected = !!(ps.slots && ps.slots.black && ps.slots.white);
             const matchStarted = !!(ps.matchStarted || (ps.matchTime && ps.matchTime.settings));
             if (!matchStarted && !ps.tryPlayMode && !ps.replayMode) {
-                if (bothSelected) {
-                    turnDisplay.innerText = '等待双方确认规则';
-                } else {
-                    const seated = (ps.slots && ps.slots.black ? 1 : 0) + (ps.slots && ps.slots.white ? 1 : 0);
-                    if (seated === 1 && ps.mySlot)
-                        turnDisplay.innerText = '等待对手(1/2)';
-                    else
-                        turnDisplay.innerText = `等待双方入座(${seated}/2)`;
-                }
+                turnDisplay.innerText = QiWeiqiSquarePageRuntime.waitingSeatTurnText(ps.slots, ps.mySlot);
                 scoreTitle.innerText = '　';
                 scoreBoard.innerText = '　';
                 leadInfo.innerText = '　';
@@ -363,6 +391,7 @@ const canvas = document.getElementById('goBoard');
                 }));
             }
             if (state.recordResultText) ps.recordResultText = state.recordResultText;
+            if (state.showCheck) triggerCheckBanner();
             rebuildLiveSnapshots();
             if (!ps.replayMode && !ps.tryPlayMode && ps.liveFollowLatest) {
                 ps.liveViewStep = Math.max(0, ps.liveSnapshots.length - 1);

@@ -67,8 +67,6 @@ def collect() -> set[str]:
         PUBLIC / "room.html",
         PUBLIC / "super-24.html",
         PUBLIC / "speed-minesweeper.html",
-        ROOT / "其它" / "超级24点" / "超级24点.html",
-        ROOT / "其它" / "竞速扫雷" / "竞速扫雷.html",
     ]
     for p in html_files:
         if not p.exists():
@@ -91,6 +89,18 @@ def collect() -> set[str]:
         before = len(chars)
         chars |= chars_from_js_strings(read_text(p))
         print(f"JS   {p.relative_to(ROOT)}: +{len(chars) - before} -> {len(chars)}")
+
+    chat_csv = ROOT / "chat-messages.csv"
+    if chat_csv.exists():
+        before = len(chars)
+        for line in read_text(chat_csv).splitlines():
+            s = line.strip()
+            if not s or s.startswith("#"):
+                continue
+            comma = s.find(",")
+            body = s[comma + 1 :] if comma >= 0 else s
+            chars.update(ch for ch in body if keep_char(ch))
+        print(f"CSV  {chat_csv.relative_to(ROOT)}: +{len(chars) - before} -> {len(chars)}")
 
     return chars
 

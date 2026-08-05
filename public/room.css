@@ -1,4 +1,4 @@
-/* 统一房间页：对齐新版大厅（霞鹜文楷 / 纸色底），不改全局 qi.css */
+/* 统一房间页：对齐新版大厅（霞鹜文楷 / 纸色底）。棋种页结构样式已自包含，不再依赖 qi.css。 */
 
 :root {
     --qi-room-bg: #f6f0e3;
@@ -14,15 +14,21 @@
     --qi-room-radius-xl: 28px;
     --qi-room-radius-lg: 20px;
     --qi-room-font: "LXGW WenKai GB", "PingFang SC", "Microsoft YaHei", sans-serif;
-    --qi-room-board: #edbc80;
+    --qi-room-board: #fdcc90;
     --qi-room-overlay: rgba(30, 30, 30, 0.7);
     --qi-room-side: 280px;
     --qi-room-col-gap: 20px;
     --qi-room-board-size: min(680px, calc(100vw - 2 * var(--qi-room-side) - 2 * var(--qi-room-col-gap) - 24px));
+    /* 围棋棋盘高度（正方形边长）；所有棋类显示高度不得超过此值 */
+    --qi-room-board-max-height: var(--qi-room-board-size);
     --qi-room-stage: calc(var(--qi-room-side) * 2 + var(--qi-room-board-size) + var(--qi-room-col-gap) * 2);
 }
 
 body.qi-room {
+    /* 在 body 上重算 stage，避免 :root 已固化的 stage 与子级覆盖的 board-size 不一致 */
+    --qi-room-stage: calc(var(--qi-room-side) * 2 + var(--qi-room-board-size) + var(--qi-room-col-gap) * 2);
+    /* 棋盘 CSS 宽高比（宽/高）；默认正方形，与围棋一致 */
+    --qi-board-ar: 1;
     margin: 0;
     min-height: 100vh;
     width: 100%;
@@ -195,7 +201,7 @@ body.qi-room .info-panel {
 
 body.qi-room .turn-box {
     color: var(--qi-room-accent-strong);
-    font-weight: 500;
+    font-weight: 700;
     font-size: 0.95rem;
     background: rgba(255, 250, 241, 0.9);
 }
@@ -306,6 +312,8 @@ body.qi-room .go-timer-block {
     border-bottom: 1px solid var(--qi-room-line);
     box-shadow: 0 8px 20px rgba(94, 68, 38, 0.08);
     color: var(--qi-room-ink);
+    padding: 14px 16px 12px;
+    box-sizing: border-box;
 }
 
 body.qi-room .go-timer-block.is-active {
@@ -321,21 +329,45 @@ body.qi-room .go-timer-block.is-player-left {
 body.qi-room .go-timer-title {
     color: var(--qi-room-accent-strong);
     font-weight: 500;
-    font-size: 0.95rem;
+    font-size: 0.88rem;
+    margin-bottom: 4px;
+}
+
+/* 颜色圆点：替代 🔴/⚫ 等大小不一的 emoji（LARGE vs MEDIUM） */
+body.qi-room .qi-side-dot {
+    display: inline-block;
+    width: 0.72em;
+    height: 0.72em;
+    border-radius: 50%;
+    vertical-align: 0.05em;
+    margin-right: 0.28em;
+    box-sizing: border-box;
+}
+body.qi-room .qi-side-dot--red { background: #932c13; }
+body.qi-room .qi-side-dot--black { background: #222; }
+body.qi-room .qi-side-dot--green { background: #1c7353; }
+body.qi-room .qi-side-dot--blue { background: #1a5fa8; }
+body.qi-room .qi-side-dot--white {
+    background: #fafafa;
+    border: 1px solid #888;
 }
 
 body.qi-room .go-timer-count {
     color: var(--qi-room-ink);
     font-family: var(--qi-room-font);
+    font-size: 0.9rem;
+    letter-spacing: 0.02em;
 }
 
 body.qi-room .go-timer-over {
     color: var(--qi-room-muted);
     font-family: var(--qi-room-font);
+    font-size: 0.72rem;
 }
 
 body.qi-room .go-timer-rule {
     color: var(--qi-room-muted);
+    font-size: 0.72rem;
 }
 
 /* —— 棋盘标记 —— */
@@ -343,6 +375,7 @@ body.qi-room .board-mark-panel {
     background: rgba(255, 250, 241, 0.94);
     color: var(--qi-room-ink);
     border: 1px solid var(--qi-room-line);
+    border-radius: 12px;
     box-shadow: 0 4px 14px rgba(94, 68, 38, 0.1);
     font-weight: 500;
 }
@@ -352,19 +385,41 @@ body.qi-room .board-mark-select {
     background: #fff8ee;
     color: var(--qi-room-ink);
     border: 1px solid var(--qi-room-line);
+    border-radius: 8px;
+    padding: 2px 4px;
+    font-size: 0.9rem;
     font-weight: 500;
 }
 
 body.qi-room .board-mark-fold-btn {
+    appearance: none;
+    background: transparent;
     color: var(--qi-room-muted);
+    border: none;
+    border-radius: 8px;
+    padding: 2px 2px;
+    font-size: 1.1rem;
+    line-height: 1;
+    font-weight: 700;
+    cursor: pointer;
+    font-family: inherit;
+    white-space: nowrap;
 }
 
 body.qi-room .board-mark-expand-btn {
+    appearance: none;
     background: rgba(255, 250, 241, 0.94);
     color: var(--qi-room-accent-strong);
     border: 1px solid var(--qi-room-line);
+    border-radius: 10px;
+    padding: 6px 6px;
+    font-size: 0.82rem;
+    line-height: 1;
+    font-weight: 700;
+    cursor: pointer;
+    font-family: inherit;
+    white-space: nowrap;
     box-shadow: 0 4px 14px rgba(94, 68, 38, 0.1);
-    font-weight: 500;
 }
 
 body.qi-room .board-mark-fold-btn:hover,
@@ -373,12 +428,21 @@ body.qi-room .board-mark-expand-btn:hover {
     color: var(--qi-room-accent-strong);
 }
 
+body.qi-room .board-mark-fold-btn:active,
+body.qi-room .board-mark-expand-btn:active {
+    transform: translateY(1px);
+}
+
 /* —— 棋盘（浅木色） —— */
 body.qi-room canvas#goBoard {
     background: var(--qi-room-board);
     box-shadow:
         inset 0 0 0 1px rgba(108, 76, 46, 0.22),
         0 12px 28px rgba(94, 68, 38, 0.14);
+    /* 高度不超过围棋盘；若按原宽会超高，则按 --qi-board-ar 等比例缩小宽度 */
+    width: min(100%, var(--qi-room-board-size), calc(var(--qi-room-board-max-height) * var(--qi-board-ar))) !important;
+    max-height: var(--qi-room-board-max-height);
+    height: auto !important;
 }
 
 /* 三角等异形棋盘：棋盘木色由 canvas 自绘，外框保持透明 */
@@ -444,9 +508,60 @@ body.qi-room .close-rules {
 
 /* —— 消息框 / 限时框 / 数点确认（新版，逻辑在 room.js） —— */
 body.qi-room .qi-room-msg-modal,
-body.qi-room .qi-time-control-modal {
+body.qi-room .qi-time-control-modal,
+body.qi-room .qi-message-modal {
     background: rgba(30, 30, 30, 0.7);
     font-family: var(--qi-room-font);
+}
+
+body.qi-room .qi-message-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 1200;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+}
+
+body.qi-room .qi-message-modal.qi-message-modal--open {
+    display: flex;
+}
+
+body.qi-room .qi-message-dialog {
+    background: var(--qi-room-bg);
+    color: var(--qi-room-ink);
+    border: 1px solid var(--qi-room-accent-strong);
+    border-radius: var(--qi-room-radius-lg);
+    box-shadow: var(--qi-room-shadow);
+    max-width: 400px;
+    width: 90%;
+    padding: 18px 20px 16px;
+}
+
+body.qi-room .qi-message-title {
+    margin: 0 0 12px;
+    text-align: center;
+    font-size: 1.2rem;
+    font-weight: 500;
+    color: var(--qi-room-accent-strong);
+}
+
+body.qi-room .qi-message-text {
+    color: var(--qi-room-ink);
+    font-size: 0.98rem;
+    line-height: 1.55;
+    text-align: center;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+body.qi-room .qi-message-footer {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    justify-content: center;
+    margin-top: 16px;
 }
 
 body.qi-room .qi-room-msg-modal {
@@ -573,10 +688,10 @@ body.qi-room .main-area {
 }
 
 body.qi-room .button-panel {
-    grid-column: 1;
-    grid-row: 1;
-    width: var(--qi-room-side);
-    max-width: var(--qi-room-side);
+    grid-column: auto;
+    grid-row: auto;
+    width: 100%;
+    max-width: 100%;
     box-sizing: border-box;
     gap: 12px;
     align-items: center;
@@ -585,6 +700,149 @@ body.qi-room .button-panel {
     border: 1px solid var(--qi-room-line);
     border-radius: var(--qi-room-radius-lg);
     box-shadow: 0 8px 20px rgba(94, 68, 38, 0.08);
+}
+
+body.qi-room .left-rail {
+    grid-column: 1;
+    grid-row: 1;
+    width: var(--qi-room-side);
+    max-width: var(--qi-room-side);
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    align-self: stretch;
+    min-height: 0;
+}
+
+body.qi-room .room-chat {
+    flex: 1 1 auto;
+    min-height: 160px;
+    max-height: 280px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 10px;
+    box-sizing: border-box;
+    background: linear-gradient(180deg, rgba(255, 251, 244, 0.92), rgba(255, 246, 233, 0.82));
+    border: 1px solid var(--qi-room-line);
+    border-radius: var(--qi-room-radius-lg);
+    box-shadow: 0 8px 20px rgba(94, 68, 38, 0.08);
+}
+
+body.qi-room .room-chat-log {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 4px 2px;
+    font-size: 0.82rem;
+    line-height: 1.45;
+    color: var(--qi-room-ink);
+    word-break: break-word;
+}
+
+body.qi-room .room-chat-line {
+    margin: 0 0 4px;
+}
+
+body.qi-room .room-chat-meta {
+    font-weight: 700;
+}
+
+body.qi-room .room-chat-compose {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    flex-shrink: 0;
+    min-width: 0;
+}
+
+body.qi-room .room-chat-select-wrap {
+    position: relative;
+    flex: 1 1 auto;
+    min-width: 0;
+    min-height: 34px;
+    border-radius: 999px;
+    border: 1px solid var(--qi-room-line);
+    background: rgba(255, 249, 240, 0.96);
+    box-sizing: border-box;
+}
+
+body.qi-room .room-chat-select-face {
+    position: absolute;
+    left: 10px;
+    right: 28px;
+    top: 0;
+    bottom: 0;
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    line-height: 32px;
+    font-family: inherit;
+    font-size: 0.85rem;
+    color: var(--qi-room-ink);
+    pointer-events: none;
+    /* 必须盖在 select 之上，否则 opaque 背景会挡住选中文案 */
+    z-index: 2;
+}
+
+body.qi-room .room-chat-select {
+    position: relative;
+    z-index: 1;
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    min-height: 32px;
+    padding: 4px 28px 4px 8px;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    /* 闭合态文字交给 face 层；option 列表仍用正常颜色显示全文 */
+    color: transparent;
+    font-family: inherit;
+    font-size: 0.85rem;
+    cursor: pointer;
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+}
+
+body.qi-room .room-chat-select option {
+    color: var(--qi-room-ink);
+    background: #fffaf1;
+    white-space: normal;
+}
+
+body.qi-room .room-chat-send {
+    flex: 0 0 auto;
+    min-height: 34px;
+    padding: 4px 12px;
+    border-radius: 999px;
+    border: 1px solid var(--qi-room-line);
+    background: rgba(255, 250, 241, 0.96);
+    color: var(--qi-room-accent-strong);
+    font-family: inherit;
+    font-size: 0.85rem;
+    font-weight: 500;
+    cursor: pointer;
+}
+
+body.qi-room .room-chat-send:hover {
+    background: #fff;
+    border-color: var(--qi-room-accent);
+}
+
+body.qi-room .room-chat-send:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+body.qi-room .room-chat-log,
+body.qi-room .room-chat-log * {
+    user-select: text;
+    -webkit-user-select: text;
 }
 
 body.qi-room .button-panel .ctrl-btn {
@@ -597,7 +855,7 @@ body.qi-room .button-panel .ctrl-btn {
 
 /*
  * board-and-info 用 contents，让子节点直接进 main-area 三列网格。
- * 必须清掉 qi.css 里 palette-stack 的 grid-area: board/aside/palette，
+ * 清掉旧 palette-stack 的 grid-area: board/aside/palette，
  * 否则命名区域不存在时会叠在同一格。
  */
 body.qi-room .board-and-info,
@@ -1030,11 +1288,8 @@ body.qi-room.qi-room-no-zoom .weiqi-board-scrollbar {
         --qi-room-stage: 100%;
     }
 
-    body.qi-room.qi-room-xiangqi {
-        --qi-room-board-size: min(100%, calc(100vw - 16px));
-    }
-
     body.qi-room {
+        --qi-room-stage: 100%;
         padding: 6px 6px 14px;
         align-items: stretch;
     }
@@ -1056,12 +1311,14 @@ body.qi-room.qi-room-no-zoom .weiqi-board-scrollbar {
         flex-direction: row;
         flex-wrap: wrap;
         justify-content: center;
+        order: 0;
     }
 
-    body.qi-room .button-panel .ctrl-btn {
+    /* 手机：拆开左侧栏，聊天框排到棋盘区域下方；桌面仍在左侧按钮下 */
+    body.qi-room .left-rail {
+        display: contents;
         width: auto;
-        min-width: 96px;
-        flex: 1 1 auto;
+        max-width: none;
     }
 
     body.qi-room .board-and-info {
@@ -1069,6 +1326,22 @@ body.qi-room.qi-room-no-zoom .weiqi-board-scrollbar {
         flex-direction: column;
         align-items: stretch;
         width: 100%;
+        order: 1;
+    }
+
+    body.qi-room .room-chat {
+        order: 2;
+        width: 100%;
+        max-width: 100%;
+        max-height: 200px;
+        min-height: 120px;
+        margin-top: 10px;
+    }
+
+    body.qi-room .button-panel .ctrl-btn {
+        width: auto;
+        min-width: 96px;
+        flex: 1 1 auto;
     }
 
     body.qi-room .board-and-info.board-and-info--palette-stack {
@@ -1100,7 +1373,8 @@ body.qi-room.qi-room-no-zoom .weiqi-board-scrollbar {
     body.qi-room.qi-room-has-palette .game-wrapper,
     body.qi-room.qi-room-has-palette,
     body.qi-room.qi-room-has-vl-bags,
-    body.qi-room.qi-room-has-qd-bags {
+    body.qi-room.qi-room-has-qd-bags,
+    body.qi-room.qi-room-has-dyeing-bags {
         display: flex;
         flex-direction: column;
     }
@@ -1110,20 +1384,32 @@ body.qi-room.qi-room-no-zoom .weiqi-board-scrollbar {
     body.qi-room.qi-room-has-vl-bags .main-area,
     body.qi-room.qi-room-has-vl-bags .main-area > .board-and-info,
     body.qi-room.qi-room-has-qd-bags .main-area,
-    body.qi-room.qi-room-has-qd-bags .main-area > .board-and-info {
+    body.qi-room.qi-room-has-qd-bags .main-area > .board-and-info,
+    body.qi-room.qi-room-has-dyeing-bags .main-area,
+    body.qi-room.qi-room-has-dyeing-bags .main-area > .board-and-info {
         display: contents;
     }
 
-    body.qi-room.qi-room-has-palette .main-area > .button-panel,
-    body.qi-room.qi-room-has-vl-bags .main-area > .button-panel,
-    body.qi-room.qi-room-has-qd-bags .main-area > .button-panel {
+    body.qi-room.qi-room-has-palette .main-area > .left-rail,
+    body.qi-room.qi-room-has-vl-bags .main-area > .left-rail,
+    body.qi-room.qi-room-has-qd-bags .main-area > .left-rail,
+    body.qi-room.qi-room-has-dyeing-bags .main-area > .left-rail {
+        display: contents;
+        margin-bottom: 0;
+    }
+
+    body.qi-room.qi-room-has-palette .button-panel,
+    body.qi-room.qi-room-has-vl-bags .button-panel,
+    body.qi-room.qi-room-has-qd-bags .button-panel,
+    body.qi-room.qi-room-has-dyeing-bags .button-panel {
         order: 0;
         margin-bottom: 12px;
     }
 
     body.qi-room.qi-room-has-palette .board-container,
     body.qi-room.qi-room-has-vl-bags .board-container,
-    body.qi-room.qi-room-has-qd-bags .board-container {
+    body.qi-room.qi-room-has-qd-bags .board-container,
+    body.qi-room.qi-room-has-dyeing-bags .board-container {
         order: 1;
     }
 
@@ -1137,6 +1423,16 @@ body.qi-room.qi-room-no-zoom .weiqi-board-scrollbar {
         order: 3;
         display: flex;
         flex-direction: column;
+        width: 100%;
+        max-width: 100%;
+        margin-top: 10px;
+    }
+
+    body.qi-room.qi-room-has-palette .room-chat,
+    body.qi-room.qi-room-has-vl-bags .room-chat,
+    body.qi-room.qi-room-has-qd-bags .room-chat,
+    body.qi-room.qi-room-has-dyeing-bags .room-chat {
+        order: 4;
         width: 100%;
         max-width: 100%;
         margin-top: 10px;
@@ -1180,6 +1476,15 @@ body.qi-room.qi-room-no-zoom .weiqi-board-scrollbar {
     }
 
     body.qi-room.qi-room-has-qd-bags .qd-bags-row {
+        flex-direction: column;
+    }
+
+    body.qi-room.qi-room-has-dyeing-bags #dyeingBagsPalette {
+        order: 2;
+        margin-top: 14px;
+    }
+
+    body.qi-room.qi-room-has-dyeing-bags .dyeing-bags-row {
         flex-direction: column;
     }
 }
@@ -1324,6 +1629,96 @@ body.qi-room .qd-wall-shape-v.qd-w {
     background: linear-gradient(90deg, #fff, #c8c8c8);
 }
 
+/* —— 染色象棋占领背包 —— */
+body.qi-room #dyeingBagsPalette.dyeing-bags-wrap {
+    grid-column: 2;
+    grid-row: 2;
+    width: 100%;
+    max-width: var(--qi-room-board-size);
+    justify-self: stretch;
+    margin-top: 10px;
+    padding: 0;
+    background: transparent;
+    border: none;
+    box-shadow: none;
+}
+
+body.qi-room #dyeingBagsPalette[hidden] {
+    display: none !important;
+}
+
+body.qi-room.qi-room-has-dyeing-bags #dyeingBagsPalette:not([hidden]) {
+    display: block;
+}
+
+body.qi-room .dyeing-bags-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 16px;
+    flex-wrap: wrap;
+}
+
+body.qi-room .dyeing-bag-col {
+    flex: 1;
+    min-width: 160px;
+}
+
+body.qi-room .dyeing-bag-frame {
+    border: none;
+    border-radius: 14px;
+    background: var(--qi-room-board);
+    padding: 8px 10px;
+    box-shadow:
+        inset 0 2px 6px rgba(255, 255, 255, 0.35),
+        inset 0 -2px 8px rgba(0, 0, 0, 0.12);
+    /* 固定两行：8 列 × 2 行棋子 */
+    height: calc(8px * 2 + 26px * 2 + 4px);
+    box-sizing: border-box;
+    overflow: hidden;
+}
+
+body.qi-room .dyeing-bag-inner {
+    display: grid;
+    grid-template-columns: repeat(8, 1fr);
+    grid-template-rows: repeat(2, 26px);
+    align-items: center;
+    justify-items: center;
+    gap: 4px 0;
+    width: 100%;
+    height: 100%;
+    box-sizing: border-box;
+}
+
+body.qi-room .dyeing-bag-piece {
+    position: relative;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    background: #e8d2a0;
+    border: 1.5px solid #c49c6a;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-family: XiangqiPiece, "Segoe UI", sans-serif;
+    font-size: 14px;
+    line-height: 1;
+    box-sizing: border-box;
+    flex-shrink: 0;
+}
+
+/* 内圈：与棋盘 radius*0.78 一致（相对外缘约 11%） */
+body.qi-room .dyeing-bag-piece::after {
+    content: '';
+    position: absolute;
+    inset: 11%;
+    border-radius: 50%;
+    border: 1.2px solid currentColor;
+    pointer-events: none;
+    box-sizing: border-box;
+}
+
 /* —— 正反面双棋盘 —— */
 body.qi-room #dualBoardsContainer[hidden],
 body.qi-room #msBoardWrap[hidden],
@@ -1350,7 +1745,8 @@ body.qi-room .dual-boards .board-wrap {
 }
 
 body.qi-room .dual-boards canvas {
-    width: 100%;
+    width: min(100%, calc(var(--qi-room-board-max-height) * var(--qi-board-ar, 1)));
+    max-height: var(--qi-room-board-max-height);
     height: auto;
     display: block;
     background: var(--qi-room-board);
@@ -1361,14 +1757,12 @@ body.qi-room .dual-boards canvas {
 @font-face {
     font-family: 'XiangqiPiece';
     src: url('/qi/fonts/xiangqi.ttf') format('truetype');
+    font-weight: 100 900;
+    font-style: normal;
     font-display: block;
 }
 
-/* 象棋盘面略小于默认围棋格（棋盘更高，同宽会显得过大）；左栏与围棋一样顶对齐 */
-body.qi-room.qi-room-xiangqi {
-    --qi-room-board-size: min(600px, calc(100vw - 2 * var(--qi-room-side) - 2 * var(--qi-room-col-gap) - 24px));
-}
-
+/* 象棋类：与默认棋盘同宽，保持各自 aspect-ratio；左右栏外缘与 top-panel 对齐 */
 body.qi-room.qi-room-xiangqi .board-container.xiangqi-board-wrap {
     width: var(--qi-room-board-size);
     max-width: 100%;
@@ -1378,6 +1772,17 @@ body.qi-room.qi-room-xiangqi .board-container.xiangqi-board-wrap {
     flex-direction: column;
     align-items: center;
     overflow: visible;
+}
+
+/* 经典纵横象棋盘（象棋/二象/染色/迷雾/朝鲜将棋等）宽高比；正方形变体再覆盖为 1 */
+body.qi-room.qi-room-xiangqi {
+    --qi-board-ar: calc(9.24 / 10.52);
+}
+body.qi-room.qi-room-xiangqi.qi-room-chess,
+body.qi-room.qi-room-xiangqi.qi-room-simulated-makruk,
+body.qi-room.qi-room-xiangqi.qi-room-simulated-shogi,
+body.qi-room.qi-room-xiangqi.qi-room-hexagon-xiangqi {
+    --qi-board-ar: 1;
 }
 
 body.qi-room.qi-room-xiangqi .weiqi-board-view-stack,
@@ -1390,14 +1795,63 @@ body.qi-room.qi-room-xiangqi .weiqi-board-view-row {
 body.qi-room.qi-room-xiangqi .weiqi-board-view-row #goBoard,
 body.qi-room.qi-room-xiangqi .board-container.xiangqi-board-wrap #goBoard {
     flex: 0 0 auto;
-    width: 100% !important;
+    width: min(100%, var(--qi-room-board-size), calc(var(--qi-room-board-max-height) * var(--qi-board-ar))) !important;
     max-width: 100%;
+    max-height: var(--qi-room-board-max-height);
     height: auto !important;
     /* 与插件内 canvas 像素比、calcGeometry 边距一致 */
     aspect-ratio: 9.24 / 10.52 !important;
     display: block;
     margin: 0 auto;
     background: var(--qi-room-board);
+}
+
+/* 国际象棋 / 泰国象棋：8×8 正方形盘 */
+body.qi-room.qi-room-xiangqi.qi-room-chess .weiqi-board-view-row #goBoard,
+body.qi-room.qi-room-xiangqi.qi-room-chess .board-container.xiangqi-board-wrap #goBoard,
+body.qi-room.qi-room-xiangqi.qi-room-simulated-makruk .weiqi-board-view-row #goBoard,
+body.qi-room.qi-room-xiangqi.qi-room-simulated-makruk .board-container.xiangqi-board-wrap #goBoard {
+    aspect-ratio: 1 / 1 !important;
+}
+
+/* 模拟日本将棋：9×9 正方形盘 */
+body.qi-room.qi-room-xiangqi.qi-room-simulated-shogi .weiqi-board-view-row #goBoard,
+body.qi-room.qi-room-xiangqi.qi-room-simulated-shogi .board-container.xiangqi-board-wrap #goBoard {
+    aspect-ratio: 1 / 1 !important;
+}
+
+/* 六角象棋：正六边形外框，正方形画布 */
+body.qi-room.qi-room-xiangqi.qi-room-hexagon-xiangqi .weiqi-board-view-row #goBoard,
+body.qi-room.qi-room-xiangqi.qi-room-hexagon-xiangqi .board-container.xiangqi-board-wrap #goBoard {
+    aspect-ratio: 1 / 1 !important;
+    background: transparent !important;
+}
+
+/* 将棋背包：8 列，最少 2 行，超出可扩展 */
+body.qi-room.qi-room-shogi-bags .dyeing-bag-frame {
+    height: auto;
+    min-height: calc(8px * 2 + 26px * 2 + 4px);
+    overflow: visible;
+}
+body.qi-room.qi-room-shogi-bags .dyeing-bag-inner {
+    grid-template-rows: none;
+    grid-auto-rows: 26px;
+    height: auto;
+    min-height: calc(26px * 2 + 4px);
+}
+body.qi-room.qi-room-shogi-bags .dyeing-bag-piece {
+    cursor: pointer;
+    border: none;
+    padding: 0;
+    font: inherit;
+}
+body.qi-room.qi-room-shogi-bags .dyeing-bag-piece.active {
+    outline: 2px solid rgba(30, 140, 100, 0.95);
+    outline-offset: 1px;
+}
+body.qi-room.qi-room-shogi-bags .dyeing-bag-piece:disabled {
+    cursor: default;
+    opacity: 0.35;
 }
 
 /* —— 对战扫雷网格 —— */
@@ -1431,7 +1885,7 @@ body.qi-room .ms-cell {
 }
 
 body.qi-room .ms-cell.closed {
-    background: linear-gradient(145deg, #f0d9b0 0%, #edbc80 55%, #c9a06e 100%);
+    background: linear-gradient(145deg, #f0d9b0 0%, #fdcc90 55%, #c9a06e 100%);
     border: 1px solid #b8956a;
     box-shadow: inset 1px 1px 0 rgba(255, 255, 255, 0.45), inset -1px -1px 0 rgba(0, 0, 0, 0.18);
 }
@@ -1452,7 +1906,7 @@ body.qi-room .ms-cell.recommend.closed {
 
 body.qi-room .ms-cell.flag,
 body.qi-room .ms-cell.question {
-    background: linear-gradient(145deg, #f0d9b0 0%, #edbc80 55%, #c9a06e 100%);
+    background: linear-gradient(145deg, #f0d9b0 0%, #fdcc90 55%, #c9a06e 100%);
     border: 1px solid #b8956a;
 }
 
@@ -1492,4 +1946,569 @@ body.qi-room .chk-inline {
     align-items: center;
     gap: 6px;
     font-size: 0.95rem;
+}
+/* ========== 结构补全（原 qi.css，房间页不再依赖 qi.css） ========== */
+
+body.qi-room,
+body.qi-room * {
+    box-sizing: border-box;
+}
+
+body.qi-room {
+    -webkit-tap-highlight-color: transparent;
+    user-select: none;
+}
+
+body.qi-room .left-group {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+body.qi-room .right-buttons {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+}
+
+body.qi-room .side-select {
+    display: flex;
+    gap: 18px;
+    flex-wrap: wrap;
+}
+
+body.qi-room .side-select label {
+    font-size: 1.05rem;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    position: relative;
+}
+
+body.qi-room .side-select input[type="radio"] {
+    position: absolute;
+    opacity: 0;
+    width: 0;
+    height: 0;
+    margin: 0;
+}
+
+body.qi-room .side-select label::before {
+    content: "";
+    display: inline-block;
+    width: 1em;
+    height: 1em;
+    border-radius: 50%;
+    background-color: #fff;
+    border: 1.5px solid var(--qi-room-line);
+    transition: all 0.1s ease;
+    box-sizing: border-box;
+}
+
+body.qi-room .side-select label.self-radio::before {
+    border-color: #ff3b6f;
+}
+
+body.qi-room .side-select label.self-radio.checked-disabled::before {
+    background-color: #ff3b6f;
+    box-shadow: inset 0 0 0 0.15em white;
+}
+
+body.qi-room .side-select label.opponent-radio::before {
+    border-color: #999999;
+}
+
+body.qi-room .side-select label.opponent-radio.checked-disabled::before {
+    background-color: #999999;
+    box-shadow: inset 0 0 0 0.15em white;
+}
+
+body.qi-room .edit-tool-select.hidden,
+body.qi-room .edit-clear-btn.hidden {
+    display: none !important;
+}
+
+body.qi-room .button-panel {
+    display: flex;
+    flex-direction: column;
+}
+
+body.qi-room .board-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    position: relative;
+    min-width: 0;
+}
+
+body.qi-room .main-area-right {
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
+    min-width: 0;
+}
+
+body.qi-room .info-panel {
+    padding: 20px 16px;
+    width: 100%;
+    margin: 0 auto;
+    min-height: 200px;
+    display: flex;
+    flex-direction: column;
+    margin-bottom: 20px;
+}
+
+body.qi-room .turn-box {
+    padding: 8px;
+    border-radius: 50px;
+    text-align: center;
+    margin-bottom: 15px;
+}
+
+body.qi-room .score-box {
+    padding: 14px;
+    border-radius: 16px;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+}
+
+body.qi-room .replay-panel {
+    margin-top: 15px;
+    padding: 14px;
+    text-align: center;
+}
+
+body.qi-room .replay-nav {
+    display: flex;
+    gap: 8px;
+    justify-content: center;
+    margin-bottom: 8px;
+}
+
+body.qi-room .replay-slider {
+    width: 100%;
+    cursor: pointer;
+}
+
+body.qi-room .go-timer-panel {
+    margin-top: 12px;
+    text-align: left;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+body.qi-room .go-timer-line2 {
+    display: flex;
+    justify-content: flex-start;
+    align-items: baseline;
+    gap: 10px;
+}
+
+body.qi-room .go-timer-over {
+    margin-top: 4px;
+    white-space: nowrap;
+}
+
+body.qi-room .go-timer-rule {
+    margin-top: 4px;
+    line-height: 1.35;
+}
+
+body.qi-room .qi-seat-absent-notice {
+    margin-top: 8px;
+    text-align: center;
+    min-height: 1.2em;
+}
+
+body.qi-room .qi-seat-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 20;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 6px;
+}
+
+body.qi-room .qi-seat-overlay--shaped {
+    background: transparent !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    pointer-events: none;
+    overflow: hidden;
+}
+
+body.qi-room .qi-seat-overlay .qi-seat-overlay-shape-canvas {
+    position: absolute !important;
+    inset: 0 !important;
+    width: 100% !important;
+    height: 100% !important;
+    max-width: none !important;
+    max-height: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    aspect-ratio: auto !important;
+    background: transparent !important;
+    border: none !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    display: block !important;
+    pointer-events: none !important;
+    z-index: 0;
+}
+
+body.qi-room .qi-seat-overlay--shaped > .qi-seat-overlay-shape-svg {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    display: block;
+    pointer-events: none;
+    z-index: 0;
+}
+
+body.qi-room .qi-seat-overlay--shaped > .qi-seat-overlay-inner {
+    position: relative;
+    z-index: 1;
+    pointer-events: auto;
+    margin: auto;
+}
+
+body.qi-room .qi-seat-overlay--mute {
+    pointer-events: none;
+}
+
+body.qi-room .dual-boards .board-wrap {
+    position: relative;
+}
+
+body.qi-room .qi-seat-overlay[hidden] {
+    display: none !important;
+}
+
+body.qi-room .qi-seat-overlay-inner {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 28px;
+    min-width: 160px;
+    padding: 8px;
+}
+
+body.qi-room .qi-seat-overlay-btn {
+    appearance: none;
+    font-size: 1.05rem;
+    padding: 12px 18px;
+    cursor: pointer;
+}
+
+body.qi-room .qi-seat-overlay-btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+    box-shadow: none;
+}
+
+body.qi-room .qi-time-control-color-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px 18px;
+    margin: 10px 0 4px;
+    justify-content: center;
+}
+
+body.qi-room .qi-time-control-modal {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 1100;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+}
+
+body.qi-room .qi-time-control-radio-row {
+    display: flex;
+    gap: 16px;
+    margin-bottom: 12px;
+    justify-content: center;
+}
+
+body.qi-room .qi-time-control-radio {
+    font-size: 0.95rem;
+    cursor: pointer;
+}
+
+body.qi-room .qi-time-control-fields {
+    display: flex;
+    flex-direction: row;
+    gap: 12px;
+    align-items: flex-start;
+}
+
+body.qi-room .qi-time-control-field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 0.88rem;
+    flex: 1 1 0;
+    min-width: 0;
+}
+
+body.qi-room .qi-time-control-field input {
+    border-radius: 999px;
+    padding: 6px 10px;
+    font-size: 1rem;
+    width: 100%;
+    text-align: center;
+    align-self: center;
+}
+
+body.qi-room .qi-time-control-hint {
+    margin: 10px 0 6px;
+    font-size: 0.85rem;
+    min-height: 1.2em;
+}
+
+body.qi-room .qi-time-control-wait {
+    text-align: center;
+    margin-top: 14px;
+    font-size: 0.95rem;
+    font-weight: 500;
+}
+
+body.qi-room .qi-time-control-dialog input:disabled,
+body.qi-room .qi-time-control-dialog button:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+}
+
+body.qi-room .qi-time-control-modal.qi-time-control-readonly .qi-time-control-dialog {
+    opacity: 0.92;
+}
+
+body.qi-room .rules-modal {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+}
+
+body.qi-room .rules-content {
+    max-width: 600px;
+    width: 90%;
+    padding: 20px 25px;
+    position: relative;
+    background: #fff9f0;
+    backdrop-filter: none;
+}
+
+body.qi-room .rules-content h3 {
+    margin-top: 0;
+    text-align: center;
+}
+
+body.qi-room .rules-content p {
+    line-height: 1.5;
+    font-size: 0.95rem;
+}
+
+body.qi-room .rules-content .close-rules {
+    position: absolute;
+    top: 10px;
+    right: 15px;
+    font-size: 1.5rem;
+    cursor: pointer;
+}
+
+body.qi-room .board-mark-outer {
+    position: absolute;
+    left: 100%;
+    margin-left: 12px;
+    bottom: 0;
+    right: auto;
+    top: auto;
+    display: grid;
+    grid-template-rows: 52px;
+    grid-template-columns: max-content;
+    width: max-content;
+    max-width: min(100%, 280px);
+    min-height: 52px;
+    max-height: 52px;
+    z-index: 2;
+    box-sizing: border-box;
+    overflow: hidden;
+}
+
+body.qi-room .board-mark-panel[hidden],
+body.qi-room .board-mark-expand-btn[hidden] {
+    display: none !important;
+}
+
+body.qi-room .board-mark-outer > .board-mark-panel,
+body.qi-room .board-mark-outer > .board-mark-expand-btn {
+    grid-area: 1 / 1;
+    align-self: end;
+    justify-self: start;
+    margin: 0;
+}
+
+body.qi-room .board-mark-panel {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 8px;
+    font-size: 0.82rem;
+    width: max-content;
+    max-width: min(100%, 260px);
+    max-height: 52px;
+    box-sizing: border-box;
+}
+
+body.qi-room .board-mark-panel label {
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+body.qi-room .board-mark-select {
+    flex: 0 1 auto;
+    min-width: 0;
+    width: 3em;
+    max-width: min(200px, 55vw);
+    max-height: 44px;
+    cursor: pointer;
+}
+
+body.qi-room canvas {
+    display: block;
+    width: min(100%, var(--qi-room-board-size), calc(var(--qi-room-board-max-height) * var(--qi-board-ar)));
+    max-height: var(--qi-room-board-max-height);
+    height: auto;
+    aspect-ratio: 1 / 1;
+    max-width: 100%;
+}
+
+body.qi-room .score-confirm-modal {
+    z-index: 1101;
+}
+
+body.qi-room .score-confirm-dialog {
+    text-align: center;
+}
+
+body.qi-room .score-confirm-dialog p {
+    margin: 0 0 10px 0;
+}
+
+body.qi-room .piece-btn.disabled {
+    opacity: 0.4;
+    pointer-events: none;
+    filter: grayscale(0.8);
+}
+
+body.qi-room .observer-mode .piece-btn {
+    pointer-events: none;
+    opacity: 0.5;
+    filter: grayscale(0.6);
+}
+
+body.qi-room .bottom-palette.normal-go-locked .piece-btn,
+body.qi-room .bottom-palette.normal-go-locked #rotateBtn,
+body.qi-room .bottom-palette.normal-go-locked #flipBtn {
+    pointer-events: none;
+    opacity: 0.45;
+    filter: grayscale(0.75);
+}
+
+body.qi-room .russian-compound-score-tools.normal-go-locked {
+    pointer-events: none;
+    opacity: 0.45;
+    filter: grayscale(0.6);
+}
+
+body.qi-room .piece-row {
+    display: flex;
+    gap: 15px;
+    flex-wrap: wrap;
+    justify-content: center;
+}
+
+body.qi-room .transform-buttons {
+    display: flex;
+    gap: 10px;
+}
+
+body.qi-room .replay-perspective-panel {
+    padding: 14px 16px 16px;
+    border-radius: var(--qi-room-radius-lg);
+    width: 100%;
+    max-width: 280px;
+    margin: 6px 0 10px;
+    box-sizing: border-box;
+    background: linear-gradient(180deg, rgba(255, 251, 244, 0.92), rgba(255, 246, 233, 0.82));
+    border: 1px solid var(--qi-room-line);
+    color: var(--qi-room-ink);
+    box-shadow: 0 8px 20px rgba(94, 68, 38, 0.08);
+}
+
+body.qi-room .replay-perspective-options {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    align-items: flex-start;
+}
+
+body.qi-room .replay-perspective-label {
+    color: var(--qi-room-ink);
+    font-size: 1rem;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    line-height: 1.4;
+}
+
+body.qi-room .replay-perspective-label input {
+    flex-shrink: 0;
+}
+
+@media (max-width: 700px) {
+    body.qi-room .board-mark-outer {
+        position: absolute;
+        right: calc(-10px - 12px);
+        bottom: 0;
+        left: auto !important;
+        top: auto;
+        margin-left: 0 !important;
+        margin-right: 0;
+        width: max-content;
+        max-width: none;
+        z-index: 5;
+        pointer-events: none;
+        overflow: visible;
+        max-height: none;
+        height: auto;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        justify-content: flex-end;
+    }
+
+    body.qi-room .board-mark-outer > .board-mark-panel,
+    body.qi-room .board-mark-outer > .board-mark-expand-btn {
+        pointer-events: auto;
+    }
+
+    body.qi-room .board-mark-fold-btn {
+        order: -1;
+    }
 }

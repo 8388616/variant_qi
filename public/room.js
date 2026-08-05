@@ -136,9 +136,17 @@
             }));
         };
         socket.onmessage = function (e) {
-            opts.onMessage(JSON.parse(e.data));
+            const msg = JSON.parse(e.data);
+            if (global.RoomChat && typeof global.RoomChat.consumeIncoming === 'function'
+                && global.RoomChat.consumeIncoming(msg)) {
+                return;
+            }
+            opts.onMessage(msg);
         };
         socket.onclose = opts.onClose;
+        if (global.RoomChat && typeof global.RoomChat.setSocket === 'function') {
+            global.RoomChat.setSocket(socket);
+        }
         return socket;
     }
 
@@ -395,9 +403,9 @@
 
             function refreshRespondHint(proposal) {
                 const showColor = !!(ctx.boardSeatOverlay || (colorRow && colorRow.style.display !== 'none'));
-                const pr = proposal || lastRespondProposal;
+                const pr = proposal !== undefined ? proposal : lastRespondProposal;
                 if (!pr) {
-                    if (showColor) hint.textContent = colorChoiceLabel(currentColorChoice());
+                    hint.textContent = showColor ? colorChoiceLabel(currentColorChoice()) : '';
                     return;
                 }
                 const base = pr.timed
@@ -412,6 +420,11 @@
             }
 
             let lastRespondProposal = null;
+
+            function clearProposalHintState() {
+                lastRespondProposal = null;
+                hint.textContent = '';
+            }
 
             function onRadioChange() {
                 const un = wrap.querySelector('input[name="qiTimedMode"][value="unlimited"]').checked;
@@ -481,7 +494,7 @@
                 wrap, mainIn, byoIn, maxTIn, hint, footProp, footResp, waitEl,
                 btnProposeOk, btnAccept, btnAdjust, colorRow, colorRadios,
                 setLimitedDisabled, readPayloadFromInputs, setColorRowVisible, setColorChoice, colorChoiceLabel,
-                selfColorFromProposal, refreshRespondHint,
+                selfColorFromProposal, refreshRespondHint, clearProposalHintState,
                 getLastRespondProposal: () => lastRespondProposal,
                 setLastRespondProposal: (p) => { lastRespondProposal = p; },
                 restoreAfterError() {
@@ -502,6 +515,7 @@
                         ui.btnAdjust.disabled = false;
                         refreshRespondHint(lastRespondProposal);
                     } else {
+                        clearProposalHintState();
                         ui.footProp.style.display = 'flex';
                         ui.footResp.style.display = 'none';
                         ui.setColorRowVisible(!!ctx.boardSeatOverlay, false);
@@ -527,13 +541,17 @@
             ui.wrap.classList.remove('qi-time-control-readonly');
             ui.wrap.querySelectorAll('input, button').forEach((el) => { el.disabled = false; });
             ui.wrap.querySelector('input[name="qiTimedMode"][value="unlimited"]').disabled = false;
+            if (typeof ui.clearProposalHintState === 'function') ui.clearProposalHintState();
+            else if (ui.hint) ui.hint.textContent = '';
         }
 
         function openNegotiation(msg) {
             ensureModal();
             ui.wrap.style.display = 'flex';
             ui.waitEl.style.display = 'none';
-            ui.hint.textContent = '';
+            // 每次打开先清空上一局/上一轮的「对方提议」，再按本次 mode 写入
+            if (typeof ui.clearProposalHintState === 'function') ui.clearProposalHintState();
+            else ui.hint.textContent = '';
             const showColor = !!(msg.boardSeatOverlay || ctx.boardSeatOverlay);
             if (msg.mode === 'propose') {
                 const d = getDefaultTimeControlByBoardSize(ctx.getBoardSize());
@@ -555,7 +573,6 @@
                 ui.wrap.querySelector('input[name="qiTimedMode"][value="limited"]').disabled = false;
                 ui.setColorRowVisible(showColor, false);
                 if (showColor) ui.setColorChoice('black');
-                if (ui.setLastRespondProposal) ui.setLastRespondProposal(null);
             } else if (msg.mode === 'respond' && msg.proposal) {
                 ui.wrap.classList.remove('qi-time-control-readonly');
                 ui.footProp.style.display = 'none';
@@ -771,6 +788,8 @@
                     openNegotiation({ mode: 'respond', proposal: nego.proposal, boardSeatOverlay: !!ctx.boardSeatOverlay });
                 } else if (nego.waitingSlot !== my && nego.lastProposerSlot === my) {
                     ensureModal();
+                    if (typeof ui.clearProposalHintState === 'function') ui.clearProposalHintState();
+                    else if (ui.hint) ui.hint.textContent = '';
                     ui.footProp.style.display = 'none';
                     ui.footResp.style.display = 'none';
                     ui.waitEl.style.display = 'block';
@@ -812,6 +831,8 @@
                         break;
                     case 'timeControlWaitPeer':
                         ensureModal();
+                        if (typeof ui.clearProposalHintState === 'function') ui.clearProposalHintState();
+                        else if (ui.hint) ui.hint.textContent = '';
                         ui.footProp.style.display = 'none';
                         ui.footResp.style.display = 'none';
                         ui.waitEl.style.display = 'block';
@@ -833,6 +854,11 @@
                         tickRaf();
                         ctx.updateTurn();
                         if (typeof ctx.updateReplayUI === 'function') ctx.updateReplayUI();
+                        {
+                            const edit = document.getElementById('editControls');
+                            if (edit && edit.dataset.qiEditFeature === '1') edit.hidden = true;
+                        }
+                        if (typeof ctx.updateEditModeUI === 'function') ctx.updateEditModeUI();
                         break;
                     case 'timeControlReset':
                         stop();
@@ -845,6 +871,11 @@
                         updateTimerPanel();
                         ctx.updateTurn();
                         if (typeof ctx.updateReplayUI === 'function') ctx.updateReplayUI();
+                        {
+                            const edit = document.getElementById('editControls');
+                            if (edit && edit.dataset.qiEditFeature === '1') edit.hidden = false;
+                        }
+                        if (typeof ctx.updateEditModeUI === 'function') ctx.updateEditModeUI();
                         break;
                     case 'clockUpdate':
                         if (S.matchTime) S.matchTime.clock = msg.clock;
@@ -869,11 +900,53 @@
         if (S.seatOverlayForceHide === undefined) S.seatOverlayForceHide = false;
         if (S._prevSeatVacant === undefined) S._prevSeatVacant = null;
 
+        if (global.RoomChat && typeof global.RoomChat.bindSlotContext === 'function') {
+            global.RoomChat.bindSlotContext({
+                slotUi: ctx.slotUi || null,
+                getWs: typeof ctx.getWs === 'function' ? ctx.getWs : null
+            });
+        }
+
         function vacantCount(slots) {
             let n = 0;
             if (!slots || !slots.black) n++;
             if (!slots || !slots.white) n++;
             return n;
+        }
+
+        /** 新局 / 房间重置：清除本地编辑开局缓存与勾选 UI，并重新显示编辑选项 */
+        function clearLocalEditCachesForNewGame() {
+            S.liveOpeningBoard = null;
+            S._editCommitSnapshot = null;
+            S._editCommitPending = false;
+            S._editLocalBoard = null;
+            S.editDirty = false;
+            S.editModeEnabled = false;
+            if (S.userBoardMarks && typeof S.userBoardMarks === 'object') {
+                for (const k of Object.keys(S.userBoardMarks)) delete S.userBoardMarks[k];
+            }
+            if (global.QiBoardMarks && typeof global.QiBoardMarks.clear === 'function') {
+                try { global.QiBoardMarks.clear(); } catch (e) { /* ignore */ }
+            }
+            if (global.QiBoardEditUi && typeof global.QiBoardEditUi.clear === 'function') {
+                try { global.QiBoardEditUi.clear(); } catch (e) { /* ignore */ }
+            }
+            const editModeCheckbox = document.getElementById('editModeCheckbox');
+            const editToolSelect = document.getElementById('editToolSelect');
+            const clearBoardBtn = document.getElementById('clearBoardBtn');
+            const editControls = document.getElementById('editControls');
+            S._suppressEditCheckboxChange = true;
+            if (editModeCheckbox) {
+                editModeCheckbox.checked = false;
+                editModeCheckbox.disabled = false;
+            }
+            S._suppressEditCheckboxChange = false;
+            if (editToolSelect) editToolSelect.classList.add('hidden');
+            if (clearBoardBtn) clearBoardBtn.classList.add('hidden');
+            if (editControls && editControls.dataset.qiEditFeature === '1') editControls.hidden = false;
+            if (typeof ctx.updateEditModeUI === 'function') {
+                try { ctx.updateEditModeUI(); } catch (e) { /* ignore */ }
+            }
         }
 
         function noteSeatVacancyChange() {
@@ -1200,8 +1273,10 @@
             const btnCW = overlay.querySelector('[data-seat-action="continue-white"]');
             const btnCancel = overlay.querySelector('[data-seat-action="cancel"]');
 
+            const gameOver = typeof ctx.getGameOver === 'function' && !!ctx.getGameOver();
             const forceHide = !!(S.seatOverlayForceHide || S.tryPlayMode || (S.replayMode && !matchStarted));
-            if (forceHide || S.seatOverlayLocalHide) {
+            if (forceHide || S.seatOverlayLocalHide || gameOver) {
+                /* 对局已结束：不再提供续坐蒙版，进入者直接观战 */
                 setAllSeatOverlaysHidden(true);
                 refreshColorStatus();
                 updatePlayerLeftIndicators();
@@ -1410,6 +1485,10 @@
             if (msg.boardSeatOverlay) ctx.boardSeatOverlay = true;
         }
         function handleMessage(msg) {
+            if (global.RoomChat && typeof global.RoomChat.consumeIncoming === 'function'
+                && global.RoomChat.consumeIncoming(msg)) {
+                return;
+            }
             const ws = ctx.getWs();
             if (mtCtl && (msg.type === 'timeControlNegotiation' || msg.type === 'timeControlWaitPeer'
                 || msg.type === 'timeControlAgreed' || msg.type === 'timeControlReset' || msg.type === 'clockUpdate')) {
@@ -1542,7 +1621,8 @@
                     break;
                 case 'broadcast':
                     if (msg.action === 'move' || msg.action === 'clearMine' || msg.action === 'guess' || msg.action === 'pass' || msg.action === 'capture' || msg.action === 'undoAccept' || msg.action === 'drawAgreed' || msg.action === 'resign'
-                        || msg.action === 'invisibleReveal' || msg.action === 'endAgreed' || msg.action === 'scoreCountingStarted' || msg.action === 'mineHit' || msg.action === 'timeLoss') {
+                        || msg.action === 'invisibleReveal' || msg.action === 'endAgreed' || msg.action === 'scoreCountingStarted' || msg.action === 'mineHit' || msg.action === 'timeLoss'
+                        || msg.action === 'setupSwap' || msg.action === 'setupDone') {
                         const wasOver = ctx.getGameOver();
                         syncStateWithMatch(msg);
                         if (msg.gameOver && !wasOver) {
@@ -1582,6 +1662,7 @@
                     S.matchTime = null;
                     S.matchStarted = false;
                     S.matchStartedOnce = false;
+                    clearLocalEditCachesForNewGame();
                     if (ctx.onNewGameStarted) ctx.onNewGameStarted();
                     syncStateWithMatch(msg);
                     updateRadioStyles();
@@ -1679,6 +1760,7 @@
                     S.matchStartedOnce = false;
                     S.seatOverlayLocalHide = false;
                     S.seatOverlayForceHide = false;
+                    clearLocalEditCachesForNewGame();
                     if (ctx.onRoomReset) ctx.onRoomReset();
                     syncStateWithMatch(msg);
                     ctx.clearEstimate();
@@ -1740,6 +1822,9 @@
                     } else if (ctx.boardSeatOverlay && msg.message && /双方均已落座/.test(msg.message)) {
                         // 座位已满时点击落座：静默忽略
                         break;
+                    } else if (ctx.boardSeatOverlay && msg.message && /请选择继续执/.test(msg.message)) {
+                        // 终局观战等场景：不再弹续坐提示
+                        break;
                     } else {
                         if (mtCtl && typeof mtCtl.restoreAfterError === 'function')
                             mtCtl.restoreAfterError();
@@ -1767,9 +1852,12 @@
             const exportBtn = document.getElementById('exportBtn');
             if (!importBtn || !exportBtn) return;
             const board = ctx.getBoard();
-            // 围棋等用 0 表示空；象棋等用 '' 表示空
-            const hasAnyStone = Array.isArray(board) && board.some(row =>
-                Array.isArray(row) && row.some(v => v !== 0 && v !== '' && v != null));
+            // 围棋等用 0 表示空；象棋等用 '' 表示空；异形一维棋盘直接扫元素
+            const hasAnyStone = Array.isArray(board) && (
+                Array.isArray(board[0])
+                    ? board.some(row => Array.isArray(row) && row.some(v => v !== 0 && v !== '' && v != null))
+                    : board.some(v => v !== 0 && v !== '' && v != null)
+            );
             const s = ctx.getSlots();
             const noPlayers = !s.black && !s.white;
             const matchStarted = !!(S.matchStarted || (S.matchTime && S.matchTime.settings));
@@ -2499,6 +2587,29 @@
         scoreConfirmTextEl.innerText = `${winnerText}，是否同意该结果？`;
     }
 
+    /**
+     * HiDPI：按 CSS 显示尺寸与 devicePixelRatio 设置 backing store，
+     * 并把变换设为逻辑坐标（logicalSize × logicalSize，默认 600）。
+     */
+    function setupHiDpiCanvas(canvas, logicalSize) {
+        if (!canvas) return null;
+        const logical = logicalSize > 0 ? logicalSize : DEFAULT_CANVAS_SIZE;
+        const dpr = (typeof window !== 'undefined' && window.devicePixelRatio) || 1;
+        const rect = canvas.getBoundingClientRect();
+        const css = (rect && rect.width > 0) ? rect.width : logical;
+        const backing = Math.max(1, Math.round(css * dpr));
+        if (canvas.width !== backing || canvas.height !== backing) {
+            canvas.width = backing;
+            canvas.height = backing;
+        }
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return null;
+        const scale = backing / logical;
+        ctx.setTransform(scale, 0, 0, scale, 0, 0);
+        ctx.imageSmoothingEnabled = true;
+        return ctx;
+    }
+
     const QiSquareWeiqiCanvas = {
         DEFAULT_CANVAS_SIZE,
         getStarPoints,
@@ -2516,7 +2627,8 @@
         initBoardMarkSelectDom,
         initBoardMarkFoldDom,
         downloadWeiqiJsonRecord,
-        fillScoreConfirmText
+        fillScoreConfirmText,
+        setupHiDpiCanvas
     };
 
     global.QiSquareWeiqiCanvas = QiSquareWeiqiCanvas;
@@ -2576,6 +2688,15 @@
     const C = () => global.QiSquareWeiqiCanvas;
     const R = () => global.QiWeiqiSquarePageRuntime;
 
+    /** 开局前 turnDisplay 文案：入座人数 / 等待对手 / 确认规则（各棋种共用） */
+    function waitingSeatTurnText(slots, mySlot) {
+        const bothSelected = !!(slots && slots.black && slots.white);
+        if (bothSelected) return '等待双方确认规则';
+        const seated = (slots && slots.black ? 1 : 0) + (slots && slots.white ? 1 : 0);
+        if (seated === 1 && mySlot) return '等待对手入座(1/2)';
+        return `等待双方入座(${seated}/2)`;
+    }
+
     /**
      * @param {Object} ps
      * @param {{
@@ -2608,12 +2729,112 @@
      *   assignTerritoryWithRange?: (liveBoard: number[][]) => number[][],
      * }} opts
      */
+    /**
+     * 编辑工具 → 棋盘格取值。默认仅空/黑/白；桥/洞/雷/中立子等为约定名，
+     * 也可通过 opts.editToolValues 或 editTools[].cellValue 覆盖/扩展。
+     */
+    const DEFAULT_EDIT_CELL_BY_TOOL = Object.freeze({
+        empty: 0,
+        black: 1,
+        white: 2,
+        hole: -1,
+        bridge: -2,
+        mine: -3,
+        neutral: 10000
+    });
+
+    function buildEditToolValueMap(opts) {
+        const map = Object.assign({}, DEFAULT_EDIT_CELL_BY_TOOL);
+        const extra = opts && opts.editToolValues;
+        if (extra && typeof extra === 'object') {
+            for (const k of Object.keys(extra)) {
+                const n = Number(extra[k]);
+                if (Number.isFinite(n)) map[k] = n;
+            }
+        }
+        const tools = opts && opts.editTools;
+        if (Array.isArray(tools)) {
+            for (const t of tools) {
+                if (!t || t.value == null || t.cellValue == null) continue;
+                const n = Number(t.cellValue);
+                if (Number.isFinite(n)) map[String(t.value)] = n;
+            }
+        }
+        return map;
+    }
+
+    function resolveEditToolCellValue(tool, valueMap) {
+        if (tool == null || tool === '') return 0;
+        const key = String(tool);
+        if (Object.prototype.hasOwnProperty.call(valueMap, key)) return valueMap[key];
+        return 0;
+    }
+
+    /** 统计棋盘上黑白子数量（支持二维 / 一维 flat） */
+    function countBoardPlayerStones(bd) {
+        if (!bd) return 0;
+        let n = 0;
+        if (Array.isArray(bd[0])) {
+            for (let r = 0; r < bd.length; r++) {
+                const row = bd[r];
+                if (!row) continue;
+                for (let c = 0; c < row.length; c++) {
+                    const v = row[c];
+                    if (v === 1 || v === 2) n++;
+                }
+            }
+        } else {
+            for (let i = 0; i < bd.length; i++) {
+                const v = bd[i];
+                if (v === 1 || v === 2) n++;
+            }
+        }
+        return n;
+    }
+
+    /**
+     * 在多个棋盘候选中选「有子更多」的；全 0 盘分数更低。
+     * 勿用 `initialBoard || board`：空 initialBoard 在 JS 里仍为真，会盖住有子的 board。
+     */
+    function pickRichestBoard() {
+        let best = null;
+        let bestScore = -1;
+        for (let i = 0; i < arguments.length; i++) {
+            const bd = arguments[i];
+            if (!bd) continue;
+            const score = countBoardPlayerStones(bd);
+            if (score > bestScore) {
+                best = bd;
+                bestScore = score;
+            }
+        }
+        return best;
+    }
+
+    function clearUserBoardMarksMap(map) {
+        if (!map || typeof map !== 'object') return;
+        for (const k of Object.keys(map)) delete map[k];
+    }
+
+    /** 独立棋类本地 userBoardMarks：注册后新局/重置可一并清空 */
+    function bindActiveUserBoardMarks(map) {
+        if (!map || typeof map !== 'object') return;
+        global.QiBoardMarks = global.QiBoardMarks || {};
+        global.QiBoardMarks._active = map;
+        global.QiBoardMarks.clear = function () {
+            clearUserBoardMarksMap(global.QiBoardMarks._active);
+        };
+    }
+
     function create(ps, dom, opts) {
         const minLib = opts.minLib != null ? opts.minLib : 1;
         const maxWeakLiberties = opts.maxWeakLiberties != null ? opts.maxWeakLiberties : 2;
         const isMouse = !!opts.isMouseDevice;
         const enableEditBoard = !!opts.enableEditBoard;
+        let editApi = null;
         if (ps.hoverCapture === undefined) ps.hoverCapture = false;
+        if (!ps.userBoardMarks) ps.userBoardMarks = Object.create(null);
+        bindActiveUserBoardMarks(ps.userBoardMarks);
         if (enableEditBoard) {
             if (ps.editModeEnabled === undefined) ps.editModeEnabled = false;
             if (ps.editTool === undefined) ps.editTool = 'empty';
@@ -2850,15 +3071,7 @@
                 return;
             }
             if (!ps.matchStarted) {
-                if (bothSelected) {
-                    dom.turnDisplay.innerText = '等待双方确认规则';
-                } else {
-                    const seated = (ps.slots && ps.slots.black ? 1 : 0) + (ps.slots && ps.slots.white ? 1 : 0);
-                    if (seated === 1 && ps.mySlot)
-                        dom.turnDisplay.innerText = '等待对手(1/2)';
-                    else
-                        dom.turnDisplay.innerText = `等待双方入座(${seated}/2)`;
-                }
+                dom.turnDisplay.innerText = waitingSeatTurnText(ps.slots, ps.mySlot);
                 ps.isMyTurn = false;
                 drawBoard();
                 return;
@@ -3168,18 +3381,20 @@
             }
         }
 
-        function rebuildLiveReplayBoard(moveCoords) {
+        function rebuildLiveReplayBoard(moveCoords, openingBoard) {
             if (opts.rebuildLiveReplayFromMoveCoords) {
-                opts.rebuildLiveReplayFromMoveCoords(moveCoords);
+                opts.rebuildLiveReplayFromMoveCoords(moveCoords, openingBoard);
                 return;
             }
             const o = R().rebuildLiveReplayFromMoveCoords(
                 moveCoords,
                 tryPlaceStone,
                 deepCopyBoard,
-                () => (ps.liveOpeningBoard
-                    ? deepCopyBoard(ps.liveOpeningBoard)
-                    : initBoardArray(ps.BOARD_SIZE))
+                () => {
+                    if (openingBoard) return deepCopyBoard(openingBoard);
+                    if (ps.liveOpeningBoard) return deepCopyBoard(ps.liveOpeningBoard);
+                    return initBoardArray(ps.BOARD_SIZE);
+                }
             );
             ps.liveReplayBoards = o.liveReplayBoards;
             ps.liveReplayMarkers = o.liveReplayMarkers;
@@ -3250,6 +3465,9 @@
                 colorStatus: dom.colorStatus,
                 connectWebSocket
             });
+            if (global.RoomChat && typeof global.RoomChat.bindSlotContext === 'function') {
+                global.RoomChat.bindSlotContext({ getWs: () => ps.ws });
+            }
         }
 
         function initBoardArray(size) {
@@ -3278,68 +3496,77 @@
         }
 
         function updateEditModeUI() {
-            if (!enableEditBoard) return;
-            const editModeCheckbox = document.getElementById('editModeCheckbox');
-            const editToolSelect = document.getElementById('editToolSelect');
-            const clearBoardBtn = document.getElementById('clearBoardBtn');
-            const canEdit = !ps.gameStarted && !ps.gameOver && ps.mySlot === null;
-            if (editModeCheckbox) editModeCheckbox.disabled = !canEdit;
-            if (!canEdit && ps.editModeEnabled) {
-                ps.editModeEnabled = false;
-                if (editModeCheckbox) editModeCheckbox.checked = false;
-                if (editToolSelect) editToolSelect.classList.add('hidden');
-                if (clearBoardBtn) clearBoardBtn.classList.add('hidden');
-            }
-        }
-
-        function sendEditBoard(newBoard) {
-            if (!ps.ws || ps.ws.readyState !== WebSocket.OPEN) return;
-            ps.ws.send(JSON.stringify({ type: 'editBoard', board: newBoard }));
-        }
-
-        function applyEditChange(newBoard) {
-            ps.board = deepCopyBoard(newBoard);
-            if (!ps.replayMode) {
-                const preGame = !ps.gameStarted && (ps.numberOfHands || 1) <= 1;
-                if (preGame) {
-                    ps.liveOpeningBoard = deepCopyBoard(ps.board);
-                    if (ps.liveReplayBoards.length === 0) {
-                        ps.liveReplayBoards = [deepCopyBoard(ps.board)];
-                        ps.liveReplayMarkers = [[]];
-                        ps.liveReplayStepPlayers = [0];
-                        ps.liveViewStep = 0;
-                    } else {
-                        const i = Math.min(ps.liveViewStep, ps.liveReplayBoards.length - 1);
-                        ps.liveReplayBoards[i] = deepCopyBoard(ps.board);
-                    }
-                } else if (ps.liveReplayBoards.length > 0) {
-                    const i = Math.min(ps.liveViewStep, ps.liveReplayBoards.length - 1);
-                    ps.liveReplayBoards[i] = deepCopyBoard(ps.board);
-                }
-            }
-            drawBoard();
-            sendEditBoard(ps.board);
+            if (editApi) editApi.updateEditModeUI();
         }
 
         function clearEditModeUi() {
-            if (!enableEditBoard) return;
-            ps.editModeEnabled = false;
-            const editModeCheckbox = document.getElementById('editModeCheckbox');
-            const editToolSelect = document.getElementById('editToolSelect');
-            const clearBoardBtn = document.getElementById('clearBoardBtn');
-            if (editModeCheckbox) editModeCheckbox.checked = false;
-            if (editToolSelect) editToolSelect.classList.add('hidden');
-            if (clearBoardBtn) clearBoardBtn.classList.add('hidden');
+            if (editApi) editApi.clearEditModeUi();
+        }
+
+        function boardPlayerStoneCount(bd) {
+            return countBoardPlayerStones(bd);
+        }
+
+        function pickRichestOpening() {
+            return pickRichestBoard.apply(null, arguments);
+        }
+
+        function applyOpeningBoardIfRicher(state) {
+            if (ps.editModeEnabled || ps.replayMode) return;
+            const moves = (state && state.moveCoords) || [];
+            if (moves.length) return;
+            const opening = pickRichestOpening(
+                ps._editCommitSnapshot,
+                ps.liveOpeningBoard,
+                state && state.initialBoard,
+                state && state.board,
+                ps.board
+            );
+            if (!opening) return;
+            if (boardPlayerStoneCount(opening) < boardPlayerStoneCount(ps.board)) return;
+            ps.liveOpeningBoard = deepCopyBoard(opening);
+            ps.liveReplayBoards = [deepCopyBoard(opening)];
+            ps.liveReplayMarkers = [[]];
+            ps.liveReplayStepPlayers = [0];
+            ps.liveViewStep = 0;
+            ps.liveFollowLatest = true;
+            applyLiveViewBoard();
+            updateLiveReplayPanelUI();
         }
 
         function syncState(state) {
-            if (enableEditBoard && state) {
-                if (state.initialBoard) ps.liveOpeningBoard = deepCopyBoard(state.initialBoard);
+            if (enableEditBoard && state && !ps.editModeEnabled) {
+                const opening = pickRichestOpening(
+                    ps._editCommitSnapshot,
+                    state.initialBoard,
+                    (!(state.moveCoords && state.moveCoords.length) ? state.board : null),
+                    ps.liveOpeningBoard
+                );
+                if (opening) ps.liveOpeningBoard = deepCopyBoard(opening);
+                ps.gameStarted = (state.numberOfHands || 1) > 1;
+            } else if (enableEditBoard && state && ps.editModeEnabled) {
+                // 编辑中：只更新开局标记，不覆盖本地正在编辑的棋盘
                 ps.gameStarted = (state.numberOfHands || 1) > 1;
             }
             if (opts.syncState) {
                 opts.syncState(state);
+                // 自定义 sync 常从空盘 rebuild，会丢掉 editBoard 写入的 opening / initialBoard
+                applyOpeningBoardIfRicher(state);
                 updateEditModeUI();
+                if (editApi) editApi.restoreLocalEditAfterSync();
+                if (editApi) editApi.ensureCommitSnapshotVisible();
+                if (editApi && state && state.type === 'editBoardAccepted')
+                    editApi.noteEditBoardAccepted(state);
+                return;
+            }
+            if (ps.editModeEnabled) {
+                // 编辑中跳过棋盘全量同步，仅刷新座位/用时等元数据与编辑锁
+                if (state.slots) ps.slots = state.slots;
+                if (state.matchTime !== undefined) ps.matchTime = state.matchTime;
+                if (state.matchStarted !== undefined) ps.matchStarted = !!state.matchStarted;
+                if (state.mySlot !== undefined) ps.mySlot = state.mySlot;
+                updateEditModeUI();
+                if (editApi) editApi.restoreLocalEditAfterSync();
                 return;
             }
             const prevMatchStarted = !!ps.matchStarted;
@@ -3396,7 +3623,25 @@
             if (!ps.replayMode) {
                 const prevTotal = Math.max(0, ps.liveReplayBoards.length - 1);
                 const wasAtEnd = ps.liveFollowLatest || ps.liveViewStep >= prevTotal;
-                rebuildLiveReplayBoard(state.moveCoords || []);
+                const moves = state.moveCoords || [];
+                if (!moves.length) {
+                    const opening = pickRichestOpening(
+                        ps._editCommitSnapshot,
+                        ps.liveOpeningBoard,
+                        state.initialBoard,
+                        state.board
+                    );
+                    if (opening) {
+                        ps.liveOpeningBoard = deepCopyBoard(opening);
+                        ps.liveReplayBoards = [deepCopyBoard(opening)];
+                        ps.liveReplayMarkers = [[]];
+                        ps.liveReplayStepPlayers = [0];
+                    } else {
+                        rebuildLiveReplayBoard(moves);
+                    }
+                } else {
+                    rebuildLiveReplayBoard(moves);
+                }
                 const newTotal = Math.max(0, ps.liveReplayBoards.length - 1);
                 if (newTotal === 0) {
                     ps.liveViewStep = 0;
@@ -3411,6 +3656,7 @@
                 }
                 applyLiveViewBoard();
                 updateLiveReplayPanelUI();
+                if (editApi) editApi.ensureCommitSnapshotVisible();
             } else {
                 ps.board = state.board;
                 ps.lastMoveMarkers = state.lastMoveMarkers || [];
@@ -3437,54 +3683,27 @@
             updateReplayUI();
             ps._syncMoveCoordsLen = incomingMoveLen;
             updateEditModeUI();
+            if (editApi) editApi.restoreLocalEditAfterSync();
+            if (editApi && state && state.type === 'editBoardAccepted')
+                editApi.noteEditBoardAccepted(state);
         }
 
         if (enableEditBoard && dom.canvas) {
-            const editModeCheckbox = document.getElementById('editModeCheckbox');
-            const editToolSelect = document.getElementById('editToolSelect');
-            const clearBoardBtn = document.getElementById('clearBoardBtn');
-            if (editModeCheckbox) {
-                editModeCheckbox.addEventListener('change', () => {
-                    ps.editModeEnabled = editModeCheckbox.checked;
-                    if (editToolSelect) editToolSelect.classList.toggle('hidden', !ps.editModeEnabled);
-                    if (clearBoardBtn) clearBoardBtn.classList.toggle('hidden', !ps.editModeEnabled);
-                });
-            }
-            if (editToolSelect) {
-                editToolSelect.addEventListener('change', () => { ps.editTool = editToolSelect.value; });
-            }
-            if (clearBoardBtn) {
-                clearBoardBtn.addEventListener('click', () => {
-                    applyEditChange(initBoardArray(ps.BOARD_SIZE));
-                });
-            }
-            // capture：编辑模式下拦截点击，无需改各插件自己的 click 处理
-            dom.canvas.addEventListener('click', (e) => {
-                if (!ps.editModeEnabled) return;
-                e.stopImmediatePropagation();
-                e.preventDefault();
-                const { x, y } = canvasCoordsFromClient(e.clientX, e.clientY);
-                const { row, col } = getClosestIntersection(x, y);
-                if (row < 0 || col < 0) return;
-                let newVal = 0;
-                if (ps.editTool === 'black') newVal = 1;
-                else if (ps.editTool === 'white') newVal = 2;
-                if (ps.board[row][col] === newVal) return;
-                const nb = deepCopyBoard(ps.board);
-                nb[row][col] = newVal;
-                applyEditChange(nb);
-            }, true);
-            dom.canvas.addEventListener('contextmenu', (e) => {
-                if (!ps.editModeEnabled) return;
-                e.stopImmediatePropagation();
-                e.preventDefault();
-                const { x, y } = canvasCoordsFromClient(e.clientX, e.clientY);
-                const { row, col } = getClosestIntersection(x, y);
-                if (row < 0 || col < 0 || ps.board[row][col] === 0) return;
-                const nb = deepCopyBoard(ps.board);
-                nb[row][col] = 0;
-                applyEditChange(nb);
-            }, true);
+            editApi = installBoardEditUI({
+                ps,
+                canvas: dom.canvas,
+                mode: 'grid2d',
+                editTools: opts.editTools,
+                editToolValues: opts.editToolValues,
+                deepCopyBoard,
+                drawBoard: () => drawBoard(),
+                emptyBoard: () => initBoardArray(ps.BOARD_SIZE),
+                pickAtClient(clientX, clientY) {
+                    const { x, y } = canvasCoordsFromClient(clientX, clientY);
+                    return getClosestIntersection(x, y);
+                },
+                syncLiveOpening: true
+            });
         }
 
         function commitMove(row, col) {
@@ -3514,6 +3733,7 @@
         function applyUserBoardMark(row, col) {
             if (row < 0 || col < 0 || row >= ps.BOARD_SIZE || col >= ps.BOARD_SIZE) return;
             if (ps.board[row][col] !== 0) return;
+            if (!ps.userBoardMarks) ps.userBoardMarks = Object.create(null);
             const { clear, ch } = getSelectedBoardMark();
             const key = row + ',' + col;
             const existing = ps.userBoardMarks[key];
@@ -3522,6 +3742,15 @@
                     delete ps.userBoardMarks[key];
                     drawBoard();
                 }
+                return;
+            }
+            // 扫雷围棋：选中 🚩 时右键循环 空→旗→×→清除；其它标记仍为放置/替换/同号取消
+            if (opts.boardMarkMode === 'minesweeper' && ch === '🚩') {
+                if (existing === undefined) ps.userBoardMarks[key] = '🚩';
+                else if (existing === '🚩') ps.userBoardMarks[key] = '×';
+                else if (existing === '×') delete ps.userBoardMarks[key];
+                else ps.userBoardMarks[key] = '🚩';
+                drawBoard();
                 return;
             }
             if (existing === undefined) {
@@ -3580,7 +3809,15 @@
             applyUserBoardMark,
             updateEditModeUI,
             clearEditModeUi,
-            applyEditChange
+            applyEditChange: (board) => {
+                if (editApi) editApi.applyEditChange(board);
+            },
+            commitEditToServer: (force) => {
+                if (editApi) editApi.commitEditToServer(force);
+            },
+            ensureCommitSnapshotVisible: () => {
+                if (editApi) editApi.ensureCommitSnapshotVisible();
+            }
         };
     }
 
@@ -3590,6 +3827,17 @@
      *   drawBoard, deepCopyBoard?, emptyBoard?, isEditableCell?(row,col)|isEditableIndex?(i),
      *   mode:'grid2d'|'flat', getBoard(), setBoard(b), sendBoard(b) }
      */
+    /**
+     * 统一棋盘编辑 UI（勾选框 / 工具下拉 / 清空 / 点击落子右键清空）。
+     * 编辑过程中只改本地；关闭「编辑」勾选（或因开局被强制退出）时再一次性提交服务器。
+     * @param {object} opts
+     * @param {object} opts.ps
+     * @param {HTMLCanvasElement} opts.canvas
+     * @param {'grid2d'|'flat'} [opts.mode='grid2d']
+     * @param {Array<{value:string,label:string,cellValue?:number}>} [opts.editTools]
+     * @param {Record<string, number>} [opts.editToolValues] 覆盖/扩展默认工具取值
+     * @param {boolean} [opts.syncLiveOpening=false] 方格页：同步 liveOpeningBoard / liveReplayBoards
+     */
     function installBoardEditUI(opts) {
         const ps = opts.ps;
         const canvas = opts.canvas;
@@ -3597,6 +3845,7 @@
         if (ps.editModeEnabled === undefined) ps.editModeEnabled = false;
         if (ps.editTool === undefined) ps.editTool = 'empty';
         if (ps.gameStarted === undefined) ps.gameStarted = false;
+        if (ps.editDirty === undefined) ps.editDirty = false;
 
         const deepCopy = opts.deepCopyBoard || ((b) => {
             if (!b) return b;
@@ -3604,35 +3853,203 @@
             return b.slice();
         });
         const mode = opts.mode || 'grid2d';
+        const toolValueMap = buildEditToolValueMap(opts);
+        const syncLiveOpening = !!opts.syncLiveOpening;
+
+        function currentBoard() {
+            return opts.getBoard ? opts.getBoard() : ps.board;
+        }
+
+        function writeBoard(newBoard) {
+            if (typeof opts.setBoard === 'function') opts.setBoard(newBoard);
+            else ps.board = newBoard;
+        }
+
+        function countPlayerStones(bd) {
+            if (!bd) return 0;
+            let n = 0;
+            if (Array.isArray(bd[0])) {
+                for (let r = 0; r < bd.length; r++) {
+                    const row = bd[r];
+                    if (!row) continue;
+                    for (let c = 0; c < row.length; c++) {
+                        if (row[c] === 1 || row[c] === 2) n++;
+                    }
+                }
+            } else {
+                for (let i = 0; i < bd.length; i++) {
+                    if (bd[i] === 1 || bd[i] === 2) n++;
+                }
+            }
+            return n;
+        }
 
         function updateEditModeUI() {
             const editModeCheckbox = document.getElementById('editModeCheckbox');
             const editToolSelect = document.getElementById('editToolSelect');
             const clearBoardBtn = document.getElementById('clearBoardBtn');
-            const canEdit = !ps.gameStarted && !ps.gameOver && ps.mySlot === null;
+            const editControls = document.getElementById('editControls');
+            const canEdit = !ps.gameOver && !ps.gameStarted && !ps.matchStarted
+                && !(ps.matchTime && ps.matchTime.settings);
+            // 开局后隐藏整块编辑区；新局可编辑时再显示（仅本棋种支持编辑时）
+            if (editControls && editControls.dataset.qiEditFeature === '1') {
+                editControls.hidden = !canEdit;
+            }
             if (editModeCheckbox) editModeCheckbox.disabled = !canEdit;
             if (!canEdit && ps.editModeEnabled) {
+                const lockedByMatch = !!(ps.matchStarted || (ps.matchTime && ps.matchTime.settings));
+                // 已正式开局则勿再提交（服务器会拒绝）；本地脏编辑直接丢弃
+                if (!lockedByMatch) commitEditToServer(true);
+                else {
+                    ps.editDirty = false;
+                    ps._editCommitPending = false;
+                    ps._editCommitSnapshot = null;
+                    ps._editLocalBoard = null;
+                }
                 ps.editModeEnabled = false;
+                // 避免设定 checked=false 再次触发 change（会二次 commit / 清脏标记）
+                ps._suppressEditCheckboxChange = true;
                 if (editModeCheckbox) editModeCheckbox.checked = false;
+                ps._suppressEditCheckboxChange = false;
                 if (editToolSelect) editToolSelect.classList.add('hidden');
                 if (clearBoardBtn) clearBoardBtn.classList.add('hidden');
             }
         }
 
-        function applyEditChange(newBoard) {
-            if (typeof opts.setBoard === 'function') opts.setBoard(newBoard);
-            else ps.board = newBoard;
-            if (typeof opts.drawBoard === 'function') opts.drawBoard();
-            if (typeof opts.sendBoard === 'function') opts.sendBoard(newBoard);
-            else if (ps.ws && ps.ws.readyState === WebSocket.OPEN) {
-                ps.ws.send(JSON.stringify({ type: 'editBoard', board: newBoard }));
+        function syncOpeningCaches(board) {
+            if (!syncLiveOpening || ps.replayMode) return;
+            const preGame = !ps.gameStarted && (ps.numberOfHands || 1) <= 1;
+            if (preGame) {
+                ps.liveOpeningBoard = deepCopy(board);
+                if (!Array.isArray(ps.liveReplayBoards) || ps.liveReplayBoards.length === 0) {
+                    ps.liveReplayBoards = [deepCopy(board)];
+                    ps.liveReplayMarkers = [[]];
+                    ps.liveReplayStepPlayers = [0];
+                    ps.liveViewStep = 0;
+                } else {
+                    const i = Math.min(ps.liveViewStep, ps.liveReplayBoards.length - 1);
+                    ps.liveReplayBoards[i] = deepCopy(board);
+                }
+            } else if (Array.isArray(ps.liveReplayBoards) && ps.liveReplayBoards.length > 0) {
+                const i = Math.min(ps.liveViewStep, ps.liveReplayBoards.length - 1);
+                ps.liveReplayBoards[i] = deepCopy(board);
             }
         }
 
+        function resolveEditWs() {
+            if (typeof opts.getWs === 'function') {
+                try {
+                    const w = opts.getWs();
+                    if (w && w.readyState === 1) return w;
+                } catch (e) { /* ignore */ }
+            }
+            if (ps && ps.ws && ps.ws.readyState === 1) return ps.ws;
+            return null;
+        }
+
+        function sendEditBoardToServer(board) {
+            const locked = !!(ps.gameOver || ps.gameStarted || ps.matchStarted
+                || (ps.matchTime && ps.matchTime.settings));
+            if (locked) return false;
+            if (typeof opts.sendBoard === 'function') {
+                opts.sendBoard(board);
+                return true;
+            }
+            const w = resolveEditWs();
+            if (!w) return false;
+            w.send(JSON.stringify({ type: 'editBoard', board }));
+            return true;
+        }
+
+        /**
+         * 将本地编辑一次性提交服务器（供其它客户端同步）。
+         * @param {boolean} [force=false] 结束编辑时强制提交当前棋盘（不依赖 editDirty）
+         */
+        function commitEditToServer(force) {
+            if (!force && !ps.editDirty) return;
+            let board = deepCopy(currentBoard());
+            // 编辑缓存比当前盘更完整时以缓存为准（同步曾冲掉 ps.board）
+            if (ps._editLocalBoard != null
+                && countPlayerStones(ps._editLocalBoard) > countPlayerStones(board)) {
+                board = deepCopy(ps._editLocalBoard);
+            }
+            writeBoard(board);
+            ps.liveOpeningBoard = deepCopy(board);
+            ps.liveReplayBoards = [deepCopy(board)];
+            ps.liveReplayMarkers = [[]];
+            ps.liveReplayStepPlayers = [0];
+            ps.liveViewStep = 0;
+            ps.liveFollowLatest = true;
+            ps._editCommitSnapshot = deepCopy(board);
+            ps._editCommitPending = true;
+            if (typeof opts.onCommitEdit === 'function') {
+                try { opts.onCommitEdit(deepCopy(board)); } catch (e) { /* ignore */ }
+            }
+            sendEditBoardToServer(board);
+            ps.editDirty = false;
+            ps._editLocalBoard = deepCopy(board);
+            if (typeof opts.drawBoard === 'function') opts.drawBoard();
+        }
+
+        /** 同步后若提交快照比当前盘更「有子」，恢复本地显示；远端已跟上则丢弃快照 */
+        function ensureCommitSnapshotVisible() {
+            const snap = ps._editCommitSnapshot;
+            if (!snap || ps.editModeEnabled) return;
+            const snapN = countPlayerStones(snap);
+            const cur = currentBoard();
+            const curN = countPlayerStones(cur);
+            if (snapN > curN) {
+                writeBoard(deepCopy(snap));
+                ps.liveOpeningBoard = deepCopy(snap);
+                ps.liveReplayBoards = [deepCopy(snap)];
+                ps.liveReplayMarkers = [[]];
+                ps.liveReplayStepPlayers = [0];
+                ps.liveViewStep = 0;
+                ps.liveFollowLatest = true;
+                if (typeof opts.onCommitEdit === 'function') {
+                    try { opts.onCommitEdit(deepCopy(snap)); } catch (e) { /* ignore */ }
+                }
+                if (typeof opts.drawBoard === 'function') opts.drawBoard();
+                return;
+            }
+            if (snapN > 0 && curN >= snapN) {
+                ps._editCommitPending = false;
+                ps._editCommitSnapshot = null;
+            }
+        }
+
+        /** 收到 editBoardAccepted：远端局面已带上提交的子则清除本地快照 */
+        function noteEditBoardAccepted(state) {
+            const remote = pickRichestBoard(state && state.initialBoard, state && state.board);
+            const remoteN = countPlayerStones(remote);
+            const snapN = countPlayerStones(ps._editCommitSnapshot);
+            if (remoteN >= snapN) {
+                ps._editCommitPending = false;
+                ps._editCommitSnapshot = null;
+            }
+        }
+
+        function applyEditChange(newBoard) {
+            writeBoard(newBoard);
+            const board = currentBoard();
+            ps._editLocalBoard = deepCopy(board);
+            ps.editDirty = true;
+            syncOpeningCaches(board);
+            if (typeof opts.onEditApplied === 'function') opts.onEditApplied(board);
+            if (typeof opts.drawBoard === 'function') opts.drawBoard();
+            // 编辑中不同步服务器；关闭编辑勾选时再 commitEditToServer
+        }
+
         function toolValue() {
-            if (ps.editTool === 'black') return 1;
-            if (ps.editTool === 'white') return 2;
-            return 0;
+            return resolveEditToolCellValue(ps.editTool, toolValueMap);
+        }
+
+        /** 远程 sync 后若仍在编辑，恢复本地未提交局面，避免闪一下被冲掉 */
+        function restoreLocalEditAfterSync() {
+            if (!ps.editModeEnabled || ps._editLocalBoard == null) return;
+            writeBoard(deepCopy(ps._editLocalBoard));
+            syncOpeningCaches(ps._editLocalBoard);
+            if (typeof opts.drawBoard === 'function') opts.drawBoard();
         }
 
         const editModeCheckbox = document.getElementById('editModeCheckbox');
@@ -3640,9 +4057,21 @@
         const clearBoardBtn = document.getElementById('clearBoardBtn');
         if (editModeCheckbox) {
             editModeCheckbox.addEventListener('change', () => {
-                ps.editModeEnabled = editModeCheckbox.checked;
-                if (editToolSelect) editToolSelect.classList.toggle('hidden', !ps.editModeEnabled);
-                if (clearBoardBtn) clearBoardBtn.classList.toggle('hidden', !ps.editModeEnabled);
+                if (ps._suppressEditCheckboxChange) return;
+                const on = !!editModeCheckbox.checked;
+                if (on) {
+                    ps.editModeEnabled = true;
+                    ps.editDirty = false;
+                    ps._editLocalBoard = deepCopy(currentBoard());
+                    if (editToolSelect) editToolSelect.classList.remove('hidden');
+                    if (clearBoardBtn) clearBoardBtn.classList.remove('hidden');
+                } else {
+                    // 关闭编辑 = 编辑完成 → 强制提交当前棋盘（即使 dirty 标记丢失）
+                    commitEditToServer(true);
+                    ps.editModeEnabled = false;
+                    if (editToolSelect) editToolSelect.classList.add('hidden');
+                    if (clearBoardBtn) clearBoardBtn.classList.add('hidden');
+                }
             });
         }
         if (editToolSelect) {
@@ -3652,10 +4081,10 @@
             clearBoardBtn.addEventListener('click', () => {
                 if (typeof opts.emptyBoard === 'function') applyEditChange(opts.emptyBoard());
                 else if (mode === 'flat') {
-                    const n = (opts.getBoard ? opts.getBoard() : ps.board).length;
+                    const n = currentBoard().length;
                     applyEditChange(Array(n).fill(0));
                 } else {
-                    const n = ps.BOARD_SIZE || ps.boardSize || ps.board.length;
+                    const n = ps.BOARD_SIZE || ps.boardSize || currentBoard().length;
                     applyEditChange(Array(n).fill(null).map(() => Array(n).fill(0)));
                 }
             });
@@ -3667,7 +4096,7 @@
             e.preventDefault();
             const hit = opts.pickAtClient(e.clientX, e.clientY);
             if (!hit) return;
-            const board = opts.getBoard ? opts.getBoard() : ps.board;
+            const board = currentBoard();
             const nb = deepCopy(board);
             const v = toolValue();
             if (mode === 'flat') {
@@ -3692,7 +4121,7 @@
             e.preventDefault();
             const hit = opts.pickAtClient(e.clientX, e.clientY);
             if (!hit) return;
-            const board = opts.getBoard ? opts.getBoard() : ps.board;
+            const board = currentBoard();
             const nb = deepCopy(board);
             if (mode === 'flat') {
                 const i = hit.index != null ? hit.index : hit.v;
@@ -3706,16 +4135,33 @@
             applyEditChange(nb);
         }, true);
 
-        return {
+        const api = {
             updateEditModeUI,
             applyEditChange,
+            commitEditToServer,
+            restoreLocalEditAfterSync,
+            ensureCommitSnapshotVisible,
+            noteEditBoardAccepted,
             clearEditModeUi() {
+                // 强制退出不提交（新局等）
                 ps.editModeEnabled = false;
+                ps.editDirty = false;
+                ps._editLocalBoard = null;
+                ps._editCommitSnapshot = null;
+                ps._editCommitPending = false;
+                ps.liveOpeningBoard = null;
+                ps._suppressEditCheckboxChange = true;
                 if (editModeCheckbox) editModeCheckbox.checked = false;
+                ps._suppressEditCheckboxChange = false;
                 if (editToolSelect) editToolSelect.classList.add('hidden');
                 if (clearBoardBtn) clearBoardBtn.classList.add('hidden');
-            }
+            },
+            toolValueMap
         };
+        // 供 newGameStarted / roomReset 统一清空（含独立 _editPs 的异形棋插件）
+        global.QiBoardEditUi = global.QiBoardEditUi || {};
+        global.QiBoardEditUi.clear = () => api.clearEditModeUi();
+        return api;
     }
 
     function countGroupLiberties(board, row, col, boardSize) {
@@ -4543,6 +4989,9 @@
 
     global.QiWeiqiSquarePageRuntime = {
         create,
+        clearUserBoardMarksMap,
+        bindActiveUserBoardMarks,
+        waitingSeatTurnText,
         countGroupLiberties, 
         hasLiberty, 
         removeGroup, 
@@ -4558,6 +5007,11 @@
         buildReplayFromImportData, 
         applyInitialPositionCompact,
         installBoardEditUI,
+        DEFAULT_EDIT_CELL_BY_TOOL,
+        buildEditToolValueMap,
+        resolveEditToolCellValue,
+        countBoardPlayerStones,
+        pickRichestBoard,
         drawPitHole,
         drawRedBlockHole,
         drawVoidHole,
@@ -4651,7 +5105,11 @@
         }
 
         const edit = document.getElementById('editControls');
-        if (edit) edit.hidden = !features.editBoard;
+        if (edit) {
+            if (features.editBoard) edit.dataset.qiEditFeature = '1';
+            else delete edit.dataset.qiEditFeature;
+            edit.hidden = !features.editBoard;
+        }
         fillEditToolSelect(document.getElementById('editToolSelect'), config.editTools);
 
         const styleSelect = document.getElementById('styleSelect');
@@ -4684,15 +5142,19 @@
         const palette = document.getElementById('bottomPalette');
         const vlBags = document.getElementById('vlBagsPalette');
         const qdBags = document.getElementById('quoridorBagsPalette');
+        const dyeingBags = document.getElementById('dyeingBagsPalette');
         const boardAndInfo = document.getElementById('boardAndInfo');
         const useCompound = !!features.compoundPalette;
         const useVlBags = !!features.vlBags;
         const useQdBags = !!features.quoridorBags;
+        const useDyeingBags = !!features.dyeingBags;
         const useRussian = !!features.russianCompound;
+        const useShogiBags = !!features.shogiBags;
 
         if (palette) palette.hidden = !useCompound;
         if (vlBags) vlBags.hidden = !useVlBags;
         if (qdBags) qdBags.hidden = !useQdBags;
+        if (dyeingBags) dyeingBags.hidden = !useDyeingBags;
 
         if (useRussian) {
             const host = document.getElementById('compoundTransformButtons');
@@ -4711,7 +5173,7 @@
             if (pieceRow) pieceRow.hidden = false;
         }
 
-        if (useCompound || useVlBags || useQdBags) {
+        if (useCompound || useVlBags || useQdBags || useDyeingBags) {
             if (boardAndInfo) boardAndInfo.classList.add('board-and-info--palette-stack');
         } else if (boardAndInfo) {
             boardAndInfo.classList.remove('board-and-info--palette-stack');
@@ -4720,8 +5182,15 @@
         document.body.classList.toggle('qi-room-has-palette', useCompound || useRussian);
         document.body.classList.toggle('qi-room-has-vl-bags', useVlBags);
         document.body.classList.toggle('qi-room-has-qd-bags', useQdBags);
+        document.body.classList.toggle('qi-room-has-dyeing-bags', useDyeingBags);
+        document.body.classList.toggle('qi-room-shogi-bags', useShogiBags);
         document.body.classList.toggle('qi-room-transparent-canvas', !!features.transparentCanvas);
         document.body.classList.toggle('qi-room-xiangqi', !!features.xiangqi);
+        document.body.classList.toggle('qi-room-chess', !!features.chess);
+        document.body.classList.toggle('qi-room-simulated-makruk', !!features.simulatedMakruk);
+        document.body.classList.toggle('qi-room-simulated-shogi', !!features.simulatedShogi);
+        document.body.classList.toggle('qi-room-janggi', !!features.janggi);
+        document.body.classList.toggle('qi-room-hexagon-xiangqi', !!features.hexagonXiangqi);
         document.body.classList.toggle('qi-room-dual-boards', !!features.dualBoards);
         document.body.classList.toggle('qi-room-versus-ms', !!features.versusMinesweeper);
 
@@ -4740,14 +5209,32 @@
         if (features.xiangqi) {
             const blackTitle = document.getElementById('goTimerBlackTitle');
             const whiteTitle = document.getElementById('goTimerWhiteTitle');
-            if (blackTitle) blackTitle.textContent = '🔴 红方';
-            if (whiteTitle) whiteTitle.textContent = '⚫ 黑方';
-            ['estimateBtn', 'passBtn', 'endReqBtn'].forEach((id) => {
+            const sideDot = (color) =>
+                `<span class="qi-side-dot qi-side-dot--${color}" aria-hidden="true"></span>`;
+            if (features.dyeingBags) {
+                if (blackTitle) blackTitle.innerHTML = sideDot('red') + '红方';
+                if (whiteTitle) whiteTitle.innerHTML = sideDot('green') + '绿方';
+            } else if (features.chess) {
+                if (blackTitle) blackTitle.innerHTML = sideDot('white') + '白方';
+                if (whiteTitle) whiteTitle.innerHTML = sideDot('black') + '黑方';
+            } else if (features.janggi) {
+                if (blackTitle) blackTitle.innerHTML = sideDot('blue') + '蓝方';
+                if (whiteTitle) whiteTitle.innerHTML = sideDot('red') + '红方';
+            } else {
+                if (blackTitle) blackTitle.innerHTML = sideDot('red') + '红方';
+                if (whiteTitle) whiteTitle.innerHTML = sideDot('black') + '黑方';
+            }
+            const hideIds = features.janggi
+                ? ['estimateBtn', 'endReqBtn']
+                : ['estimateBtn', 'passBtn', 'endReqBtn'];
+            hideIds.forEach((id) => {
                 const b = document.getElementById(id);
                 if (b) b.style.display = 'none';
             });
             const showNum = document.querySelector('.show-numbers-label');
             if (showNum) showNum.hidden = true;
+            const komiEl = document.getElementById('komiInfo');
+            if (komiEl) komiEl.hidden = true;
         }
 
         if (features.versusMinesweeper) {
@@ -4806,7 +5293,7 @@
         const draw = globalThis.QiSquareWeiqiCanvas && globalThis.QiSquareWeiqiCanvas.draw;
         if (!draw || typeof draw.userBoardMarks !== 'function') return;
         /* 与 room.css 的 --qi-room-board 保持一致 */
-        const LIGHT = '#edbc80';
+        const LIGHT = '#fdcc90';
         draw.userBoardMarks = function (ctx, userBoardMarksMap, boardSize, padding, cellSize, isVisibleAt) {
             for (const key of Object.keys(userBoardMarksMap)) {
                 const [r, c] = key.split(',').map(Number);
@@ -4840,6 +5327,10 @@
 
         applyLighterBoardMarkFill();
 
+        // 须在插件 mount（创建 WebSocket）之前挂钩，否则自建 WS 的棋种收不到聊天广播
+        RoomChat.installWebSocketHook();
+        RoomChat.init();
+
         await loadScript('/qi/room-plugins/' + room.gameType + '-room.js');
 
         const plugin = window.RoomPlugins && window.RoomPlugins[room.gameType];
@@ -4858,9 +5349,18 @@
         applyShellChrome(config);
 
         if (config.features && config.features.xiangqi) {
-            await loadScript('/qi/xiangqi-rules.js');
-            if (!window.QiXiangqiRules || typeof window.QiXiangqiRules.createInitialBoard !== 'function') {
-                throw new Error('QiXiangqiRules missing after loading xiangqi-rules.js');
+            // 染色象棋 / 国际象棋等：规则内联在插件内，不加载通用象棋规则
+            const inlineRules = config.features.dyeingBags
+                || config.features.chess
+                || config.features.simulatedMakruk
+                || config.features.simulatedShogi
+                || config.features.janggi
+                || config.features.hexagonXiangqi;
+            if (!inlineRules) {
+                await loadScript('/qi/xiangqi-rules.js');
+                if (!window.QiXiangqiRules || typeof window.QiXiangqiRules.createInitialBoard !== 'function') {
+                    throw new Error('QiXiangqiRules missing after loading xiangqi-rules.js');
+                }
             }
             if (document.fonts && document.fonts.load) {
                 try {
@@ -4903,6 +5403,263 @@
             C.initBoardMarkSelectDom(sel, chars);
         }
     }
+
+    /** 房间预设聊天（消息表见根目录 chat-messages.csv） */
+    const RoomChat = (function () {
+        let socket = null;
+        let getWs = null;
+        let presets = [];
+        let ready = false;
+        const sendTimestamps = [];
+        const RATE_WINDOW_MS = 10000;
+        const RATE_MAX = 3;
+
+        function formatTime(at) {
+            const d = new Date(typeof at === 'number' ? at : Date.now());
+            const hh = String(d.getHours()).padStart(2, '0');
+            const mm = String(d.getMinutes()).padStart(2, '0');
+            return hh + ':' + mm;
+        }
+
+        function appendEntry(entry) {
+            const log = document.getElementById('roomChatLog');
+            if (!log || !entry) return;
+            const line = document.createElement('div');
+            line.className = 'room-chat-line';
+
+            const meta = document.createElement('span');
+            meta.className = 'room-chat-meta';
+            // 发送人称呼由服务端按「观战者N / 入座者N / 执方」写入 senderLabel
+            const who = entry.senderLabel || '观战者';
+            meta.textContent = formatTime(entry.at) + ' ' + who + '：';
+
+            const body = document.createElement('span');
+            body.className = 'room-chat-body';
+            body.textContent = entry.content || '';
+
+            line.appendChild(meta);
+            line.appendChild(body);
+            log.appendChild(line);
+            log.scrollTop = log.scrollHeight;
+        }
+
+        function syncSelectFace() {
+            const sel = document.getElementById('roomChatSelect');
+            const face = document.getElementById('roomChatSelectFace');
+            if (!sel || !face) return;
+            const opt = sel.selectedIndex >= 0 && sel.selectedOptions
+                ? sel.selectedOptions[0]
+                : null;
+            // 闭合态由 face 显示完整文案并用 CSS 截断为 ...；option 本身始终保留全文
+            const full = opt ? (opt.getAttribute('data-full') || opt.textContent || '') : '';
+            face.textContent = full;
+            face.title = full;
+        }
+
+        function clearSelection() {
+            const sel = document.getElementById('roomChatSelect');
+            if (!sel) return;
+            // 不提供空白 option，用 selectedIndex=-1 表示「当前未选」
+            sel.selectedIndex = -1;
+            syncSelectFace();
+        }
+
+        function fillSelect() {
+            const sel = document.getElementById('roomChatSelect');
+            if (!sel) return;
+            sel.innerHTML = '';
+            if (!presets.length) {
+                sel.disabled = true;
+                clearSelection();
+                return;
+            }
+            sel.disabled = false;
+            for (const p of presets) {
+                const opt = document.createElement('option');
+                opt.value = p.id;
+                // 下拉列表必须显示完整内容；闭合态截断交给 .room-chat-select-face
+                opt.textContent = p.content;
+                opt.setAttribute('data-full', p.content);
+                sel.appendChild(opt);
+            }
+            clearSelection();
+        }
+
+        function parseCsv(text) {
+            const list = [];
+            const lines = String(text || '').split(/\r?\n/);
+            for (const raw of lines) {
+                const line = raw.trim();
+                if (!line || line.startsWith('#')) continue;
+                const comma = line.indexOf(',');
+                if (comma <= 0) continue;
+                const id = line.slice(0, comma).trim();
+                const content = line.slice(comma + 1).trim();
+                if (!id || !content) continue;
+                list.push({ id, content });
+            }
+            return list;
+        }
+
+        async function loadPresets() {
+            try {
+                const res = await fetch('/qi/chat-messages.csv', { cache: 'no-store' });
+                if (!res.ok) throw new Error('HTTP ' + res.status);
+                presets = parseCsv(await res.text());
+            } catch (e) {
+                console.warn('加载聊天预设失败', e);
+                presets = [];
+            }
+            fillSelect();
+        }
+
+        function hookSocket(ws) {
+            if (!ws || ws.__roomChatHooked) return;
+            ws.__roomChatHooked = true;
+            ws.addEventListener('message', (e) => {
+                let msg;
+                try {
+                    msg = JSON.parse(e.data);
+                } catch (_) {
+                    return;
+                }
+                if (!msg || typeof msg !== 'object') return;
+                if (msg.type === 'chat' || msg.type === 'chatHistory' || msg.type === 'chatError') {
+                    consumeIncoming(msg);
+                    if (typeof e.stopImmediatePropagation === 'function') e.stopImmediatePropagation();
+                }
+            }, true);
+        }
+
+        function resolveSocket() {
+            if (typeof getWs === 'function') {
+                try {
+                    const w = getWs();
+                    if (w) {
+                        hookSocket(w);
+                        if (w.readyState === 1) return w;
+                    }
+                } catch (_) { /* ignore */ }
+            }
+            if (socket) {
+                hookSocket(socket);
+                if (socket.readyState === 1) return socket;
+            }
+            return null;
+        }
+
+        function allowSendByRate() {
+            const now = Date.now();
+            while (sendTimestamps.length && now - sendTimestamps[0] >= RATE_WINDOW_MS) {
+                sendTimestamps.shift();
+            }
+            if (sendTimestamps.length >= RATE_MAX) return false;
+            sendTimestamps.push(now);
+            return true;
+        }
+
+        function sendSelected() {
+            const sel = document.getElementById('roomChatSelect');
+            if (!sel || !sel.value) return;
+            const messageId = sel.value;
+            const ws = resolveSocket();
+            if (!ws) {
+                if (typeof qiAlert === 'function') qiAlert('尚未连接房间，请稍后再试');
+                return;
+            }
+            if (!allowSendByRate()) {
+                if (typeof qiAlert === 'function') qiAlert('发送过于频繁，请稍后再试');
+                return;
+            }
+            try {
+                ws.send(JSON.stringify({ type: 'chat', messageId }));
+                clearSelection();
+            } catch (e) {
+                if (typeof qiAlert === 'function') qiAlert('发送失败');
+            }
+        }
+
+        function consumeIncoming(msg) {
+            if (!msg || typeof msg !== 'object') return false;
+            if (msg.type === 'chat') {
+                appendEntry(msg);
+                return true;
+            }
+            if (msg.type === 'chatHistory') {
+                const log = document.getElementById('roomChatLog');
+                if (log) log.innerHTML = '';
+                const list = Array.isArray(msg.messages) ? msg.messages : [];
+                for (const entry of list) appendEntry(entry);
+                return true;
+            }
+            if (msg.type === 'chatError') {
+                if (typeof qiAlert === 'function') qiAlert(msg.message || '聊天发送失败');
+                return true;
+            }
+            return false;
+        }
+
+        function bindSlotContext(ctx) {
+            if (!ctx) return;
+            if (typeof ctx.getWs === 'function') getWs = ctx.getWs;
+            if (typeof getWs === 'function') {
+                try { hookSocket(getWs()); } catch (_) { /* ignore */ }
+            }
+        }
+
+        function setSocket(ws) {
+            socket = ws || null;
+            hookSocket(socket);
+        }
+
+        function installWebSocketHook() {
+            if (installWebSocketHook.done) return;
+            installWebSocketHook.done = true;
+            const Native = window.WebSocket;
+            if (!Native) return;
+            try {
+                window.WebSocket = class RoomChatWebSocket extends Native {
+                    constructor(url, protocols) {
+                        if (protocols === undefined) super(url);
+                        else super(url, protocols);
+                        try {
+                            if (String(url || '').indexOf('/qi/ws') !== -1) setSocket(this);
+                        } catch (_) { /* ignore */ }
+                    }
+                };
+            } catch (e) {
+                console.warn('RoomChat WebSocket hook failed', e);
+            }
+        }
+
+        function init() {
+            if (ready) return;
+            ready = true;
+            const btn = document.getElementById('roomChatSendBtn');
+            if (btn) btn.onclick = sendSelected;
+            const sel = document.getElementById('roomChatSelect');
+            if (sel) {
+                sel.addEventListener('change', syncSelectFace);
+                sel.addEventListener('input', syncSelectFace);
+                sel.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter') {
+                        e.preventDefault();
+                        sendSelected();
+                    }
+                });
+            }
+            loadPresets();
+        }
+
+        return {
+            init,
+            installWebSocketHook,
+            setSocket,
+            bindSlotContext,
+            consumeIncoming
+        };
+    })();
+    window.RoomChat = RoomChat;
 
     boot().catch((err) => {
         console.error(err);

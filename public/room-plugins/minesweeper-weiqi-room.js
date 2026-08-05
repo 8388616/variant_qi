@@ -2,7 +2,7 @@ window.RoomPlugins = window.RoomPlugins || {};
 window.RoomPlugins['minesweeper-weiqi'] = {
     shell: {
         "title": "扫雷围棋",
-        "rulesHtml": "基本规则同标准围棋。<br /><br />\n第2手落子后，在棋盘上随机生成若干隐藏的雷（数量约为棋盘总点数的20%，向上取整）。<br /><br />\n落子在雷上时，落子无效（等效于虚着），同时雷被消除<br />",
+        "rulesHtml": "基本规则同标准围棋。<br /><br />\n第2手落子后，在棋盘上随机生成若干隐藏的雷（数量约为棋盘总点数的20%，向上取整）。<br /><br />\n落子在雷上时，落子无效（等效于虚着），同时雷被消除。<br /><br />",
         "defaultKomiText": "黑贴白3.25点",
         "boardSizeMin": 7,
         "boardSizeMax": 21,
@@ -38,7 +38,8 @@ const C = QiSquareWeiqiCanvas, R = () => QiWeiqiSquarePageRuntime;
             tryPlayMode: false, tryPlayBaseStep: 0, tryPlayBoards: [], tryPlayMarkers: [], tryPlayCurrentPlayer: 1, tryPlayStep: 0, tryPlayTotalSteps: 0,
             liveReplayBoards: [], liveReplayMarkers: [], liveReplayStepPlayers: [], liveViewStep: 0, liveFollowLatest: true,
             userBoardMarks: Object.create(null), hoverRow: -1, hoverCol: -1, isHoverValid: false,
-            minesweeperHints: {}, holes: [], minesRevealedPublicly: false, gameStarted: false, editModeEnabled: false, editTool: 'empty',
+            minesweeperHints: {}, holes: [], minesRevealedPublicly: false, holesGenerated: false, remainingMines: null,
+            gameStarted: false, editModeEnabled: false, editTool: 'empty',
             replayMinesVisible: true
         };
         (function () {
@@ -57,7 +58,7 @@ const scoreTitle = document.getElementById('scoreTitle'), scoreBoard = document.
         const scoreConfirmPanel = document.getElementById('scoreConfirmPanel'), scoreConfirmText = document.getElementById('scoreConfirmText');
         const scoreConfirmYes = document.getElementById('scoreConfirmYes'), scoreConfirmNo = document.getElementById('scoreConfirmNo');
         const boardMarkSelect = document.getElementById('boardMarkSelect');
-        C.initBoardMarkSelectDom(boardMarkSelect, BOARD_MARK_CHAR_LIST);
+        C.initBoardMarkSelectDom(boardMarkSelect, BOARD_MARK_CHAR_LIST, '🚩');
         C.initBoardMarkFoldDom(document.getElementById('boardMarkPanel'), document.getElementById('boardMarkFoldBtn'), document.getElementById('boardMarkExpandBtn'));
         const editModeCheckbox = document.getElementById('editModeCheckbox'), editToolSelect = document.getElementById('editToolSelect'), clearBoardBtn = document.getElementById('clearBoardBtn');
         const replayMinesRow = document.getElementById('replayMinesRow');
@@ -115,7 +116,8 @@ const scoreTitle = document.getElementById('scoreTitle'), scoreBoard = document.
             return nb;
         }
         function msRemoveDead(src) {
-            return R().removeDeadAndDyingWithHoles(src, ps.BOARD_SIZE, (b) => b.map(r => r.slice()), (r, c) => src[r][c] === MINE, 2);
+            // 扫雷围棋形势判断/数点：不判残子，盘上棋子全部视为活子
+            return src.map(r => r.slice());
         }
         function msAssign(live) {
             return R().assignTerritoryWithRangeWithHoles(live, ps.BOARD_SIZE, (r, c) => live[r][c] === MINE);
@@ -241,10 +243,17 @@ const scoreTitle = document.getElementById('scoreTitle'), scoreBoard = document.
             }
         }
 
-        function rebuildLiveSweep(moveCoords) {
+        function rebuildLiveSweep(moveCoords, openingBoard) {
             const n = ps.BOARD_SIZE;
             ps.liveReplayBoards = []; ps.liveReplayMarkers = [];
-            let cur = Array(n).fill().map(() => Array(n).fill(0));
+            let cur = openingBoard ? dc(openingBoard) : Array(n).fill().map(() => Array(n).fill(0));
+            if (!ps.minesRevealedPublicly && !ps.gameOver) {
+                for (let r = 0; r < n; r++) {
+                    for (let c = 0; c < n; c++) {
+                        if (cur[r][c] === MINE) cur[r][c] = 0;
+                    }
+                }
+            }
             ps.liveReplayBoards.push(dc(cur)); ps.liveReplayMarkers.push([]);
             for (const move of (moveCoords || [])) {
                 const pv = move.player === 'black' ? 1 : 2;
@@ -287,6 +296,10 @@ const scoreTitle = document.getElementById('scoreTitle'), scoreBoard = document.
             ps.numberOfHands = incomingNH; ps.currentPlayer = state.currentPlayer; ps.gameOver = incomingGO; ps.winner = state.winner || null;
             ps.minesweeperHints = state.minesweeperHints || {};
             ps.minesRevealedPublicly = !!state.minesRevealedPublicly;
+            ps.holesGenerated = !!state.holesGenerated;
+            ps.remainingMines = (state.remainingMines != null && Number.isFinite(state.remainingMines))
+                ? state.remainingMines
+                : null;
             if (state.moveCoords) ps.moveLog = state.moveCoords.map(m => m.type === 'move' ? { row: m.row, col: m.col } : null);
             if (state.slots) ps.slots = state.slots;
             ps.gameStarted = ps.numberOfHands > 1;
@@ -299,13 +312,39 @@ const scoreTitle = document.getElementById('scoreTitle'), scoreBoard = document.
             if (ps.matchStarted) ps.matchStartedOnce = true;
             if (!ps.replayMode) {
                 const prevT = Math.max(0, ps.liveReplayBoards.length - 1), wasEnd = ps.liveFollowLatest || ps.liveViewStep >= prevT;
-                if (Array.isArray(state.boardHistory) && state.boardHistory.length > 0) {
+                const coords = state.moveCoords || [];
+                const prevLen = prevSyncedLen !== undefined ? prevSyncedLen : -1;
+                // 常态：每手只追加一帧，避免整谱重放 + 大包 boardHistory 导致越下越卡
+                if (
+                    !sizeWillChange
+                    && prevLen >= 0
+                    && incomingMoveLen === prevLen + 1
+                    && ps.liveReplayBoards.length === prevLen + 1
+                    && state.board
+                ) {
+                    ps.liveReplayBoards.push(dc(state.board));
+                    ps.liveReplayMarkers.push((state.lastMoveMarkers || []).map(m => ({ ...m })));
+                } else if (
+                    !sizeWillChange
+                    && prevLen >= 0
+                    && incomingMoveLen === prevLen
+                    && ps.liveReplayBoards.length === incomingMoveLen + 1
+                    && state.board
+                ) {
+                    ps.liveReplayBoards[ps.liveReplayBoards.length - 1] = dc(state.board);
+                    if (state.lastMoveMarkers)
+                        ps.liveReplayMarkers[ps.liveReplayMarkers.length - 1] = state.lastMoveMarkers.map(m => ({ ...m }));
+                } else if (Array.isArray(state.boardHistory) && state.boardHistory.length > 0) {
+                    // 兼容旧服务端仍下发 boardHistory 的情况
                     ps.liveReplayBoards = state.boardHistory.map(b => b.map(row => row.slice()));
                     ps.liveReplayMarkers = (state.markerHistory || []).map(a => (a || []).map(m => ({ ...m })));
                     while (ps.liveReplayMarkers.length < ps.liveReplayBoards.length) ps.liveReplayMarkers.push([]);
-                } else rebuildLiveSweep(state.moveCoords || []);
+                } else {
+                    const opening = (incomingMoveLen === 0 && state.board) ? state.board : null;
+                    rebuildLiveSweep(coords, opening);
+                }
                 ps.liveReplayStepPlayers = [0];
-                for (const m of (state.moveCoords || []))
+                for (const m of coords)
                     ps.liveReplayStepPlayers.push(m.player === 'black' ? 1 : 2);
                 const newT = Math.max(0, ps.liveReplayBoards.length - 1);
                 if (newT === 0) { ps.liveViewStep = 0; ps.liveFollowLatest = true; }
@@ -428,10 +467,47 @@ const scoreTitle = document.getElementById('scoreTitle'), scoreBoard = document.
 
         var page;
         page = R().create(ps, domPage, {
-            recordDownloadPrefix, minLib, maxWeakLiberties: 2, gameType, roomId, roomPassword, isMouseDevice,
+            recordDownloadPrefix, minLib, maxWeakLiberties: 0, gameType, roomId, roomPassword, isMouseDevice,
+            boardMarkMode: 'minesweeper',
             tryPlaceStone: msTryPlace, removeDeadAndDying: msRemoveDead, assignTerritoryWithRange: msAssign,
             drawBoard: drawBoardSweep, syncState: sweepSync, rebuildLiveReplayFromMoveCoords: rebuildLiveSweep, enterReplayMode: msEnterReplay
         });
+
+        function shouldShowRemainingMinesScoreLine() {
+            if (!ps.holesGenerated || ps.remainingMines == null) return false;
+            if (ps.showEstimateActive) return false;
+            if (ps.waitingScoreConfirm) return false;
+            if (ps.gameOver) return false;
+            if (ps.replayMode && !ps.tryPlayMode) return false;
+            return true;
+        }
+        function refreshRemainingMinesScoreLine() {
+            if (!scoreBoard) return;
+            if (!shouldShowRemainingMinesScoreLine()) {
+                if (ps.showEstimateActive || ps.waitingScoreConfirm) return;
+                scoreBoard.innerText = '　';
+                return;
+            }
+            scoreBoard.innerText = `剩余雷数　${ps.remainingMines}`;
+        }
+        (function wrapRemainingMinesScoreRefresh() {
+            const wrap = (name) => {
+                const o = page[name];
+                if (typeof o !== 'function') return;
+                page[name] = function (...args) {
+                    const r = o.apply(this, args);
+                    refreshRemainingMinesScoreLine();
+                    return r;
+                };
+            };
+            wrap('updateTurn');
+            wrap('clearEstimate');
+            wrap('showEstimate');
+            wrap('setLiveViewStep');
+            wrap('setTryPlayStep');
+            wrap('enterTryPlay');
+            wrap('exitTryPlay');
+        })();
         (function wrapReplayMinesweeperHints() {
             const sr = page.setReplayStep.bind(page);
             page.setReplayStep = (step) => { sr(step); refreshReplayMinesweeperHints(); };
@@ -470,7 +546,9 @@ const scoreTitle = document.getElementById('scoreTitle'), scoreBoard = document.
             boardSeatOverlay: true,
             onNewGameStarted: () => {
                 ps.gameStarted = false; ps.editModeEnabled = false; if (editModeCheckbox) editModeCheckbox.checked = false;
+                ps.holesGenerated = false; ps.remainingMines = null; ps.minesRevealedPublicly = false;
                 colorStatus.innerText = '未选择阵营';
+                refreshRemainingMinesScoreLine();
             }
         });
         page.updateReplayUI = function () {

@@ -759,7 +759,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                 return;
             }
             if (!ps.matchStarted) {
-                turnDisplay.innerText = bothSelected ? '等待双方确认限时规则' : '等待双方入座';
+                turnDisplay.innerText = QiWeiqiSquarePageRuntime.waitingSeatTurnText(slots, mySlot);
                 ps.isMyTurn = false;
                 page.drawBoard();
                 return;

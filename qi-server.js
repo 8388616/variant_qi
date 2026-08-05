@@ -21,6 +21,37 @@ Express.use(ExpressRateLimit);
 
 const rooms = {};
 
+const CHAT_MESSAGES_PATH = path.join(__dirname, 'chat-messages.csv');
+const CHAT_LOG_LIMIT = 80;
+
+function parseChatMessagesCsv(text) {
+    const map = new Map();
+    const lines = String(text || '').split(/\r?\n/);
+    for (const raw of lines) {
+        const line = raw.trim();
+        if (!line || line.startsWith('#')) continue;
+        const comma = line.indexOf(',');
+        if (comma <= 0) continue;
+        const id = line.slice(0, comma).trim();
+        const content = line.slice(comma + 1).trim();
+        if (!id || !content) continue;
+        map.set(id, content);
+    }
+    return map;
+}
+
+function loadChatMessages() {
+    try {
+        if (!fs.existsSync(CHAT_MESSAGES_PATH)) return new Map();
+        return parseChatMessagesCsv(fs.readFileSync(CHAT_MESSAGES_PATH, 'utf8'));
+    } catch (e) {
+        console.error('加载 chat-messages.csv 失败', e);
+        return new Map();
+    }
+}
+
+let chatMessages = loadChatMessages();
+
 /** 有 room-plugins/{id}-room.js 则走统一房间页（按文件探测，无需改白名单/重启） */
 function usesRoomShell(gameId) {
     return fs.existsSync(path.join(__dirname, 'public', 'room-plugins', `${gameId}-room.js`));
@@ -41,6 +72,51 @@ function findGameModulePath(gameId) {
     return fs.existsSync(flat) ? flat : null;
 }
 
+/** 正式开局后聊天显示的执方名（与各 room-plugin 的 slotUi.statusText 对齐） */
+const CHAT_SIDE_LABELS_BY_GAME = {
+    xiangqi: { black: '红方', white: '黑方' },
+    'fog-xiangqi': { black: '红方', white: '黑方' },
+    'double-xiangqi': { black: '红方', white: '黑方' },
+    'hexagon-xiangqi': { black: '红方', white: '黑方' },
+    'dyeing-xiangqi': { black: '红方', white: '绿方' },
+    'simulated-makruk': { black: '红方', white: '黑方' },
+    'simulated-shogi': { black: '红方', white: '黑方' },
+    janggi: { black: '蓝方', white: '红方' },
+    chess: { black: '白方', white: '黑方' }
+};
+
+function getChatSideLabel(room, slot) {
+    if (!slot) return null;
+    const gl = room && room.gameLogic;
+    if (gl && typeof gl.getChatSideLabel === 'function') {
+        try {
+            const custom = gl.getChatSideLabel(slot);
+            if (custom) return String(custom);
+        } catch (_) { /* ignore */ }
+    }
+    const map = CHAT_SIDE_LABELS_BY_GAME[room && room.gameType] || null;
+    if (map && map[slot]) return map[slot];
+    if (slot === 'black') return '黑方';
+    if (slot === 'white') return '白方';
+    return String(slot);
+}
+
+function resolveChatSenderLabel(room, ws) {
+    const gl = room && room.gameLogic;
+    const matchStarted = !!(gl && (
+        gl.matchStarted
+        || (Array.isArray(gl.moveHistory) && gl.moveHistory.length > 0)
+    ));
+    const slot = room.getSlotByWs(ws) || null;
+    if (matchStarted && slot) return getChatSideLabel(room, slot);
+    if (slot) {
+        const n = ws && ws._chatSeatNo ? ws._chatSeatNo : 1;
+        return '入座者' + n;
+    }
+    const n = ws && ws._chatJoinNo ? ws._chatJoinNo : 1;
+    return '观战者' + n;
+}
+
 class BaseGameRoom
 {
     constructor(roomId, gameType, hasPassword, passwordHash, maxPlayers = 2) {
@@ -48,12 +124,22 @@ class BaseGameRoom
         this.gameType = gameType;
         this.hasPassword = hasPassword;
         this.passwordHash = passwordHash;
+        this.chatLog = [];
+        this.chatJoinCounter = 0;
+        this.chatSeatCounter = 0;
         this.maxPlayers = maxPlayers;
         this.players = new Map();
         this.slotOccupancy = new Map();
         this.observers = new Set();
         this.gameLogic = null;
         this.destroyTimer = null;
+    }
+
+    /** 进房顺序编号，用于「观战者N」 */
+    registerChatJoin(ws) {
+        if (!ws || ws._chatJoinNo) return;
+        this.chatJoinCounter += 1;
+        ws._chatJoinNo = this.chatJoinCounter;
     }
 
     addObserver(ws) {
@@ -66,6 +152,10 @@ class BaseGameRoom
         this.observers.delete(ws);
         this.players.set(ws, slot);
         this.slotOccupancy.set(slot, ws);
+        if (ws && !ws._chatSeatNo) {
+            this.chatSeatCounter += 1;
+            ws._chatSeatNo = this.chatSeatCounter;
+        }
     }
 
     /** 将已入座玩家改到另一座位（先清旧位再占新位） */
@@ -271,6 +361,15 @@ Express.get("/qi/qi.css", (request, response) => sendPublicOrRoot(response, "qi.
 Express.get("/qi/qi.js", (request, response) => sendPublicOrRoot(response, "qi.js"));
 Express.get("/qi/room.css", (request, response) => response.sendFile(path.join(__dirname, "public", "room.css")));
 Express.get("/qi/room.js", (request, response) => response.sendFile(path.join(__dirname, "public", "room.js")));
+Express.get("/qi/chat-messages.csv", (request, response) => {
+    chatMessages = loadChatMessages();
+    if (!fs.existsSync(CHAT_MESSAGES_PATH)) {
+        response.type('text/csv; charset=utf-8');
+        return response.send('# id,content\n');
+    }
+    response.type('text/csv; charset=utf-8');
+    response.sendFile(CHAT_MESSAGES_PATH);
+});
 Express.get("/qi/room-plugins/:plugin", (request, response) => {
     const plugin = request.params.plugin;
     if (!/^[a-zA-Z0-9_-]+-room\.js$/.test(plugin)) return response.status(400).send('Invalid plugin');
@@ -393,6 +492,7 @@ wss.on('connection', (ws, req) => {
                     return;
                 }
             }
+            room.registerChatJoin(ws);
             let slot = null;
             if (room.gameLogic && room.gameLogic.assignSlot)
                 slot = room.gameLogic.assignSlot(ws, msg.requestedSlot);
@@ -424,6 +524,46 @@ wss.on('connection', (ws, req) => {
 
             const playerList = Array.from(room.players.entries()).map(([_, slot]) => slot);
             room.broadcast({ type: 'playerList', players: playerList }, ws);
+            if (Array.isArray(room.chatLog) && room.chatLog.length) {
+                ws.send(JSON.stringify({ type: 'chatHistory', messages: room.chatLog }));
+            }
+        }
+        else if (msg.type === 'chat') {
+            chatMessages = loadChatMessages();
+            const messageId = msg.messageId != null ? String(msg.messageId).trim() : '';
+            const content = messageId ? chatMessages.get(messageId) : null;
+            if (!messageId || content == null) {
+                try {
+                    ws.send(JSON.stringify({ type: 'chatError', message: '无效的聊天消息' }));
+                } catch (_) { /* ignore */ }
+                return;
+            }
+            const now = Date.now();
+            if (!ws._chatSendTimes) ws._chatSendTimes = [];
+            ws._chatSendTimes = ws._chatSendTimes.filter((t) => now - t < 10000);
+            if (ws._chatSendTimes.length >= 3) {
+                try {
+                    ws.send(JSON.stringify({ type: 'chatError', message: '发送过于频繁，请稍后再试' }));
+                } catch (_) { /* ignore */ }
+                return;
+            }
+            ws._chatSendTimes.push(now);
+            if (!ws._chatJoinNo) room.registerChatJoin(ws);
+            const slot = room.getSlotByWs(ws) || null;
+            const senderLabel = resolveChatSenderLabel(room, ws);
+            const entry = {
+                messageId,
+                content,
+                slot,
+                senderLabel,
+                at: now
+            };
+            if (!Array.isArray(room.chatLog)) room.chatLog = [];
+            room.chatLog.push(entry);
+            if (room.chatLog.length > CHAT_LOG_LIMIT) {
+                room.chatLog.splice(0, room.chatLog.length - CHAT_LOG_LIMIT);
+            }
+            room.broadcast({ type: 'chat', ...entry });
         }
         else {
             if (room.gameLogic && room.gameLogic.handleMessage)

@@ -502,7 +502,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                 turnDisplay.innerText = '等待数点确认';
             } else if (!ps.matchStarted) {
                 const bothSelected = !!(ps.slots && ps.slots.black && ps.slots.white);
-                turnDisplay.innerText = bothSelected ? '等待双方确认限时规则' : '等待双方入座';
+                turnDisplay.innerText = QiWeiqiSquarePageRuntime.waitingSeatTurnText(slots, mySlot);
             } else if (!ps.mySlot) {
                 turnDisplay.innerText = `第${Math.max(1, ps.numberOfHands)}手`;
             } else if (ps.numberOfHands <= 1) {

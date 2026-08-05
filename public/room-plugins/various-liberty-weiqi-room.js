@@ -361,7 +361,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             return playerVal === 1 ? ps.blackBag : ps.whiteBag;
         }
 
-        function rebuildLiveReplayFromMoveCoords(moveCoords) {
+        function rebuildLiveReplayFromMoveCoords(moveCoords, openingBoard) {
             const built = buildVlReplayStepSnapshots(moveCoords || [], ps.BOARD_SIZE, []);
             ps.liveReplayBoards = built.boards;
             ps.liveReplayLevelBoards = built.levelBoards;

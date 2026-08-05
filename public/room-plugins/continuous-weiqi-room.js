@@ -333,6 +333,7 @@ window.RoomPlugins["continuous-weiqi"] = {
     let showLiberty = false;
     let showGrid = true;
     let userBoardMarks = Object.create(null);
+    if (typeof QiWeiqiSquarePageRuntime !== 'undefined' && QiWeiqiSquarePageRuntime.bindActiveUserBoardMarks) QiWeiqiSquarePageRuntime.bindActiveUserBoardMarks(userBoardMarks);
     let replayMode = false;
     let replayStonesSeq = [];
     let replayMarkersSeq = [];
@@ -581,7 +582,7 @@ const scoreTitle = document.getElementById('scoreTitle');
     function updateTurn() {
         if (matchStarted) matchStartedOnce = true;
         const both = slots.black && slots.white;
-        if (!matchStarted) turnDisplay.innerText = both ? '等待双方确认限时规则' : '等待双方入座';
+        if (!matchStarted) turnDisplay.innerText = QiWeiqiSquarePageRuntime.waitingSeatTurnText(slots, mySlot);
         else if (numberOfHands <= 1) turnDisplay.innerText = '初始局面';
         else {
             const lastPlayer = currentPlayer === 1 ? 2 : 1;
@@ -595,7 +596,12 @@ const scoreTitle = document.getElementById('scoreTitle');
     }
 
     function updateEditModeUI() {
-        const canEdit = !gameStarted && !gameOver && mySlot === null;
+        const canEdit = !gameOver && !gameStarted && !(typeof matchStarted !== "undefined" && matchStarted)
+            && !(matchTime && matchTime.settings);
+        const editControls = document.getElementById('editControls');
+        if (editControls && editControls.dataset.qiEditFeature === '1') {
+            editControls.hidden = !canEdit;
+        }
         if (editModeCheckbox) editModeCheckbox.disabled = !canEdit;
         if (!canEdit && editModeEnabled) {
             editModeEnabled = false;
@@ -607,6 +613,7 @@ const scoreTitle = document.getElementById('scoreTitle');
 
     function sendEditBoard(newStones) {
         if (!ws || ws.readyState !== WebSocket.OPEN) return;
+        if (gameOver || gameStarted || matchStarted || (matchTime && matchTime.settings)) return;
         ws.send(JSON.stringify({ type: 'editBoard', stones: newStones }));
     }
 
@@ -795,10 +802,16 @@ const scoreTitle = document.getElementById('scoreTitle');
             boardSeatOverlay: true,
         onNewGameStarted() {
             editModeEnabled = false;
-            if (editModeCheckbox) editModeCheckbox.checked = false;
+            gameStarted = false;
+            if (editModeCheckbox) {
+                editModeCheckbox.checked = false;
+                editModeCheckbox.disabled = false;
+            }
             if (editToolSelect) editToolSelect.classList.add('hidden');
             if (clearBoardBtn) clearBoardBtn.classList.add('hidden');
-        }
+            updateEditModeUI();
+        },
+        updateEditModeUI
     });
     const bindingsHandleMessage = _weiqiBindings.handleMessage;
     bindingsUpdateRadioStyles = _weiqiBindings.updateRadioStyles;

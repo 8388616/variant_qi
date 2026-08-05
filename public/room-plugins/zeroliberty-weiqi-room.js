@@ -142,8 +142,10 @@ const scoreTitle = document.getElementById('scoreTitle');
             return nb;
         }
 
-        function zlRebuildLiveReplayFromMoveCoords(moveCoords) {
-            let curBoard = QiSquareWeiqiCanvas.initBoardArray(ps.BOARD_SIZE);
+        function zlRebuildLiveReplayFromMoveCoords(moveCoords, openingBoard) {
+            let curBoard = openingBoard
+                ? QiSquareWeiqiCanvas.deepCopyBoard(openingBoard)
+                : QiSquareWeiqiCanvas.initBoardArray(ps.BOARD_SIZE);
             const liveReplayBoards = [QiSquareWeiqiCanvas.deepCopyBoard(curBoard)];
             const liveReplayMarkers = [[]];
             const liveReplayStepPlayers = [0];
@@ -314,7 +316,12 @@ const scoreTitle = document.getElementById('scoreTitle');
             if (!ps.replayMode) {
                 const prevTotal = Math.max(0, ps.liveReplayBoards.length - 1);
                 const wasAtEnd = ps.liveFollowLatest || ps.liveViewStep >= prevTotal;
-                page.rebuildLiveReplayFromMoveCoords(state.moveCoords || []);
+                page.rebuildLiveReplayFromMoveCoords(
+                    state.moveCoords || [],
+                    (typeof QiWeiqiSquarePageRuntime !== 'undefined' && QiWeiqiSquarePageRuntime.pickRichestBoard)
+                        ? QiWeiqiSquarePageRuntime.pickRichestBoard(ps.liveOpeningBoard, state.initialBoard, state.board)
+                        : (ps.liveOpeningBoard || state.initialBoard || state.board)
+                );
                 const newTotal = Math.max(0, ps.liveReplayBoards.length - 1);
                 if (newTotal === 0) {
                     ps.liveViewStep = 0;
@@ -379,7 +386,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             isMouseDevice,
             tryPlaceStone: zlTryPlaceStone,
             removeDeadAndDying: (src) => QiSquareWeiqiCanvas.deepCopyBoard(src),
-            rebuildLiveReplayFromMoveCoords: (m) => zlRebuildLiveReplayFromMoveCoords(m),
+            rebuildLiveReplayFromMoveCoords: (m, opening) => zlRebuildLiveReplayFromMoveCoords(m, opening),
             enterReplayMode: (data) => zlEnterReplayMode(data, pageHolder),
             tryPlayMove: (row, col) => zlTryPlayMove(row, col, pageHolder),
             syncState: (state) => zeroLibertySyncState(state, pageHolder)

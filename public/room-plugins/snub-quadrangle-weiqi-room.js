@@ -129,6 +129,7 @@ const Snub = {
 
         /** 本地棋盘标记（仅本机显示）坐标键 "r,c" → 标记字符 */
         let userBoardMarks = Object.create(null);
+        if (typeof QiWeiqiSquarePageRuntime !== 'undefined' && QiWeiqiSquarePageRuntime.bindActiveUserBoardMarks) QiWeiqiSquarePageRuntime.bindActiveUserBoardMarks(userBoardMarks);
 
         const BOARD_MARK_CHAR_LIST = (() => {
             const a = [];
@@ -1002,11 +1003,11 @@ const scoreTitle = document.getElementById('scoreTitle');
             }
         }
 
-        function rebuildLiveReplayFromMoveCoords(moveCoords) {
+        function rebuildLiveReplayFromMoveCoords(moveCoords, openingBoard) {
             liveReplayBoards = [];
             liveReplayMarkers = [];
             liveReplayStepPlayers = [0];
-            let curBoard = initGridBoard();
+            let curBoard = openingBoard ? deepCopyBoard(openingBoard) : initGridBoard();
             liveReplayBoards.push(deepCopyBoard(curBoard));
             liveReplayMarkers.push([]);
             for (const move of (moveCoords || [])) {
@@ -1130,7 +1131,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             if (!replayMode) {
                 const prevTotal = Math.max(0, liveReplayBoards.length - 1);
                 const wasAtEnd = liveFollowLatest || liveViewStep >= prevTotal;
-                rebuildLiveReplayFromMoveCoords(state.moveCoords || []);
+                rebuildLiveReplayFromMoveCoords(state.moveCoords || [], ((typeof QiWeiqiSquarePageRuntime !== 'undefined' && QiWeiqiSquarePageRuntime.pickRichestBoard) ? QiWeiqiSquarePageRuntime.pickRichestBoard(state.initialBoard, state.board) : (state.initialBoard || state.board)));
                 const newTotal = Math.max(0, liveReplayBoards.length - 1);
                 if (newTotal === 0) {
                     liveViewStep = 0;

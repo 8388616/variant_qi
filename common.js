@@ -489,26 +489,31 @@ function normalizeQiRecordForImport(data) {
 
 /** 方格五子棋：连五判定与棋盘是否已满（与前端 qi.js 中同名逻辑保持一致） */
 const squareWuziqiRules = {
-    checkFiveInRow(board, row, col, colorVal, boardSize) {
+    checkNInRow(board, row, col, colorVal, boardSize, n) {
         if (board[row][col] !== colorVal) return false;
+        const need = Math.max(1, n | 0);
         const directions = [[1, 0], [0, 1], [1, 1], [1, -1]];
         for (let [dx, dy] of directions) {
             let count = 1;
-            for (let step = 1; step < 5; step++) {
+            for (let step = 1; step < need; step++) {
                 const nr = row + dx * step;
                 const nc = col + dy * step;
                 if (nr < 0 || nr >= boardSize || nc < 0 || nc >= boardSize || board[nr][nc] !== colorVal) break;
                 count++;
             }
-            for (let step = 1; step < 5; step++) {
+            for (let step = 1; step < need; step++) {
                 const nr = row - dx * step;
                 const nc = col - dy * step;
                 if (nr < 0 || nr >= boardSize || nc < 0 || nc >= boardSize || board[nr][nc] !== colorVal) break;
                 count++;
             }
-            if (count >= 5) return true;
+            if (count >= need) return true;
         }
         return false;
+    },
+
+    checkFiveInRow(board, row, col, colorVal, boardSize) {
+        return this.checkNInRow(board, row, col, colorVal, boardSize, 5);
     },
 
     isBoardFull(board, boardSize) {
@@ -572,13 +577,14 @@ const qiProtocol = {
 
     /**
      * 棋盘蒙版落座：开局前由服务端分配空位（忽略客户端指定颜色，避免抢座误报）；
-     * 对局中途需指定 color 续坐空缺方。
+     * 对局中途需指定 color 续坐空缺方；对局已结束后不允许落座（观战）。
      */
     takeSeat(self, ws, msg, opts = {}) {
         const occupiedMsg = opts.colorOccupiedMsg ?? '该座位已被占用。';
         const fullMsg = opts.seatsFullMsg ?? '双方均已落座。';
         const slot = self.room.getSlotByWs(ws);
         if (slot) return;
+        if (self.gameOver) return;
 
         let color = null;
         if (self.matchStarted) {
@@ -791,26 +797,47 @@ const qiProtocol = {
     },
 
     /**
+     * 开局后禁止编辑棋盘（含绕过 UI 直接发 editBoard）。
+     * 限时已确认 / matchStarted / 已有着手 / 对局结束均锁定。
+     * historyBoards 仅在长度 > 1 时锁定（扫雷等会保留 length===1 的开局快照）。
+     */
+    isBoardEditLocked(self) {
+        if (!self) return true;
+        if (self.gameOver) return true;
+        if (self.matchStarted) return true;
+        if (self.tcSettings) return true;
+        if (Array.isArray(self.moveHistory) && self.moveHistory.length > 0) return true;
+        if (Array.isArray(self.moveCoords) && self.moveCoords.length > 0) return true;
+        if (Array.isArray(self.historyBoards) && self.historyBoards.length > 1) return true;
+        return false;
+    },
+
+    /**
      * 开局前编辑棋盘（空/黑/白）。
      * 默认校验二维 board[r][c] ∈ {0,1,2}；异形可设 self.editBoardMode：
      * - 'flat'：一维 board[i]，长度 self.vertexCount || board.length
+     * - 'triangle' / 'jagged'：锯齿二维盘；行长默认 r+1，可用 self.editBoardRowLength(r) 覆盖（如扭曲空间 2r+1）
+     * - 'maskedGrid'：扭棱等，board[r][c] 为 0/1/2 或无效点 -1（须与 isValidVertex 一致）
      * - 自定义：self.applyEditBoard(ws, msg) 优先
      * 成功后写入 openingBoard 并广播 editBoardAccepted。
      */
     editSquareBoard(self, ws, msg) {
-        if (typeof self.applyEditBoard === 'function') {
-            self.applyEditBoard(ws, msg);
-            return;
-        }
-        if (self.useCustomEditBoard) return false;
-
-        if (self.gameOver || (self.historyBoards && self.historyBoards.length > 0)) {
+        if (qiProtocol.isBoardEditLocked(self)) {
             ws.send(JSON.stringify({ type: 'error', message: '对局已开始，不能编辑棋盘' }));
             return true;
         }
+        if (typeof self.applyEditBoard === 'function') {
+            self.applyEditBoard(ws, msg);
+            return true;
+        }
+        if (self.useCustomEditBoard) return false;
 
         const allowed = self.editBoardAllowedValues || [0, 1, 2];
         const mode = self.editBoardMode || 'grid2d';
+        const asInt = (v) => {
+            const n = Number(v);
+            return Number.isInteger(n) ? n : v;
+        };
 
         if (mode === 'flat') {
             const edited = msg.board;
@@ -820,13 +847,83 @@ const qiProtocol = {
                 ws.send(JSON.stringify({ type: 'error', message: '无效的棋盘数据' }));
                 return true;
             }
+            const next = new Array(n);
             for (let i = 0; i < n; i++) {
-                if (!allowed.includes(edited[i])) {
+                const v = asInt(edited[i]);
+                if (!allowed.includes(v)) {
                     ws.send(JSON.stringify({ type: 'error', message: '棋盘数据包含非法值' }));
                     return true;
                 }
+                next[i] = v;
             }
-            self.board = edited.slice();
+            self.board = next;
+        } else if (mode === 'triangle' || mode === 'jagged') {
+            const editedBoard = msg.board;
+            const size = self.boardSize != null ? self.boardSize : self.BOARD_SIZE;
+            const rowLenFn = typeof self.editBoardRowLength === 'function'
+                ? (r) => self.editBoardRowLength(r)
+                : (r) => r + 1;
+            if (!editedBoard || !Array.isArray(editedBoard) || editedBoard.length !== size) {
+                ws.send(JSON.stringify({ type: 'error', message: '无效的棋盘数据' }));
+                return true;
+            }
+            const next = new Array(size);
+            for (let r = 0; r < size; r++) {
+                const row = editedBoard[r];
+                const expectLen = rowLenFn(r);
+                if (!Number.isInteger(expectLen) || expectLen < 1
+                    || !Array.isArray(row) || row.length !== expectLen) {
+                    ws.send(JSON.stringify({ type: 'error', message: '无效的棋盘数据' }));
+                    return true;
+                }
+                next[r] = new Array(expectLen);
+                for (let c = 0; c < expectLen; c++) {
+                    const v = asInt(row[c]);
+                    if (!allowed.includes(v)) {
+                        ws.send(JSON.stringify({ type: 'error', message: '棋盘数据包含非法值' }));
+                        return true;
+                    }
+                    next[r][c] = v;
+                }
+            }
+            self.board = next;
+        } else if (mode === 'maskedGrid') {
+            const editedBoard = msg.board;
+            const w = self.gridW != null ? self.gridW : self.boardSize;
+            const h = self.gridH != null ? self.gridH : self.boardSize;
+            if (!editedBoard || !Array.isArray(editedBoard) || editedBoard.length !== w) {
+                ws.send(JSON.stringify({ type: 'error', message: '无效的棋盘数据' }));
+                return true;
+            }
+            const isValid = typeof self.isValidVertex === 'function'
+                ? (r, c) => self.isValidVertex(r, c)
+                : () => true;
+            const next = new Array(w);
+            for (let r = 0; r < w; r++) {
+                const row = editedBoard[r];
+                if (!Array.isArray(row) || row.length !== h) {
+                    ws.send(JSON.stringify({ type: 'error', message: '无效的棋盘数据' }));
+                    return true;
+                }
+                next[r] = new Array(h);
+                for (let c = 0; c < h; c++) {
+                    const v = asInt(row[c]);
+                    if (!isValid(r, c)) {
+                        if (v !== -1 && v !== 0) {
+                            ws.send(JSON.stringify({ type: 'error', message: '无效的棋盘数据' }));
+                            return true;
+                        }
+                        next[r][c] = -1;
+                    } else {
+                        if (!allowed.includes(v)) {
+                            ws.send(JSON.stringify({ type: 'error', message: '棋盘数据包含非法值' }));
+                            return true;
+                        }
+                        next[r][c] = v;
+                    }
+                }
+            }
+            self.board = next;
         } else {
             const editedBoard = msg.board;
             const size = self.boardSize != null ? self.boardSize : self.BOARD_SIZE;
@@ -840,7 +937,7 @@ const qiProtocol = {
                     return true;
                 }
                 for (let c = 0; c < size; c++) {
-                    if (!allowed.includes(editedBoard[r][c])) {
+                    if (!allowed.includes(asInt(editedBoard[r][c]))) {
                         ws.send(JSON.stringify({ type: 'error', message: '棋盘数据包含非法值' }));
                         return true;
                     }
@@ -851,9 +948,13 @@ const qiProtocol = {
                 : copyBoard(editedBoard);
         }
 
+        if (typeof self.afterEditBoard === 'function') self.afterEditBoard();
+
         self.openingBoard = typeof self.copyBoard === 'function'
             ? self.copyBoard(self.board)
-            : (mode === 'flat' ? self.board.slice() : copyBoard(self.board));
+            : (mode === 'flat' ? self.board.slice() : (
+                Array.isArray(self.board[0]) ? self.board.map((row) => row.slice()) : self.board.slice()
+            ));
         if (Array.isArray(self.historyBoards)) self.historyBoards = [];
         if (self.historyBoardSet && typeof self.historyBoardSet.clear === 'function') {
             self.historyBoardSet.clear();
@@ -886,6 +987,12 @@ const qiProtocol = {
                 ? self.copyBoard(self.board)
                 : (Array.isArray(self.board[0]) ? copyBoard(self.board) : self.board.slice());
         }
+        const copyOpeningFromBoard = (roomSelf) => {
+            if (!roomSelf || !roomSelf.board) return;
+            roomSelf.openingBoard = typeof roomSelf.copyBoard === 'function'
+                ? roomSelf.copyBoard(roomSelf.board)
+                : (Array.isArray(roomSelf.board[0]) ? copyBoard(roomSelf.board) : roomSelf.board.slice());
+        };
         const enrich = (state) => {
             if (!state || typeof state !== 'object') return state;
             if (state.initialBoard == null && self.openingBoard) {
@@ -909,6 +1016,10 @@ const qiProtocol = {
             const origHM = self.handleMessage.bind(self);
             self.handleMessage = function (ws, msg) {
                 if (msg && msg.type === 'editBoard') {
+                    if (qiProtocol.isBoardEditLocked(this)) {
+                        ws.send(JSON.stringify({ type: 'error', message: '对局已开始，不能编辑棋盘' }));
+                        return;
+                    }
                     if (this.useCustomEditBoard || typeof this.applyEditBoard === 'function') {
                         if (typeof this.applyEditBoard === 'function') {
                             this.applyEditBoard(ws, msg);
@@ -922,6 +1033,42 @@ const qiProtocol = {
                 return origHM(ws, msg);
             };
         }
+        // 新局 / 清空房间：openingBoard 必须与清空后的 board 一致，否则 initialBoard 会带回编辑残局
+        const wrapResetSyncOpening = (name) => {
+            if (typeof self[name] !== 'function') return;
+            const orig = self[name].bind(self);
+            self[name] = function (...args) {
+                const room = this.room;
+                if (!room || typeof room.broadcast !== 'function') {
+                    const r = orig(...args);
+                    copyOpeningFromBoard(this);
+                    return r;
+                }
+                const origBroadcast = room.broadcast.bind(room);
+                room.broadcast = (data, exclude) => {
+                    if (data && typeof data === 'object'
+                        && (data.type === 'newGameStarted' || data.type === 'roomReset')) {
+                        copyOpeningFromBoard(this);
+                        if (typeof this.getState === 'function') {
+                            const fresh = this.getState();
+                            data = Object.assign({}, fresh, {
+                                type: data.type,
+                                slots: data.slots !== undefined ? data.slots : fresh.slots
+                            });
+                        }
+                    }
+                    return origBroadcast(data, exclude);
+                };
+                try {
+                    return orig(...args);
+                } finally {
+                    room.broadcast = origBroadcast;
+                    copyOpeningFromBoard(this);
+                }
+            };
+        };
+        wrapResetSyncOpening('resetGame');
+        wrapResetSyncOpening('resetToEmpty');
         return self;
     },
 
@@ -953,9 +1100,18 @@ const qiProtocol = {
         self.moveCoords.push({ type: 'move', player: slot, row, col });
         self.board = newBoard;
         self.lastMoveMarkers = [{ row, col, color: playerVal }];
-        self.currentPlayer = 3 - self.currentPlayer;
         self.passCounter = 0;
+        let endedByAfterPlace = false;
+        if (typeof opts.afterPlace === 'function') {
+            endedByAfterPlace = opts.afterPlace({ row, col, playerVal, slot }) === true;
+        }
+        if (!endedByAfterPlace) {
+            self.currentPlayer = 3 - self.currentPlayer;
+        }
         self.broadcast({ type: 'broadcast', action: 'move', ...self.getState() });
+        if (typeof opts.afterCommit === 'function') {
+            opts.afterCommit({ row, col, playerVal, slot, endedByAfterPlace });
+        }
     },
 
     weiqiPass(self, ws, slot, opts = {}) {

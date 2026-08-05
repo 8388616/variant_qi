@@ -291,8 +291,7 @@ const ps = {
                 return;
             }
             if (!ps.matchStarted) {
-                if (!ps.slots.black || !ps.slots.white) turnDisplay.textContent = '等待双方入座';
-                else turnDisplay.textContent = '等待双方确认规则';
+                turnDisplay.textContent = QiWeiqiSquarePageRuntime.waitingSeatTurnText(ps.slots, ps.mySlot);
                 return;
             }
             if (ps.phase === 'burying') {

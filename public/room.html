@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=2.0, user-scalable=yes">
     <title>房间</title>
     <link rel="stylesheet" href="/qi/fonts/lxgw-wenkai-gb/index.css">
-    <link rel="stylesheet" href="/qi/qi.css">
     <link rel="stylesheet" href="/qi/room.css">
 </head>
 <body class="qi-room" id="gameWrapper">
@@ -62,6 +61,7 @@
     </div>
 
     <div class="main-area">
+        <div class="left-rail">
         <div class="button-panel">
             <button class="ctrl-btn" id="newGameBtn">新局</button>
             <button class="ctrl-btn" id="estimateBtn">形势判断</button>
@@ -87,6 +87,17 @@
             <button class="ctrl-btn" id="buryFinishBtn" style="display:none;">埋雷结束</button>
             <button class="ctrl-btn" id="importBtn">导入棋谱</button>
             <button class="ctrl-btn" id="exportBtn" style="display:none;">导出棋谱</button>
+        </div>
+        <div class="room-chat" id="roomChat" aria-label="房间聊天">
+            <div class="room-chat-log" id="roomChatLog" role="log" aria-live="polite"></div>
+            <div class="room-chat-compose">
+                <div class="room-chat-select-wrap">
+                    <div class="room-chat-select-face" id="roomChatSelectFace" aria-hidden="true"></div>
+                    <select id="roomChatSelect" class="room-chat-select" aria-label="预设消息"></select>
+                </div>
+                <button type="button" class="room-chat-send" id="roomChatSendBtn">发送</button>
+            </div>
+        </div>
         </div>
         <div class="board-and-info" id="boardAndInfo">
             <div class="board-container" id="boardContainer">
@@ -149,6 +160,20 @@
                     </div>
                 </div>
             </div>
+            <div class="bottom-palette dyeing-bags-wrap" id="dyeingBagsPalette" hidden>
+                <div class="dyeing-bags-row">
+                    <div class="dyeing-bag-col dyeing-red-side">
+                        <div class="dyeing-bag-frame">
+                            <div class="dyeing-bag-inner" id="dyeingRedBagRow"></div>
+                        </div>
+                    </div>
+                    <div class="dyeing-bag-col dyeing-green-side">
+                        <div class="dyeing-bag-frame">
+                            <div class="dyeing-bag-inner" id="dyeingGreenBagRow"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
             <div class="palette-stack-aside" id="paletteStackAside">
                 <div class="main-area-right">
                     <div class="info-panel">
@@ -178,7 +203,7 @@
                 </div>
                 <div id="goTimerPanel" class="go-timer-panel" hidden>
                     <div class="go-timer-block go-timer-black" data-go-timer="black" id="goTimerBlack">
-                        <div class="go-timer-title" id="goTimerBlackTitle">⚫ 黑方</div>
+                        <div class="go-timer-title" id="goTimerBlackTitle"><span class="qi-side-dot qi-side-dot--black" aria-hidden="true"></span>黑方</div>
                         <div class="go-timer-line2">
                             <span class="go-timer-count">—</span>
                             <span class="go-timer-over">—</span>
@@ -186,7 +211,7 @@
                         <div class="go-timer-rule">　</div>
                     </div>
                     <div class="go-timer-block go-timer-white" data-go-timer="white" id="goTimerWhite">
-                        <div class="go-timer-title" id="goTimerWhiteTitle">⚪ 白方</div>
+                        <div class="go-timer-title" id="goTimerWhiteTitle"><span class="qi-side-dot qi-side-dot--white" aria-hidden="true"></span>白方</div>
                         <div class="go-timer-line2">
                             <span class="go-timer-count">—</span>
                             <span class="go-timer-over">—</span>

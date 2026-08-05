@@ -497,14 +497,16 @@ function unstableLifetimeForSize(size) {
             return entry;
         }
 
-        function rebuildLiveReplayCore(coords) {
+        function rebuildLiveReplayCore(coords, openingBoard) {
             const size = ps.BOARD_SIZE;
             ps.liveReplayBoards = [];
             ps.liveReplayUnstableInfos = [];
             ps.liveReplayMoveCounts = [];
             ps.liveReplayMarkers = [];
             ps.liveReplayStepPlayers = [0];
-            let curBoard = C().initBoardArray(size);
+            let curBoard = openingBoard
+                ? C().deepCopyBoard(openingBoard)
+                : C().initBoardArray(size);
             let curUnstable = C().initBoardArray(size);
             let curMc = 0;
             ps.liveReplayBoards.push(C().deepCopyBoard(curBoard));
@@ -600,7 +602,12 @@ function unstableLifetimeForSize(size) {
             if (!ps.replayMode) {
                 const prevTotal = Math.max(0, ps.liveReplayBoards.length - 1);
                 const wasAtEnd = ps.liveFollowLatest || ps.liveViewStep >= prevTotal;
-                rebuildLiveReplayCore(state.moveCoords || []);
+                rebuildLiveReplayCore(
+                    state.moveCoords || [],
+                    (typeof QiWeiqiSquarePageRuntime !== 'undefined' && QiWeiqiSquarePageRuntime.pickRichestBoard)
+                        ? QiWeiqiSquarePageRuntime.pickRichestBoard(ps.liveOpeningBoard, state.initialBoard, state.board)
+                        : (ps.liveOpeningBoard || state.initialBoard || state.board)
+                );
                 const newTotal = Math.max(0, ps.liveReplayBoards.length - 1);
                 if (newTotal === 0) {
                     ps.liveViewStep = 0;

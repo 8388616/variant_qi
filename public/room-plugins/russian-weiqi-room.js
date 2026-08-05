@@ -465,8 +465,10 @@ const scoreTitle = document.getElementById('scoreTitle');
             updateCompoundScoreChromeVisibility();
         }
 
-        function rebuildCompoundLive(moveCoords) {
-            let curBoard = C().initBoardArray(ps.BOARD_SIZE);
+        function rebuildCompoundLive(moveCoords, openingBoard) {
+            let curBoard = openingBoard
+                ? deepCopyBoard(openingBoard)
+                : C().initBoardArray(ps.BOARD_SIZE);
             const liveReplayBoards = [deepCopyBoard(curBoard)];
             const liveReplayMarkers = [[]];
             const liveReplayStepPlayers = [0];
@@ -762,7 +764,12 @@ const scoreTitle = document.getElementById('scoreTitle');
                 if (!ps.replayMode) {
                     const prevTotal = Math.max(0, ps.liveReplayBoards.length - 1);
                     const wasAtEnd = ps.liveFollowLatest || ps.liveViewStep >= prevTotal;
-                    rebuildCompoundLive(state.moveCoords || []);
+                    rebuildCompoundLive(
+                        state.moveCoords || [],
+                        (typeof QiWeiqiSquarePageRuntime !== 'undefined' && QiWeiqiSquarePageRuntime.pickRichestBoard)
+                            ? QiWeiqiSquarePageRuntime.pickRichestBoard(ps.liveOpeningBoard, state.initialBoard, state.board)
+                            : (ps.liveOpeningBoard || state.initialBoard || state.board)
+                    );
                     const newTotal = Math.max(0, ps.liveReplayBoards.length - 1);
                     if (newTotal === 0) {
                         ps.liveViewStep = 0;

@@ -373,11 +373,11 @@ if (sizeSelect) {
             return s;
         }
 
-        function rebuildLiveReplayFromMoveCoords(moveCoords) {
+        function rebuildLiveReplayFromMoveCoords(moveCoords, openingBoard) {
             liveReplayBoards = [];
             liveReplayMarkers = [];
             liveReplayStepPlayers = [0];
-            let cur = initBoardArray(ROWS);
+            let cur = openingBoard ? deepCopyBoard(openingBoard) : initBoardArray(ROWS);
             liveReplayBoards.push(deepCopyBoard(cur));
             liveReplayMarkers.push([]);
             for (const move of (moveCoords || [])) {
@@ -611,7 +611,7 @@ if (sizeSelect) {
             if (!replayMode) {
                 const prevTotal = Math.max(0, liveReplayBoards.length - 1);
                 const wasAtEnd = liveFollowLatest || liveViewStep >= prevTotal;
-                rebuildLiveReplayFromMoveCoords(state.moveCoords || []);
+                rebuildLiveReplayFromMoveCoords(state.moveCoords || [], ((typeof QiWeiqiSquarePageRuntime !== 'undefined' && QiWeiqiSquarePageRuntime.pickRichestBoard) ? QiWeiqiSquarePageRuntime.pickRichestBoard(state.initialBoard, state.board) : (state.initialBoard || state.board)));
                 const newTotal = Math.max(0, liveReplayBoards.length - 1);
                 if (newTotal === 0) {
                     liveViewStep = 0;

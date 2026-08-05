@@ -30,11 +30,11 @@ window.RoomPlugins["cairo-pentagon-weiqi"] = {
 
 
         (function () {
-// ======================== 棋盘生成（与后端一致：路数 n，(n−1)² 主格 + (n−2)² 半格嵌入「平行六边形」单元，子下在格点上） ========================
+// ======================== 棋盘生成（与后端一致：路数 n，(n−1)² 主格 + (n−2)² 半格嵌入；保留全部列，并在第 2 / 倒数第 2 列外侧补翼点） ========================
         const CANVAS_SIZE = 600;
         const FRAME_CENTER = CANVAS_SIZE / 2;
-        /** 棋盘内容缩放：顶点集拟合半径（与路数无关，仅用于把密铺缩放到画布中部） */
-        const OUTER_HEX_RADIUS = 420;
+        /** 棋盘内容缩放：顶点集拟合半径；格线再缩到目前的 95% */
+        const OUTER_HEX_RADIUS = 430;
 
         let BOARD_SIZE = 7;
 
@@ -139,6 +139,75 @@ window.RoomPlugins["cairo-pentagon-weiqi"] = {
                 vertices[i] = { x: -y, y: x };
             }
 
+            // 保留最左/最右列；翼点加在第 2 / 倒数第 2 列外侧（与曾删列后补翼的位置一致）
+            {
+                let longLen = 0;
+                for (const e of edgeSet) {
+                    const [a, b] = e.split(',').map(Number);
+                    const d = Math.hypot(vertices[a].x - vertices[b].x, vertices[a].y - vertices[b].y);
+                    if (d > longLen) longLen = d;
+                }
+                if (longLen > 0) {
+                    const xRounded = vertices.map(v => Math.round(v.x * 1e6) / 1e6);
+                    const uniqueXs = [...new Set(xRounded)].sort((a, b) => a - b);
+                    if (uniqueXs.length >= 3) {
+                        const xWingLeft = uniqueXs[1];
+                        const xWingRight = uniqueXs[uniqueXs.length - 2];
+                        function columnSorted(xr) {
+                            return vertices
+                                .map((v, i) => ({ i, y: v.y, xr: Math.round(v.x * 1e6) / 1e6 }))
+                                .filter(v => v.xr === xr)
+                                .sort((a, b) => a.y - b.y);
+                        }
+                        function addWings(col, side) {
+                            for (let p = 1; p + 1 < col.length; p += 2) {
+                                const ia = col[p].i;
+                                const ib = col[p + 1].i;
+                                const ya = vertices[ia].y;
+                                const yb = vertices[ib].y;
+                                const yMid = (ya + yb) / 2;
+                                const halfDy = (yb - ya) / 2;
+                                const dx2 = longLen * longLen - halfDy * halfDy;
+                                if (!(dx2 > 0)) continue;
+                                const dx = Math.sqrt(dx2);
+                                const nx = vertices[ia].x + side * dx;
+                                const id = vertices.length;
+                                vertices.push({ x: nx, y: yMid });
+                                edgeSet.add(id < ia ? `${id},${ia}` : `${ia},${id}`);
+                                edgeSet.add(id < ib ? `${id},${ib}` : `${ib},${id}`);
+                            }
+                        }
+                        addWings(columnSorted(xWingLeft), -1);
+                        addWings(columnSorted(xWingRight), 1);
+                    }
+                }
+            }
+
+            // 按 (x, y) 重编号
+            {
+                const order = vertices.map((_, i) => i).sort((a, b) => {
+                    const xa = Math.round(vertices[a].x * 1e6);
+                    const xb = Math.round(vertices[b].x * 1e6);
+                    if (xa !== xb) return xa - xb;
+                    return Math.round(vertices[a].y * 1e6) - Math.round(vertices[b].y * 1e6);
+                });
+                const oldToNew = new Array(vertices.length);
+                const next = order.map((old, ni) => {
+                    oldToNew[old] = ni;
+                    return vertices[old];
+                });
+                vertices.length = 0;
+                for (const v of next) vertices.push(v);
+                const remapped = new Set();
+                for (const e of edgeSet) {
+                    const [a, b] = e.split(',').map(Number);
+                    const na = oldToNew[a], nb = oldToNew[b];
+                    remapped.add(na < nb ? `${na},${nb}` : `${nb},${na}`);
+                }
+                edgeSet.clear();
+                for (const e of remapped) edgeSet.add(e);
+            }
+
             const vc = vertices.length;
             const pairs = [];
             for (const e of edgeSet) {
@@ -158,7 +227,8 @@ window.RoomPlugins["cairo-pentagon-weiqi"] = {
                 const d = Math.hypot(v.x - cx, v.y - cy);
                 if (d > maxDist) maxDist = d;
             }
-            const scale = maxDist > 0 ? R_inner / maxDist : 1;
+            // 外框不变，格线缩小为目前的 95%
+            const scale = maxDist > 0 ? (R_inner / maxDist) * 0.95 : 1;
 
             const transformedPts = vertices.map(v => ({
                 x: FRAME_CENTER + (v.x - cx) * scale,
@@ -1012,11 +1082,11 @@ const scoreTitle = document.getElementById('scoreTitle');
             }
         }
 
-        function rebuildLiveReplayFromMoveCoords(moveCoords) {
+        function rebuildLiveReplayFromMoveCoords(moveCoords, openingBoard) {
             liveReplayBoards = [];
             liveReplayMarkers = [];
             liveReplayStepPlayers = [0];
-            let curBoard = Array(V).fill(0);
+            let curBoard = (openingBoard && openingBoard.length === V) ? deepCopyBoard(openingBoard) : Array(V).fill(0);
             liveReplayBoards.push(deepCopyBoard(curBoard));
             liveReplayMarkers.push([]);
             for (const move of (moveCoords || [])) {
@@ -1136,7 +1206,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             if (!replayMode) {
                 const prevTotal = Math.max(0, liveReplayBoards.length - 1);
                 const wasAtEnd = liveFollowLatest || liveViewStep >= prevTotal;
-                rebuildLiveReplayFromMoveCoords(state.moveCoords || []);
+                rebuildLiveReplayFromMoveCoords(state.moveCoords || [], ((typeof QiWeiqiSquarePageRuntime !== 'undefined' && QiWeiqiSquarePageRuntime.pickRichestBoard) ? QiWeiqiSquarePageRuntime.pickRichestBoard(state.initialBoard, state.board) : (state.initialBoard || state.board)));
                 const newTotal = Math.max(0, liveReplayBoards.length - 1);
                 if (newTotal === 0) {
                     liveViewStep = 0;

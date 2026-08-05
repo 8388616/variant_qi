@@ -105,6 +105,7 @@ window.RoomPlugins["nogrid-weiqi"] = {
     let showLibertyStones = false;
 
     let userBoardMarks = Object.create(null);
+    if (typeof QiWeiqiSquarePageRuntime !== 'undefined' && QiWeiqiSquarePageRuntime.bindActiveUserBoardMarks) QiWeiqiSquarePageRuntime.bindActiveUserBoardMarks(userBoardMarks);
 
     /** 与标准围棋一致：导入棋谱后的打谱模式 */
     let replayMode = false;
