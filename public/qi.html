@@ -20,9 +20,9 @@
             --shadow-strong: 0 30px 70px rgba(87, 58, 28, 0.16);
             --radius-xl: 34px;
             --radius-lg: 24px;
-            /* 全站统一霞鹜文楷 GB，避免缺字回退到系统楷体/宋体 */
-            --body-font: "LXGW WenKai GB", "PingFang SC", "Microsoft YaHei", sans-serif;
-            --serif-font: "LXGW WenKai GB", "PingFang SC", "Microsoft YaHei", sans-serif;
+            /* 霞鹜文楷不可用时退回系统楷体（勿用黑体） */
+            --body-font: "LXGW WenKai GB", "Kaiti SC", "STKaiti", "KaiTi", "KaiTi_GB2312", "BiauKai", serif;
+            --serif-font: "LXGW WenKai GB", "Kaiti SC", "STKaiti", "KaiTi", "KaiTi_GB2312", "BiauKai", serif;
         }
 
         * {
@@ -365,7 +365,7 @@
 
         .game-card.has-recommend-badge .game-name-pill {
             color: #492e17;
-            font-weight: 700;
+            font-weight: 500;
         }
 
         .game-card.has-recommend-badge.is-disabled .game-name-pill {
@@ -395,35 +395,23 @@
             color: #9a8b7a;
         }
 
-        .game-recommend-badge {
+        /* 推荐：右上角斜条；height = 左下↔右上方向的粗细 */
+        .game-card.has-recommend-badge::after {
+            content: '';
             position: absolute;
-            right: 10px;
-            bottom: 8px;
-            z-index: 1;
-            display: block;
-            width: auto;
-            height: auto;
-            padding: 0;
-            border: none;
-            border-radius: 0;
-            background: none;
-            box-shadow: none;
-            transform: none;
-            font-family: "Segoe UI Symbol", "Apple Symbols", "Noto Sans Symbols 2", sans-serif;
-            font-variant-emoji: text;
-            font-size: 20px;
-            line-height: 1;
-            color: var(--accent-strong);
+            top: 14.6px; /* 略下移，加厚时右上侧大致不动、向左下加宽 */
+            right: -21.4px;
+            width: 79.2px; /* 72 * 1.1 */
+            height: 10.8px; /* 9 * 1.2 */
+            background: rgb(142, 74, 26);
+            transform: rotate(45deg);
             pointer-events: none;
-            user-select: none;
+            z-index: 2;
         }
 
-        .game-card.is-disabled .game-recommend-badge {
-            background: none;
-            box-shadow: none;
-            color: #9a8b7a;
+        .game-card.has-recommend-badge.is-disabled::after {
+            background: #9a8b7a;
             opacity: 0.7;
-            filter: none;
         }
 
         .game-card-linkable {
@@ -451,7 +439,7 @@
 
         .game-card-head {
             display: flex;
-            justify-content: space-between;
+            justify-content: flex-start;
             align-items: center;
             gap: 8px;
         }
@@ -464,11 +452,11 @@
             background: none;
             font-family: var(--body-font);
             font-size: 1em;
-            font-weight: 700;
+            font-weight: 500;
             line-height: 1.3;
             letter-spacing: 0.01em;
-            color: var(--ink);
-            max-width: calc(100% - 5.5rem);
+            color: #492e17;
+            max-width: 100%;
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
@@ -493,6 +481,7 @@
             letter-spacing: 0.02em;
             line-height: 1;
             white-space: nowrap;
+            margin-left: auto;
         }
 
         .game-card.is-disabled .random-level {
@@ -502,7 +491,7 @@
 
         .game-intro {
             margin: 0px 0 0;
-            color: var(--muted);
+            color: #7b5c48;
             font-family: "KaiTi", "Kaiti SC", "STKaiti", "DFKai-SB", "BiauKai", serif;
             font-size: 12px;
             font-weight: 500;
@@ -515,23 +504,30 @@
             color: #9a8b7a;
         }
 
+        .game-card-foot {
+            margin-top: auto;
+            display: flex;
+            align-items: center;
+            justify-content: flex-start;
+            gap: 8px;
+            min-width: 0;
+        }
+
         .game-create-hint {
-            margin: auto 0 0;
-            color: rgba(128, 99, 80, 0.75);
+            margin: 0;
+            flex: 1 1 auto;
+            min-width: 0;
+            color: rgba(132, 93, 67, 0.79);
             font-size: 12px;
             line-height: 1.2;
             font-weight: 500;
-        }
-
-        .game-card.has-recommend-badge .game-create-hint {
-            padding-right: 1.8em;
         }
 
         .random-level-num {
             display: none;
         }
 
-        /* —— 列表视图：名称 + 右上角数字等级，纵向滚动 —— */
+        /* —— 列表视图：名称 + 右侧数字等级，纵向滚动 —— */
         #platform-games.games-view-list .game-category-row {
             gap: 8px;
             margin-bottom: 18px;
@@ -550,11 +546,12 @@
             height: auto;
             min-height: 0;
             min-width: 0;
-            padding: 7px 10px;
+            padding: 7px 22px 7px 10px;
             gap: 0;
             border-radius: 14px;
             box-shadow: none;
             background: rgba(255, 251, 244, 0.55);
+            display: block;
         }
 
         #platform-games.games-view-list .game-card.is-live {
@@ -573,7 +570,7 @@
 
         #platform-games.games-view-list .game-card.has-recommend-badge .game-name-pill {
             color: #492e17;
-            font-weight: 700;
+            font-weight: 500;
         }
 
         #platform-games.games-view-list .game-card.has-recommend-badge .random-level {
@@ -594,21 +591,35 @@
         }
 
         #platform-games.games-view-list .game-card-head {
-            align-items: flex-start;
-            gap: 4px;
+            display: block;
             min-width: 0;
         }
 
         #platform-games.games-view-list .game-name-pill {
-            flex: 1 1 auto;
-            min-width: 0;
-            max-width: none;
+            display: block;
+            max-width: 100%;
             font-size: 0.98rem;
             font-weight: 500;
             line-height: 1.35;
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
+        }
+
+        #platform-games.games-view-list .game-card-foot {
+            position: absolute;
+            right: 8px;
+            bottom: 7px;
+            margin-top: 0;
+            padding-right: 0;
+            z-index: 1;
+        }
+
+        #platform-games.games-view-list .game-card.has-recommend-badge::after {
+            top: 7.2px;
+            right: -18.8px;
+            width: 48px;
+            height: 3.6px; /* 6 * 0.6，左下↔右上方向变细 */
         }
 
         #platform-games.games-view-list .random-level {
@@ -619,8 +630,8 @@
             color: #2f6044;
             font-size: 0.68rem;
             font-weight: 500;
-            line-height: 1.05;
-            margin-top: 1px;
+            line-height: 1;
+            margin: 0;
         }
 
         #platform-games.games-view-list .game-card.is-disabled .random-level {
@@ -638,10 +649,6 @@
 
         #platform-games.games-view-list .game-intro,
         #platform-games.games-view-list .game-create-hint {
-            display: none;
-        }
-
-        #platform-games.games-view-list .game-recommend-badge {
             display: none;
         }
 
@@ -1260,6 +1267,7 @@
             { id: 'ukrainian-weiqi', name: '乌克兰围棋', randomLevel: 0, path: 'ukrainian-weiqi', enabled: true, recommended: true, category: '围棋', intro: '一次下三颗子！' },
             { id: 'russian-weiqi', name: '俄罗斯围棋', randomLevel: 4, path: 'russian-weiqi', enabled: true, recommended: false, category: '围棋', intro: '棋子是俄罗斯方块的形状！' },
             { id: 'rus-weiqi', name: '罗斯围棋', randomLevel: 0, path: 'rus-weiqi', enabled: true, recommended: true, category: '围棋', intro: '一次下三颗子，其中有一颗是对方的！' },
+            { id: 'greedy-weiqi', name: '贪吃围棋', randomLevel: 0, path: 'greedy-weiqi', enabled: true, recommended: false, category: '围棋', intro: '有提子时必须提最多！' },
             { id: 'mirror-image-weiqi', name: '镜像围棋', randomLevel: 4, path: 'mirror-image-weiqi', enabled: true, recommended: true, category: '围棋', intro: '落子时会同时在镜像位置落子！' },
             { id: 'weak-magnetism-weiqi', name: '弱磁性围棋', randomLevel: 0, path: 'weak-magnetism-weiqi', enabled: true, recommended: true, category: '围棋', intro: '落子时会吸引或排斥棋盘上的棋子！' },
             { id: 'medium-magnetism-weiqi', name: '中磁性围棋', randomLevel: 0, path: 'medium-magnetism-weiqi', enabled: true, recommended: false, category: '围棋', intro: '更强的磁性！' },
@@ -1272,13 +1280,14 @@
             { id: 'sync-weiqi', name: '同步围棋', randomLevel: 3, path: 'sync-weiqi', enabled: true, recommended: true, category: '围棋', intro: '双方同步骡子！' },
             { id: 'invisible-stone-weiqi', name: '隐身子围棋', randomLevel: 3, path: 'invisible-stone-weiqi', enabled: true, recommended: true, category: '围棋', intro: '每第3手棋会隐身！' },
             { id: 'radar-weiqi', name: '雷达围棋', randomLevel: 3, path: 'radar-weiqi', enabled: true, recommended: true, category: '围棋', intro: '看不到对方的棋子，只能感知到距离！' },
-            { id: 'ghost-weiqi', name: '幽灵围棋', randomLevel: 3, path: 'ghost-weiqi', enabled: false, recommended: true, category: '围棋', intro: '看不到对方的棋子！' },
+            { id: 'sonar-weiqi', name: '声呐围棋', randomLevel: 3, path: 'sonar-weiqi', enabled: true, recommended: true, category: '围棋', intro: '每枚棋子只能看到每个方向上最近的对方棋子！' },
             { id: 'twisted-space-weiqi', name: '扭曲空间围棋', randomLevel: 2, path: 'twisted-space-weiqi', enabled: true, recommended: true, category: '围棋', intro: '棋盘空间极度扭曲！' },
             { id: 'front-back-weiqi', name: '正反面围棋', randomLevel: 0, path: 'front-back-weiqi', enabled: true, recommended: false, category: '围棋', intro: '正反面一起下！' },
             { id: 'auction-weiqi', name: '竞叫围棋', randomLevel: 0, path: 'auction-weiqi', enabled: false, recommended: false, category: '围棋', intro: '超级博弈论游戏，谁叫的分高谁下！' },
             { id: 'continuous-weiqi', name: '连续围棋', randomLevel: 0, path: 'continuous-weiqi', enabled: true, recommended: false, category: '围棋', intro: '' },
-            { id: 'minesweeper-weiqi', name: '扫雷围棋', randomLevel: 4, path: 'minesweeper-weiqi', enabled: true, recommended: false, category: '围棋', intro: '' },
-            { id: 'sudoku-weiqi', name: '数独围棋', randomLevel: 0, path: 'sudoku-weiqi', enabled: true, recommended: false, category: '围棋', intro: '' },
+            { id: 'bury-mine-weiqi', name: '埋雷围棋', randomLevel: 3, path: 'bury-mine-weiqi', enabled: true, recommended: false, category: '围棋', intro: '埋雷！' },
+            { id: 'minesweeper-weiqi', name: '扫雷围棋', randomLevel: 4, path: 'minesweeper-weiqi', enabled: true, recommended: false, category: '围棋', intro: '一边下棋一边扫雷！' },
+            { id: 'sudoku-weiqi', name: '数独围棋', randomLevel: 0, path: 'sudoku-weiqi', enabled: true, recommended: false, category: '围棋', intro: '一边下棋一边做数独！' },
             { id: 'real-time-weiqi', name: 'RealTime围棋', randomLevel: 0, path: 'real-time-weiqi', enabled: true, recommended: false, category: '围棋', intro: '拼手速！' },
             { id: 'shizi-weiqi', name: '十子围棋', randomLevel: 0, path: 'shizi-weiqi', enabled: true, recommended: false, category: '围棋', intro: '连成十子即胜！' },
             { id: 'weiqi', name: '围棋', randomLevel: 0, path: 'weiqi', enabled: true, recommended: false, category: '围棋', intro: '普通的围棋有什么好玩的！' },
@@ -1564,6 +1573,21 @@
             const namePill = document.createElement('span');
             namePill.className = 'game-name-pill';
             namePill.textContent = game.name;
+            head.append(namePill);
+
+            const intro = document.createElement('p');
+            intro.className = 'game-intro';
+            intro.textContent = game.intro || '';
+
+            const foot = document.createElement('div');
+            foot.className = 'game-card-foot';
+
+            if (game.enabled) {
+                const hint = document.createElement('p');
+                hint.className = 'game-create-hint';
+                hint.textContent = '点击创建房间';
+                foot.append(hint);
+            }
 
             const level = document.createElement('span');
             level.className = 'random-level';
@@ -1574,21 +1598,11 @@
             levelNum.className = 'random-level-num';
             levelNum.textContent = String(game.randomLevel);
             level.append(levelFull, levelNum);
+            foot.append(level);
 
-            head.append(namePill, level);
-
-            const intro = document.createElement('p');
-            intro.className = 'game-intro';
-            intro.textContent = game.intro || '';
-
-            card.append(head, intro);
+            card.append(head, intro, foot);
 
             if (game.enabled) {
-                const hint = document.createElement('p');
-                hint.className = 'game-create-hint';
-                hint.textContent = '点击创建房间';
-                card.append(hint);
-
                 const openCreate = () => {
                     pendingGame = game;
                     document.getElementById('modalGameName').innerText = `创建「${game.name}」房间`;
@@ -1603,14 +1617,6 @@
                         openCreate();
                     }
                 });
-            }
-
-            if (game.recommended) {
-                const badge = document.createElement('span');
-                badge.className = 'game-recommend-badge';
-                badge.textContent = '\u{2728}\u{FE0E}'; // ✨ + 文本样式变体，尽量走单色符号字
-                badge.setAttribute('aria-label', '推荐');
-                card.append(badge);
             }
 
             return card;

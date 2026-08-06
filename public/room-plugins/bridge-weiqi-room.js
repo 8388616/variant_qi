@@ -2,7 +2,7 @@ window.RoomPlugins = window.RoomPlugins || {};
 window.RoomPlugins['bridge-weiqi'] = {
     shell: {
         "title": "桥围棋",
-        "rulesHtml": "基本规则同围棋。<br /><br />\n开局时棋盘随机生成若干桥（数量约为总点数的8.3%）。桥上不能落子，也不会被提。<br /><br />\n桥会把左右和上下两侧分别连接。<br />",
+        "rulesHtml": "基本规则同围棋。<br /><br />开局时棋盘随机生成若干桥（数量约为总点数的8.3%）。桥上不能落子，也不会被提。<br /><br />桥会把左右和上下两侧分别连接。<br />",
         "defaultKomiText": "黑贴白4.75点",
         "boardSizeMin": 7,
         "boardSizeMax": 21,

@@ -2,7 +2,7 @@ window.RoomPlugins = window.RoomPlugins || {};
 window.RoomPlugins["triweight-weiqi"] = {
     shell: {
         "title": "三权重围棋",
-        "rulesHtml": "基本规则同围棋。<br /><br />\n每个点随机赋予1~3的权重。<br /><br />\n请在格中落子。<br />",
+        "rulesHtml": "基本规则同围棋。<br /><br />每个点随机赋予1~3的权重。<br /><br />请在格中落子。<br />",
         "defaultKomiText": "黑贴白6.25点",
         "boardSizeMin": 7,
         "boardSizeMax": 21,

@@ -2,7 +2,7 @@ window.RoomPlugins = window.RoomPlugins || {};
 window.RoomPlugins["translocation-weiqi"] = {
     shell: {
         "title": "易位围棋",
-        "rulesHtml": "基本规则同围棋。<br /><br />\n每手棋可以选择「落子」或「易位」。<br />\n<strong>易位</strong>：将一枚己方棋子和一枚与之相邻的对方棋子交换位置。<br /><br />\n仅前n手可以易位，从第n+1手开始恢复为标准围棋，不可以再易位。其中n为棋盘总点数的80%向上取偶。\n棋盘的路数与n的映射关系为：<br />\n<strong>7 </strong>40<br />\n<strong>8 </strong>52<br />\n<strong>9 </strong>66<br />\n<strong>10 </strong>82<br />\n<strong>11 </strong>98<br />\n<strong>12 </strong>116<br />\n<strong>13 </strong>136<br />\n<strong>14 </strong>158<br />\n<strong>15 </strong>182<br />\n<strong>16 </strong>206<br />\n<strong>17 </strong>232<br />\n<strong>18 </strong>260<br />\n<strong>19 </strong>290<br />\n<strong>20 </strong>322<br />\n<strong>21 </strong>354<br />\n<br /><br />\n需要易位时，依次点击两枚待易位的棋子。<br />",
+        "rulesHtml": "基本规则同围棋。<br /><br />每手棋可以选择「落子」或「易位」。<br /><strong>易位</strong>：将一枚己方棋子和一枚与之相邻的对方棋子交换位置。<br /><br />仅前n手可以易位，从第n+1手开始恢复为标准围棋，不可以再易位。其中n为棋盘总点数的80%向上取偶。\n棋盘的路数与n的映射关系为：<br /><strong>7 </strong>40<br /><strong>8 </strong>52<br /><strong>9 </strong>66<br /><strong>10 </strong>82<br /><strong>11 </strong>98<br /><strong>12 </strong>116<br /><strong>13 </strong>136<br /><strong>14 </strong>158<br /><strong>15 </strong>182<br /><strong>16 </strong>206<br /><strong>17 </strong>232<br /><strong>18 </strong>260<br /><strong>19 </strong>290<br /><strong>20 </strong>322<br /><strong>21 </strong>354<br /><br /><br />需要易位时，依次点击两枚待易位的棋子。<br />",
         "defaultKomiText": "黑贴白1.25点",
         "boardSizeMin": 7,
         "boardSizeMax": 21,

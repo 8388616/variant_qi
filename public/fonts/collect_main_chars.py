@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""从大厅/房间页相关源文件收集主包用字，写入 main-chars.txt。"""
+"""从大厅/房间页相关源文件收集主包用字，写入 main-chars.txt。
+
+收录范围包括：UI 文案、各插件 rulesHtml、chat-messages.csv。
+"""
 from __future__ import annotations
 
 import re

@@ -2,7 +2,7 @@ window.RoomPlugins = window.RoomPlugins || {};
 window.RoomPlugins["russian-weiqi"] = {
     shell: {
         "title": "俄罗斯围棋",
-        "rulesHtml": "基本规则同围棋。<br /><br /><br />\n使用复合棋子，每个复合棋子由三个单棋子组成。每步随机选择一个复合棋子。可以旋转、翻折。<br /><br />\n单击右键旋转，长按右键翻折，滑动鼠标滚轮切换形状。<br /><br />\n当双方连续四手虚着时进入数点流程。<br />",
+        "rulesHtml": "基本规则同围棋。<br /><br /><br />使用复合棋子，每个复合棋子由三个单棋子组成。每步随机选择一个复合棋子。可以旋转、翻折。<br /><br />单击右键旋转，长按右键翻折，滑动鼠标滚轮切换形状。<br /><br />当双方连续四手虚着时进入数点流程。<br />",
         "defaultKomiText": "黑贴白3.25点",
         "boardSizeMin": 7,
         "boardSizeMax": 21,

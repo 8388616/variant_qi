@@ -2,7 +2,7 @@ window.RoomPlugins = window.RoomPlugins || {};
 window.RoomPlugins['zeroliberty-weiqi'] = {
     shell: {
         "title": "零气围棋",
-        "rulesHtml": "基本规则同围棋。<br /><br />\n没有气的棋子不会自动被提，需要花一手棋来提掉。提子的时候会提掉整片棋。<br /><br />\n行棋方可以点击想要提掉的棋子来提子。",
+        "rulesHtml": "基本规则同围棋。<br /><br />没有气的棋子不会自动被提，需要花一手棋来提掉。提子的时候会提掉整片棋。<br /><br />行棋方可以点击想要提掉的棋子来提子。",
         "defaultKomiText": "黑贴白3.25点",
         "boardSizeMin": 7,
         "boardSizeMax": 21,

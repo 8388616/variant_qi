@@ -1,14 +1,14 @@
 window.RoomPlugins = window.RoomPlugins || {};
-window.RoomPlugins["invisible-stone-weiqi"] = {
+window.RoomPlugins["sonar-weiqi"] = {
     shell: {
-        "title": "隐身子围棋",
-        "rulesHtml": "基本规则同围棋，但每第3的倍数手棋为隐身子，仅己方可见。<br /><br />隐身子在参与提子时显形。<br /><br />落子在对方隐身子上时无效，该隐身子显形，此手视为虚着。<br /><br />",
+        "title": "声呐围棋",
+        "rulesHtml": "基本规则同围棋，但每手棋为隐身子，仅己方可见。<br /><br />隐身子在参与提子时显形。<br /><br />落子在对方隐身子上时无效，该隐身子显形，此手视为虚着。<br /><br />每枚己方棋子可看到其上下左右四个方向上最近的对方棋子。<br /><br />",
         "defaultKomiText": "黑贴白4.25点",
         "boardSizeMin": 7,
         "boardSizeMax": 21,
         "defaultBoardSize": 9,
         "minLib": 1,
-        "recordDownloadPrefix": "隐身子围棋",
+        "recordDownloadPrefix": "声呐围棋",
         "standardWeiqiMatchTime": true,
         "features": {
             "editBoard": false,
@@ -20,7 +20,7 @@ window.RoomPlugins["invisible-stone-weiqi"] = {
         var roomId = ctx.roomId;
         var roomPassword = ctx.roomPassword || null;
         var config = ctx.config || {};
-        var recordDownloadPrefix = config.recordDownloadPrefix != null ? config.recordDownloadPrefix : "隐身子围棋";
+        var recordDownloadPrefix = config.recordDownloadPrefix != null ? config.recordDownloadPrefix : "声呐围棋";
         var minLib = config.minLib != null ? config.minLib : 1;
         var standardWeiqiMatchTime = config.standardWeiqiMatchTime != null ? config.standardWeiqiMatchTime : true;
 
@@ -78,7 +78,8 @@ const ps = {
             plainWeiqiStartHand: null,
             serverInvisibleStoneCounts: null,
             invisibleStoneCountsTimeline: null,
-            replayInvisibleCounts: null
+            replayInvisibleCounts: null,
+            liveReplayTruthBoards: []
         };
         (function initSquareGeometry() {
             const g = QiSquareWeiqiCanvas.computePaddingAndCell(ps.BOARD_SIZE);
@@ -208,6 +209,8 @@ const scoreTitle = document.getElementById('scoreTitle');
             if (!started) return false;
             if (ps.showEstimateActive) return false;
             if (ps.waitingScoreConfirm) return false;
+            // 导入棋谱打谱：终局棋谱也会带 gameOver，仍需显示隐身子数量（形势判断/数点确认时仍由上面两行屏蔽）
+            if (ps.replayMode && !ps.tryPlayMode) return true;
             if (ps.gameOver) return false;
             if (ps.replayMode && ps.tryPlayMode) return false;
             return true;
@@ -236,6 +239,28 @@ const scoreTitle = document.getElementById('scoreTitle');
             }
             const c = getCurrentInvisibleStoneCounts();
             scoreBoard.innerText = `隐身子数量　黑:${c.black} 白:${c.white}`;
+        }
+
+        function applySonarRevealToDisplay(display, truth, myColor) {
+            if (myColor !== 1 && myColor !== 2) return;
+            const opp = 3 - myColor;
+            const size = ps.BOARD_SIZE;
+            const dirs = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+            for (let r = 0; r < size; r++) {
+                for (let c = 0; c < size; c++) {
+                    if (display[r][c] !== myColor) continue;
+                    for (const [dr, dc] of dirs) {
+                        let rr = r + dr, cc = c + dc;
+                        while (rr >= 0 && rr < size && cc >= 0 && cc < size) {
+                            if (truth[rr][cc] === opp) {
+                                display[rr][cc] = opp;
+                                break;
+                            }
+                            rr += dr; cc += dc;
+                        }
+                    }
+                }
+            }
         }
 
         function buildReplayView(step) {
@@ -271,6 +296,8 @@ const scoreTitle = document.getElementById('scoreTitle');
                     }
                 }
             }
+            if (persp === 'black') applySonarRevealToDisplay(display, truth, 1);
+            else if (persp === 'white') applySonarRevealToDisplay(display, truth, 2);
             return { display, tint };
         }
 
@@ -295,6 +322,8 @@ const scoreTitle = document.getElementById('scoreTitle');
                     }
                 }
             }
+            if (slot === 'black') applySonarRevealToDisplay(out, truthBoard, 1);
+            else if (slot === 'white') applySonarRevealToDisplay(out, truthBoard, 2);
             return out;
         }
 
@@ -315,18 +344,13 @@ const scoreTitle = document.getElementById('scoreTitle');
         }
 
         /** 与服务器 filterLastMoveMarkers 一致（inv 为当前局面隐身子网格）。 */
-        function filterLiveLastMoveMarkers(markers, inv, slot) {
+        function filterLiveLastMoveMarkers(markers, truthBoard, inv, slot) {
             if (!markers || !markers.length) return [];
-            const isSpectator = slot !== 'black' && slot !== 'white';
+            const view = buildClientViewBoard(truthBoard, inv, slot);
             return markers.filter(m => {
-                const { row, col, color } = m;
+                const { row, col } = m;
                 if (row < 0 || row >= ps.BOARD_SIZE || col < 0 || col >= ps.BOARD_SIZE) return true;
-                if (!inv[row][col]) return true;
-                if (isSpectator) return false;
-                const blackStone = color === 1;
-                if (blackStone && slot === 'white') return false;
-                if (!blackStone && slot === 'black') return false;
-                return true;
+                return view[row][col] !== 0;
             }).map(m => ({ row: m.row, col: m.col, color: m.color }));
         }
 
@@ -342,14 +366,16 @@ const scoreTitle = document.getElementById('scoreTitle');
                 QiWeiqiSquarePageRuntime.applyInitialPositionCompact(curBoard, size, replaySync.initialPosition);
             }
             const liveReplayBoards = [];
+            const liveReplayTruthBoards = [];
             const liveReplayMarkers = [];
             const liveReplayStepPlayers = [0];
             const liveReplayInvisibleTints = [];
             const slot = ps.mySlot;
 
             function pushStep(lastMarkersRaw) {
+                liveReplayTruthBoards.push(page.deepCopyBoard(curBoard));
                 liveReplayBoards.push(page.deepCopyBoard(buildClientViewBoard(curBoard, curInv, slot)));
-                liveReplayMarkers.push(filterLiveLastMoveMarkers(lastMarkersRaw, curInv, slot).map(m => ({ ...m })));
+                liveReplayMarkers.push(filterLiveLastMoveMarkers(lastMarkersRaw, curBoard, curInv, slot).map(m => ({ ...m })));
                 liveReplayInvisibleTints.push(buildClientInvisibleTintKeysList(curBoard, curInv, slot));
             }
 
@@ -386,10 +412,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                             curBoard = newBoard;
                             const removed = removedStonesForCapture(oldBoard, curBoard, size, row, col, playerVal);
                             for (const { row: rr, col: cc } of removed) curInv[rr][cc] = false;
-                            const wantInv =
-                                (pwsh == null || nextHand < pwsh) &&
-                                nextHand >= 3 &&
-                                nextHand % 3 === 0;
+                            const wantInv = (pwsh == null || nextHand < pwsh);
                             if (wantInv && curBoard[row][col] === playerVal) curInv[row][col] = true;
                             revealParticipatingInvisibleForCapture(removed, curBoard, curInv);
                             lastMarkersRaw = [{ row, col, color: playerVal }];
@@ -406,6 +429,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             }
 
             ps.liveReplayBoards = liveReplayBoards;
+            ps.liveReplayTruthBoards = liveReplayTruthBoards;
             ps.liveReplayMarkers = liveReplayMarkers;
             ps.liveReplayStepPlayers = liveReplayStepPlayers;
             ps.liveReplayInvisibleTints = liveReplayInvisibleTints;
@@ -414,19 +438,26 @@ const scoreTitle = document.getElementById('scoreTitle');
         /** 与对弈时 filterLastMoveMarkers 一致：不显示落在对方隐身子上的最后一手标记 */
         function filterReplayLastMoveMarkers(markers, step) {
             if (!markers || !markers.length) return [];
-            const inv = ps.replayInvisibleGrids[step];
-            if (!inv || !inv.length) return markers.map(m => ({ ...m }));
-            const persp = ps.replayPerspective;
+            if (!ps.replayTruthBoards[step] || !ps.replayInvisibleGrids[step])
+                return markers.map(m => ({ ...m }));
+            const { display } = buildReplayView(step);
             return markers.filter(m => {
-                const { row, col, color } = m;
+                const { row, col } = m;
                 if (row < 0 || row >= ps.BOARD_SIZE || col < 0 || col >= ps.BOARD_SIZE) return true;
-                if (!inv[row][col]) return true;
-                if (persp === 'both') return false;
-                const blackStone = color === 1;
-                if (persp === 'black') return blackStone;
-                if (persp === 'white') return !blackStone;
-                return true;
+                return display[row][col] !== 0;
             }).map(m => ({ ...m }));
+        }
+
+        /** 绘制隐身子 tint 时取子色：本地棋谱回放有 truth；联网时仅为己方隐子，用座位判定。 */
+        function getStoneColorForInvisibleTintAt(rr, cc) {
+            if (ps.replayMode && ps.replayTruthBoards && ps.replayTruthBoards.length > 0) {
+                const step = Math.min(ps.replayStep, ps.replayTruthBoards.length - 1);
+                const v = ps.replayTruthBoards[step][rr][cc];
+                if (v === 1 || v === 2) return v;
+            }
+            if (ps.mySlot === 'black') return 1;
+            if (ps.mySlot === 'white') return 2;
+            return 0;
         }
 
         function syncLiveReplayFromServerState(state) {
@@ -436,6 +467,7 @@ const scoreTitle = document.getElementById('scoreTitle');
 
             if (nh === 1 && boardEmpty) {
                 ps.liveReplayBoards = [page.deepCopyBoard(state.board)];
+                ps.liveReplayTruthBoards = [page.deepCopyBoard(state.board)];
                 ps.liveReplayMarkers = [[]];
                 ps.liveReplayStepPlayers = [0];
                 ps.liveReplayInvisibleTints = [[]];
@@ -445,6 +477,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             const rvb = state.replayViewBoards;
             if (Array.isArray(rvb) && rvb.length === nh) {
                 ps.liveReplayBoards = rvb.map(b => page.deepCopyBoard(b));
+                ps.liveReplayTruthBoards = ps.liveReplayBoards.map(b => page.deepCopyBoard(b));
                 ps.liveReplayStepPlayers = [0];
                 for (let i = 0; i < coords.length; i++) {
                     const m = coords[i];
@@ -478,6 +511,8 @@ const scoreTitle = document.getElementById('scoreTitle');
                 return;
             }
 
+            ps.liveReplayTruthBoards = null;
+
             if (!ps.liveReplayBoards.length) {
                 ps.liveReplayStepPlayers = [];
                 ps.liveReplayMarkers = [];
@@ -487,6 +522,8 @@ const scoreTitle = document.getElementById('scoreTitle');
                 ps.liveReplayBoards.pop();
                 ps.liveReplayMarkers.pop();
                 ps.liveReplayStepPlayers.pop();
+                if (ps.liveReplayTruthBoards && ps.liveReplayTruthBoards.length)
+                    ps.liveReplayTruthBoards.pop();
             }
 
             while (ps.liveReplayBoards.length < nh) {
@@ -543,13 +580,9 @@ const scoreTitle = document.getElementById('scoreTitle');
                 }
                 d.stonesBlackWhite(ctx, baseBoard, ps.BOARD_SIZE, ps.PADDING, cellSize, stoneRadius, ps.showMoveNumbers);
                 if (ps.invisibleTintKeys.size) {
-                    const truthBoard =
-                        ps.replayMode && !ps.tryPlayMode && ps.replayTruthBoards.length > 0
-                            ? ps.replayTruthBoards[ps.replayStep]
-                            : ps.board;
                     for (const key of ps.invisibleTintKeys) {
                         const [rr, cc] = key.split(',').map(Number);
-                        const v = truthBoard[rr][cc];
+                        const v = getStoneColorForInvisibleTintAt(rr, cc);
                         if (v !== 1 && v !== 2) continue;
                         const cx = ps.PADDING + cc * cellSize;
                         const cy = ps.PADDING + rr * cellSize;
@@ -584,6 +617,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                     ps.board = page.initBoardArray(ps.BOARD_SIZE);
                     ps.userBoardMarks = Object.create(null);
                     ps.liveReplayBoards = [];
+                    ps.liveReplayTruthBoards = [];
                     ps.liveReplayMarkers = [];
                     ps.liveReplayStepPlayers = [];
                     ps.liveReplayInvisibleTints = [];
@@ -722,10 +756,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                                 curBoard = newBoard;
                                 const removed = removedStonesForCapture(oldBoard, curBoard, size, row, col, playerVal);
                                 for (const { row: rr, col: cc } of removed) curInv[rr][cc] = false;
-                                const wantInv =
-                                    (pwsh == null || nextHand < pwsh) &&
-                                    nextHand >= 3 &&
-                                    nextHand % 3 === 0;
+                                const wantInv = (pwsh == null || nextHand < pwsh);
                                 if (wantInv && curBoard[row][col] === playerVal) curInv[row][col] = true;
                                 revealParticipatingInvisibleForCapture(removed, curBoard, curInv);
                                 ps.replayStepPlayers.push(playerVal);

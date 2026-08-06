@@ -359,8 +359,15 @@ function sendPublicOrRoot(response, fileName) {
 Express.get("/qi", (request, response) => sendPublicOrRoot(response, "qi.html"));
 Express.get("/qi/qi.css", (request, response) => sendPublicOrRoot(response, "qi.css"));
 Express.get("/qi/qi.js", (request, response) => sendPublicOrRoot(response, "qi.js"));
-Express.get("/qi/room.css", (request, response) => response.sendFile(path.join(__dirname, "public", "room.css")));
-Express.get("/qi/room.js", (request, response) => response.sendFile(path.join(__dirname, "public", "room.js")));
+function sendCachedPublic(response, absPath, maxAgeSec) {
+    response.setHeader('Cache-Control', 'public, max-age=' + maxAgeSec);
+    return response.sendFile(absPath);
+}
+
+Express.get("/qi/room.css", (request, response) =>
+    sendCachedPublic(response, path.join(__dirname, "public", "room.css"), 3600));
+Express.get("/qi/room.js", (request, response) =>
+    sendCachedPublic(response, path.join(__dirname, "public", "room.js"), 3600));
 Express.get("/qi/chat-messages.csv", (request, response) => {
     chatMessages = loadChatMessages();
     if (!fs.existsSync(CHAT_MESSAGES_PATH)) {
@@ -368,6 +375,7 @@ Express.get("/qi/chat-messages.csv", (request, response) => {
         return response.send('# id,content\n');
     }
     response.type('text/csv; charset=utf-8');
+    response.setHeader('Cache-Control', 'public, max-age=300');
     response.sendFile(CHAT_MESSAGES_PATH);
 });
 Express.get("/qi/room-plugins/:plugin", (request, response) => {
@@ -375,7 +383,7 @@ Express.get("/qi/room-plugins/:plugin", (request, response) => {
     if (!/^[a-zA-Z0-9_-]+-room\.js$/.test(plugin)) return response.status(400).send('Invalid plugin');
     const abs = path.join(__dirname, "public", "room-plugins", plugin);
     if (!fs.existsSync(abs)) return response.status(404).send('Plugin not found');
-    response.sendFile(abs);
+    return sendCachedPublic(response, abs, 3600);
 });
 function findXiangqiRulesPath() {
     const candidates = [

@@ -2,7 +2,7 @@ window.RoomPlugins = window.RoomPlugins || {};
 window.RoomPlugins["weight-weiqi"] = {
     shell: {
         "title": "权重围棋",
-        "rulesHtml": "基本规则同围棋。<br /><br />\n每个格被随机赋予 1~格点总数 的不重复权重。<br /><br />\n请在格中落子。<br />",
+        "rulesHtml": "基本规则同围棋。<br /><br />每个格被随机赋予 1~格点总数 的不重复权重。<br /><br />请在格中落子。<br />",
         "defaultKomiText": "黑贴白1048点",
         "boardSizeMin": 7,
         "boardSizeMax": 21,

@@ -27,7 +27,7 @@ python public/fonts/collect_main_chars.py
 python public/fonts/build_wenkai_subset.py public/fonts/main-chars.txt
 ```
 
-`collect_main_chars.py` 会扫描 `qi.html`、`room.html`、`room.js`、`room-plugins/*`、`common.js`、超级24点/竞速扫雷等，写出 `main-chars.txt`。
+`collect_main_chars.py` 会扫描 `qi.html`、`room.html`、`room.js`、`room-plugins/*`（含 `rulesHtml`）、`common.js`、`chat-messages.csv`、超级24点/竞速扫雷等，写出 `main-chars.txt`。
 
 输入文件里出现过的字符会进入主包；一级常用字里其余部分进入 extra。
 

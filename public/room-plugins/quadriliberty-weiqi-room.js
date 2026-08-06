@@ -2,7 +2,7 @@ window.RoomPlugins = window.RoomPlugins || {};
 window.RoomPlugins['quadriliberty-weiqi'] = {
     shell: {
         "title": "四气围棋",
-        "rulesHtml": "基本规则同围棋。<br /><br />\n每片棋都必须有四口气或以上才能留在棋盘上，否则就要被提掉。<br />",
+        "rulesHtml": "基本规则同围棋。<br /><br />每片棋都必须有四口气或以上才能留在棋盘上，否则就要被提掉。<br />",
         "defaultKomiText": "黑贴白3.25点",
         "boardSizeMin": 7,
         "boardSizeMax": 21,

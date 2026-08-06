@@ -808,15 +808,8 @@ const scoreTitle = document.getElementById('scoreTitle');
                 else drawBoardWithOverlay();
                 return;
             }
-            if (!slots.black || !slots.white) {
-                turnDisplay.innerText = '等待双方入座';
-                isMyTurn = false;
-                if (showEstimateActive) updateEstimateData();
-                else drawBoardWithOverlay();
-                return;
-            }
             if (!matchStarted) {
-                turnDisplay.innerText = '等待双方确认限时规则';
+                turnDisplay.innerText = QiWeiqiSquarePageRuntime.waitingSeatTurnText(slots, mySlot);
                 isMyTurn = false;
                 if (showEstimateActive) updateEstimateData();
                 else drawBoardWithOverlay();
@@ -1142,31 +1135,6 @@ const scoreTitle = document.getElementById('scoreTitle');
         let updateRecordButtons = () => {};
 
         // ======================== WebSocket ========================
-
-        function connectWebSocket() {
-            ws = QiSquareWeiqiCanvas.connectWeiqiRoomWebSocket({
-                gameType,
-                roomId,
-                roomPassword,
-                onMessage: handleMessage,
-                colorStatus: document.getElementById('colorStatus') || colorStatus,
-                connectWebSocket,
-                clearReconnectTimer: () => {
-                    if (typeof reconnectTimer !== 'undefined' && reconnectTimer) {
-                        clearTimeout(reconnectTimer);
-                        reconnectTimer = null;
-                    } else if (typeof ps !== 'undefined' && ps && ps.reconnectTimer) {
-                        clearTimeout(ps.reconnectTimer);
-                        ps.reconnectTimer = null;
-                    }
-                },
-                getReconnectTimer: () => (typeof reconnectTimer !== 'undefined' ? reconnectTimer : (ps && ps.reconnectTimer)),
-                setReconnectTimer: (id) => {
-                    if (typeof reconnectTimer !== 'undefined') reconnectTimer = id;
-                    else if (ps) ps.reconnectTimer = id;
-                }
-            });
-        }
 
         function connectWebSocket() {
             ws = QiSquareWeiqiCanvas.connectWeiqiRoomWebSocket({

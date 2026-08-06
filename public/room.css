@@ -13,7 +13,7 @@
     --qi-room-shadow: 0 22px 44px rgba(94, 68, 38, 0.12);
     --qi-room-radius-xl: 28px;
     --qi-room-radius-lg: 20px;
-    --qi-room-font: "LXGW WenKai GB", "PingFang SC", "Microsoft YaHei", sans-serif;
+    --qi-room-font: "LXGW WenKai GB", "Kaiti SC", "STKaiti", "KaiTi", "KaiTi_GB2312", "BiauKai", serif;
     --qi-room-board: #fdcc90;
     --qi-room-overlay: rgba(30, 30, 30, 0.7);
     --qi-room-side: 280px;
@@ -1759,7 +1759,7 @@ body.qi-room .dual-boards canvas {
     src: url('/qi/fonts/xiangqi.ttf') format('truetype');
     font-weight: 100 900;
     font-style: normal;
-    font-display: block;
+    font-display: swap;
 }
 
 /* 象棋类：与默认棋盘同宽，保持各自 aspect-ratio；左右栏外缘与 top-panel 对齐 */

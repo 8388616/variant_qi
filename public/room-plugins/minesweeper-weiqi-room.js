@@ -2,7 +2,7 @@ window.RoomPlugins = window.RoomPlugins || {};
 window.RoomPlugins['minesweeper-weiqi'] = {
     shell: {
         "title": "扫雷围棋",
-        "rulesHtml": "基本规则同标准围棋。<br /><br />\n第2手落子后，在棋盘上随机生成若干隐藏的雷（数量约为棋盘总点数的20%，向上取整）。<br /><br />\n落子在雷上时，落子无效（等效于虚着），同时雷被消除。<br /><br />",
+        "rulesHtml": "基本规则同标准围棋。<br /><br />第2手落子后，在棋盘上随机生成若干隐藏的雷（数量约为棋盘总点数的20%，向上取整）。<br /><br />落子在雷上时，落子无效（等效于虚着），同时雷被消除。<br /><br />",
         "defaultKomiText": "黑贴白3.25点",
         "boardSizeMin": 7,
         "boardSizeMax": 21,

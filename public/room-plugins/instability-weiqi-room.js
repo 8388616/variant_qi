@@ -2,7 +2,7 @@ window.RoomPlugins = window.RoomPlugins || {};
 window.RoomPlugins['instability-weiqi'] = {
     shell: {
         "title": "不稳定围棋",
-        "rulesHtml": "基本规则同围棋。<br /><br />\n在空点落子会产生<strong>不稳定子</strong>，寿命为 (0.1×路数×路数) 向上取奇数<br /><br />\n棋盘的路数与寿命关系为：<br />\n<strong>7 </strong>5<br />\n<strong>8 </strong>7<br />\n<strong>9 </strong>9<br />\n<strong>10 </strong>11<br />\n<strong>11 </strong>13<br />\n<strong>12 </strong>15<br />\n<strong>13 </strong>17<br />\n<strong>14 </strong>21<br />\n<strong>15 </strong>23<br />\n<strong>16 </strong>27<br />\n<strong>17 </strong>29<br />\n<strong>18 </strong>33<br />\n<strong>19 </strong>37<br />\n<strong>20 </strong>31<br />\n<strong>21 </strong>35<br />\n<br /><br />\n每走完一手后，已满寿命的不稳定子会从盘上消失。<br /><br />\n可以落在己方<strong>不稳定子</strong>上，将该棋子变为<strong>稳定子</strong>。<strong>稳定子</strong>不会消失。<br /><br />\n虚着计入寿命。<br />",
+        "rulesHtml": "基本规则同围棋。<br /><br />在空点落子会产生<strong>不稳定子</strong>，寿命为 (0.1×路数×路数) 向上取奇数<br /><br />棋盘的路数与寿命关系为：<br /><strong>7 </strong>5<br /><strong>8 </strong>7<br /><strong>9 </strong>9<br /><strong>10 </strong>11<br /><strong>11 </strong>13<br /><strong>12 </strong>15<br /><strong>13 </strong>17<br /><strong>14 </strong>21<br /><strong>15 </strong>23<br /><strong>16 </strong>27<br /><strong>17 </strong>29<br /><strong>18 </strong>33<br /><strong>19 </strong>37<br /><strong>20 </strong>31<br /><strong>21 </strong>35<br /><br /><br />每走完一手后，已满寿命的不稳定子会从盘上消失。<br /><br />可以落在己方<strong>不稳定子</strong>上，将该棋子变为<strong>稳定子</strong>。<strong>稳定子</strong>不会消失。<br /><br />虚着计入寿命。<br />",
         "defaultKomiText": "黑贴白3.25点",
         "boardSizeMin": 7,
         "boardSizeMax": 21,

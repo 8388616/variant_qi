@@ -1,19 +1,19 @@
 window.RoomPlugins = window.RoomPlugins || {};
-window.RoomPlugins['neutral-stone-weiqi'] = {
+window.RoomPlugins['greedy-weiqi'] = {
     shell: {
-        "title": "中立子围棋",
-        "rulesHtml": "基本规则同围棋。<br /><br />开局时在棋盘上随机放置中立子（数量约为棋盘总点数的8.3%）。中立子不能落子、不提供气，但可以被提。<br /><br />提子时，优先提掉中立子，然后是对方的棋子，最后的己方的棋子。<br />",
-        "defaultKomiText": "黑贴白4.75点",
+        "title": "贪吃围棋",
+        "rulesHtml": "基本规则同围棋。<br /><br />有提子时必须提子；若有多个可提子点，则必须走提子数量最多的点；若有多个最多的点，可任选其一。<br /><br />",
+        "defaultKomiText": "黑贴白2.75点",
         "boardSizeMin": 7,
         "boardSizeMax": 21,
         "defaultBoardSize": 19,
         "minLib": 1,
-        "recordDownloadPrefix": "中立子围棋",
+        "recordDownloadPrefix": "贪吃围棋",
         "standardWeiqiMatchTime": true,
         "features": {
+            "zoomScroll": false,
             "editBoard": true,
-            "compoundPalette": false,
-            "zoomScroll": false
+            "compoundPalette": false
         },
         "editTools": [
             {
@@ -27,10 +27,6 @@ window.RoomPlugins['neutral-stone-weiqi'] = {
             {
                 "value": "white",
                 "label": "白子"
-            },
-            {
-                "value": "neutral",
-                "label": "中立子"
             }
         ]
     },
@@ -39,15 +35,26 @@ window.RoomPlugins['neutral-stone-weiqi'] = {
         var roomId = ctx.roomId;
         var roomPassword = ctx.roomPassword || null;
         var config = ctx.config || {};
-        var recordDownloadPrefix = config.recordDownloadPrefix != null ? config.recordDownloadPrefix : "中立子围棋";
+        var recordDownloadPrefix = config.recordDownloadPrefix != null ? config.recordDownloadPrefix : "贪吃围棋";
         var minLib = config.minLib != null ? config.minLib : 1;
         var standardWeiqiMatchTime = config.standardWeiqiMatchTime != null ? config.standardWeiqiMatchTime : true;
 
         (function () {
-const NEUTRAL = 10000;
+// ======================== 配置 ========================
+        function greedyKomiForSize(boardSize) {
+            if (boardSize === 3) return 4.5;
+            if (boardSize === 4) return 0.0;
+            if (boardSize === 5) return 12.5;
+            if (boardSize === 6) return 0.5;
+            if (boardSize === 7) return 5.5;
+            if (boardSize === 8) return 3.0;
+            if (boardSize % 2 === 0) return 3.25;
+            return 2.75;
+        }
+
         const ps = {
             BOARD_SIZE: 19,
-            KOMI: 4.75,
+            KOMI: greedyKomiForSize(19),
             PADDING: 0,
             CELL_SIZE: 0,
             numberOfHands: 1,
@@ -89,7 +96,6 @@ const NEUTRAL = 10000;
             hoverRow: -1,
             hoverCol: -1,
             isHoverValid: false,
-            initialNeutralStones: [],
             liveOpeningBoard: null,
             gameStarted: false,
             editModeEnabled: false,
@@ -110,6 +116,7 @@ const BOARD_MARK_CHAR_LIST = (() => {
             return a;
         })();
 
+        // DOM
         const komiInfo = document.getElementById('komiInfo');
         const canvas = document.getElementById('goBoard');
         const ctx = canvas.getContext('2d');
@@ -134,140 +141,59 @@ const scoreTitle = document.getElementById('scoreTitle');
         const isMouseDevice = window.matchMedia('(hover: hover) and (pointer: fine)').matches;
         const R = () => QiWeiqiSquarePageRuntime;
 
-        function hasLibertyNeutral(board, row, col, size) {
-            const color = board[row][col];
-            if (color === 0) 
-                return false;
-            return R().hasLiberty(board, row, col, size);
+        function countOpponentCaptures(boardBefore, boardAfter, playerVal) {
+            const enemy = 3 - playerVal;
+            let before = 0;
+            let after = 0;
+            const n = ps.BOARD_SIZE;
+            for (let r = 0; r < n; r++) {
+                for (let c = 0; c < n; c++) {
+                    if (boardBefore[r][c] === enemy) before++;
+                    if (boardAfter[r][c] === enemy) after++;
+                }
+            }
+            return before - after;
         }
 
-        function neutralTryPlaceStone(boardBefore, row, col, playerVal)
-        {
-            if (boardBefore[row][col] !== 0)
-                return null;
-            const newBoard = QiSquareWeiqiCanvas.deepCopyBoard(boardBefore);
-            newBoard[row][col] = playerVal;
-
-            const dirs = [[-1, 0], [1, 0], [0, -1], [0, 1]];
-            const toRemove = [];
-            for (let [dr, dc] of dirs)
-            {
-                const nr = row + dr, nc = col + dc;
-                if (nr < 0 || nr >= ps.BOARD_SIZE || nc < 0 || nc >= ps.BOARD_SIZE)
-                    continue;
-                const v = newBoard[nr][nc];
-                if ((v === NEUTRAL || v === 3 - playerVal) && !hasLibertyNeutral(newBoard, nr, nc, ps.BOARD_SIZE))
-                    toRemove.push({ row: nr, col: nc, color: v });
-            }
-            for (const stone of toRemove)
-                if (newBoard[stone.row][stone.col] === stone.color)
-                    R().removeGroup(newBoard, stone.row, stone.col, stone.color, ps.BOARD_SIZE);
-            if (!hasLibertyNeutral(newBoard, row, col, ps.BOARD_SIZE))
-                R().removeGroup(newBoard, row, col, playerVal, ps.BOARD_SIZE);
+        function basePlaceStone(boardBefore, row, col, playerVal) {
+            const newBoard = R().tryPlaceStoneNLiberty(
+                boardBefore, row, col, playerVal, ps.BOARD_SIZE,
+                (b) => QiSquareWeiqiCanvas.deepCopyBoard(b), 1
+            );
+            if (!newBoard || newBoard[row][col] !== playerVal) return null;
             return newBoard;
         }
 
-        function neutralComputeStoneNumbers() {
-            const nums = Array(ps.BOARD_SIZE).fill().map(() => Array(ps.BOARD_SIZE).fill(0));
-            if (ps.replayMode && ps.tryPlayMode) {
-                for (let i = 1; i <= ps.tryPlayStep; i++) {
-                    const markers = ps.tryPlayMarkers[i];
-                    if (markers && markers.length > 0) {
-                        const m = markers[0];
-                        if (m.row < ps.BOARD_SIZE && m.col < ps.BOARD_SIZE && ps.board[m.row][m.col] !== 0 && ps.board[m.row][m.col] !== NEUTRAL)
-                            nums[m.row][m.col] = i;
-                    }
-                }
-            } else if (ps.replayMode) {
-                for (let i = 1; i <= ps.replayStep; i++) {
-                    const markers = ps.replayMarkers[i];
-                    if (markers && markers.length > 0) {
-                        const m = markers[0];
-                        if (m.row < ps.BOARD_SIZE && m.col < ps.BOARD_SIZE && ps.board[m.row][m.col] !== 0 && ps.board[m.row][m.col] !== NEUTRAL)
-                            nums[m.row][m.col] = i;
-                    }
-                }
-            } else if (ps.liveReplayBoards.length && ps.liveViewStep < ps.liveReplayBoards.length - 1) {
-                for (let i = 1; i <= ps.liveViewStep; i++) {
-                    const markers = ps.liveReplayMarkers[i];
-                    if (markers && markers.length > 0) {
-                        const m = markers[0];
-                        if (m.row < ps.BOARD_SIZE && m.col < ps.BOARD_SIZE && ps.board[m.row][m.col] !== 0 && ps.board[m.row][m.col] !== NEUTRAL)
-                            nums[m.row][m.col] = i;
-                    }
-                }
-            } else {
-                for (let i = 0; i < ps.moveLog.length; i++) {
-                    const m = ps.moveLog[i];
-                    if (m && m.row != null && m.col != null
-                        && m.row < ps.BOARD_SIZE && m.col < ps.BOARD_SIZE && ps.board[m.row][m.col] !== 0 && ps.board[m.row][m.col] !== NEUTRAL)
-                        nums[m.row][m.col] = i + 1;
-                }
-            }
-            return nums;
+        function boardToString(brd) {
+            return brd.map(row => row.join(',')).join(';');
         }
 
-        function neutralDrawBoard() {
-            const d = QiSquareWeiqiCanvas.draw;
-            const cs = QiSquareWeiqiCanvas.DEFAULT_CANVAS_SIZE;
-            const cellSize = ps.CELL_SIZE;
-            d.clear(ctx, cs);
-            d.grid(ctx, ps.BOARD_SIZE, ps.PADDING, cellSize, cs);
-            d.starPoints(ctx, ps.BOARD_SIZE, ps.PADDING, cellSize);
-            d.coordLabels(ctx, ps.BOARD_SIZE, ps.PADDING, cellSize);
-            const stoneRadius = cellSize * 0.44;
-            const markLenDefault = cellSize * 0.352;
-            const lowerLastMoveMarker = ps.showMoveNumbers || ps.showEstimateActive;
-            if (lowerLastMoveMarker) {
-                d.lastMoveMarkersLower(ctx, ps.lastMoveMarkers, ps.PADDING, cellSize, stoneRadius);
-            }
-            for (let r = 0; r < ps.BOARD_SIZE; r++)
-             {
-                for (let c = 0; c < ps.BOARD_SIZE; c++)
-                {
-                    if (ps.board[r][c] !== NEUTRAL)
-                        continue;
-                    R().drawNeutralStone(r, c, ctx, ps.PADDING, ps.CELL_SIZE);
+        function hasStrictlyBetterCapture(boardBefore, playerVal, myCap, skipRow, skipCol, histSet) {
+            const n = ps.BOARD_SIZE;
+            for (let r = 0; r < n; r++) {
+                for (let c = 0; c < n; c++) {
+                    if (boardBefore[r][c] !== 0) continue;
+                    if (r === skipRow && c === skipCol) continue;
+                    const nb = basePlaceStone(boardBefore, r, c, playerVal);
+                    if (!nb) continue;
+                    if (histSet && histSet.has(boardToString(nb))) continue;
+                    if (countOpponentCaptures(boardBefore, nb, playerVal) > myCap) return true;
                 }
             }
-            d.stonesBlackWhite(ctx, ps.board, ps.BOARD_SIZE, ps.PADDING, cellSize, stoneRadius, ps.showMoveNumbers);
-            if (!lowerLastMoveMarker) {
-                for (const { row, col, color } of ps.lastMoveMarkers) {
-                    if (ps.board[row][col] === NEUTRAL) continue;
-                    const x = ps.PADDING + col * cellSize;
-                    const y = ps.PADDING + row * cellSize;
-                    ctx.beginPath();
-                    ctx.moveTo(x, y);
-                    ctx.lineTo(x + markLenDefault, y);
-                    ctx.lineTo(x, y + markLenDefault);
-                    ctx.closePath();
-                    ctx.fillStyle = color === 1 ? '#fff' : '#222';
-                    ctx.fill();
-                }
-            }
-            function isUserBoardMarkVisibleAt(br, bc) {
-                if (ps.showEstimateActive) return false;
-                if (br < 0 || br >= ps.BOARD_SIZE || bc < 0 || bc >= ps.BOARD_SIZE) return false;
-                if (ps.board[br][bc] !== 0) return false;
-                return true;
-            }
-            d.userBoardMarks(ctx, ps.userBoardMarks, ps.BOARD_SIZE, ps.PADDING, cellSize, isUserBoardMarkVisibleAt);
-            if (ps.showMoveNumbers) {
-                const nums = neutralComputeStoneNumbers();
-                d.moveNumbersOnStones(ctx, nums, ps.board, ps.BOARD_SIZE, ps.PADDING, cellSize);
-            }
-            d.hoverPreviewStone(ctx, ps.hoverRow, ps.hoverCol, ps.board, ps.PADDING, cellSize, {
-                tryPlayMode: ps.tryPlayMode,
-                tryPlayCurrentPlayer: ps.tryPlayCurrentPlayer,
-                gameOver: ps.gameOver,
-                isMyTurn: ps.isMyTurn,
-                mySlot: ps.mySlot,
-                isHoverValid: ps.isHoverValid,
-                hoverCapture: !!ps.hoverCapture
-            });
-            if (ps.showEstimateActive && ps.cachedLiveBoard && ps.cachedTerritory) {
-                d.estimateOverlay(ctx, ps.board, ps.BOARD_SIZE, ps.PADDING, cellSize, ps.cachedLiveBoard, ps.cachedTerritory);
-            }
+            return false;
+        }
+
+        function greedyTryPlaceStone(boardBefore, row, col, playerVal, histSet) {
+            const newBoard = basePlaceStone(boardBefore, row, col, playerVal);
+            if (!newBoard) return null;
+            const myCap = countOpponentCaptures(boardBefore, newBoard, playerVal);
+            if (hasStrictlyBetterCapture(boardBefore, playerVal, myCap, row, col, histSet || null)) return null;
+            return newBoard;
+        }
+
+        // 供 create() 使用：试下等场景不带 histSet
+        function greedyTryPlaceStoneForPage(boardBefore, row, col, playerVal) {
+            return greedyTryPlaceStone(boardBefore, row, col, playerVal, null);
         }
 
         const domPage = {
@@ -283,60 +209,48 @@ const scoreTitle = document.getElementById('scoreTitle');
             boardMarkSelect,
             colorStatus
         };
-
-        const pageHolder = {};
         const page = QiWeiqiSquarePageRuntime.create(ps, domPage, {
             enableEditBoard: true,
             editTools: config.editTools,
             recordDownloadPrefix,
             minLib,
             maxWeakLiberties: 2,
+            tryPlaceStone: greedyTryPlaceStoneForPage,
             gameType,
             roomId,
             roomPassword,
             isMouseDevice,
-            tryPlaceStone: neutralTryPlaceStone,
-            drawBoard: neutralDrawBoard,
-            removeDeadAndDying: (src) => R().removeDeadAndDying(src, ps.BOARD_SIZE, (b) => QiSquareWeiqiCanvas.deepCopyBoard(b), 2),
-            assignTerritoryWithRange: (live) => R().assignTerritoryWithRange(live, ps.BOARD_SIZE, { isPassable: (v) => v !== NEUTRAL }),
             rebuildLiveReplayFromMoveCoords(moveCoords) {
                 const ob = ps.liveOpeningBoard;
-                const o = R().rebuildLiveReplayFromMoveCoords(
-                    moveCoords,
-                    neutralTryPlaceStone,
-                    QiSquareWeiqiCanvas.deepCopyBoard,
-                    () => ob ? QiSquareWeiqiCanvas.deepCopyBoard(ob) : QiSquareWeiqiCanvas.initBoardArray(ps.BOARD_SIZE)
-                );
-                ps.liveReplayBoards = o.liveReplayBoards;
-                ps.liveReplayMarkers = o.liveReplayMarkers;
-                ps.liveReplayStepPlayers = o.liveReplayStepPlayers;
-            },
-            enterReplayMode(data) {
-                function createEmptyBoard() {
-                    return QiSquareWeiqiCanvas.initBoardArray(ps.BOARD_SIZE);
+                const createEmpty = () => ob
+                    ? QiSquareWeiqiCanvas.deepCopyBoard(ob)
+                    : QiSquareWeiqiCanvas.initBoardArray(ps.BOARD_SIZE);
+                let curBoard = createEmpty();
+                const histSet = new Set([boardToString(curBoard)]);
+                const liveReplayBoards = [QiSquareWeiqiCanvas.deepCopyBoard(curBoard)];
+                const liveReplayMarkers = [[]];
+                const liveReplayStepPlayers = [0];
+                for (const move of (moveCoords || [])) {
+                    const playerVal = move.player === 'black' ? 1 : 2;
+                    liveReplayStepPlayers.push(playerVal);
+                    if (move.type === 'move') {
+                        const newBoard = greedyTryPlaceStone(curBoard, move.row, move.col, playerVal, histSet);
+                        if (newBoard) {
+                            curBoard = newBoard;
+                            histSet.add(boardToString(curBoard));
+                        }
+                        liveReplayBoards.push(QiSquareWeiqiCanvas.deepCopyBoard(curBoard));
+                        liveReplayMarkers.push([{ row: move.row, col: move.col, color: playerVal }]);
+                    } else if (move.type === 'pass') {
+                        liveReplayBoards.push(QiSquareWeiqiCanvas.deepCopyBoard(curBoard));
+                        liveReplayMarkers.push([]);
+                    }
                 }
-                const built = R().buildReplayFromImportData(
-                    { initialPosition: data.initialPosition, moves: data.moves || [] },
-                    neutralTryPlaceStone,
-                    QiSquareWeiqiCanvas.deepCopyBoard,
-                    createEmptyBoard
-                );
-                ps.replayBoards = built.replayBoards;
-                ps.replayMarkers = built.replayMarkers;
-                ps.replayStepPlayers = built.replayStepPlayers;
-                ps.replayTotalSteps = built.replayTotalSteps;
-                ps.replayMode = true;
-                const slider = document.getElementById('replaySlider');
-                slider.max = ps.replayTotalSteps;
-                const p = pageHolder.page;
-                if (p) {
-                    p.setReplayStep(ps.replayTotalSteps);
-                    p.updateReplayUI();
-                }
+                ps.liveReplayBoards = liveReplayBoards;
+                ps.liveReplayMarkers = liveReplayMarkers;
+                ps.liveReplayStepPlayers = liveReplayStepPlayers;
             }
         });
-        pageHolder.page = page;
-
         const {
             mobileTwoStepPlacing,
             clearMobileMovePreview,
@@ -356,6 +270,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             tryPlayMove,
             setTryPlayStep,
             updateTryPlayDisplay,
+            rebuildLiveReplayFromMoveCoords,
             applyLiveViewBoard,
             updateLiveReplayPanelUI,
             setLiveViewStep,
@@ -372,7 +287,6 @@ const scoreTitle = document.getElementById('scoreTitle');
         } = page;
 
         function syncState(state) {
-            ps.initialNeutralStones = state.initialNeutralStones || [];
             ps.gameStarted = (state.numberOfHands || 1) > 1;
             syncStateBase(state);
             updateEditModeUI();
@@ -390,10 +304,13 @@ const scoreTitle = document.getElementById('scoreTitle');
             setLiveViewStep,
             getWs: () => ps.ws,
             getBoardSize: () => ps.BOARD_SIZE,
-            setBoardSize: (n) => { ps.BOARD_SIZE = n; },
+            setBoardSize: (n) => {
+                ps.BOARD_SIZE = n;
+                ps.KOMI = greedyKomiForSize(n);
+            },
             getKomi: () => ps.KOMI,
             setKomi: (n) => { ps.KOMI = n; },
-            getBoard: () => ps.board.map(row => row.map(c => (c === NEUTRAL ? 0 : c))),
+            getBoard: () => ps.board,
             setBoard: (b) => { ps.board = b; },
             getSlots: () => ps.slots,
             setSlots: (s) => { ps.slots = s; },
@@ -431,16 +348,39 @@ syncState,
             boardSeatOverlay: true,
             onNewGameStarted() {
                 clearEditModeUi();
-            },
-            onBoardSizeChanged(msg) {
-                syncState(msg);
             }
         });
-        function handleMessage(msg) {
-            _weiqiBindings.handleMessage(msg);
-            if (msg.type === 'boardSizeChanged') _weiqiBindings.updateRadioStyles();
-        }
+        const handleMessage = _weiqiBindings.handleMessage;
+        const updateRecordButtons = _weiqiBindings.updateRecordButtons;
         const updateRadioStyles = _weiqiBindings.updateRadioStyles;
+
+        const passBtn = document.getElementById('passBtn');
+        if (passBtn) {
+            passBtn.addEventListener('click', (e) => {
+                if (!ps.ws || ps.gameOver || !ps.isMyTurn || ps.waitingScoreConfirm) return;
+                // 试下/回放中不走服务器虚着
+                if (ps.tryPlayMode || ps.replayMode) return;
+                const playerVal = ps.mySlot === 'black' ? 1 : (ps.mySlot === 'white' ? 2 : 0);
+                if (!playerVal) return;
+                // 粗略本地提示：有提子时阻止虚着（服务器仍为权威）
+                let maxCap = 0;
+                const n = ps.BOARD_SIZE;
+                for (let r = 0; r < n; r++) {
+                    for (let cc = 0; cc < n; cc++) {
+                        if (ps.board[r][cc] !== 0) continue;
+                        const nb = basePlaceStone(ps.board, r, cc, playerVal);
+                        if (!nb) continue;
+                        const cap = countOpponentCaptures(ps.board, nb, playerVal);
+                        if (cap > maxCap) maxCap = cap;
+                    }
+                }
+                if (maxCap > 0) {
+                    e.stopImmediatePropagation();
+                    e.preventDefault();
+                    alert('有可提之子时必须提子，不能虚着。');
+                }
+            }, true);
+        }
 
         let suppressCanvasClickAfterLongMark = false;
 

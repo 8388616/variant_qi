@@ -2,7 +2,7 @@ window.RoomPlugins = window.RoomPlugins || {};
 window.RoomPlugins['weak-magnetism-weiqi'] = {
     shell: {
         "title": "弱磁性围棋",
-        "rulesHtml": "基本规则同围棋。<br /><br />\n棋子具有弱磁性。落子时，上下左右四个方向上最近的棋子都会受到磁力影响尝试移动一格：己方棋子远离落子点一格，对方棋子靠近落子点一格；若目标格已有棋子或在棋盘外则不移动。<br />",
+        "rulesHtml": "基本规则同围棋。<br /><br />棋子具有弱磁性。落子时，上下左右四个方向上最近的棋子都会受到磁力影响尝试移动一格：己方棋子远离落子点一格，对方棋子靠近落子点一格；若目标格已有棋子或在棋盘外则不移动。<br />",
         "defaultKomiText": "黑贴白3.25点",
         "boardSizeMin": 7,
         "boardSizeMax": 21,

@@ -2,7 +2,7 @@ window.RoomPlugins = window.RoomPlugins || {};
 window.RoomPlugins['hole-weiqi'] = {
     shell: {
         "title": "洞围棋",
-        "rulesHtml": "基本规则同围棋。<br /><br />\n开局时在棋盘上随机洞（数量约为棋盘总点数的8.3%），洞内不能落子且不提供气。<br /><br /><br /><br /><i>老家的旧棋盘破了几个窟窿！</i><br /><br />",
+        "rulesHtml": "基本规则同围棋。<br /><br />开局时在棋盘上随机洞（数量约为棋盘总点数的8.3%），洞内不能落子且不提供气。<br /><br /><br /><br /><i>老家的旧棋盘破了几个窟窿！</i><br /><br />",
         "defaultKomiText": "黑贴白3.75点",
         "boardSizeMin": 7,
         "boardSizeMax": 31,

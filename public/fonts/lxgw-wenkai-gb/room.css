@@ -1,0 +1,16 @@
+/* 房间页专用：仅 UI 子集，无巨型 unicode-range，缺字回退系统字体 */
+@font-face {
+  font-family: "LXGW WenKai GB";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("./files/lxgw-wenkai-gb-regular-ui.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "LXGW WenKai GB";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("./files/lxgw-wenkai-gb-medium-ui.woff2") format("woff2");
+}

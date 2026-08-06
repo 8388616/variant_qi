@@ -2,7 +2,7 @@ window.RoomPlugins = window.RoomPlugins || {};
 window.RoomPlugins["penrose-p2-weiqi"] = {
     shell: {
         "title": "彭罗斯P2围棋",
-        "rulesHtml": "基本规则同标准围棋。<br /><br />\n采用彭罗斯 P2 密铺棋盘（风筝形与飞镖形拼块）。<br />\n2 路为中心 5 片凹飞镖 + 外围 10 片风筝；每增加一路对全盘做一次 P2 密铺分解（外圈飞镖与风筝）。仅画四边形外边，无三角形格线。<br />",
+        "rulesHtml": "基本规则同标准围棋。<br /><br />采用彭罗斯 P2 密铺棋盘（风筝形与飞镖形拼块）。<br />2 路为中心 5 片凹飞镖 + 外围 10 片风筝；每增加一路对全盘做一次 P2 密铺分解（外圈飞镖与风筝）。仅画四边形外边，无三角形格线。<br />",
         "defaultKomiText": "黑贴白3.25点",
         "boardSizeMin": 2,
         "boardSizeMax": 13,
@@ -892,7 +892,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             if (bothSelected && matchReady) matchStartedOnce = true;
             if (numberOfHands > 1 || hasStoneOnBoard) matchStartedOnce = true;
             if (!matchStarted) {
-                turnDisplay.innerText = bothSelected ? '等待双方确认限时规则' : '等待双方入座';
+                turnDisplay.innerText = QiWeiqiSquarePageRuntime.waitingSeatTurnText(slots, mySlot);
                 isMyTurn = false;
                 if (showEstimateActive) showEstimate();
                 else drawBoardWithOverlay();

@@ -2,7 +2,7 @@ window.RoomPlugins = window.RoomPlugins || {};
 window.RoomPlugins['family-weiqi'] = {
     shell: {
         "title": "全家福围棋",
-        "rulesHtml": "基本规则同围棋。<br /><br />\n开局时每个点有5%的概率随机产生：<br />\n<strong>洞：</strong> 不可落子、不可被提、不提供气。<br />\n<strong>中立子：</strong> 不可落子、可被提、不提供气。<br />\n<strong>桥：</strong> 不可落子、不可被提，左右与上下各自连通。<br />\n<strong>雷：</strong> 占据交叉点本身提供一气。第一次选择在雷上「落子」无效（等同于虚着），但会消除雷；该手仍有最后落子标记。之后该点可正常落子。<br />",
+        "rulesHtml": "基本规则同围棋。<br /><br />开局时每个点有5%的概率随机产生：<br /><strong>洞：</strong> 不可落子、不可被提、不提供气。<br /><strong>中立子：</strong> 不可落子、可被提、不提供气。<br /><strong>桥：</strong> 不可落子、不可被提，左右与上下各自连通。<br /><strong>雷：</strong> 占据交叉点本身提供一气。第一次选择在雷上「落子」无效（等同于虚着），但会消除雷；该手仍有最后落子标记。之后该点可正常落子。<br />",
         "defaultKomiText": "黑贴白4.75点",
         "boardSizeMin": 7,
         "boardSizeMax": 21,

@@ -2,7 +2,7 @@ window.RoomPlugins = window.RoomPlugins || {};
 window.RoomPlugins["random-instability-wuziqi"] = {
     shell: {
         "title": "随机不稳定五子棋",
-        "rulesHtml": "基本规则同五子棋。<br /><br />\n每个棋子都会获得一个随机寿命。每下一手棋所有棋子的寿命减1，寿命归零的棋子消失。<br><br />\n随着棋局的进程，棋子寿命的随机范围会逐渐增长。<br>",
+        "rulesHtml": "基本规则同五子棋。<br /><br />每个棋子都会获得一个随机寿命。每下一手棋所有棋子的寿命减1，寿命归零的棋子消失。<br><br />随着棋局的进程，棋子寿命的随机范围会逐渐增长。<br>",
         "defaultKomiText": "无禁手",
         "boardSizeMin": 7,
         "boardSizeMax": 15,
@@ -545,7 +545,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             }
             if (!matchStarted) {
                 const bothSelected = !!slots.black && !!slots.white;
-                turnDisplay.innerText = bothSelected ? '等待双方确认限时规则' : '等待双方入座';
+                turnDisplay.innerText = QiWeiqiSquarePageRuntime.waitingSeatTurnText(slots, mySlot);
                 scoreTitle.innerText = '　';
                 isMyTurn = false;
                 drawBoard();
@@ -657,31 +657,6 @@ syncState,
         const baseRoomHandleMessage = _weiqiBindings.handleMessage;
 
         // WebSocket
-
-        function connectWebSocket() {
-            ws = QiSquareWeiqiCanvas.connectWeiqiRoomWebSocket({
-                gameType,
-                roomId,
-                roomPassword,
-                onMessage: handleMessage,
-                colorStatus: document.getElementById('colorStatus') || colorStatus,
-                connectWebSocket,
-                clearReconnectTimer: () => {
-                    if (typeof reconnectTimer !== 'undefined' && reconnectTimer) {
-                        clearTimeout(reconnectTimer);
-                        reconnectTimer = null;
-                    } else if (typeof ps !== 'undefined' && ps && ps.reconnectTimer) {
-                        clearTimeout(ps.reconnectTimer);
-                        ps.reconnectTimer = null;
-                    }
-                },
-                getReconnectTimer: () => (typeof reconnectTimer !== 'undefined' ? reconnectTimer : (ps && ps.reconnectTimer)),
-                setReconnectTimer: (id) => {
-                    if (typeof reconnectTimer !== 'undefined') reconnectTimer = id;
-                    else if (ps) ps.reconnectTimer = id;
-                }
-            });
-        }
 
         function connectWebSocket() {
             const storedPassword = sessionStorage.getItem(`roomPassword_${roomId}`);

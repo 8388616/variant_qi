@@ -2,7 +2,7 @@ window.RoomPlugins = window.RoomPlugins || {};
 window.RoomPlugins["triangle-wuziqi"] = {
     shell: {
         "title": "三角五子棋",
-        "rulesHtml": "基本规则同标准五子棋。<br /><br />\n采用三角棋盘。<br />",
+        "rulesHtml": "基本规则同标准五子棋。<br /><br />采用三角棋盘。<br />",
         "defaultKomiText": "无禁手",
         "boardSizeMin": 9,
         "boardSizeMax": 31,
@@ -398,15 +398,9 @@ const scoreTitle = document.getElementById('scoreTitle');
                 drawBoard();
                 return;
             }
-            if (!slots.black || !slots.white) {
-                isMyTurn = false;
-                turnDisplay.innerText = '等待双方入座';
-                drawBoard();
-                return;
-            }
             if (!matchStarted) {
                 isMyTurn = false;
-                turnDisplay.innerText = '等待双方确认限时规则';
+                turnDisplay.innerText = QiWeiqiSquarePageRuntime.waitingSeatTurnText(slots, mySlot);
                 drawBoard();
                 return;
             }
@@ -833,31 +827,6 @@ const scoreTitle = document.getElementById('scoreTitle');
             });
             canvas.addEventListener('mouseleave', () => {
                 isHoverValid = false; hoverR = -1; hoverC = -1; drawBoard();
-            });
-        }
-
-        function connectWebSocket() {
-            ws = QiSquareWeiqiCanvas.connectWeiqiRoomWebSocket({
-                gameType,
-                roomId,
-                roomPassword,
-                onMessage: handleMessage,
-                colorStatus: document.getElementById('colorStatus') || colorStatus,
-                connectWebSocket,
-                clearReconnectTimer: () => {
-                    if (typeof reconnectTimer !== 'undefined' && reconnectTimer) {
-                        clearTimeout(reconnectTimer);
-                        reconnectTimer = null;
-                    } else if (typeof ps !== 'undefined' && ps && ps.reconnectTimer) {
-                        clearTimeout(ps.reconnectTimer);
-                        ps.reconnectTimer = null;
-                    }
-                },
-                getReconnectTimer: () => (typeof reconnectTimer !== 'undefined' ? reconnectTimer : (ps && ps.reconnectTimer)),
-                setReconnectTimer: (id) => {
-                    if (typeof reconnectTimer !== 'undefined') reconnectTimer = id;
-                    else if (ps) ps.reconnectTimer = id;
-                }
             });
         }
 

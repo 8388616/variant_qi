@@ -2,7 +2,7 @@ window.RoomPlugins = window.RoomPlugins || {};
 window.RoomPlugins["cairo-pentagon-weiqi"] = {
     shell: {
         "title": "开罗五角围棋",
-        "rulesHtml": "基本规则同标准围棋。<br /><br />\n采用开罗五角棋盘。<br />",
+        "rulesHtml": "基本规则同标准围棋。<br /><br />采用开罗五角棋盘。<br />",
         "defaultKomiText": "黑贴白3.25点",
         "boardSizeMin": 3,
         "boardSizeMax": 13,
@@ -840,7 +840,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             if (bothSelected && matchReady) matchStartedOnce = true;
             if (numberOfHands > 1 || hasStoneOnBoard) matchStartedOnce = true;
             if (!matchStarted) {
-                turnDisplay.innerText = bothSelected ? '等待双方确认限时规则' : '等待双方入座';
+                turnDisplay.innerText = QiWeiqiSquarePageRuntime.waitingSeatTurnText(slots, mySlot);
                 isMyTurn = false;
                 if (showEstimateActive) showEstimate();
                 else drawBoardWithOverlay();

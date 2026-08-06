@@ -1622,7 +1622,8 @@
                 case 'broadcast':
                     if (msg.action === 'move' || msg.action === 'clearMine' || msg.action === 'guess' || msg.action === 'pass' || msg.action === 'capture' || msg.action === 'undoAccept' || msg.action === 'drawAgreed' || msg.action === 'resign'
                         || msg.action === 'invisibleReveal' || msg.action === 'endAgreed' || msg.action === 'scoreCountingStarted' || msg.action === 'mineHit' || msg.action === 'timeLoss'
-                        || msg.action === 'setupSwap' || msg.action === 'setupDone') {
+                        || msg.action === 'setupSwap' || msg.action === 'setupDone'
+                        || msg.action === 'buryClick' || msg.action === 'buryDone' || msg.action === 'buryDoneAll' || msg.action === 'buryPhase') {
                         const wasOver = ctx.getGameOver();
                         syncStateWithMatch(msg);
                         if (msg.gameOver && !wasOver) {
@@ -5220,7 +5221,7 @@
             } else if (features.janggi) {
                 if (blackTitle) blackTitle.innerHTML = sideDot('blue') + '蓝方';
                 if (whiteTitle) whiteTitle.innerHTML = sideDot('red') + '红方';
-            } else {
+        } else {
                 if (blackTitle) blackTitle.innerHTML = sideDot('red') + '红方';
                 if (whiteTitle) whiteTitle.innerHTML = sideDot('black') + '黑方';
             }
@@ -5329,7 +5330,6 @@
 
         // 须在插件 mount（创建 WebSocket）之前挂钩，否则自建 WS 的棋种收不到聊天广播
         RoomChat.installWebSocketHook();
-        RoomChat.init();
 
         await loadScript('/qi/room-plugins/' + room.gameType + '-room.js');
 
@@ -5386,6 +5386,11 @@
 
         // 壳层统一绑定标记折叠，避免部分棋种插件未初始化导致 expand 无效
         ensureBoardMarkFoldControls();
+
+        // 聊天预设不阻塞棋盘首屏：下一帧再拉 CSV / 绑 UI
+        requestAnimationFrame(() => {
+            try { RoomChat.init(); } catch (e) { console.warn('RoomChat.init failed', e); }
+        });
     }
 
     function ensureBoardMarkFoldControls() {
@@ -5503,7 +5508,7 @@
 
         async function loadPresets() {
             try {
-                const res = await fetch('/qi/chat-messages.csv', { cache: 'no-store' });
+                const res = await fetch('/qi/chat-messages.csv');
                 if (!res.ok) throw new Error('HTTP ' + res.status);
                 presets = parseCsv(await res.text());
             } catch (e) {

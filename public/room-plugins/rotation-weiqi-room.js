@@ -2,7 +2,7 @@ window.RoomPlugins = window.RoomPlugins || {};
 window.RoomPlugins["rotation-weiqi"] = {
     shell: {
         "title": "旋转围棋",
-        "rulesHtml": "基本规则同围棋。<br /><br />\n棋盘分为四个板块。每隔<strong>0.07×棋盘总点数，向上取奇</strong>数手，所有板块沿<strong>顺时针</strong>轮换旋转。\n最多旋转 <strong>8</strong> 次（两整圈），之后不再旋转。<br /><br />\n旋转时先旋转后提子。<br /><br />\n棋盘的路数和旋转手数的映射关系为：<br />\n<strong>8 </strong>5<br />\n<strong>10 </strong>7<br />\n<strong>12 </strong>11<br />\n<strong>14 </strong>15<br />\n<strong>16 </strong>19<br />\n<strong>18 </strong>23<br />\n<strong>20 </strong>29<br />",
+        "rulesHtml": "基本规则同围棋。<br /><br />棋盘分为四个板块。每隔<strong>0.07×棋盘总点数，向上取奇</strong>数手，所有板块沿<strong>顺时针</strong>轮换旋转。\n最多旋转 <strong>8</strong> 次（两整圈），之后不再旋转。<br /><br />旋转时先旋转后提子。<br /><br />棋盘的路数和旋转手数的映射关系为：<br /><strong>8 </strong>5<br /><strong>10 </strong>7<br /><strong>12 </strong>11<br /><strong>14 </strong>15<br /><strong>16 </strong>19<br /><strong>18 </strong>23<br /><strong>20 </strong>29<br />",
         "defaultKomiText": "黑贴白3.25点",
         "boardSizeMin": 8,
         "boardSizeMax": 20,

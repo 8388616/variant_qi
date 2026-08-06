@@ -2,7 +2,7 @@ window.RoomPlugins = window.RoomPlugins || {};
 window.RoomPlugins["radar-weiqi"] = {
     shell: {
         "title": "雷达围棋",
-        "rulesHtml": "基本规则同围棋。<br /><br />\n每手棋为隐身子，仅己方可见。<br /><br />\n隐身子在参与提子时显形。<br /><br />\n落子在对方隐身子上时无效，该隐身子显形，此手视为弃权。<br /><br />\n每枚棋子上会显示距离最近的对方棋子的距离（曼哈顿距离）。<br /><br />\n双方同意申请数点后，所有隐身子显形并进行数点；即便不同意数点结果而续弈也不再产生新的隐身子。<br />",
+        "rulesHtml": "基本规则同围棋，但每手棋为隐身子，仅己方可见。<br /><br />隐身子在参与提子时显形。<br /><br />落子在对方隐身子上时无效，该隐身子显形，此手视为虚着。<br /><br />每枚棋子上会显示距离最近的对方棋子的距离（曼哈顿距离）。<br /><br />",
         "defaultKomiText": "黑贴白4.25点",
         "boardSizeMin": 7,
         "boardSizeMax": 21,

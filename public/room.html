@@ -4,8 +4,21 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=2.0, user-scalable=yes">
     <title>房间</title>
-    <link rel="stylesheet" href="/qi/fonts/lxgw-wenkai-gb/index.css">
+    <!-- 房间页用精简字体 CSS（无巨型 unicode-range）；大厅仍用完整 index.css -->
+    <link rel="preload" href="/qi/fonts/lxgw-wenkai-gb/files/lxgw-wenkai-gb-medium-ui.woff2" as="font" type="font/woff2" crossorigin>
+    <link rel="stylesheet" href="/qi/fonts/lxgw-wenkai-gb/room.css">
     <link rel="stylesheet" href="/qi/room.css">
+    <script>
+    (function () {
+        var m = location.pathname.match(/^\/qi\/([a-zA-Z0-9_-]+)\/[^/]+\/?$/);
+        if (!m) return;
+        var l = document.createElement('link');
+        l.rel = 'preload';
+        l.as = 'script';
+        l.href = '/qi/room-plugins/' + m[1] + '-room.js';
+        document.head.appendChild(l);
+    })();
+    </script>
 </head>
 <body class="qi-room" id="gameWrapper">
     <div class="top-panel">

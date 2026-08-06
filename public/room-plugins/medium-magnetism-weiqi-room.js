@@ -2,7 +2,7 @@ window.RoomPlugins = window.RoomPlugins || {};
 window.RoomPlugins['medium-magnetism-weiqi'] = {
     shell: {
         "title": "中磁性围棋",
-        "rulesHtml": "基本规则同围棋。<br /><br />\n棋子具有磁性。落子后沿上下左右四个方向扫描射线：己方棋子从最远端先滑动一格，对方棋子从最近端先滑动一格；每方向只进行一轮移动。<br />",
+        "rulesHtml": "基本规则同围棋。<br /><br />棋子具有磁性。落子后沿上下左右四个方向扫描射线：己方棋子从最远端先滑动一格，对方棋子从最近端先滑动一格；每方向只进行一轮移动。<br />",
         "defaultKomiText": "黑贴白3.25点",
         "boardSizeMin": 7,
         "boardSizeMax": 21,

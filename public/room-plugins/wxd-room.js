@@ -2,7 +2,7 @@ window.RoomPlugins = window.RoomPlugins || {};
 window.RoomPlugins["wxd"] = {
     shell: {
         "title": "WxD棋",
-        "rulesHtml": "双方从中心格出发，每步只能走到自己上一手周围八格，并获得格内分数。<br /><br />\n当一方无路可走时，由另一方继续走，直至双方都无路可走时结束。<br /><br />\n积分高者获胜。<br />",
+        "rulesHtml": "双方从中心格出发，每步只能走到自己上一手周围八格，并获得格内分数。<br /><br />当一方无路可走时，由另一方继续走，直至双方都无路可走时结束。<br /><br />积分高者获胜。<br />",
         "defaultKomiText": "黑贴白32点",
         "boardSizeMin": 3,
         "boardSizeMax": 21,
@@ -361,9 +361,7 @@ const boardSizeSelect = document.getElementById('boardSizeSelect');
                 }
                 const hasStarted = !!(ps.matchStarted || ps.matchStartedOnce);
                 if (!hasStarted) {
-                    const bothSelected = !!(ps.slots.black && ps.slots.white);
-                    if (!bothSelected) turnDisplay.textContent = '等待双方入座';
-                    else turnDisplay.textContent = '等待双方确认限时规则';
+                    turnDisplay.textContent = QiWeiqiSquarePageRuntime.waitingSeatTurnText(ps.slots, ps.mySlot);
                     if (_seatOverlay.matchTimeCtl) _seatOverlay.matchTimeCtl.updateTimerPanel();
                     return;
                 }
@@ -896,31 +894,6 @@ const boardSizeSelect = document.getElementById('boardSizeSelect');
                         break;
                 }
             }
-
-        function connectWebSocket() {
-            ws = QiSquareWeiqiCanvas.connectWeiqiRoomWebSocket({
-                gameType,
-                roomId,
-                roomPassword,
-                onMessage: handleMessage,
-                colorStatus: document.getElementById('colorStatus') || colorStatus,
-                connectWebSocket,
-                clearReconnectTimer: () => {
-                    if (typeof reconnectTimer !== 'undefined' && reconnectTimer) {
-                        clearTimeout(reconnectTimer);
-                        reconnectTimer = null;
-                    } else if (typeof ps !== 'undefined' && ps && ps.reconnectTimer) {
-                        clearTimeout(ps.reconnectTimer);
-                        ps.reconnectTimer = null;
-                    }
-                },
-                getReconnectTimer: () => (typeof reconnectTimer !== 'undefined' ? reconnectTimer : (ps && ps.reconnectTimer)),
-                setReconnectTimer: (id) => {
-                    if (typeof reconnectTimer !== 'undefined') reconnectTimer = id;
-                    else if (ps) ps.reconnectTimer = id;
-                }
-            });
-        }
 
         function connectWebSocket() {
                 if (ps.reconnectTimer) {

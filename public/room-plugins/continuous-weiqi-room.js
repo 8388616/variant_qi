@@ -2,7 +2,7 @@ window.RoomPlugins = window.RoomPlugins || {};
 window.RoomPlugins["continuous-weiqi"] = {
     shell: {
         "title": "连续围棋",
-        "rulesHtml": "棋盘为边长 <i>L</i> 的正方形连续平面 [0, L] × [0, L]。棋子为直径 1 的圆盘，黑先白后轮流落子，圆心可在盘面任意一点。<br /><br />\n<strong>落子限制：</strong>新子圆心与任意已有棋子圆心距离须 ≥ 1/2。允许圆盘重叠，但圆心不能过近。<br /><br />\n<strong>接触与棋块：</strong>两子圆心距 ≤ 1 即视为接触，同色接触链组成棋块。<br /><br />\n<strong>气：</strong>单颗棋子初始气为 4；每接触一颗其他棋子或棋盘边界，气数 −1。棋块总气为成员气数之和。<br /><br />\n<strong>提子：</strong>落子后先提对方无气棋块，再禁自杀；全局同形（接触图同构）禁止。<br /><br />\n<strong>终局与计分：</strong>双方连续虚着终局。按棋子覆盖面积与空地归属（距圆盘边缘最近者）计分，白方加贴目 Komi。<br /><br />\n观战模式下可开启「编辑」摆放初始棋子。",
+        "rulesHtml": "棋盘为边长 <i>L</i> 的正方形连续平面 [0, L] × [0, L]。棋子为直径 1 的圆盘，黑先白后轮流落子，圆心可在盘面任意一点。<br /><br /><strong>落子限制：</strong>新子圆心与任意已有棋子圆心距离须 ≥ 1/2。允许圆盘重叠，但圆心不能过近。<br /><br /><strong>接触与棋块：</strong>两子圆心距 ≤ 1 即视为接触，同色接触链组成棋块。<br /><br /><strong>气：</strong>单颗棋子初始气为 4；每接触一颗其他棋子或棋盘边界，气数 −1。棋块总气为成员气数之和。<br /><br /><strong>提子：</strong>落子后先提对方无气棋块，再禁自杀；全局同形（接触图同构）禁止。<br /><br /><strong>终局与计分：</strong>双方连续虚着终局。按棋子覆盖面积与空地归属（距圆盘边缘最近者）计分，白方加贴目 Komi。<br /><br />观战模式下可开启「编辑」摆放初始棋子。",
         "defaultKomiText": "黑贴白7.5点",
         "boardSizeMin": 9,
         "boardSizeMax": 25,

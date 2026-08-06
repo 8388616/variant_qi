@@ -2,7 +2,7 @@ window.RoomPlugins = window.RoomPlugins || {};
 window.RoomPlugins["snub-quadrangle-weiqi"] = {
     shell: {
         "title": "扭棱四角围棋",
-        "rulesHtml": "基本规则同围棋。<br /><br />\n采用扭棱四角棋盘。<br />",
+        "rulesHtml": "基本规则同围棋。<br /><br />采用扭棱四角棋盘。<br />",
         "defaultKomiText": "黑贴白2点",
         "boardSizeMin": 3,
         "boardSizeMax": 8,
@@ -688,7 +688,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             if (bothSelected && matchReady) matchStartedOnce = true;
             if (numberOfHands > 1 || hasStoneOnBoard) matchStartedOnce = true;
             if (!matchStarted) {
-                turnDisplay.innerText = bothSelected ? '等待双方确认限时规则' : '等待双方入座';
+                turnDisplay.innerText = QiWeiqiSquarePageRuntime.waitingSeatTurnText(slots, mySlot);
                 isMyTurn = false;
                 drawBoard();
                 return;

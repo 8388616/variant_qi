@@ -2,7 +2,7 @@ window.RoomPlugins = window.RoomPlugins || {};
 window.RoomPlugins["twisted-space-weiqi"] = {
     shell: {
         "title": "扭曲空间围棋",
-        "rulesHtml": "基本规则同围棋。<br /><br />\n采用三角棋盘，棋子落在格内。<br /><br />\n每个点被分配了一个编号。相同编号的格子是相邻的。<br />",
+        "rulesHtml": "基本规则同围棋。<br /><br />采用三角棋盘，棋子落在格内。<br /><br />每个点被分配了一个编号。相同编号的格子是相邻的。<br />",
         "defaultKomiText": "黑贴白4.75点",
         "boardSizeMin": 7,
         "boardSizeMax": 27,
@@ -238,12 +238,19 @@ let ROWS = 9; // 扭曲空间路数（比三角围棋少一路）
         let tryPlayMode = false, tryPlayFromLive = false, tryPlayFromLiveStep = null;
         let tryPlayBaseStep = 0, tryPlayBoards = [], tryPlayMarkers = [], tryPlayCurrentPlayer = 1, tryPlayStep = 0, tryPlayTotalSteps = 0;
         let liveReplayBoards = [], liveReplayMarkers = [], liveReplayStepPlayers = [], liveViewStep = 0, liveFollowLatest = true;
+        let updateRecordButtons = () => {};
+        let updateRadioStyles = () => {};
+        let handleMessage = () => {};
+        let userBoardMarks = Object.create(null);
+        if (typeof QiWeiqiSquarePageRuntime !== 'undefined' && QiWeiqiSquarePageRuntime.bindActiveUserBoardMarks) {
+            QiWeiqiSquarePageRuntime.bindActiveUserBoardMarks(userBoardMarks);
+        }
 
         const canvas = document.getElementById('goBoard');
         const ctx = canvas.getContext('2d');
         const turnDisplay = document.getElementById('turnDisplay');
         const colorStatus = document.getElementById('colorStatus');
-const scoreTitle = document.getElementById('scoreTitle');
+        const scoreTitle = document.getElementById('scoreTitle');
         const scoreBoard = document.getElementById('scoreBoard');
         const leadInfo = document.getElementById('leadInfo');
         const scoreConfirmPanel = document.getElementById('scoreConfirmPanel');
@@ -251,6 +258,7 @@ const scoreTitle = document.getElementById('scoreTitle');
         const scoreConfirmYes = document.getElementById('scoreConfirmYes');
         const scoreConfirmNo = document.getElementById('scoreConfirmNo');
         const sizeSelect = document.getElementById('boardSizeSelect');
+        const boardMarkSelect = document.getElementById('boardMarkSelect');
         const isTouchDevice = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
         const isMouseDevice = window.matchMedia('(hover: hover) and (pointer: fine)').matches;
         let hoverR = -1, hoverC = -1, isHoverValid = false;
@@ -536,8 +544,26 @@ if (sizeSelect) {
                 }
             }
 
+            for (const key of Object.keys(userBoardMarks)) {
+                const [r, c] = key.split(',').map(Number);
+                if (!isValidCoord(r, c) || board[r][c] !== 0) continue;
+                const ch = userBoardMarks[key];
+                const p = triCellCenter(r, c);
+                const markBgR = stoneRadius * 0.9;
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, markBgR, 0, 2 * Math.PI);
+                ctx.fillStyle = '#edbc80';
+                ctx.fill();
+                const fontPx = stoneRadius * (ch === '🚩' ? 1.1 : 1.2);
+                ctx.font = `bold ${fontPx}px "Segoe UI", "Apple Color Emoji", "Segoe UI Emoji", sans-serif`;
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillStyle = '#3a281c';
+                ctx.fillText(ch, p.x, p.y + 1);
+            }
+
             const canHover = tryPlayMode || (!gameOver && isMyTurn);
-            if (canHover && isHoverValid && isValidCoord(hoverR, hoverC) && board[hoverR][hoverC] === 0) {
+            if ((isMouseDevice || mobileTwoStepPlacing()) && canHover && isHoverValid && isValidCoord(hoverR, hoverC) && board[hoverR][hoverC] === 0) {
                 const p = triCellCenter(hoverR, hoverC);
                 ctx.globalAlpha = 0.45;
                 ctx.beginPath();
@@ -663,7 +689,6 @@ if (sizeSelect) {
                 drawBoardWithOverlay();
                 return;
             }
-            const bothSelected = !!(slots && slots.black && slots.white);
             const hasStoneOnBoard = board.some(row => row.some(v => v === 1 || v === 2));
             const liveHasMoves = liveReplayBoards.length > 1;
             const matchStartedOnce = !!matchStarted || numberOfHands > 1 || hasStoneOnBoard || liveHasMoves;
@@ -687,7 +712,7 @@ if (sizeSelect) {
                     fillTurnDisplayHandsOnly();
                     isMyTurn = false;
                 } else {
-                    turnDisplay.innerText = bothSelected ? '等待双方确认限时规则' : '等待双方入座';
+                    turnDisplay.innerText = QiWeiqiSquarePageRuntime.waitingSeatTurnText(slots, mySlot);
                     isMyTurn = false;
                 }
             } else {
@@ -920,76 +945,342 @@ if (sizeSelect) {
                 colorStatus: document.getElementById('colorStatus') || colorStatus,
                 connectWebSocket,
                 clearReconnectTimer: () => {
-                    if (typeof reconnectTimer !== 'undefined' && reconnectTimer) {
+                    if (reconnectTimer) {
                         clearTimeout(reconnectTimer);
                         reconnectTimer = null;
-                    } else if (typeof ps !== 'undefined' && ps && ps.reconnectTimer) {
-                        clearTimeout(ps.reconnectTimer);
-                        ps.reconnectTimer = null;
                     }
                 },
-                getReconnectTimer: () => (typeof reconnectTimer !== 'undefined' ? reconnectTimer : (ps && ps.reconnectTimer)),
-                setReconnectTimer: (id) => {
-                    if (typeof reconnectTimer !== 'undefined') reconnectTimer = id;
-                    else if (ps) ps.reconnectTimer = id;
+                getReconnectTimer: () => reconnectTimer,
+                setReconnectTimer: (id) => { reconnectTimer = id; }
+            });
+        }
+
+        const _weiqiBindings = QiBoardRoomClient.createWeiqiMessageBindings({
+            roomId,
+            gameType,
+            pageState: {
+                get mySlot() { return mySlot; },
+                set mySlot(v) { mySlot = v; },
+                get slots() { return slots; },
+                set slots(v) { slots = v; },
+                get isMyTurn() { return isMyTurn; },
+                set isMyTurn(v) { isMyTurn = v; },
+                get gameOver() { return gameOver; },
+                set gameOver(v) { gameOver = v; },
+                get waitingScoreConfirm() { return waitingScoreConfirm; },
+                set waitingScoreConfirm(v) { waitingScoreConfirm = v; },
+                get showEstimateActive() { return showEstimateActive; },
+                set showEstimateActive(v) { showEstimateActive = v; },
+                get replayMode() { return replayMode; },
+                set replayMode(v) { replayMode = v; },
+                get tryPlayMode() { return tryPlayMode; },
+                set tryPlayMode(v) { tryPlayMode = v; },
+                get tryPlayStep() { return tryPlayStep; },
+                set tryPlayStep(v) { tryPlayStep = v; },
+                get replayStep() { return replayStep; },
+                set replayStep(v) { replayStep = v; },
+                get liveViewStep() { return liveViewStep; },
+                set liveViewStep(v) { liveViewStep = v; },
+                get ws() { return ws; },
+                set ws(v) { ws = v; },
+                get showMoveNumbers() { return showMoveNumbers; },
+                set showMoveNumbers(v) { showMoveNumbers = v; },
+                get matchTime() { return matchTime; },
+                set matchTime(v) { matchTime = v; },
+                get matchStarted() { return matchStarted; },
+                set matchStarted(v) { matchStarted = !!v; },
+                get userBoardMarks() { return userBoardMarks; }
+            },
+            drawBoard: drawBoardWithOverlay,
+            exitTryPlay,
+            enterTryPlay,
+            setTryPlayStep,
+            setReplayStep,
+            setLiveViewStep,
+            getWs: () => ws,
+            getBoardSize: () => ROWS,
+            setBoardSize: (n) => { ROWS = n; },
+            getKomi: () => KOMI,
+            setKomi: () => {},
+            getBoard: () => board,
+            setBoard: (b) => { board = b; },
+            getSlots: () => slots,
+            setSlots: (s) => { slots = s; },
+            getMySlot: () => mySlot,
+            setMySlot: (s) => { mySlot = s; },
+            getGameOver: () => gameOver,
+            setGameOver: (v) => { gameOver = v; },
+            getWinner: () => winner,
+            setWinner: (w) => { winner = w; },
+            getReplayMode: () => replayMode,
+            getShowEstimateActive: () => showEstimateActive,
+            setShowEstimateActive: (v) => { showEstimateActive = v; },
+            getWaitingScoreConfirm: () => waitingScoreConfirm,
+            setWaitingScoreConfirm: (v) => { waitingScoreConfirm = v; },
+            getIRejected: () => iRejected,
+            setIRejected: (v) => { iRejected = v; },
+            colorStatus,
+            scoreTitle,
+            turnDisplay,
+            syncState,
+            updateBoardGeometry,
+            initBoardArray,
+            exitReplayMode,
+            clearEstimate,
+            hideScoreConfirm,
+            showEstimate,
+            clearMobileMovePreview,
+            downloadRecord,
+            enterReplayMode,
+            updateTurn,
+            showScoreConfirm,
+            standardWeiqiMatchTime,
+            boardSeatOverlay: true,
+            seatOverlayShape: 'triangle',
+            onBoardSizeChanged: (msg) => {
+                if (!msg.boardSize) return;
+                const bs = msg.boardSize;
+                if (bs !== ROWS) {
+                    ROWS = bs;
+                    board = initBoardArray(ROWS);
+                    setCellNumbers(null);
+                    updateBoardGeometry();
+                }
+                const sel = document.getElementById('boardSizeSelect');
+                if (sel) sel.value = String(msg.boardSize);
+                drawBoardWithOverlay();
+            }
+        });
+        handleMessage = _weiqiBindings.handleMessage;
+        updateRecordButtons = _weiqiBindings.updateRecordButtons;
+        updateRadioStyles = _weiqiBindings.updateRadioStyles;
+
+        function commitMove(row, col) {
+            if (gameOver) return false;
+            if (!isMyTurn) return false;
+            if (!isValidCoord(row, col) || board[row][col] !== 0) return false;
+            if (!ws || ws.readyState !== WebSocket.OPEN) return false;
+            ws.send(JSON.stringify({ type: 'move', row, col }));
+            return true;
+        }
+
+        function canvasCoordsFromClient(clientX, clientY) {
+            const rect = canvas.getBoundingClientRect();
+            const scale = 600 / rect.width;
+            return {
+                x: (clientX - rect.left) * scale,
+                y: (clientY - rect.top) * scale
+            };
+        }
+
+        function getSelectedBoardMark() {
+            if (!boardMarkSelect) return { clear: false, ch: '?' };
+            const v = boardMarkSelect.value;
+            if (v === '') return { clear: true, ch: '' };
+            return { clear: false, ch: v };
+        }
+
+        function applyUserBoardMark(row, col) {
+            if (!isValidCoord(row, col)) return;
+            if (board[row][col] !== 0) return;
+            const { clear, ch } = getSelectedBoardMark();
+            const key = row + ',' + col;
+            const existing = userBoardMarks[key];
+            if (clear) {
+                if (existing !== undefined) {
+                    delete userBoardMarks[key];
+                    drawBoardWithOverlay();
+                }
+                return;
+            }
+            if (existing === undefined) {
+                userBoardMarks[key] = ch;
+            } else if (existing !== ch) {
+                userBoardMarks[key] = ch;
+            } else {
+                delete userBoardMarks[key];
+            }
+            drawBoardWithOverlay();
+        }
+
+        let suppressCanvasClickAfterLongMark = false;
+
+        canvas.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            const { x, y } = canvasCoordsFromClient(e.clientX, e.clientY);
+            const { row, col } = getClosestCell(x, y);
+            applyUserBoardMark(row, col);
+        });
+
+        const LONG_MARK_MS = 500;
+        const LONG_MARK_MOVE_CANCEL = 14;
+        let longMarkTimer = null;
+        let longMarkStart = null;
+
+        canvas.addEventListener('touchstart', (e) => {
+            if (e.touches.length !== 1) return;
+            const t = e.touches[0];
+            longMarkStart = { x: t.clientX, y: t.clientY };
+            longMarkTimer = setTimeout(() => {
+                longMarkTimer = null;
+                if (!longMarkStart) return;
+                const { x, y } = canvasCoordsFromClient(longMarkStart.x, longMarkStart.y);
+                const { row, col } = getClosestCell(x, y);
+                applyUserBoardMark(row, col);
+                suppressCanvasClickAfterLongMark = true;
+                setTimeout(() => { suppressCanvasClickAfterLongMark = false; }, 450);
+                longMarkStart = null;
+            }, LONG_MARK_MS);
+        }, { passive: true });
+
+        canvas.addEventListener('touchmove', (e) => {
+            if (!longMarkTimer || !longMarkStart || e.touches.length !== 1) return;
+            const t = e.touches[0];
+            const dx = t.clientX - longMarkStart.x;
+            const dy = t.clientY - longMarkStart.y;
+            if (dx * dx + dy * dy > LONG_MARK_MOVE_CANCEL * LONG_MARK_MOVE_CANCEL) {
+                clearTimeout(longMarkTimer);
+                longMarkTimer = null;
+            }
+        }, { passive: true });
+
+        function clearLongMarkTouch() {
+            if (longMarkTimer) {
+                clearTimeout(longMarkTimer);
+                longMarkTimer = null;
+            }
+            longMarkStart = null;
+        }
+        canvas.addEventListener('touchend', clearLongMarkTouch);
+        canvas.addEventListener('touchcancel', clearLongMarkTouch);
+
+        canvas.addEventListener('click', (e) => {
+            if (suppressCanvasClickAfterLongMark) {
+                e.preventDefault();
+                return;
+            }
+            const { x, y } = canvasCoordsFromClient(e.clientX, e.clientY);
+            const { row, col } = getClosestCell(x, y);
+            if (tryPlayMode && replayMode) {
+                if (row < 0 || col < 0 || !isValidCoord(row, col)) {
+                    if (mobileTwoStepPlacing()) clearMobileMovePreview();
+                    drawBoardWithOverlay();
+                    return;
+                }
+                if (board[row][col] !== 0) return;
+                if (mobileTwoStepPlacing()) {
+                    if (hoverR === row && hoverC === col && isHoverValid) {
+                        clearMobileMovePreview();
+                        tryPlayMove(row, col);
+                    } else {
+                        hoverR = row;
+                        hoverC = col;
+                        isHoverValid = true;
+                        drawBoardWithOverlay();
+                    }
+                    return;
+                }
+                tryPlayMove(row, col);
+                return;
+            }
+            if (gameOver) return;
+            if (!isMyTurn) return;
+            if (waitingScoreConfirm) return;
+            if (row < 0 || col < 0 || !isValidCoord(row, col)) {
+                if (mobileTwoStepPlacing()) clearMobileMovePreview();
+                drawBoardWithOverlay();
+                return;
+            }
+            if (board[row][col] !== 0) return;
+            if (mobileTwoStepPlacing()) {
+                if (hoverR === row && hoverC === col && isHoverValid) {
+                    clearMobileMovePreview();
+                    commitMove(row, col);
+                    drawBoardWithOverlay();
+                } else {
+                    hoverR = row;
+                    hoverC = col;
+                    isHoverValid = true;
+                    drawBoardWithOverlay();
+                }
+                return;
+            }
+            commitMove(row, col);
+        });
+
+        if (isMouseDevice) {
+            canvas.addEventListener('mousemove', (e) => {
+                if (waitingScoreConfirm) {
+                    if (isHoverValid) { isHoverValid = false; hoverR = -1; hoverC = -1; drawBoardWithOverlay(); }
+                    return;
+                }
+                const { x, y } = canvasCoordsFromClient(e.clientX, e.clientY);
+                const { row, col } = getClosestCell(x, y);
+                hoverR = row; hoverC = col;
+                isHoverValid = (row >= 0 && col >= 0 && isValidCoord(row, col) && board[row][col] === 0);
+                drawBoardWithOverlay();
+            });
+            canvas.addEventListener('mouseleave', () => {
+                if (!waitingScoreConfirm) {
+                    isHoverValid = false;
+                    hoverR = -1; hoverC = -1;
+                    drawBoardWithOverlay();
                 }
             });
         }
 
-        /* board edit UI (flat vertices) */
+        if (scoreConfirmYes) {
+            scoreConfirmYes.onclick = () => {
+                if (ws) ws.send(JSON.stringify({ type: 'scoreResponse', accept: true }));
+                hideScoreConfirm();
+            };
+            scoreConfirmNo.onclick = () => {
+                iRejected = true;
+                if (ws) ws.send(JSON.stringify({ type: 'scoreResponse', accept: false }));
+                hideScoreConfirm();
+                if (showEstimateActive) {
+                    showEstimateActive = false;
+                    clearEstimate();
+                }
+                waitingScoreConfirm = false;
+            };
+        }
+
+        /* board edit UI (triangular cells) */
         if (typeof QiWeiqiSquarePageRuntime !== 'undefined' && QiWeiqiSquarePageRuntime.installBoardEditUI) {
             const _editPs = {
                 get board() { return board; },
                 set board(v) { board = v; },
-                get gameOver() { return typeof gameOver !== 'undefined' ? gameOver : false; },
-                get mySlot() { return typeof mySlot !== 'undefined' ? mySlot : null; },
-                get gameStarted() {
-                    if (typeof gameStarted !== 'undefined') return !!gameStarted;
-                    return (typeof numberOfHands !== 'undefined' ? numberOfHands : 1) > 1;
-                },
-                set gameStarted(v) { if (typeof gameStarted !== 'undefined') gameStarted = !!v; },
+                get gameOver() { return gameOver; },
+                get mySlot() { return mySlot; },
+                get gameStarted() { return numberOfHands > 1 || !!matchStarted; },
+                set gameStarted(v) { /* derived */ },
                 editModeEnabled: false,
                 editTool: 'empty',
-                get ws() { return typeof ws !== 'undefined' ? ws : null; }
+                get ws() { return ws; }
             };
             const _editApi = QiWeiqiSquarePageRuntime.installBoardEditUI({
                 ps: _editPs,
-                canvas: document.getElementById('goBoard'),
-                mode: 'flat',
+                canvas,
+                mode: 'grid2d',
                 pickAtClient(clientX, clientY) {
-                    const canvasEl = document.getElementById('goBoard');
-                    if (!canvasEl) return null;
-                    const rect = canvasEl.getBoundingClientRect();
-                    const scale = (typeof CANVAS_SIZE !== 'undefined' ? CANVAS_SIZE : canvasEl.width) / rect.width;
-                    const x = (clientX - rect.left) * scale;
-                    const y = (clientY - rect.top) * scale;
-                    let i = -1;
-                    if (typeof getNearestVertex === 'function') i = getNearestVertex(x, y);
-                    else if (typeof pickNearestVertex === 'function') i = pickNearestVertex(x, y);
-                    return (i != null && i >= 0) ? { index: i } : null;
+                    const p = canvasCoordsFromClient(clientX, clientY);
+                    return getClosestCell(p.x, p.y);
                 },
-                drawBoard: (typeof drawBoardWithOverlay === 'function' ? drawBoardWithOverlay
-                    : (typeof drawBoard === 'function' ? drawBoard : function () {})),
+                drawBoard: drawBoardWithOverlay,
                 getBoard() { return board; },
                 setBoard(b) { board = b; },
-                emptyBoard() { return Array((typeof V !== 'undefined' ? V : board.length)).fill(0); }
+                emptyBoard() { return initBoardArray(ROWS); }
             });
             if (typeof syncState === 'function') {
                 const _sync0 = syncState;
                 syncState = function (state) {
-                    if (state) {
-                        _editPs.gameStarted = (state.numberOfHands || 1) > 1;
-                        if (state.initialBoard && Array.isArray(state.initialBoard)) {
-                            /* keep opening for client-side if needed */
-                        }
-                    }
+                    if (state) _editPs.gameStarted = (state.numberOfHands || 1) > 1 || !!state.matchStarted;
                     _sync0(state);
-                    if (typeof ws !== 'undefined') { /* refresh ws ref via getter */ }
                     _editApi.updateEditModeUI();
                 };
             }
         }
-
 
         connectWebSocket();
         updateReplayUI();

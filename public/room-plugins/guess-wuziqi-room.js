@@ -2,7 +2,7 @@ window.RoomPlugins = window.RoomPlugins || {};
 window.RoomPlugins["guess-wuziqi"] = {
     shell: {
         "title": "猜点五子棋",
-        "rulesHtml": "<strong>猜中哪个点是对方的选点，并且让对方猜错！</strong>\n<br /><br />\n基本规则同五子棋。每手棋分为「选点」和「猜点」两个阶段。<br /><br />\n<strong>选点：</strong> 系统随机生成三个迷惑点展示给当前行棋方，行棋方选择想要落子的点（可以迷惑点或是任意空点），迷惑点和行棋方选择的落子点合称为候选点。<br><br />\n<strong>猜点：</strong> 将所有候选点展示给等待方（但不区分是迷惑点还是行棋方选择的落子点）。等待方需要从候选点中猜出哪个是行棋方选择的落子点。<br />\n&nbsp;&nbsp;• 猜中：则该落子无效。<br />\n&nbsp;&nbsp;• 猜错：则该落子有效。<br />",
+        "rulesHtml": "<strong>猜中哪个点是对方的选点，并且让对方猜错！</strong>\n<br /><br />基本规则同五子棋。每手棋分为「选点」和「猜点」两个阶段。<br /><br /><strong>选点：</strong> 系统随机生成三个迷惑点展示给当前行棋方，行棋方选择想要落子的点（可以迷惑点或是任意空点），迷惑点和行棋方选择的落子点合称为候选点。<br><br /><strong>猜点：</strong> 将所有候选点展示给等待方（但不区分是迷惑点还是行棋方选择的落子点）。等待方需要从候选点中猜出哪个是行棋方选择的落子点。<br />&nbsp;&nbsp;• 猜中：则该落子无效。<br />&nbsp;&nbsp;• 猜错：则该落子有效。<br />",
         "defaultKomiText": "无禁手",
         "boardSizeMin": 7,
         "boardSizeMax": 15,
@@ -632,7 +632,7 @@ const scoreTitle = document.getElementById('scoreTitle');
 
             if (!matchStarted) {
                 const bothSelected = !!slots.black && !!slots.white;
-                turnDisplay.innerText = bothSelected ? '等待双方确认限时规则' : '等待双方入座';
+                turnDisplay.innerText = QiWeiqiSquarePageRuntime.waitingSeatTurnText(slots, mySlot);
                 scoreTitle.innerText = '　';
                 isMyTurn = false;
                 drawBoard();
@@ -736,31 +736,6 @@ syncState,
         const baseRoomHandleMessage = _weiqiBindings.handleMessage;
 
         // ---------- WebSocket ----------
-
-        function connectWebSocket() {
-            ws = QiSquareWeiqiCanvas.connectWeiqiRoomWebSocket({
-                gameType,
-                roomId,
-                roomPassword,
-                onMessage: handleMessage,
-                colorStatus: document.getElementById('colorStatus') || colorStatus,
-                connectWebSocket,
-                clearReconnectTimer: () => {
-                    if (typeof reconnectTimer !== 'undefined' && reconnectTimer) {
-                        clearTimeout(reconnectTimer);
-                        reconnectTimer = null;
-                    } else if (typeof ps !== 'undefined' && ps && ps.reconnectTimer) {
-                        clearTimeout(ps.reconnectTimer);
-                        ps.reconnectTimer = null;
-                    }
-                },
-                getReconnectTimer: () => (typeof reconnectTimer !== 'undefined' ? reconnectTimer : (ps && ps.reconnectTimer)),
-                setReconnectTimer: (id) => {
-                    if (typeof reconnectTimer !== 'undefined') reconnectTimer = id;
-                    else if (ps) ps.reconnectTimer = id;
-                }
-            });
-        }
 
         function connectWebSocket() {
             const storedPassword = sessionStorage.getItem(`roomPassword_${roomId}`);

@@ -2,7 +2,7 @@ window.RoomPlugins = window.RoomPlugins || {};
 window.RoomPlugins["fog-weiqi"] = {
     shell: {
         "title": "迷雾围棋",
-        "rulesHtml": "基本规则同围棋。<br /><br />\n<strong>棋盘笼罩迷雾</strong>：每个棋子可以提供3×3范围内的视野。<br /><br />\n在迷雾中点到对方子则落子失败，可另选点。<br /><br />\n棋子被提时失去视野。<br /><br />\n观战者仅能看到双方视野的交集。<br />",
+        "rulesHtml": "基本规则同围棋。<br /><br /><strong>棋盘笼罩迷雾</strong>：每个棋子可以提供3×3范围内的视野。<br /><br />在迷雾中点到对方子则落子失败，可另选点。<br /><br />棋子被提时失去视野。<br /><br />观战者仅能看到双方视野的交集。<br />",
         "defaultKomiText": "黑贴白3.25点",
         "boardSizeMin": 7,
         "boardSizeMax": 21,

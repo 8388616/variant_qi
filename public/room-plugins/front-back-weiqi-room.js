@@ -2,7 +2,7 @@ window.RoomPlugins = window.RoomPlugins || {};
 window.RoomPlugins["front-back-weiqi"] = {
     shell: {
         "title": "正反面围棋",
-        "rulesHtml": "基本规则同围棋。<br /><br />\n双方依次在正面和反面落子。<br /><br />\n在某一面落子时，另一面同位置变为雷。雷不可落子、不可被提，但提供气；在雷上落子无效，但会清除该雷，清除后可正常落子。<br /><br />\n双方连续四步虚着终局，点数按两面点数之和计，无贴目。<br />",
+        "rulesHtml": "基本规则同围棋。<br /><br />双方依次在正面和反面落子。<br /><br />在某一面落子时，另一面同位置变为雷。雷不可落子、不可被提，但提供气；在雷上落子无效，但会清除该雷，清除后可正常落子。<br /><br />双方连续四步虚着终局，点数按两面点数之和计，无贴目。<br />",
         "defaultKomiText": "无贴目",
         "boardSizeMin": 5,
         "boardSizeMax": 19,
@@ -1160,31 +1160,6 @@ syncState,
                 ps._lastScoreWhite = msg.whiteTotal;
             }
             _weiqiBindings.handleMessage(msg);
-        }
-
-        function connectWebSocket() {
-            ws = QiSquareWeiqiCanvas.connectWeiqiRoomWebSocket({
-                gameType,
-                roomId,
-                roomPassword,
-                onMessage: handleMessage,
-                colorStatus: document.getElementById('colorStatus') || colorStatus,
-                connectWebSocket,
-                clearReconnectTimer: () => {
-                    if (typeof reconnectTimer !== 'undefined' && reconnectTimer) {
-                        clearTimeout(reconnectTimer);
-                        reconnectTimer = null;
-                    } else if (typeof ps !== 'undefined' && ps && ps.reconnectTimer) {
-                        clearTimeout(ps.reconnectTimer);
-                        ps.reconnectTimer = null;
-                    }
-                },
-                getReconnectTimer: () => (typeof reconnectTimer !== 'undefined' ? reconnectTimer : (ps && ps.reconnectTimer)),
-                setReconnectTimer: (id) => {
-                    if (typeof reconnectTimer !== 'undefined') reconnectTimer = id;
-                    else if (ps) ps.reconnectTimer = id;
-                }
-            });
         }
 
         function connectWebSocket() {

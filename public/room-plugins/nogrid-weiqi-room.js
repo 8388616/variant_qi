@@ -2,7 +2,7 @@ window.RoomPlugins = window.RoomPlugins || {};
 window.RoomPlugins["nogrid-weiqi"] = {
     shell: {
         "title": "无格线围棋",
-        "rulesHtml": "可以在棋盘内任意点落子，但不允许与其它棋子有重叠。<br /><br />\n\n（记d为棋子直径。）<br /><br />\n\n<strong>相邻：</strong>记同色的棋子A和棋子B的中点为C。若AB<2d，且当前棋盘上不存在棋子D和棋子E满足AB和DE相交且DE<AB，且不存在棋子F满足CF<AC，则棋子A和棋子B相邻。\n\n<strong>一片棋：</strong>从某颗棋子出发，经过有限步的相邻关系所能达到的所有棋子组成一片棋。<br /><br />\n\n<strong>提子：</strong>对于一片棋，如果棋盘内无法放下一枚不与当前棋盘上的棋子重叠的棋子，使之与这片棋子中的任何一枚紧贴，则这片棋是无气的，需要被提掉。<br /><br />\n\n<strong>禁全同：</strong>不禁全同。但是若上一步棋提子且只提掉一子，那么本手棋提子且只提掉上一步的棋子是不允许的。<br /><br />\n\n采用数点法。棋盘上每个像素点归属于离自己最近的棋子所属的一方。按双方各自占的像素点所占总像素点数的比例分配棋盘。棋盘共计(路数 * 路数)点，黑贴白3.25点。<br />",
+        "rulesHtml": "可以在棋盘内任意点落子，但不允许与其它棋子有重叠。<br /><br />（记d为棋子直径。）<br /><br /><strong>相邻：</strong>记同色的棋子A和棋子B的中点为C。若AB&lt;2d，且当前棋盘上不存在棋子D和棋子E满足AB和DE相交且DE&lt;AB，且不存在棋子F满足CF&lt;AC，则棋子A和棋子B相邻。<br /><br /><strong>一片棋：</strong>从某颗棋子出发，经过有限步的相邻关系所能达到的所有棋子组成一片棋。<br /><br /><strong>提子：</strong>对于一片棋，如果棋盘内无法放下一枚不与当前棋盘上的棋子重叠的棋子，使之与这片棋子中的任何一枚紧贴，则这片棋是无气的，需要被提掉。<br /><br /><strong>禁全同：</strong>不禁全同。但是若上一步棋提子且只提掉一子，那么本手棋提子且只提掉上一步的棋子是不允许的。<br /><br />采用数点法。棋盘上每个像素点归属于离自己最近的棋子所属的一方。按双方各自占的像素点所占总像素点数的比例分配棋盘。棋盘共计(路数 * 路数)点，黑贴白3.25点。<br />",
         "defaultKomiText": "黑贴白3.25点",
         "boardSizeMin": 6,
         "boardSizeMax": 20,
@@ -569,7 +569,7 @@ const scoreTitle = document.getElementById('scoreTitle');
         if (bothSelected && matchReady) matchStartedOnce = true;
         if (numberOfHands > 1 || hasStoneOnBoard) matchStartedOnce = true;
         if (!matchStarted) {
-            turnDisplay.innerText = bothSelected ? '等待双方确认限时规则' : '等待双方入座';
+            turnDisplay.innerText = QiWeiqiSquarePageRuntime.waitingSeatTurnText(slots, mySlot);
         } else if (numberOfHands <= 1) {
             turnDisplay.innerText = '初始局面';
         } else {
@@ -920,31 +920,6 @@ syncState,
     const bindingsHandleMessage = _weiqiBindings.handleMessage;
     bindingsUpdateRadioStyles = _weiqiBindings.updateRadioStyles;
     bindingsUpdateRecordButtons = _weiqiBindings.updateRecordButtons;
-
-        function connectWebSocket() {
-            ws = QiSquareWeiqiCanvas.connectWeiqiRoomWebSocket({
-                gameType,
-                roomId,
-                roomPassword,
-                onMessage: handleMessage,
-                colorStatus: document.getElementById('colorStatus') || colorStatus,
-                connectWebSocket,
-                clearReconnectTimer: () => {
-                    if (typeof reconnectTimer !== 'undefined' && reconnectTimer) {
-                        clearTimeout(reconnectTimer);
-                        reconnectTimer = null;
-                    } else if (typeof ps !== 'undefined' && ps && ps.reconnectTimer) {
-                        clearTimeout(ps.reconnectTimer);
-                        ps.reconnectTimer = null;
-                    }
-                },
-                getReconnectTimer: () => (typeof reconnectTimer !== 'undefined' ? reconnectTimer : (ps && ps.reconnectTimer)),
-                setReconnectTimer: (id) => {
-                    if (typeof reconnectTimer !== 'undefined') reconnectTimer = id;
-                    else if (ps) ps.reconnectTimer = id;
-                }
-            });
-        }
 
         function connectWebSocket() {
         if (reconnectTimer) clearTimeout(reconnectTimer);

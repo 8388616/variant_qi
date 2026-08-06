@@ -2,7 +2,7 @@ window.RoomPlugins = window.RoomPlugins || {};
 window.RoomPlugins["double-xiangqi"] = {
     shell: {
         "title": "二象棋",
-        "rulesHtml": "基本规则同象棋。<br /><br />\n吃掉对方的一个帥/將后将死另一个帥/將时获胜。<br /><br /><br /><br /><i>什么，你也带了一副象棋，但是没带棋盘？</i><br /><br />",
+        "rulesHtml": "基本规则同象棋。<br /><br />吃掉对方的一个帥/將后将死另一个帥/將时获胜。<br /><br /><br /><br /><i>什么，你也带了一副象棋，但是没带棋盘？</i><br /><br />",
         "defaultKomiText": "红先",
         "boardSizeMin": 7,
         "boardSizeMax": 21,

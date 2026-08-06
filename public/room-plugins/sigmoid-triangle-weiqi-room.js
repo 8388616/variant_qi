@@ -2,7 +2,7 @@ window.RoomPlugins = window.RoomPlugins || {};
 window.RoomPlugins["sigmoid-triangle-weiqi"] = {
     shell: {
         "title": "Sigmoid三角围棋",
-        "rulesHtml": "基本规则同围棋。<br /><br />\n采用Sigmoid三角棋盘。<br />",
+        "rulesHtml": "基本规则同围棋。<br /><br />采用Sigmoid三角棋盘。<br />",
         "defaultKomiText": "黑贴白3.25点",
         "boardSizeMin": 5,
         "boardSizeMax": 21,
