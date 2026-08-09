@@ -274,10 +274,12 @@ const scoreTitle = document.getElementById('scoreTitle'), scoreBoard = document.
                 if (newT === 0) { ps.liveViewStep = 0; ps.liveFollowLatest = true; }
                 else if (wasEnd) { ps.liveViewStep = newT; ps.liveFollowLatest = true; }
                 else { ps.liveViewStep = Math.min(ps.liveViewStep, newT); if (ps.liveViewStep === newT) ps.liveFollowLatest = true; }
-                applyLiveView();
-                if (ps.liveFollowLatest && ps.liveViewStep === newT) ps.mirrorAxis = ps.serverMirrorAxis;
-                page.updateLiveReplayPanelUI();
-            } else {
+                if (!ps.tryPlayMode) {
+                    applyLiveView();
+                    if (ps.liveFollowLatest && ps.liveViewStep === newT) ps.mirrorAxis = ps.serverMirrorAxis;
+                    page.updateLiveReplayPanelUI();
+                }
+            } else if (!ps.tryPlayMode) {
                 ps.board = state.board; ps.lastMoveMarkers = state.lastMoveMarkers || []; ps.mirrorAxis = state.mirrorAxis || 'diag1';
             }
             const hasS = ps.board.some(row => row.some(v => v !== 0)), hasP = ps.slots.black || ps.slots.white;
@@ -350,7 +352,21 @@ const scoreTitle = document.getElementById('scoreTitle'), scoreBoard = document.
                 page.clearMobileMovePreview(); ps.tryPlayMode = true; ps.tryPlayBaseStep = ps.replayStep;
                 ps.tryPlayBoards = [dc(ps.board)]; ps.tryPlayMarkers = [ps.lastMoveMarkers.map(m => ({ ...m }))];
                 ps.tryPlayMirrorAxis = ps.mirrorAxis; ps.tryPlayStepAxes = [ps.replayMirrorAxes[ps.replayStep]];
-                ps.tryPlayCurrentPlayer = ps.replayStep === 0 ? 1 : (ps.replayStepPlayers[ps.replayStep] === 1 ? 2 : 1);
+                {
+                    const RT = typeof QiWeiqiSquarePageRuntime !== 'undefined' ? QiWeiqiSquarePageRuntime : null;
+                    ps.tryPlayCurrentPlayer = RT && RT.resolveTryPlaySideToMove
+                        ? RT.resolveTryPlaySideToMove({
+                            fromLive: !ps.replayMode,
+                            replayStep: ps.replayStep,
+                            replayStepPlayers: ps.replayStepPlayers,
+                            liveViewStep: ps.liveViewStep,
+                            liveReplayStepPlayers: ps.liveReplayStepPlayers,
+                            liveReplayBoardsLength: (ps.liveReplayBoards && ps.liveReplayBoards.length) || 0,
+                            currentPlayer: ps.currentPlayer
+                        })
+                        : (ps.replayStep === 0 ? 1 : (ps.replayStepPlayers[ps.replayStep] === 1 ? 2 : 1));
+                    ps.tryPlayBasePlayer = ps.tryPlayCurrentPlayer;
+                }
                 ps.tryPlayStep = 0; ps.tryPlayTotalSteps = 0;
                 const sl = document.getElementById('replaySlider'); sl.min = 0; sl.max = 0; sl.value = 0;
                 page.updateTryPlayDisplay(); page.updateReplayUI();
@@ -385,7 +401,9 @@ const scoreTitle = document.getElementById('scoreTitle'), scoreBoard = document.
                 page.clearMobileMovePreview();
                 if (step < 0) step = 0; if (step > ps.tryPlayTotalSteps) step = ps.tryPlayTotalSteps;
                 ps.tryPlayStep = step; ps.board = dc(ps.tryPlayBoards[step]); ps.lastMoveMarkers = ps.tryPlayMarkers[step].map(m => ({ ...m }));
-                const baseP = ps.tryPlayBaseStep === 0 ? 1 : (3 - ps.replayStepPlayers[ps.tryPlayBaseStep]);
+                const baseP = (ps.tryPlayBasePlayer === 1 || ps.tryPlayBasePlayer === 2)
+                    ? ps.tryPlayBasePlayer
+                    : (ps.tryPlayBaseStep === 0 ? 1 : (3 - ps.replayStepPlayers[ps.tryPlayBaseStep]));
                 ps.tryPlayCurrentPlayer = step % 2 === 0 ? baseP : (3 - baseP);
                 ps.tryPlayMirrorAxis = nextAxis(ps.tryPlayBaseStep + step + 1);
                 document.getElementById('replaySlider').value = step; page.updateTryPlayDisplay();

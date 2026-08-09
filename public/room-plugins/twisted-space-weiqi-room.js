@@ -236,7 +236,7 @@ let ROWS = 9; // 扭曲空间路数（比三角围棋少一路）
         let replayMode = false, replayBoards = [], replayMarkers = [], replayStepPlayers = [], replayStep = 0, replayTotalSteps = 0;
         let showMoveNumbers = false, moveLog = [];
         let tryPlayMode = false, tryPlayFromLive = false, tryPlayFromLiveStep = null;
-        let tryPlayBaseStep = 0, tryPlayBoards = [], tryPlayMarkers = [], tryPlayCurrentPlayer = 1, tryPlayStep = 0, tryPlayTotalSteps = 0;
+        let tryPlayBaseStep = 0, tryPlayBasePlayer = 1, tryPlayBoards = [], tryPlayMarkers = [], tryPlayCurrentPlayer = 1, tryPlayStep = 0, tryPlayTotalSteps = 0;
         let liveReplayBoards = [], liveReplayMarkers = [], liveReplayStepPlayers = [], liveViewStep = 0, liveFollowLatest = true;
         let updateRecordButtons = () => {};
         let updateRadioStyles = () => {};
@@ -661,9 +661,11 @@ if (sizeSelect) {
                     liveViewStep = Math.min(liveViewStep, newTotal);
                     if (liveViewStep === newTotal) liveFollowLatest = true;
                 }
-                applyLiveViewBoard();
-                updateLiveReplayPanelUI();
-            } else if (!(tryPlayMode && tryPlayFromLive)) {
+                if (!tryPlayMode) {
+                    applyLiveViewBoard();
+                    updateLiveReplayPanelUI();
+                }
+            } else if (!tryPlayMode) {
                 board = state.board || board;
                 lastMoveMarkers = state.lastMoveMarkers || [];
             }
@@ -821,13 +823,31 @@ if (sizeSelect) {
         }
         function enterTryPlay() {
             clearMobileMovePreview();
-            if (!replayMode) {
+            const fromLive = !replayMode;
+            const RT = typeof QiWeiqiSquarePageRuntime !== 'undefined' ? QiWeiqiSquarePageRuntime : null;
+            const startPlayer = RT && RT.resolveTryPlaySideToMove
+                ? RT.resolveTryPlaySideToMove({
+                    fromLive,
+                    replayStep,
+                    replayStepPlayers,
+                    replayBoardsLength: (replayBoards && replayBoards.length) || 0,
+                    liveViewStep,
+                    liveReplayStepPlayers,
+                    liveReplayBoardsLength: (liveReplayBoards && liveReplayBoards.length) || 0,
+                    currentPlayer
+                })
+                : (fromLive
+                    ? ((liveViewStep > 0 && liveReplayStepPlayers[liveViewStep])
+                        ? (3 - liveReplayStepPlayers[liveViewStep])
+                        : ((currentPlayer === 1 || currentPlayer === 2) ? currentPlayer : 1))
+                    : (replayStep > 0 ? (3 - replayStepPlayers[replayStep]) : 1));
+            if (fromLive) {
                 tryPlayFromLive = true;
                 tryPlayFromLiveStep = liveViewStep || 0;
                 replayMode = true;
                 replayBoards = [deepCopyBoard(board)];
                 replayMarkers = [(lastMoveMarkers || []).map(m => ({ ...m }))];
-                replayStepPlayers = [currentPlayer === 1 ? 2 : 1];
+                replayStepPlayers = [startPlayer === 1 ? 2 : 1];
                 replayStep = 0;
                 replayTotalSteps = 0;
             } else {
@@ -835,10 +855,10 @@ if (sizeSelect) {
             }
             tryPlayMode = true;
             tryPlayBaseStep = replayStep;
+            tryPlayBasePlayer = startPlayer;
             tryPlayBoards = [deepCopyBoard(board)];
             tryPlayMarkers = [(lastMoveMarkers || []).map(m => ({ ...m }))];
-            if (replayStep === 0) tryPlayCurrentPlayer = 1;
-            else tryPlayCurrentPlayer = replayStepPlayers[replayStep] === 1 ? 2 : 1;
+            tryPlayCurrentPlayer = startPlayer;
             tryPlayStep = 0;
             tryPlayTotalSteps = 0;
             const slider = document.getElementById('replaySlider');
@@ -860,6 +880,7 @@ if (sizeSelect) {
             tryPlayMode = false;
             tryPlayFromLive = false;
             tryPlayFromLiveStep = null;
+            tryPlayBasePlayer = 1;
             tryPlayBoards = [];
             tryPlayMarkers = [];
             tryPlayStep = 0;
@@ -929,7 +950,9 @@ if (sizeSelect) {
             tryPlayStep = step;
             board = deepCopyBoard(tryPlayBoards[step]);
             lastMoveMarkers = tryPlayMarkers[step].map(m => ({ ...m }));
-            const basePlayer = tryPlayBaseStep === 0 ? 1 : (3 - replayStepPlayers[tryPlayBaseStep]);
+            const basePlayer = (tryPlayBasePlayer === 1 || tryPlayBasePlayer === 2)
+                ? tryPlayBasePlayer
+                : (tryPlayBaseStep === 0 ? 1 : (3 - replayStepPlayers[tryPlayBaseStep]));
             tryPlayCurrentPlayer = step % 2 === 0 ? basePlayer : (3 - basePlayer);
             document.getElementById('replaySlider').value = step;
             updateTryPlayDisplay();

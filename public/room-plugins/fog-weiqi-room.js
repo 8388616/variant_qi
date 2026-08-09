@@ -756,8 +756,8 @@ const scoreTitle = document.getElementById('scoreTitle');
                     applyLiveViewBoardFog();
                     updateLiveReplayPanelUIFog();
                     recomputeFogMaskForCurrentView();
-                } else {
-                    ps.board = state.board;
+                } else if (!ps.tryPlayMode) {
+                ps.board = state.board;
                     ps.lastMoveMarkers = state.lastMoveMarkers || [];
                     ps.fogCleared = true;
                     ps.fogMask = emptyBoolGrid();
@@ -907,11 +907,20 @@ const scoreTitle = document.getElementById('scoreTitle');
                 ps.tryPlayBoards = [deepCopyBoard(truth0)];
                 ps.tryPlayMarkers = [ps.replayMarkers[ps.replayStep].map(m => ({ ...m }))];
 
-                if (ps.replayStep === 0) {
-                    ps.tryPlayCurrentPlayer = 1;
-                } else {
-                    ps.tryPlayCurrentPlayer = ps.replayStepPlayers[ps.replayStep] === 1 ? 2 : 1;
-                }
+                const _fromLive = !ps.replayMode;
+                const _RT = typeof QiWeiqiSquarePageRuntime !== 'undefined' ? QiWeiqiSquarePageRuntime : null;
+                ps.tryPlayCurrentPlayer = _RT && _RT.resolveTryPlaySideToMove
+                    ? _RT.resolveTryPlaySideToMove({
+                        fromLive: _fromLive,
+                        replayStep: ps.replayStep,
+                        replayStepPlayers: ps.replayStepPlayers,
+                        liveViewStep: ps.liveViewStep,
+                        liveReplayStepPlayers: ps.liveReplayStepPlayers,
+                        liveReplayBoardsLength: (ps.liveReplayBoards && ps.liveReplayBoards.length) || 0,
+                        currentPlayer: ps.currentPlayer
+                    })
+                    : (ps.replayStep > 0 ? (3 - ps.replayStepPlayers[ps.replayStep]) : ((ps.currentPlayer === 1 || ps.currentPlayer === 2) ? ps.currentPlayer : 1));
+                ps.tryPlayBasePlayer = ps.tryPlayCurrentPlayer;
                 ps.tryPlayStep = 0;
                 ps.tryPlayTotalSteps = 0;
 
@@ -972,7 +981,9 @@ const scoreTitle = document.getElementById('scoreTitle');
                 if (step > ps.tryPlayTotalSteps) step = ps.tryPlayTotalSteps;
                 ps.tryPlayStep = step;
 
-                const basePlayer = ps.tryPlayBaseStep === 0 ? 1 : (3 - ps.replayStepPlayers[ps.tryPlayBaseStep]);
+                const basePlayer = (ps.tryPlayBasePlayer === 1 || ps.tryPlayBasePlayer === 2)
+                ? ps.tryPlayBasePlayer
+                : (ps.tryPlayBaseStep === 0 ? 1 : (3 - ps.replayStepPlayers[ps.tryPlayBaseStep]));
                 ps.tryPlayCurrentPlayer = step % 2 === 0 ? basePlayer : (3 - basePlayer);
 
                 document.getElementById('replaySlider').value = step;

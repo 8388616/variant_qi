@@ -334,9 +334,11 @@ const scoreTitle = document.getElementById('scoreTitle');
                     if (ps.liveViewStep === newTotal)
                         ps.liveFollowLatest = true;
                 }
-                page.applyLiveViewBoard();
-                page.updateLiveReplayPanelUI();
-            } else {
+                if (!ps.tryPlayMode) {
+                    page.applyLiveViewBoard();
+                    page.updateLiveReplayPanelUI();
+                }
+            } else if (!ps.tryPlayMode) {
                 ps.board = state.board;
                 ps.lastMoveMarkers = state.lastMoveMarkers || [];
             }
@@ -388,6 +390,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             removeDeadAndDying: (src) => QiSquareWeiqiCanvas.deepCopyBoard(src),
             rebuildLiveReplayFromMoveCoords: (m, opening) => zlRebuildLiveReplayFromMoveCoords(m, opening),
             enterReplayMode: (data) => zlEnterReplayMode(data, pageHolder),
+            // enter/exit/setTryPlayStep 走公共试下；仅落子需支持「点零气子提子」
             tryPlayMove: (row, col) => zlTryPlayMove(row, col, pageHolder),
             syncState: (state) => zeroLibertySyncState(state, pageHolder)
         });

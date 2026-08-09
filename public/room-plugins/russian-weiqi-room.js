@@ -674,8 +674,20 @@ const scoreTitle = document.getElementById('scoreTitle');
                 ps.tryPlayBaseStep = ps.replayStep;
                 ps.tryPlayBoards = [deepCopyBoard(ps.board)];
                 ps.tryPlayMarkers = [ps.lastMoveMarkers.map(m => ({ ...m }))];
-                if (ps.replayStep === 0) ps.tryPlayCurrentPlayer = 1;
-                else ps.tryPlayCurrentPlayer = ps.replayStepPlayers[ps.replayStep] === 1 ? 2 : 1;
+                const _fromLive = !ps.replayMode;
+                const _RT = typeof QiWeiqiSquarePageRuntime !== 'undefined' ? QiWeiqiSquarePageRuntime : null;
+                ps.tryPlayCurrentPlayer = _RT && _RT.resolveTryPlaySideToMove
+                    ? _RT.resolveTryPlaySideToMove({
+                        fromLive: _fromLive,
+                        replayStep: ps.replayStep,
+                        replayStepPlayers: ps.replayStepPlayers,
+                        liveViewStep: ps.liveViewStep,
+                        liveReplayStepPlayers: ps.liveReplayStepPlayers,
+                        liveReplayBoardsLength: (ps.liveReplayBoards && ps.liveReplayBoards.length) || 0,
+                        currentPlayer: ps.currentPlayer
+                    })
+                    : (ps.replayStep > 0 ? (3 - ps.replayStepPlayers[ps.replayStep]) : ((ps.currentPlayer === 1 || ps.currentPlayer === 2) ? ps.currentPlayer : 1));
+                ps.tryPlayBasePlayer = ps.tryPlayCurrentPlayer;
                 ps.tryPlayStep = 0;
                 ps.tryPlayTotalSteps = 0;
                 ps.currentShapeIndex = Math.floor(Math.random() * SHAPE_LIST.length);
@@ -783,8 +795,8 @@ const scoreTitle = document.getElementById('scoreTitle');
                     }
                     _page.applyLiveViewBoard();
                     _page.updateLiveReplayPanelUI();
-                } else {
-                    ps.board = state.board;
+                } else if (!ps.tryPlayMode) {
+                ps.board = state.board;
                     ps.lastMoveMarkers = state.lastMoveMarkers || [];
                 }
 

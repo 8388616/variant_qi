@@ -489,20 +489,22 @@ const scoreTitle = document.getElementById('scoreTitle');
                         ps.liveViewStep = Math.min(ps.liveViewStep, newTotal);
                         if (ps.liveViewStep === newTotal) ps.liveFollowLatest = true;
                     }
-                    applyLiveFullSnap(ps.liveViewStep);
-                    if (ps.liveViewStep === newTotal) {
-                        ps.board = state.board;
-                        ps.lastMoveMarkers = state.lastMoveMarkers || [];
-                        ps.currentPlayer = state.currentPlayer;
-                        ps.gameOver = state.gameOver || false;
-                        ps.winner = state.winner || null;
-                        ps.blackScore = state.blackScore || 0;
-                        ps.whiteScore = state.whiteScore || 0;
-                        ps.pendingRemoval = state.pendingRemoval || null;
-                        ps.recentClearedStones = (state.recentClearedStones || []).map(s => ({ ...s }));
+                    if (!ps.tryPlayMode) {
+                        applyLiveFullSnap(ps.liveViewStep);
+                        if (ps.liveViewStep === newTotal) {
+                            ps.board = state.board;
+                            ps.lastMoveMarkers = state.lastMoveMarkers || [];
+                            ps.currentPlayer = state.currentPlayer;
+                            ps.gameOver = state.gameOver || false;
+                            ps.winner = state.winner || null;
+                            ps.blackScore = state.blackScore || 0;
+                            ps.whiteScore = state.whiteScore || 0;
+                            ps.pendingRemoval = state.pendingRemoval || null;
+                            ps.recentClearedStones = (state.recentClearedStones || []).map(s => ({ ...s }));
+                        }
+                        page.updateLiveReplayPanelUI();
                     }
-                    page.updateLiveReplayPanelUI();
-                } else {
+                } else if (!ps.tryPlayMode) {
                     ps.board = state.board;
                     ps.currentPlayer = state.currentPlayer;
                     ps.gameOver = state.gameOver || false;

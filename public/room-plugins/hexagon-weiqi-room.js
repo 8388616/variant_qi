@@ -228,6 +228,7 @@ window.RoomPlugins["hexagon-weiqi"] = {
 
         let tryPlayMode = false;
         let tryPlayBaseStep = 0;
+        let tryPlayBasePlayer = 1;
         let tryPlayBoards = [];
         let tryPlayMarkers = [];
         let tryPlayCurrentPlayer = 1;
@@ -961,11 +962,21 @@ const scoreTitle = document.getElementById('scoreTitle');
             tryPlayBoards = [deepCopyBoard(board)];
             tryPlayMarkers = [lastMoveMarkers.map(m => ({ ...m }))];
 
-            if (replayStep === 0) {
-                tryPlayCurrentPlayer = 1;
-            } else {
-                tryPlayCurrentPlayer = replayStepPlayers[replayStep] === 1 ? 2 : 1;
-            }
+            const _fromLive = !replayMode;
+            const _RT = typeof QiWeiqiSquarePageRuntime !== 'undefined' ? QiWeiqiSquarePageRuntime : null;
+            const _startPlayer = _RT && _RT.resolveTryPlaySideToMove
+                ? _RT.resolveTryPlaySideToMove({
+                    fromLive: _fromLive,
+                    replayStep,
+                    replayStepPlayers,
+                    liveViewStep,
+                    liveReplayStepPlayers,
+                    liveReplayBoardsLength: (liveReplayBoards && liveReplayBoards.length) || 0,
+                    currentPlayer
+                })
+                : (replayStep > 0 ? (3 - replayStepPlayers[replayStep]) : ((currentPlayer === 1 || currentPlayer === 2) ? currentPlayer : 1));
+            tryPlayBasePlayer = _startPlayer;
+            tryPlayCurrentPlayer = _startPlayer;
             tryPlayStep = 0;
             tryPlayTotalSteps = 0;
 
@@ -1029,7 +1040,9 @@ const scoreTitle = document.getElementById('scoreTitle');
             board = deepCopyBoard(tryPlayBoards[step]);
             lastMoveMarkers = tryPlayMarkers[step].map(m => ({ ...m }));
 
-            const basePlayer = tryPlayBaseStep === 0 ? 1 : (3 - replayStepPlayers[tryPlayBaseStep]);
+            const basePlayer = (tryPlayBasePlayer === 1 || tryPlayBasePlayer === 2)
+                ? tryPlayBasePlayer
+                : (tryPlayBaseStep === 0 ? 1 : (3 - replayStepPlayers[tryPlayBaseStep]));
             tryPlayCurrentPlayer = step % 2 === 0 ? basePlayer : (3 - basePlayer);
 
             document.getElementById('replaySlider').value = step;
@@ -1182,9 +1195,11 @@ const scoreTitle = document.getElementById('scoreTitle');
                     if (liveViewStep === newTotal)
                         liveFollowLatest = true;
                 }
-                applyLiveViewBoard();
-                updateLiveReplayPanelUI();
-            } else {
+                if (!tryPlayMode) {
+                    applyLiveViewBoard();
+                    updateLiveReplayPanelUI();
+                }
+            } else if (!tryPlayMode) {
                 board = state.board;
                 lastMoveMarkers = state.lastMoveMarkers || [];
             }

@@ -3364,13 +3364,31 @@
                 return;
             }
             clearMobileMovePreview();
-            if (!ps.replayMode) {
+            const fromLive = !ps.replayMode;
+            let startPlayer = null;
+            if (typeof opts.resolveTryPlayStartPlayer === 'function') {
+                const resolved = opts.resolveTryPlayStartPlayer({ fromLive, ps });
+                if (resolved === 1 || resolved === 2) startPlayer = resolved;
+            }
+            if (startPlayer == null) {
+                startPlayer = R().resolveTryPlaySideToMove({
+                    fromLive,
+                    replayStep: ps.replayStep,
+                    replayStepPlayers: ps.replayStepPlayers,
+                    replayBoardsLength: (ps.replayBoards && ps.replayBoards.length) || 0,
+                    liveViewStep: ps.liveViewStep,
+                    liveReplayStepPlayers: ps.liveReplayStepPlayers,
+                    liveReplayBoardsLength: (ps.liveReplayBoards && ps.liveReplayBoards.length) || 0,
+                    currentPlayer: ps.currentPlayer
+                });
+            }
+            if (fromLive) {
                 ps.tryPlayFromLive = true;
                 ps.tryPlayFromLiveStep = ps.liveViewStep || 0;
                 ps.replayMode = true;
                 ps.replayBoards = [deepCopyBoard(ps.board)];
                 ps.replayMarkers = [(ps.lastMoveMarkers || []).map(m => ({ ...m }))];
-                ps.replayStepPlayers = [ps.currentPlayer === 1 ? 2 : 1];
+                ps.replayStepPlayers = [startPlayer === 1 ? 2 : 1];
                 ps.replayStep = 0;
                 ps.replayTotalSteps = 0;
             } else {
@@ -3378,14 +3396,10 @@
             }
             ps.tryPlayMode = true;
             ps.tryPlayBaseStep = ps.replayStep;
+            ps.tryPlayBasePlayer = startPlayer;
             ps.tryPlayBoards = [deepCopyBoard(ps.board)];
             ps.tryPlayMarkers = [ps.lastMoveMarkers.map(m => ({ ...m }))];
-
-            if (ps.replayStep === 0) {
-                ps.tryPlayCurrentPlayer = 1;
-            } else {
-                ps.tryPlayCurrentPlayer = ps.replayStepPlayers[ps.replayStep] === 1 ? 2 : 1;
-            }
+            ps.tryPlayCurrentPlayer = startPlayer;
             ps.tryPlayStep = 0;
             ps.tryPlayTotalSteps = 0;
             if ('tryPlayCaptureStep' in ps) ps.tryPlayCaptureStep = 0;
@@ -3413,6 +3427,7 @@
             ps.tryPlayMode = false;
             ps.tryPlayFromLive = false;
             if ('tryPlayFromLiveStep' in ps) ps.tryPlayFromLiveStep = null;
+            if ('tryPlayBasePlayer' in ps) ps.tryPlayBasePlayer = null;
             ps.tryPlayBoards = [];
             ps.tryPlayMarkers = [];
             ps.tryPlayStep = 0;
@@ -3497,7 +3512,9 @@
             ps.board = deepCopyBoard(ps.tryPlayBoards[step]);
             ps.lastMoveMarkers = ps.tryPlayMarkers[step].map(m => ({ ...m }));
 
-            const basePlayer = ps.tryPlayBaseStep === 0 ? 1 : (3 - ps.replayStepPlayers[ps.tryPlayBaseStep]);
+            const basePlayer = (ps.tryPlayBasePlayer === 1 || ps.tryPlayBasePlayer === 2)
+                ? ps.tryPlayBasePlayer
+                : (ps.tryPlayBaseStep === 0 ? 1 : (3 - ps.replayStepPlayers[ps.tryPlayBaseStep]));
             ps.tryPlayCurrentPlayer = step % 2 === 0 ? basePlayer : (3 - basePlayer);
 
             document.getElementById('replaySlider').value = step;
@@ -3800,10 +3817,13 @@
                     if (ps.liveViewStep === newTotal)
                         ps.liveFollowLatest = true;
                 }
-                applyLiveViewBoard();
-                updateLiveReplayPanelUI();
-                if (editApi) editApi.ensureCommitSnapshotVisible();
-            } else {
+                // 试下中只更新后台直播历史，不刷新展示盘面
+                if (!ps.tryPlayMode) {
+                    applyLiveViewBoard();
+                    updateLiveReplayPanelUI();
+                    if (editApi) editApi.ensureCommitSnapshotVisible();
+                }
+            } else if (!ps.tryPlayMode) {
                 ps.board = state.board;
                 ps.lastMoveMarkers = state.lastMoveMarkers || [];
             }
@@ -4760,6 +4780,29 @@
         return { liveReplayBoards, liveReplayMarkers, liveReplayStepPlayers };
     }
 
+    /**
+     * 试下开始时的行棋方：直播/回放当前局面的下一手，而非一律黑棋。
+     * stepPlayers[step] 表示该步落子方；下一手为 3 - stepPlayers[step]。
+     */
+    function resolveTryPlaySideToMove(opts) {
+        const fromLive = !!opts.fromLive;
+        const currentPlayer = opts.currentPlayer;
+        const stepPlayers = fromLive ? opts.liveReplayStepPlayers : opts.replayStepPlayers;
+        const step = fromLive ? (opts.liveViewStep || 0) : (opts.replayStep || 0);
+        const boardsLen = fromLive
+            ? (opts.liveReplayBoardsLength || 0)
+            : (opts.replayBoardsLength || 0);
+        const total = Math.max(0, boardsLen - 1);
+        if (step > 0 && stepPlayers && (stepPlayers[step] === 1 || stepPlayers[step] === 2)) {
+            return 3 - stepPlayers[step];
+        }
+        // 直播跟最新的初始/当前局面：用服务器 currentPlayer（含白先等）
+        if (fromLive && (currentPlayer === 1 || currentPlayer === 2) && step >= total) {
+            return currentPlayer;
+        }
+        return 1;
+    }
+
     function drawPitHole(row, col, ctx, padding, cellSize, boardSize, isHole) 
     {
         const innerLeft = padding + Math.max(col - 0.5, 0) * cellSize;
@@ -5330,7 +5373,8 @@
         assignTerritoryWithRangeWithHoles, 
         computeScoreWithHoles, 
         rebuildLiveReplayFromMoveCoords, 
-        buildReplayFromImportData, 
+        buildReplayFromImportData,
+        resolveTryPlaySideToMove,
         applyInitialPositionCompact,
         installBoardEditUI,
         DEFAULT_EDIT_CELL_BY_TOOL,

@@ -625,7 +625,7 @@ function unstableLifetimeForSize(size) {
                 }
                 applyLiveViewBoardImpl();
                 page.updateLiveReplayPanelUI();
-            } else {
+            } else if (!ps.tryPlayMode) {
                 ps.board = state.board;
                 ps.unstableInfo = (state.unstableInfo && state.unstableInfo.length === ps.BOARD_SIZE)
                     ? state.unstableInfo.map(row => row.slice())
@@ -769,8 +769,20 @@ function unstableLifetimeForSize(size) {
             ps.tryPlayMoveCounts = [ps.moveCount];
             ps.tryPlayMarkers = [ps.lastMoveMarkers.map(m => ({ ...m }))];
             ps.tryPlayMoveList = [];
-            if (ps.replayStep === 0) ps.tryPlayCurrentPlayer = 1;
-            else ps.tryPlayCurrentPlayer = ps.replayStepPlayers[ps.replayStep] === 1 ? 2 : 1;
+            const _fromLive = !ps.replayMode;
+                const _RT = typeof QiWeiqiSquarePageRuntime !== 'undefined' ? QiWeiqiSquarePageRuntime : null;
+                ps.tryPlayCurrentPlayer = _RT && _RT.resolveTryPlaySideToMove
+                    ? _RT.resolveTryPlaySideToMove({
+                        fromLive: _fromLive,
+                        replayStep: ps.replayStep,
+                        replayStepPlayers: ps.replayStepPlayers,
+                        liveViewStep: ps.liveViewStep,
+                        liveReplayStepPlayers: ps.liveReplayStepPlayers,
+                        liveReplayBoardsLength: (ps.liveReplayBoards && ps.liveReplayBoards.length) || 0,
+                        currentPlayer: ps.currentPlayer
+                    })
+                    : (ps.replayStep > 0 ? (3 - ps.replayStepPlayers[ps.replayStep]) : ((ps.currentPlayer === 1 || ps.currentPlayer === 2) ? ps.currentPlayer : 1));
+                ps.tryPlayBasePlayer = ps.tryPlayCurrentPlayer;
             ps.tryPlayStep = 0;
             ps.tryPlayTotalSteps = 0;
             const slider = document.getElementById('replaySlider');
@@ -841,7 +853,9 @@ function unstableLifetimeForSize(size) {
             ps.unstableInfo = C().deepCopyBoard(ps.tryPlayUnstableInfos[step]);
             ps.moveCount = ps.tryPlayMoveCounts[step];
             ps.lastMoveMarkers = ps.tryPlayMarkers[step].map(m => ({ ...m }));
-            const basePlayer = ps.tryPlayBaseStep === 0 ? 1 : (3 - ps.replayStepPlayers[ps.tryPlayBaseStep]);
+            const basePlayer = (ps.tryPlayBasePlayer === 1 || ps.tryPlayBasePlayer === 2)
+                ? ps.tryPlayBasePlayer
+                : (ps.tryPlayBaseStep === 0 ? 1 : (3 - ps.replayStepPlayers[ps.tryPlayBaseStep]));
             ps.tryPlayCurrentPlayer = step % 2 === 0 ? basePlayer : (3 - basePlayer);
             document.getElementById('replaySlider').value = step;
             updateTryPlayDisplayImpl();

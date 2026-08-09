@@ -719,7 +719,7 @@ syncState,
                     };
                 }
                 updateLiveReplayPanelUI();
-            } else {
+            } else if (!tryPlayMode) {
                 board = state.board;
                 currentPlayer = state.currentPlayer;
                 gameOver = state.gameOver || false;

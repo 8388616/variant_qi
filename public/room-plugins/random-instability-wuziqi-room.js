@@ -813,21 +813,23 @@ syncState,
                     liveViewStep = Math.min(liveViewStep, newTotal);
                     if (liveViewStep === newTotal) liveFollowLatest = true;
                 }
-                applyLiveSnapshotRI();
-                if (liveViewStep === newTotal) {
-                    board = state.board;
-                    lifetimes = state.lifetimes;
-                    currentPlayer = state.currentPlayer;
-                    moveCount = state.moveCount;
-                    nextLifetimePreview = state.nextLifetimePreview;
-                    gameOver = state.gameOver;
-                    winner = state.winner;
-                    psBindings.gameOver = !!gameOver;
-                    psBindings.winner = winner;
-                    lastMoveMarkers = state.lastMoveMarkers || [];
+                if (!tryPlayMode) {
+                    applyLiveSnapshotRI();
+                    if (liveViewStep === newTotal) {
+                        board = state.board;
+                        lifetimes = state.lifetimes;
+                        currentPlayer = state.currentPlayer;
+                        moveCount = state.moveCount;
+                        nextLifetimePreview = state.nextLifetimePreview;
+                        gameOver = state.gameOver;
+                        winner = state.winner;
+                        psBindings.gameOver = !!gameOver;
+                        psBindings.winner = winner;
+                        lastMoveMarkers = state.lastMoveMarkers || [];
+                    }
+                    updateLiveReplayPanelUIRI();
                 }
-                updateLiveReplayPanelUIRI();
-            } else {
+            } else if (!tryPlayMode) {
                 board = state.board;
                 lifetimes = state.lifetimes;
                 currentPlayer = state.currentPlayer;

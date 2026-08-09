@@ -358,7 +358,7 @@ const scoreTitle = document.getElementById('scoreTitle'), scoreBoard = document.
                         if (state.lastMoveMarkers && state.lastMoveMarkers.length) ps.lastMoveMarkers = state.lastMoveMarkers.map(m => ({ ...m }));
                     }
                 }
-            } else {
+            } else if (!ps.tryPlayMode) {
                 ps.board = state.board; ps.lastMoveMarkers = state.lastMoveMarkers || [];
             }
             ps.holes = [];
@@ -490,6 +490,7 @@ const scoreTitle = document.getElementById('scoreTitle'), scoreBoard = document.
             }
             scoreBoard.innerText = `剩余雷数　${ps.remainingMines}`;
         }
+        // 试下走公共实现；此处仅在公共流程后刷新雷数/提示 UI
         (function wrapRemainingMinesScoreRefresh() {
             const wrap = (name) => {
                 const o = page[name];

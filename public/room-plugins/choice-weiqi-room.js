@@ -37,6 +37,7 @@ const C = QiSquareWeiqiCanvas, R = QiWeiqiSquarePageRuntime;
             ws: null, isMyTurn: false, slots: { black: false, white: false }, reconnectTimer: null,
             replayMode: false, replayStep: 0, replayTotalSteps: 0, showMoveNumbers: false, moveLog: [],
             tryPlayMode: false, tryPlayBaseStep: 0, tryPlayBoards: [], tryPlayMarkers: [], tryPlayCurrentPlayer: 1, tryPlayStep: 0, tryPlayTotalSteps: 0,
+            replayBoards: [], replayMarkers: [], replayStepPlayers: [],
             liveReplayBoards: [], liveReplayMarkers: [], liveReplayStepPlayers: [], liveViewStep: 0, liveFollowLatest: true,
             userBoardMarks: Object.create(null), hoverRow: -1, hoverCol: -1, isHoverValid: false,
             candidates: [], serverCandidatesSnapshot: [], replaySnapshots: [], replayMovesForNumbers: []
@@ -246,7 +247,8 @@ const scoreTitle = document.getElementById('scoreTitle'), scoreBoard = document.
             }
             d.hoverPreviewStone(ctx, ps.hoverRow, ps.hoverCol, ps.board, ps.PADDING, z, {
                 tryPlayMode: ps.tryPlayMode, tryPlayCurrentPlayer: ps.tryPlayCurrentPlayer, gameOver: ps.gameOver,
-                isMyTurn: ps.isMyTurn, mySlot: ps.mySlot, isHoverValid: ps.isHoverValid,
+                isMyTurn: ps.isMyTurn, mySlot: ps.mySlot, isHoverValid: ps.isHoverValid
+,
                 pageState: ps,
                 editModeEnabled: !!ps.editModeEnabled,
                 editTool: ps.editTool
@@ -309,18 +311,20 @@ const scoreTitle = document.getElementById('scoreTitle'), scoreBoard = document.
                     ps.liveViewStep = Math.min(ps.liveViewStep, newTotal);
                     if (ps.liveViewStep === newTotal) ps.liveFollowLatest = true;
                 }
-                page.applyLiveViewBoard();
-                page.updateLiveReplayPanelUI();
-                const liveTotal = Math.max(0, ps.liveReplayBoards.length - 1);
-                if (liveTotal > 0 && ps.liveViewStep < liveTotal) {
-                    ps.candidates = [];
-                } else {
-                    // 当前手数（含尚无一手）：必须显示服务器本回合候选点
-                    if (state.board) ps.board = page.deepCopyBoard(state.board);
-                    if (state.lastMoveMarkers) ps.lastMoveMarkers = state.lastMoveMarkers.map(m => ({ ...m }));
-                    ps.candidates = ps.serverCandidatesSnapshot.map(c => ({ row: c.row, col: c.col }));
+                if (!ps.tryPlayMode) {
+                    page.applyLiveViewBoard();
+                    page.updateLiveReplayPanelUI();
+                    const liveTotal = Math.max(0, ps.liveReplayBoards.length - 1);
+                    if (liveTotal > 0 && ps.liveViewStep < liveTotal) {
+                        ps.candidates = [];
+                    } else {
+                        // 当前手数（含尚无一手）：必须显示服务器本回合候选点
+                        if (state.board) ps.board = page.deepCopyBoard(state.board);
+                        if (state.lastMoveMarkers) ps.lastMoveMarkers = state.lastMoveMarkers.map(m => ({ ...m }));
+                        ps.candidates = ps.serverCandidatesSnapshot.map(c => ({ row: c.row, col: c.col }));
+                    }
                 }
-            } else {
+            } else if (!ps.tryPlayMode) {
                 ps.board = state.board;
                 ps.lastMoveMarkers = state.lastMoveMarkers || [];
             }
@@ -361,6 +365,10 @@ const scoreTitle = document.getElementById('scoreTitle'), scoreBoard = document.
                     return;
                 }
                 ps.replaySnapshots = snapshots;
+                // 供公共试下 resolveTryPlaySideToMove：stepPlayers[i]=到达该步的落子方
+                ps.replayStepPlayers = snapshots.map((snap, i) => (
+                    i === 0 ? 0 : (snap.currentPlayer === 1 || snap.currentPlayer === 2 ? (3 - snap.currentPlayer) : 0)
+                ));
                 ps.replayTotalSteps = ps.replaySnapshots.length - 1;
                 ps.replayMode = true;
                 const sl = document.getElementById('replaySlider');
@@ -371,7 +379,8 @@ const scoreTitle = document.getElementById('scoreTitle'), scoreBoard = document.
             exitReplayMode() {
                 page.clearMobileMovePreview();
                 ps.tryPlayMode = false; ps.tryPlayBoards = []; ps.tryPlayMarkers = []; ps.tryPlayStep = 0; ps.tryPlayTotalSteps = 0;
-                ps.replayMode = false; ps.replaySnapshots = []; ps.replayMovesForNumbers = []; ps.replayStep = 0; ps.replayTotalSteps = 0;
+                ps.replayMode = false; ps.replaySnapshots = []; ps.replayMovesForNumbers = [];
+                ps.replayStepPlayers = []; ps.replayStep = 0; ps.replayTotalSteps = 0;
                 page.updateReplayUI();
             },
             setReplayStep(step) {
@@ -390,53 +399,12 @@ const scoreTitle = document.getElementById('scoreTitle'), scoreBoard = document.
                 if (ps.showEstimateActive) page.showEstimate();
                 else drawBoardChoice();
             },
-            enterTryPlay() {
-                page.clearMobileMovePreview(); ps.tryPlayMode = true; ps.tryPlayBaseStep = ps.replayStep;
-                ps.tryPlayBoards = [page.deepCopyBoard(ps.board)]; ps.tryPlayMarkers = [ps.lastMoveMarkers.map(m => ({ ...m }))];
-                ps.tryPlayCurrentPlayer = ps.replaySnapshots[ps.replayStep].currentPlayer;
-                ps.tryPlayStep = 0; ps.tryPlayTotalSteps = 0;
-                const sl = document.getElementById('replaySlider'); sl.min = 0; sl.max = 0; sl.value = 0;
-                page.updateTryPlayDisplay(); page.updateReplayUI();
-            },
-            exitTryPlay() {
-                page.clearMobileMovePreview(); ps.tryPlayMode = false; ps.tryPlayBoards = []; ps.tryPlayMarkers = [];
-                ps.tryPlayStep = 0; ps.tryPlayTotalSteps = 0;
-                const sl = document.getElementById('replaySlider'); sl.min = 0; sl.max = ps.replayTotalSteps;
-                page.setReplayStep(ps.tryPlayBaseStep); page.updateReplayUI();
-            },
-            tryPlayMove(row, col) {
-                if (ps.board[row][col] !== 0) return false;
-                const pv = ps.tryPlayCurrentPlayer, nb = page.tryPlaceStone(ps.board, row, col, pv);
-                if (!nb) return false;
-                if (ps.tryPlayStep < ps.tryPlayTotalSteps) {
-                    ps.tryPlayBoards.length = ps.tryPlayStep + 1; ps.tryPlayMarkers.length = ps.tryPlayStep + 1;
-                }
-                ps.tryPlayBoards.push(page.deepCopyBoard(nb)); ps.tryPlayMarkers.push([{ row, col, color: pv }]);
-                ps.tryPlayTotalSteps = ps.tryPlayBoards.length - 1; ps.tryPlayStep = ps.tryPlayTotalSteps;
-                ps.tryPlayCurrentPlayer = 3 - ps.tryPlayCurrentPlayer;
-                ps.board = page.deepCopyBoard(nb); ps.lastMoveMarkers = [{ row, col, color: pv }];
-                const sl = document.getElementById('replaySlider'); sl.max = ps.tryPlayTotalSteps; sl.value = ps.tryPlayStep;
-                page.updateTryPlayDisplay();
-                if (ps.showEstimateActive) page.showEstimate(); else drawBoardChoice();
-                return true;
-            },
-            setTryPlayStep(step) {
-                page.clearMobileMovePreview();
-                if (step < 0) step = 0; if (step > ps.tryPlayTotalSteps) step = ps.tryPlayTotalSteps;
-                ps.tryPlayStep = step;
-                ps.board = page.deepCopyBoard(ps.tryPlayBoards[step]);
-                ps.lastMoveMarkers = ps.tryPlayMarkers[step].map(m => ({ ...m }));
-                const snapPlayer = ps.replaySnapshots[ps.tryPlayBaseStep].currentPlayer;
-                ps.tryPlayCurrentPlayer = step % 2 === 0 ? snapPlayer : (3 - snapPlayer);
-                document.getElementById('replaySlider').value = step; page.updateTryPlayDisplay();
-                if (ps.showEstimateActive) page.showEstimate(); else drawBoardChoice();
-            },
-            updateTryPlayDisplay() {
-                const stepDisplay = document.getElementById('replayStepDisplay');
-                if (ps.tryPlayMode) {
-                    stepDisplay.innerText = `试下 ${ps.tryPlayStep} / ${ps.tryPlayTotalSteps}`;
-                    turnDisplay.innerText = `${ps.tryPlayCurrentPlayer === 1 ? '⚫' : '⚪'} 试下`;
-                }
+            // 打谱快照的 currentPlayer 即下一手；直播走公共 resolve
+            resolveTryPlayStartPlayer({ fromLive }) {
+                if (fromLive) return null;
+                const snap = ps.replaySnapshots && ps.replaySnapshots[ps.replayStep];
+                if (snap && (snap.currentPlayer === 1 || snap.currentPlayer === 2)) return snap.currentPlayer;
+                return null;
             }
         });
 
@@ -453,6 +421,17 @@ const scoreTitle = document.getElementById('scoreTitle'), scoreBoard = document.
             else ps.candidates = ps.serverCandidatesSnapshot.map(c => ({ row: c.row, col: c.col }));
             if (ps.showEstimateActive) page.showEstimate();
             else page.updateTurn();
+        };
+
+        // 试下 enter/exit/move/step 走公共实现；直播退出时清掉打谱快照残留
+        const _exitTryPlayShared = page.exitTryPlay.bind(page);
+        page.exitTryPlay = () => {
+            const fromLive = !!ps.tryPlayFromLive;
+            _exitTryPlayShared();
+            if (fromLive) {
+                ps.replaySnapshots = [];
+                ps.replayMovesForNumbers = [];
+            }
         };
 
         const {
