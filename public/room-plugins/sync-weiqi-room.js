@@ -337,7 +337,10 @@ const scoreTitle = document.getElementById('scoreTitle');
                 isMyTurn: ps.isMyTurn,
                 mySlot: ps.mySlot,
                 isHoverValid: ps.isHoverValid,
-                hoverCapture: !!ps.hoverCapture
+                hoverCapture: !!ps.hoverCapture,
+                pageState: ps,
+                editModeEnabled: !!ps.editModeEnabled,
+                editTool: ps.editTool
             });
             if (
                 ps.myPreviewMarker

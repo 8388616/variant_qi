@@ -2,7 +2,7 @@ window.RoomPlugins = window.RoomPlugins || {};
 window.RoomPlugins["random-instability-wuziqi"] = {
     shell: {
         "title": "随机不稳定五子棋",
-        "rulesHtml": "基本规则同五子棋。<br /><br />每个棋子都会获得一个随机寿命。每下一手棋所有棋子的寿命减1，寿命归零的棋子消失。<br><br />随着棋局的进程，棋子寿命的随机范围会逐渐增长。<br>",
+        "rulesHtml": "基本规则同五子棋。<br /><br />每个棋子都会获得一个随机寿命。每下一手棋所有棋子的寿命减1，寿命归零的棋子消失。<br><br />随着棋局的进程，棋子寿命的随机范围会逐渐增长。<br /><br />",
         "defaultKomiText": "无禁手",
         "boardSizeMin": 7,
         "boardSizeMax": 15,
@@ -160,6 +160,13 @@ const scoreTitle = document.getElementById('scoreTitle');
 
         function parseRIMoveEntry(entry) {
             if (entry && typeof entry === 'object' && entry.player) {
+                if (entry.type === 'pass') {
+                    return {
+                        type: 'pass',
+                        player: entry.player,
+                        nextPreview: entry.nextPreview != null ? entry.nextPreview : null
+                    };
+                }
                 return {
                     player: entry.player,
                     row: entry.row,
@@ -172,6 +179,14 @@ const scoreTitle = document.getElementById('scoreTitle');
             const head = entry[0];
             if (head !== 'B' && head !== 'W') return null;
             const player = head === 'B' ? 'black' : 'white';
+            if (entry[1] === 'p') {
+                let nextPreview = null;
+                if (entry.length > 2 && entry[2] === ',') {
+                    const n = +entry.slice(3);
+                    if (Number.isFinite(n)) nextPreview = n;
+                }
+                return { type: 'pass', player, nextPreview };
+            }
             const parts = entry.slice(1).split(',');
             if (parts.length < 3) return null;
             const row = +parts[0];
@@ -194,7 +209,13 @@ const scoreTitle = document.getElementById('scoreTitle');
             if (arr.length > 0) {
                 const m0 = parseRIMoveEntry(arr[0]);
                 if (!m0) return null;
-                nextPreview = m0.lifetime;
+                nextPreview = m0.type === 'pass'
+                    ? (openingPreview != null ? openingPreview : (m0.nextPreview != null ? m0.nextPreview : null))
+                    : m0.lifetime;
+                if (m0.type === 'pass' && arr[0] && arr[0].previewBefore != null) {
+                    nextPreview = arr[0].previewBefore;
+                }
+                if (nextPreview == null) return null;
             } else {
                 nextPreview = openingPreview;
             }
@@ -214,8 +235,6 @@ const scoreTitle = document.getElementById('scoreTitle');
                 if (!m) return null;
                 const slot = m.player;
                 if (slot !== currentPlayer) return null;
-                const lifetimePlaced = m.lifetime;
-                if (lifetimePlaced !== nextPreview) return null;
                 for (let r = 0; r < size; r++) {
                     for (let c = 0; c < size; c++) {
                         if (lifetimes[r][c] > 0) {
@@ -224,6 +243,45 @@ const scoreTitle = document.getElementById('scoreTitle');
                         }
                     }
                 }
+                if (m.type === 'pass') {
+                    lastMoveMarkers = [];
+                    if (m.nextPreview != null) nextPreview = m.nextPreview;
+                    else if (arr[i] && arr[i].nextPreview != null) nextPreview = arr[i].nextPreview;
+                    let trailing = 1;
+                    for (let j = i - 1; j >= 0; j--) {
+                        const prev = parseRIMoveEntry(arr[j]);
+                        if (prev && prev.type === 'pass') trailing++;
+                        else break;
+                    }
+                    if (trailing >= 2) {
+                        snapshots.push({
+                            board: b.map(r => r.slice()),
+                            lifetimes: lifetimes.map(r => r.slice()),
+                            currentPlayer: slot,
+                            moveCount,
+                            nextLifetimePreview: nextPreview,
+                            lastMoveMarkers: [],
+                            gameOver: true,
+                            winner: 'draw'
+                        });
+                        break;
+                    }
+                    currentPlayer = currentPlayer === 'black' ? 'white' : 'black';
+                    moveCount++;
+                    snapshots.push({
+                        board: b.map(r => r.slice()),
+                        lifetimes: lifetimes.map(r => r.slice()),
+                        currentPlayer,
+                        moveCount,
+                        nextLifetimePreview: nextPreview,
+                        lastMoveMarkers: [],
+                        gameOver: false,
+                        winner: null
+                    });
+                    continue;
+                }
+                const lifetimePlaced = m.lifetime;
+                if (lifetimePlaced !== nextPreview) return null;
                 const playerVal = slot === 'black' ? 1 : 2;
                 b[m.row][m.col] = playerVal;
                 lifetimes[m.row][m.col] = lifetimePlaced;
@@ -261,7 +319,12 @@ const scoreTitle = document.getElementById('scoreTitle');
                 if (i + 1 < arr.length) {
                     const mn = parseRIMoveEntry(arr[i + 1]);
                     if (!mn) return null;
-                    nextPreview = mn.lifetime;
+                    if (mn.type === 'pass') {
+                        if (m.nextPreview != null) nextPreview = m.nextPreview;
+                        else if (arr[i] && arr[i].nextPreview != null) nextPreview = arr[i].nextPreview;
+                    } else {
+                        nextPreview = mn.lifetime;
+                    }
                 } else {
                     nextPreview = m.nextPreview != null ? m.nextPreview : null;
                 }
@@ -484,13 +547,18 @@ const scoreTitle = document.getElementById('scoreTitle');
                 const nums = computeStoneNumbers();
                 d.moveNumbersOnStones(ctx, nums, board, BOARD_SIZE, PADDING, cellSize);
             }
+            const editCb = document.getElementById('editModeCheckbox');
+            const editSel = document.getElementById('editToolSelect');
             d.hoverPreviewStone(ctx, hoverRow, hoverCol, board, PADDING, cellSize, {
                 tryPlayMode,
                 tryPlayCurrentPlayer,
                 gameOver,
                 isMyTurn,
                 mySlot,
-                isHoverValid
+                isHoverValid,
+                editModeEnabled: !!(editCb && editCb.checked),
+                editTool: (editSel && editSel.value) || 'empty',
+                boardSize: BOARD_SIZE
             });
             if (showEstimateActive && cachedLiveBoard && cachedTerritory) {
                 d.estimateOverlay(ctx, board, BOARD_SIZE, PADDING, cellSize, cachedLiveBoard, cachedTerritory);
@@ -863,7 +931,7 @@ syncState,
         }
 
         function updateReplayUI() {
-            const hideIds = ['undoBtn', 'resignBtn', 'drawBtn'];
+            const hideIds = ['passBtn', 'undoBtn', 'resignBtn', 'drawBtn'];
             const replayPanel = document.getElementById('replayPanel');
             const tryPlayBtn = document.getElementById('tryPlayBtn');
             const isPlayer = !!mySlot;
@@ -1189,6 +1257,12 @@ syncState,
                 set gameStarted(v) { if (typeof gameStarted !== 'undefined') gameStarted = !!v; },
                 editModeEnabled: false,
                 editTool: 'empty',
+                get hoverRow() { return hoverRow; },
+                set hoverRow(v) { hoverRow = v == null ? -1 : v; },
+                get hoverCol() { return hoverCol; },
+                set hoverCol(v) { hoverCol = v == null ? -1 : v; },
+                get isHoverValid() { return isHoverValid; },
+                set isHoverValid(v) { isHoverValid = !!v; },
                 get ws() { return typeof ws !== 'undefined' ? ws : null; }
             };
             const _editApi = QiWeiqiSquarePageRuntime.installBoardEditUI({

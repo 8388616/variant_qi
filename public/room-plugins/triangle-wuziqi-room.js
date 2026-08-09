@@ -2,7 +2,7 @@ window.RoomPlugins = window.RoomPlugins || {};
 window.RoomPlugins["triangle-wuziqi"] = {
     shell: {
         "title": "三角五子棋",
-        "rulesHtml": "基本规则同标准五子棋。<br /><br />采用三角棋盘。<br />",
+        "rulesHtml": "基本规则同标准五子棋。<br /><br />采用三角棋盘。<br /><br />",
         "defaultKomiText": "无禁手",
         "boardSizeMin": 9,
         "boardSizeMax": 31,
@@ -361,16 +361,28 @@ const scoreTitle = document.getElementById('scoreTitle');
                 ctx.fillText(ch, p.x, p.y + 1);
             }
 
-            const canHover = tryPlayMode || (!gameOver && isMyTurn);
-            if ((isMouseDevice || mobileTwoStepPlacing()) && canHover && isHoverValid && hoverR >= 0 && hoverC >= 0 && board[hoverR][hoverC] === 0) {
-                const p = triCoordToPixel(hoverR, hoverC);
-                ctx.globalAlpha = 0.45;
-                ctx.beginPath();
-                ctx.arc(p.x, p.y, DX * 0.35, 0, 2 * Math.PI);
-                const hoverColor = tryPlayMode ? (tryPlayCurrentPlayer === 1 ? '#222' : '#ddd') : (mySlot === 'black' ? '#222' : '#ddd');
-                ctx.fillStyle = hoverColor;
-                ctx.fill();
-                ctx.globalAlpha = 1.0;
+            const editCb = document.getElementById('editModeCheckbox');
+            const editSel = document.getElementById('editToolSelect');
+            const editing = !!(editCb && editCb.checked);
+            const canHover = editing || tryPlayMode || (!gameOver && isMyTurn);
+            if ((isMouseDevice || mobileTwoStepPlacing()) && canHover && isHoverValid && hoverR >= 0 && hoverC >= 0 && (editing || board[hoverR][hoverC] === 0)) {
+                let hoverColor = null;
+                if (editing) {
+                    const t = (editSel && editSel.value) || 'empty';
+                    if (t === 'white') hoverColor = '#fff';
+                    else if (t === 'black') hoverColor = '#222';
+                    else if (t !== 'empty') hoverColor = '#666';
+                } else if (tryPlayMode) hoverColor = tryPlayCurrentPlayer === 1 ? '#222' : '#ddd';
+                else hoverColor = mySlot === 'black' ? '#222' : '#ddd';
+                if (hoverColor) {
+                    const p = triCoordToPixel(hoverR, hoverC);
+                    ctx.globalAlpha = 0.45;
+                    ctx.beginPath();
+                    ctx.arc(p.x, p.y, DX * 0.35, 0, 2 * Math.PI);
+                    ctx.fillStyle = hoverColor;
+                    ctx.fill();
+                    ctx.globalAlpha = 1.0;
+                }
             }
         }
 
@@ -430,8 +442,9 @@ const scoreTitle = document.getElementById('scoreTitle');
             const moves = (data.moves || []).map(raw => {
                 if (typeof raw === 'string') {
                     const player = raw[0] === 'B' ? 'black' : 'white';
+                    if (raw.length >= 2 && raw[1] === 'p') return { type: 'pass', player };
                     const coords = raw.substring(1).split(',').map(Number);
-                    return { player, row: coords[0], col: coords[1] };
+                    return { type: 'move', player, row: coords[0], col: coords[1] };
                 }
                 return raw;
             });
@@ -444,10 +457,20 @@ const scoreTitle = document.getElementById('scoreTitle');
             replayBoards = [deepCopyBoard(cur)];
             replayMarkers = [[]];
             replayStepPlayers = [0];
+            let trailingPass = 0;
             for (const m of moves) {
-                if (!m || !isValidCoord(m.row, m.col)) continue;
+                if (!m) continue;
                 const pv = m.player === 'black' ? 1 : 2;
-                if (cur[m.row][m.col] !== 0) continue;
+                if (m.type === 'pass') {
+                    trailingPass++;
+                    replayBoards.push(deepCopyBoard(cur));
+                    replayMarkers.push([]);
+                    replayStepPlayers.push(pv);
+                    if (trailingPass >= 2) break;
+                    continue;
+                }
+                trailingPass = 0;
+                if (!isValidCoord(m.row, m.col) || cur[m.row][m.col] !== 0) continue;
                 cur[m.row][m.col] = pv;
                 replayBoards.push(deepCopyBoard(cur));
                 replayMarkers.push([{ row: m.row, col: m.col, color: pv }]);
@@ -540,7 +563,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             turnDisplay.innerText = `${tryPlayCurrentPlayer === 1 ? '⚫' : '⚪'} 试下`;
         }
         function updateReplayUI() {
-            const gameButtonIds = ['undoBtn', 'resignBtn', 'drawBtn'];
+            const gameButtonIds = ['passBtn', 'undoBtn', 'resignBtn', 'drawBtn'];
             const replayPanel = document.getElementById('replayPanel');
             const tryPlayBtn = document.getElementById('tryPlayBtn');
             const isPlayer = !!mySlot;
@@ -822,7 +845,8 @@ const scoreTitle = document.getElementById('scoreTitle');
                 const y = (e.clientY - rect.top) * scale;
                 const { row, col } = getClosestIntersection(x, y);
                 hoverR = row; hoverC = col;
-                isHoverValid = row >= 0 && col >= 0 && isValidCoord(row, col) && board[row][col] === 0;
+                const editing = !!(document.getElementById('editModeCheckbox') || {}).checked;
+                isHoverValid = row >= 0 && col >= 0 && isValidCoord(row, col) && (editing || board[row][col] === 0);
                 drawBoard();
             });
             canvas.addEventListener('mouseleave', () => {
@@ -863,6 +887,12 @@ const scoreTitle = document.getElementById('scoreTitle');
                 set gameStarted(v) { if (typeof gameStarted !== 'undefined') gameStarted = !!v; },
                 editModeEnabled: false,
                 editTool: 'empty',
+                get hoverRow() { return hoverR; },
+                set hoverRow(v) { hoverR = v == null ? -1 : v; },
+                get hoverCol() { return hoverC; },
+                set hoverCol(v) { hoverC = v == null ? -1 : v; },
+                get isHoverValid() { return isHoverValid; },
+                set isHoverValid(v) { isHoverValid = !!v; },
                 get ws() { return typeof ws !== 'undefined' ? ws : null; }
             };
             const _editApi = QiWeiqiSquarePageRuntime.installBoardEditUI({
@@ -885,11 +915,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                 drawBoard: typeof drawBoard === 'function' ? drawBoard : function () {},
                 getBoard() { return board; },
                 setBoard(b) { board = b; },
-                emptyBoard() {
-                    const n = (typeof BOARD_SIZE !== 'undefined' ? BOARD_SIZE
-                        : (typeof ROWS !== 'undefined' ? ROWS : board.length));
-                    return Array(n).fill(null).map(function () { return Array(n).fill(0); });
-                }
+                emptyBoard() { return initBoardArray(ROWS); }
             });
             if (typeof syncState === 'function') {
                 const _sync0 = syncState;

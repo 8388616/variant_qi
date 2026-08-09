@@ -263,7 +263,10 @@ const scoreTitle = document.getElementById('scoreTitle');
                 isMyTurn: ps.isMyTurn,
                 mySlot: ps.mySlot,
                 isHoverValid: ps.isHoverValid,
-                hoverCapture: !!ps.hoverCapture
+                hoverCapture: !!ps.hoverCapture,
+                pageState: ps,
+                editModeEnabled: !!ps.editModeEnabled,
+                editTool: ps.editTool
             });
             if (ps.showEstimateActive && ps.cachedLiveBoard && ps.cachedTerritory) {
                 d.estimateOverlay(ctx, ps.board, ps.BOARD_SIZE, ps.PADDING, cellSize, ps.cachedLiveBoard, ps.cachedTerritory);

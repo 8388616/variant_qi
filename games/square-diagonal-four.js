@@ -1,6 +1,55 @@
 const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWuziqiRules, qiBoardSeatOverlay } = require('../common');
 
-class WuziqiRoom extends QiTwoPlayerRoomBase {
+function checkDiagonalFour(board, row, col, colorVal, boardSize) {
+    if (board[row][col] !== colorVal) return false;
+    const dirs = [[1, 1], [1, -1]];
+    for (const [dr, dc] of dirs) {
+        for (let start = -3; start <= 0; start++) {
+            let ok = true;
+            for (let i = 0; i < 4; i++) {
+                const r = row + (start + i) * dr;
+                const c = col + (start + i) * dc;
+                if (r < 0 || r >= boardSize || c < 0 || c >= boardSize || board[r][c] !== colorVal) {
+                    ok = false;
+                    break;
+                }
+            }
+            if (ok) return true;
+        }
+    }
+    return false;
+}
+
+function checkSquareFour(board, row, col, colorVal, boardSize) {
+    if (board[row][col] !== colorVal) return false;
+    const origins = [
+        [row, col],
+        [row - 1, col],
+        [row, col - 1],
+        [row - 1, col - 1]
+    ];
+    for (const [a, b] of origins) {
+        if (a < 0 || b < 0 || a + 1 >= boardSize || b + 1 >= boardSize) continue;
+        if (
+            board[a][b] === colorVal &&
+            board[a + 1][b] === colorVal &&
+            board[a][b + 1] === colorVal &&
+            board[a + 1][b + 1] === colorVal
+        ) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/** @returns {'win'|'lose'|null} 斜四负优先于方四胜 */
+function evaluateSquareDiagonalFour(board, row, col, colorVal, boardSize) {
+    if (checkDiagonalFour(board, row, col, colorVal, boardSize)) return 'lose';
+    if (checkSquareFour(board, row, col, colorVal, boardSize)) return 'win';
+    return null;
+}
+
+class SquareDiagonalFourRoom extends QiTwoPlayerRoomBase {
     constructor(room) {
         super(room);
         this.BOARD_SIZE = 13;
@@ -163,8 +212,9 @@ class WuziqiRoom extends QiTwoPlayerRoomBase {
         this._broadcastClock();
     }
 
-    checkWin(row, col, colorVal) {
-        return squareWuziqiRules.checkFiveInRow(this.board, row, col, colorVal, this.BOARD_SIZE);
+    /** @returns {'win'|'lose'|null} */
+    evaluateOutcome(row, col, colorVal) {
+        return evaluateSquareDiagonalFour(this.board, row, col, colorVal, this.BOARD_SIZE);
     }
 
     isBoardFull() {
@@ -178,6 +228,22 @@ class WuziqiRoom extends QiTwoPlayerRoomBase {
             else break;
         }
         return n;
+    }
+
+    _applyOutcome(slot, outcome) {
+        if (outcome === 'lose') {
+            this.gameOver = true;
+            this.winner = slot === 'black' ? 'white' : 'black';
+            this.recordResultText = this.winner === 'black' ? '黑中盘胜' : '白中盘胜';
+            return true;
+        }
+        if (outcome === 'win') {
+            this.gameOver = true;
+            this.winner = slot;
+            this.recordResultText = slot === 'black' ? '黑中盘胜' : '白中盘胜';
+            return true;
+        }
+        return false;
     }
 
     wireMoveCoords() {
@@ -223,8 +289,8 @@ class WuziqiRoom extends QiTwoPlayerRoomBase {
         return {
             format: 'muzei',
             version: 2,
-            gameType: '五子棋',
-            gameId: 'wuziqi',
+            gameType: '方斜四棋',
+            gameId: 'square-diagonal-four',
             boardSize: this.BOARD_SIZE,
             moves: this.moveHistory.map(m => {
                 const p = m.player[0].toUpperCase();
@@ -262,7 +328,7 @@ class WuziqiRoom extends QiTwoPlayerRoomBase {
     }
 
     setBoardSize(newSize, requesterWs) {
-        if (!Number.isInteger(newSize) || newSize < 7 || newSize > 15) {
+        if (!Number.isInteger(newSize) || newSize < 7 || newSize > 27) {
             requesterWs.send(JSON.stringify({ type: 'error', message: '棋盘大小无效。' }));
             return false;
         }
@@ -274,28 +340,18 @@ class WuziqiRoom extends QiTwoPlayerRoomBase {
         }
         this.BOARD_SIZE = newSize;
         this.resetToEmpty();
-        if (data.timeControl && typeof data.timeControl === 'object') {
-            const tc = data.timeControl;
-            this.tcSettings = tc.enabled ? {
-                timed: true,
-                mainMinutes: parseInt(String(tc.mainMinutes ?? 0), 10) || 0,
-                byoyomiSeconds: parseInt(String(tc.byoyomiSeconds ?? 0), 10) || 0,
-                maxTimeouts: parseInt(String(tc.maxTimeouts ?? 0), 10) || 0
-            } : { timed: false };
-            this.matchStarted = true;
-        }
         this.broadcast({ type: 'boardSizeChanged', boardSize: this.BOARD_SIZE });
         this.broadcast({ type: 'gameState', ...this.getState() });
         return true;
     }
 
     importRecord(data, requesterWs) {
-        if (!data || data.gameId !== 'wuziqi') {
-            requesterWs.send(JSON.stringify({ type: 'error', message: '棋谱格式不匹配（需要五子棋棋谱）。' }));
+        if (!data || data.gameId !== 'square-diagonal-four') {
+            requesterWs.send(JSON.stringify({ type: 'error', message: '棋谱格式不匹配（需要方斜四棋棋谱）。' }));
             return;
         }
         const newSize = data.boardSize || 13;
-        if (!Number.isInteger(newSize) || newSize < 7 || newSize > 15) {
+        if (!Number.isInteger(newSize) || newSize < 7 || newSize > 27) {
             requesterWs.send(JSON.stringify({ type: 'error', message: '棋谱中棋盘大小无效。' }));
             return;
         }
@@ -355,9 +411,7 @@ class WuziqiRoom extends QiTwoPlayerRoomBase {
             this.moveHistory.push({ player: slot, row, col });
             this.historyBoards.push(this.copyBoard(this.board));
 
-            if (this.checkWin(row, col, playerVal)) {
-                this.gameOver = true;
-                this.winner = slot;
+            if (this._applyOutcome(slot, this.evaluateOutcome(row, col, playerVal))) {
                 break;
             }
             if (this.isBoardFull()) {
@@ -438,10 +492,7 @@ class WuziqiRoom extends QiTwoPlayerRoomBase {
                 this.lastMoveMarkers = [{ row, col, color: playerVal }];
                 this.moveHistory.push({ player: slot, row, col });
 
-                if (this.checkWin(row, col, playerVal)) {
-                    this.gameOver = true;
-                    this.winner = slot;
-                    this.recordResultText = slot === 'black' ? '黑中盘胜' : '白中盘胜';
+                if (this._applyOutcome(slot, this.evaluateOutcome(row, col, playerVal))) {
                     this._stopClockTicker();
                     this.broadcast({ type: 'broadcast', action: 'move', ...this.getState() });
                     return;
@@ -563,7 +614,7 @@ class WuziqiRoom extends QiTwoPlayerRoomBase {
 
 module.exports = {
     initRoom(room) {
-        room.gameLogic = new WuziqiRoom(room);
+        room.gameLogic = new SquareDiagonalFourRoom(room);
         if (typeof qiBoardSeatOverlay !== 'undefined' && qiBoardSeatOverlay) qiBoardSeatOverlay.install(room.gameLogic);
         room.maxPlayers = 2;
     }

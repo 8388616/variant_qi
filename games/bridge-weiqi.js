@@ -354,7 +354,9 @@ class BridgeWeiqiRoom extends QiTwoPlayerRoomBase
                 this.removeGroup(board, nr, nc, opp);
             }
         }
-        if (!this.hasLiberty(board, row, col)) return null;
+        if (!this.hasLiberty(board, row, col)) {
+            this.removeGroup(board, row, col, playerVal);
+        }
         return board;
     }
 

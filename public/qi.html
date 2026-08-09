@@ -395,22 +395,22 @@
             color: #9a8b7a;
         }
 
-        /* 推荐：右上角斜条；height = 左下↔右上方向的粗细 */
+        /* 推荐：右上角 ✨（文本呈现以便套用丝带色） */
         .game-card.has-recommend-badge::after {
-            content: '';
+            content: '✨';
             position: absolute;
-            top: 14.6px; /* 略下移，加厚时右上侧大致不动、向左下加宽 */
-            right: -21.4px;
-            width: 79.2px; /* 72 * 1.1 */
-            height: 10.8px; /* 9 * 1.2 */
-            background: rgb(142, 74, 26);
-            transform: rotate(45deg);
+            top: 12px;
+            right: 10px;
+            color: rgb(142, 74, 26);
+            font-size: 1.3rem;
+            line-height: 1;
+            font-variant-emoji: text;
             pointer-events: none;
             z-index: 2;
         }
 
         .game-card.has-recommend-badge.is-disabled::after {
-            background: #9a8b7a;
+            color: #9a8b7a;
             opacity: 0.7;
         }
 
@@ -616,10 +616,9 @@
         }
 
         #platform-games.games-view-list .game-card.has-recommend-badge::after {
-            top: 7.2px;
-            right: -18.8px;
-            width: 48px;
-            height: 3.6px; /* 6 * 0.6，左下↔右上方向变细 */
+            top: 4px;
+            right: 5px;
+            font-size: 0.64rem;
         }
 
         #platform-games.games-view-list .random-level {
@@ -1246,7 +1245,7 @@
             // 围棋类
             { id: 'choice-weiqi', name: '选点围棋', randomLevel: 4, path: 'choice-weiqi', enabled: true, recommended: true, category: '围棋', intro: '每步棋只能从随机候选点中选择落子！' },
             { id: 'triangle-weiqi', name: '三角围棋', randomLevel: 0, path: 'triangle-weiqi', enabled: true, recommended: true, category: '围棋', intro: '三角棋盘！' },
-            { id: 'hexagon-weiqi', name: '六角围棋', randomLevel: 0, path: 'hexagon-weiqi', enabled: true, recommended: true, category: '围棋', intro: '六角棋盘！' },
+            { id: 'hexagon-weiqi', name: '六角围棋', randomLevel: 0, path: 'hexagon-weiqi', enabled: true, recommended: false, category: '围棋', intro: '六角棋盘！' },
             { id: 'snub-quadrangle-weiqi', name: '扭棱四角围棋', randomLevel: 0, path: 'snub-quadrangle-weiqi', enabled: true, recommended: false, category: '围棋', intro: '扭棱四角棋盘！' },
             { id: 'cairo-pentagon-weiqi', name: '开罗五角围棋', randomLevel: 0, path: 'cairo-pentagon-weiqi', enabled: true, recommended: false, category: '围棋', intro: '开罗五角棋盘！' },
             { id: 'floret-pentagon-weiqi', name: '花形五角围棋', randomLevel: 0, path: 'floret-pentagon-weiqi', enabled: true, recommended: false, category: '围棋', intro: '花形五角棋盘！' },
@@ -1264,10 +1263,10 @@
             { id: 'bridge-weiqi', name: '桥围棋', randomLevel: 2, path: 'bridge-weiqi', enabled: true, recommended: true, category: '围棋', intro: '棋盘上建了一些桥！' },
             { id: 'neutral-stone-weiqi', name: '中立子围棋', randomLevel: 2, path: 'neutral-stone-weiqi', enabled: true, recommended: false, category: '围棋', intro: '' },
             { id: 'family-weiqi', name: '全家福围棋', randomLevel: 2, path: 'family-weiqi', enabled: true, recommended: false, category: '围棋', intro: '啥都有！' },
-            { id: 'ukrainian-weiqi', name: '乌克兰围棋', randomLevel: 0, path: 'ukrainian-weiqi', enabled: true, recommended: true, category: '围棋', intro: '一次下三颗子！' },
+            { id: 'greedy-weiqi', name: '贪吃围棋', randomLevel: 0, path: 'greedy-weiqi', enabled: true, recommended: true, category: '围棋', intro: '有提必提！' },
+            { id: 'ukrainian-weiqi', name: '乌克兰围棋', randomLevel: 0, path: 'ukrainian-weiqi', enabled: true, recommended: false, category: '围棋', intro: '一次下三颗子！' },
             { id: 'russian-weiqi', name: '俄罗斯围棋', randomLevel: 4, path: 'russian-weiqi', enabled: true, recommended: false, category: '围棋', intro: '棋子是俄罗斯方块的形状！' },
             { id: 'rus-weiqi', name: '罗斯围棋', randomLevel: 0, path: 'rus-weiqi', enabled: true, recommended: true, category: '围棋', intro: '一次下三颗子，其中有一颗是对方的！' },
-            { id: 'greedy-weiqi', name: '贪吃围棋', randomLevel: 0, path: 'greedy-weiqi', enabled: true, recommended: false, category: '围棋', intro: '有提子时必须提最多！' },
             { id: 'mirror-image-weiqi', name: '镜像围棋', randomLevel: 4, path: 'mirror-image-weiqi', enabled: true, recommended: true, category: '围棋', intro: '落子时会同时在镜像位置落子！' },
             { id: 'weak-magnetism-weiqi', name: '弱磁性围棋', randomLevel: 0, path: 'weak-magnetism-weiqi', enabled: true, recommended: true, category: '围棋', intro: '落子时会吸引或排斥棋盘上的棋子！' },
             { id: 'medium-magnetism-weiqi', name: '中磁性围棋', randomLevel: 0, path: 'medium-magnetism-weiqi', enabled: true, recommended: false, category: '围棋', intro: '更强的磁性！' },
@@ -1278,9 +1277,9 @@
             { id: 'instability-weiqi', name: '不稳定围棋', randomLevel: 0, path: 'instability-weiqi', enabled: true, recommended: true, category: '围棋', intro: '棋子落下后还会消失！' },
             { id: 'fog-weiqi', name: '迷雾围棋', randomLevel: 3, path: 'fog-weiqi', enabled: true, recommended: true, category: '围棋', intro: '棋盘上笼罩着迷雾！' },
             { id: 'sync-weiqi', name: '同步围棋', randomLevel: 3, path: 'sync-weiqi', enabled: true, recommended: true, category: '围棋', intro: '双方同步骡子！' },
-            { id: 'invisible-stone-weiqi', name: '隐身子围棋', randomLevel: 3, path: 'invisible-stone-weiqi', enabled: true, recommended: true, category: '围棋', intro: '每第3手棋会隐身！' },
+            { id: 'invisible-stone-weiqi', name: '隐身子围棋', randomLevel: 3, path: 'invisible-stone-weiqi', enabled: true, recommended: false, category: '围棋', intro: '每第3手棋会隐身！' },
             { id: 'radar-weiqi', name: '雷达围棋', randomLevel: 3, path: 'radar-weiqi', enabled: true, recommended: true, category: '围棋', intro: '看不到对方的棋子，只能感知到距离！' },
-            { id: 'sonar-weiqi', name: '声呐围棋', randomLevel: 3, path: 'sonar-weiqi', enabled: true, recommended: true, category: '围棋', intro: '每枚棋子只能看到每个方向上最近的对方棋子！' },
+            { id: 'sonar-weiqi', name: '声呐围棋', randomLevel: 3, path: 'sonar-weiqi', enabled: true, recommended: false, category: '围棋', intro: '每枚棋子只能看到每个方向上最近的对方棋子！' },
             { id: 'twisted-space-weiqi', name: '扭曲空间围棋', randomLevel: 2, path: 'twisted-space-weiqi', enabled: true, recommended: true, category: '围棋', intro: '棋盘空间极度扭曲！' },
             { id: 'front-back-weiqi', name: '正反面围棋', randomLevel: 0, path: 'front-back-weiqi', enabled: true, recommended: false, category: '围棋', intro: '正反面一起下！' },
             { id: 'auction-weiqi', name: '竞叫围棋', randomLevel: 0, path: 'auction-weiqi', enabled: false, recommended: false, category: '围棋', intro: '超级博弈论游戏，谁叫的分高谁下！' },
@@ -1295,10 +1294,11 @@
             // 五子棋类
             { id: 'choice-wuziqi', name: '选点五子棋', randomLevel: 4, path: 'choice-wuziqi', enabled: true, recommended: true, category: '五子棋', intro: '每步棋只能从随机候选点中选择落子！' },
             { id: 'guess-wuziqi', name: '猜点五子棋', randomLevel: 4, path: 'guess-wuziqi', enabled: true, recommended: true, category: '五子棋', intro: '猜对方的选点，并且让对方猜错！' },
-            { id: 'triangle-wuziqi', name: '三角五子棋', randomLevel: 0, path: 'triangle-wuziqi', enabled: true, recommended: true, category: '五子棋', intro: '三角形棋盘！' },
-            { id: 'random-instability-wuziqi', name: '随机不稳定五子棋', randomLevel: 4, path: 'random-instability-wuziqi', enabled: true, recommended: true, category: '五子棋', intro: '每个棋子都有随机寿命！' },
+            { id: 'triangle-wuziqi', name: '三角五子棋', randomLevel: 0, path: 'triangle-wuziqi', enabled: true, recommended: false, category: '五子棋', intro: '三角形棋盘！' },
+            { id: 'random-instability-wuziqi', name: '随机不稳定五子棋', randomLevel: 4, path: 'random-instability-wuziqi', enabled: true, recommended: false, category: '五子棋', intro: '每个棋子都有随机寿命！' },
             { id: 'match-wuziqi', name: '消除五子棋', randomLevel: 0, path: 'match-wuziqi', enabled: true, recommended: true, category: '五子棋', intro: '' },
             { id: 'rotation-wuziqi', name: '旋转五子棋', randomLevel: 0, path: 'rotation-wuziqi', enabled: true, recommended: false, category: '五子棋', intro: '' },
+            { id: 'square-diagonal-four', name: '方斜四棋', randomLevel: 0, path: 'square-diagonal-four', enabled: true, recommended: true, category: '五子棋', intro: '方四胜斜四负！' },
             { id: 'wuziqi', name: '五子棋', randomLevel: 0, path: 'wuziqi', enabled: true, recommended: false, category: '五子棋', intro: '普通的五子棋有什么好玩的！' },
 
             // 象棋类

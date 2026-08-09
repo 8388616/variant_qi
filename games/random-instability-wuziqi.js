@@ -208,12 +208,22 @@ class RandomInstabilityWuziqiRoom extends QiTwoPlayerRoomBase {
 
     static encodeMove(m) {
         const h = m.player === 'black' ? 'B' : 'W';
+        if (m.type === 'pass') {
+            return m.nextPreview != null ? `${h}p,${m.nextPreview}` : `${h}p`;
+        }
         return `${h}${m.row},${m.col},${m.lifetime}`;
     }
 
-    /** @returns {{ player: string, row: number, col: number, lifetime: number, nextPreview?: number|null } | null} */
+    /** @returns {{ type?: string, player: string, row?: number, col?: number, lifetime?: number, nextPreview?: number|null } | null} */
     static parseMoveEntry(entry) {
         if (entry && typeof entry === 'object' && entry.player) {
+            if (entry.type === 'pass') {
+                return {
+                    type: 'pass',
+                    player: entry.player,
+                    nextPreview: entry.nextPreview != null ? entry.nextPreview : null
+                };
+            }
             return {
                 player: entry.player,
                 row: entry.row,
@@ -226,6 +236,14 @@ class RandomInstabilityWuziqiRoom extends QiTwoPlayerRoomBase {
         const head = entry[0];
         if (head !== 'B' && head !== 'W') return null;
         const player = head === 'B' ? 'black' : 'white';
+        if (entry[1] === 'p') {
+            let nextPreview = null;
+            if (entry.length > 2 && entry[2] === ',') {
+                const n = +entry.slice(3);
+                if (Number.isFinite(n)) nextPreview = n;
+            }
+            return { type: 'pass', player, nextPreview };
+        }
         const parts = entry.slice(1).split(',');
         if (parts.length < 3) return null;
         const row = +parts[0];
@@ -234,6 +252,15 @@ class RandomInstabilityWuziqiRoom extends QiTwoPlayerRoomBase {
         const nextPreview = parts.length >= 4 ? +parts[3] : null;
         if (!Number.isFinite(row) || !Number.isFinite(col) || !Number.isFinite(lifetime)) return null;
         return { player, row, col, lifetime, nextPreview: Number.isFinite(nextPreview) ? nextPreview : null };
+    }
+
+    _trailingPassCount() {
+        let n = 0;
+        for (let i = this.moveLog.length - 1; i >= 0; i--) {
+            if (this.moveLog[i].type === 'pass') n++;
+            else break;
+        }
+        return n;
     }
 
     buildSnapshotsFromMoves(moves, openingPreview, boardSize) {
@@ -248,7 +275,10 @@ class RandomInstabilityWuziqiRoom extends QiTwoPlayerRoomBase {
         if (moves.length > 0) {
             const m0 = norm(moves[0]);
             if (!m0) return null;
-            nextPreview = m0.lifetime;
+            nextPreview = m0.type === 'pass'
+                ? (openingPreview != null ? openingPreview : null)
+                : m0.lifetime;
+            if (nextPreview == null) return null;
         } else {
             nextPreview = openingPreview;
         }
@@ -270,8 +300,6 @@ class RandomInstabilityWuziqiRoom extends QiTwoPlayerRoomBase {
             if (!m) return null;
             const slot = m.player;
             if (slot !== currentPlayer) return null;
-            const lifetimePlaced = m.lifetime;
-            if (lifetimePlaced !== nextPreview) return null;
 
             for (let r = 0; r < size; r++) {
                 for (let c = 0; c < size; c++) {
@@ -281,6 +309,55 @@ class RandomInstabilityWuziqiRoom extends QiTwoPlayerRoomBase {
                     }
                 }
             }
+
+            if (m.type === 'pass') {
+                lastMoveMarkers = [];
+                if (m.nextPreview != null) nextPreview = m.nextPreview;
+                let gameOver = false;
+                let winner = null;
+                const trailing = (() => {
+                    let n = 1;
+                    for (let j = i - 1; j >= 0; j--) {
+                        const prev = norm(moves[j]);
+                        if (prev && prev.type === 'pass') n++;
+                        else break;
+                    }
+                    return n;
+                })();
+                if (trailing >= 2) {
+                    gameOver = true;
+                    winner = 'draw';
+                }
+                if (gameOver) {
+                    snapshots.push({
+                        board: board.map(r => r.slice()),
+                        lifetimes: lifetimes.map(r => r.slice()),
+                        currentPlayer: slot,
+                        moveCount,
+                        nextLifetimePreview: nextPreview,
+                        lastMoveMarkers: [],
+                        gameOver: true,
+                        winner
+                    });
+                    break;
+                }
+                currentPlayer = currentPlayer === 'black' ? 'white' : 'black';
+                moveCount++;
+                snapshots.push({
+                    board: board.map(r => r.slice()),
+                    lifetimes: lifetimes.map(r => r.slice()),
+                    currentPlayer,
+                    moveCount,
+                    nextLifetimePreview: nextPreview,
+                    lastMoveMarkers: [],
+                    gameOver: false,
+                    winner: null
+                });
+                continue;
+            }
+
+            const lifetimePlaced = m.lifetime;
+            if (lifetimePlaced !== nextPreview) return null;
 
             const playerVal = slot === 'black' ? 1 : 2;
             board[m.row][m.col] = playerVal;
@@ -322,7 +399,11 @@ class RandomInstabilityWuziqiRoom extends QiTwoPlayerRoomBase {
             if (i + 1 < moves.length) {
                 const mn = norm(moves[i + 1]);
                 if (!mn) return null;
-                nextPreview = mn.lifetime;
+                if (mn.type === 'pass') {
+                    if (m.nextPreview != null) nextPreview = m.nextPreview;
+                } else {
+                    nextPreview = mn.lifetime;
+                }
             } else {
                 nextPreview = m.nextPreview != null ? m.nextPreview : null;
             }
@@ -429,13 +510,18 @@ class RandomInstabilityWuziqiRoom extends QiTwoPlayerRoomBase {
                 this.broadcast({ type: 'roomReset', ...this.getState() });
                 return;
             }
-            if (data.openingPreview != null && data.openingPreview !== m0.lifetime) {
-                this.resetToEmpty();
-                requesterWs.send(JSON.stringify({ type: 'error', message: '棋谱 openingPreview 与第一手寿命不一致' }));
-                this.broadcast({ type: 'roomReset', ...this.getState() });
-                return;
+            if (m0.type === 'pass') {
+                if (data.openingPreview != null) this.nextLifetimePreview = data.openingPreview;
+                else this.generateNextPreview();
+            } else {
+                if (data.openingPreview != null && data.openingPreview !== m0.lifetime) {
+                    this.resetToEmpty();
+                    requesterWs.send(JSON.stringify({ type: 'error', message: '棋谱 openingPreview 与第一手寿命不一致' }));
+                    this.broadcast({ type: 'roomReset', ...this.getState() });
+                    return;
+                }
+                this.nextLifetimePreview = m0.lifetime;
             }
-            this.nextLifetimePreview = m0.lifetime;
         } else if (data.openingPreview != null) {
             this.nextLifetimePreview = data.openingPreview;
         } else {
@@ -457,18 +543,41 @@ class RandomInstabilityWuziqiRoom extends QiTwoPlayerRoomBase {
                 this.broadcast({ type: 'roomReset', ...this.getState() });
                 return;
             }
+
+            const previewBefore = this.nextLifetimePreview;
+            this.historyBoards.push(this.copyBoard(this.board));
+            this.historyLifetimes.push(this.copyLifetimes(this.lifetimes));
+            this.decrementLifetimesAndRemove();
+
+            if (m.type === 'pass') {
+                this.lastMoveMarkers = [];
+                if (m.nextPreview != null) {
+                    this.nextLifetimePreview = m.nextPreview;
+                } else {
+                    this.generateNextPreview();
+                }
+                this.moveLog.push({
+                    type: 'pass',
+                    player: slot,
+                    previewBefore,
+                    nextPreview: this.nextLifetimePreview
+                });
+                this.currentPlayer = this.currentPlayer === 'black' ? 'white' : 'black';
+                this.moveCount++;
+                if (this._trailingPassCount() >= 2) {
+                    this.gameOver = true;
+                    this.winner = 'draw';
+                    break;
+                }
+                continue;
+            }
+
             if (m.lifetime !== this.nextLifetimePreview) {
                 this.resetToEmpty();
                 requesterWs.send(JSON.stringify({ type: 'error', message: `棋谱回放失败：第 ${i + 1} 手寿命预览与记录不符。` }));
                 this.broadcast({ type: 'roomReset', ...this.getState() });
                 return;
             }
-
-            const previewBefore = this.nextLifetimePreview;
-            this.historyBoards.push(this.copyBoard(this.board));
-            this.historyLifetimes.push(this.copyLifetimes(this.lifetimes));
-
-            this.decrementLifetimesAndRemove();
 
             const { row, col } = m;
             if (row < 0 || row >= this.BOARD_SIZE || col < 0 || col >= this.BOARD_SIZE || this.board[row][col] !== 0) {
@@ -524,7 +633,7 @@ class RandomInstabilityWuziqiRoom extends QiTwoPlayerRoomBase {
                     this.broadcast({ type: 'roomReset', ...this.getState() });
                     return;
                 }
-                np = mn.lifetime;
+                if (mn.type !== 'pass') np = mn.lifetime;
             }
             if (m.nextPreview != null && np != null && m.nextPreview !== np) {
                 this.resetToEmpty();
@@ -534,9 +643,10 @@ class RandomInstabilityWuziqiRoom extends QiTwoPlayerRoomBase {
             }
             if (np != null) {
                 this.nextLifetimePreview = np;
-            } else {
+            } else if (i + 1 >= rawMoves.length) {
                 this.generateNextPreview();
             }
+            /* next is pass：本手后的预览在落子时已 generate；虚着手内再刷新 */
             const loggedNext = np != null ? np : this.nextLifetimePreview;
 
             this.moveLog.push({
@@ -704,6 +814,62 @@ class RandomInstabilityWuziqiRoom extends QiTwoPlayerRoomBase {
                     lastMoveMarkers: this.lastMoveMarkers,
                     gameOver: false
                 });
+                break;
+
+            case 'pass':
+                if (this.gameOver) return;
+                if (!this.matchStarted || this.tcNego || this.tcSettings === null) return;
+                if (!slot || slot !== this.currentPlayer) return;
+                if (!this._drainClockBeforeMove(slot)) return;
+
+                {
+                    const previewBefore = this.nextLifetimePreview;
+                    this.historyBoards.push(this.copyBoard(this.board));
+                    this.historyLifetimes.push(this.copyLifetimes(this.lifetimes));
+                    this.decrementLifetimesAndRemove();
+                    this.lastMoveMarkers = [];
+                    this.generateNextPreview();
+                    this.moveLog.push({
+                        type: 'pass',
+                        player: slot,
+                        previewBefore,
+                        nextPreview: this.nextLifetimePreview
+                    });
+                    this.currentPlayer = (this.currentPlayer === 'black') ? 'white' : 'black';
+                    this.moveCount++;
+                    if (this._trailingPassCount() >= 2) {
+                        this.gameOver = true;
+                        this.winner = 'draw';
+                        this._stopClockTicker();
+                        this.broadcast({
+                            type: 'broadcast',
+                            action: 'pass',
+                            board: this.board,
+                            lifetimes: this.lifetimes,
+                            currentPlayer: this.currentPlayer,
+                            moveCount: this.moveCount,
+                            nextLifetimePreview: this.nextLifetimePreview,
+                            lastMoveMarkers: this.lastMoveMarkers,
+                            gameOver: true,
+                            winner: 'draw',
+                            moveLog: this.moveLog.map(m => ({ ...m }))
+                        });
+                        return;
+                    }
+                    this._syncClockAfterTurnChange();
+                    this.broadcast({
+                        type: 'broadcast',
+                        action: 'pass',
+                        board: this.board,
+                        lifetimes: this.lifetimes,
+                        currentPlayer: this.currentPlayer,
+                        moveCount: this.moveCount,
+                        nextLifetimePreview: this.nextLifetimePreview,
+                        lastMoveMarkers: this.lastMoveMarkers,
+                        gameOver: false,
+                        moveLog: this.moveLog.map(m => ({ ...m }))
+                    });
+                }
                 break;
 
             case 'requestUndo':

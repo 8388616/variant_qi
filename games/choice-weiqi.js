@@ -134,7 +134,8 @@ class ChoiceWeiqiRoom extends QiTwoPlayerRoomBase {
         this.broadcast({
             type: 'timeControlAgreed',
             settings: this.tcSettings,
-            clock: this.tcClock ? qiMatchTimeControl.snapshotForClient(this.tcClock) : null
+            clock: this.tcClock ? qiMatchTimeControl.snapshotForClient(this.tcClock) : null,
+            ...this.getState()
         });
         this.broadcast({ type: 'gameState', ...this.getState() });
     }

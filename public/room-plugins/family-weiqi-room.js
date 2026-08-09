@@ -368,7 +368,10 @@ const scoreTitle = document.getElementById('scoreTitle');
             const hoverStoneValidEmpty = hr >= 0 && hc >= 0 && hoverCell === 0 && ps.isHoverValid && hoverValidCell;
             d.hoverPreviewStone(ctx, ps.hoverRow, ps.hoverCol, ps.board, ps.PADDING, ps.CELL_SIZE, {
                 tryPlayMode: ps.tryPlayMode, tryPlayCurrentPlayer: ps.tryPlayCurrentPlayer, gameOver: ps.gameOver,
-                isMyTurn: ps.isMyTurn, mySlot: ps.mySlot, isHoverValid: hoverStoneValidEmpty, hoverCapture: !!ps.hoverCapture
+                isMyTurn: ps.isMyTurn, mySlot: ps.mySlot, isHoverValid: hoverStoneValidEmpty, hoverCapture: !!ps.hoverCapture,
+                pageState: ps,
+                editModeEnabled: !!ps.editModeEnabled,
+                editTool: ps.editTool
             });
             if (hoverValidCell && hoverCell === MINE && ps.isHoverValid && !ps.hoverCapture) {
                 const canMineHover = ps.tryPlayMode || (!ps.gameOver && ps.isMyTurn);

@@ -638,16 +638,28 @@ window.RoomPlugins["sigmoid-triangle-weiqi"] = {
             },
             drawHoverPreview(ctx, hoverRow, hoverCol, board, padding, cellSize, boardSize, stoneRadius, options) {
                 const { tryPlayMode, tryPlayCurrentPlayer, gameOver, isMyTurn, mySlot, isHoverValid, hoverCapture } = options;
-                const canHover = tryPlayMode || (!gameOver && isMyTurn);
-                if (!canHover || hoverRow < 0 || hoverCol < 0 || board[hoverRow][hoverCol] !== 0) return;
-                if (!isHoverValid || hoverCapture) return;
+                const editing = !!options.editModeEnabled;
+                const canHover = editing || tryPlayMode || (!gameOver && isMyTurn);
+                if (!canHover || hoverRow < 0 || hoverCol < 0) return;
+                if (!editing && board[hoverRow][hoverCol] !== 0) return;
+                if (!isHoverValid || (!editing && hoverCapture)) return;
+                let hoverColor = null;
+                if (editing) {
+                    const t = options.editTool || 'empty';
+                    if (t === 'white') hoverColor = '#fff';
+                    else if (t === 'black') hoverColor = '#222';
+                    else if (t !== 'empty') hoverColor = '#666';
+                    else return;
+                } else {
+                    hoverColor = tryPlayMode
+                        ? (tryPlayCurrentPlayer === 1 ? '#222' : '#ddd')
+                        : (mySlot === 'black' ? '#222' : '#ddd');
+                }
                 const { x, y } = this.xy(hoverRow, hoverCol, padding, cellSize, boardSize);
                 ctx.globalAlpha = 0.45;
                 ctx.beginPath();
                 ctx.arc(x, y, stoneRadius, 0, 2 * Math.PI);
-                ctx.fillStyle = tryPlayMode
-                    ? (tryPlayCurrentPlayer === 1 ? '#222' : '#ddd')
-                    : (mySlot === 'black' ? '#222' : '#ddd');
+                ctx.fillStyle = hoverColor;
                 ctx.fill();
                 ctx.globalAlpha = 1;
             },
@@ -1184,7 +1196,10 @@ const scoreTitle = document.getElementById('scoreTitle');
             });
         }
         if (editToolSelect) {
-            editToolSelect.addEventListener('change', () => { ps.editTool = editToolSelect.value; });
+            editToolSelect.addEventListener('change', () => {
+                ps.editTool = editToolSelect.value;
+                drawBoardCore();
+            });
         }
         if (clearBoardBtn) {
             clearBoardBtn.addEventListener('click', () => {
@@ -1238,9 +1253,11 @@ const scoreTitle = document.getElementById('scoreTitle');
                 isMyTurn: ps.isMyTurn,
                 mySlot: ps.mySlot,
                 isHoverValid: ps.isHoverValid,
-                hoverCapture: !!ps.hoverCapture
+                hoverCapture: !!ps.hoverCapture,
+                editModeEnabled: !!ps.editModeEnabled,
+                editTool: ps.editTool || 'empty'
             });
-            if (ps.hoverCapture) {
+            if (ps.hoverCapture && !ps.editModeEnabled) {
                 G.drawHoverCaptureRing(ctx, ps.hoverRow, ps.hoverCol, pad, cellSize, n, stoneRadius, {
                     tryPlayMode: ps.tryPlayMode,
                     gameOver: ps.gameOver,
@@ -1678,7 +1695,7 @@ syncState,
                 const { x, y } = canvasCoordsFromClient(e.clientX, e.clientY);
                 const { row, col } = pickIntersectionAtCanvas(x, y);
                 ps.hoverRow = row; ps.hoverCol = col;
-                ps.isHoverValid = (row >= 0 && col >= 0 && ps.board[row][col] === 0);
+                ps.isHoverValid = (row >= 0 && col >= 0 && (ps.editModeEnabled || ps.board[row][col] === 0));
                 boardUpdateGrabCursor();
                 drawBoardCore();
             });

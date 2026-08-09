@@ -120,11 +120,43 @@
 })(window);
 
 (function (global) {
+    const activeRoomSockets = new Set();
+
+    function setLeaving(v) {
+        if (typeof window !== 'undefined') window.__qiRoomLeaving = !!v;
+    }
+
+    function qiRegisterRoomSocket(socket) {
+        if (!socket) return socket;
+        activeRoomSockets.add(socket);
+        const drop = () => { activeRoomSockets.delete(socket); };
+        socket.addEventListener('close', drop);
+        return socket;
+    }
+
+    function qiLeaveRoomIntentionally() {
+        setLeaving(true);
+        for (const s of Array.from(activeRoomSockets)) {
+            try {
+                if (s.readyState === 1) s.send(JSON.stringify({ type: 'leave' }));
+            } catch (_) { /* ignore */ }
+            try { s.close(); } catch (_) { /* ignore */ }
+            activeRoomSockets.delete(s);
+        }
+    }
+
+    function qiLeaveRoomAndGoLobby() {
+        qiLeaveRoomIntentionally();
+        window.location.href = '/qi';
+    }
+
     function qiOpenRoomWebSocket(opts) {
+        setLeaving(false);
         const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
         const url = protocol + '//' + location.host + '/qi/ws?game=' +
             encodeURIComponent(opts.gameType) + '&room=' + encodeURIComponent(opts.roomId);
         const socket = new WebSocket(url);
+        qiRegisterRoomSocket(socket);
         socket.onopen = function () {
             socket.send(JSON.stringify({
                 type: 'join',
@@ -135,9 +167,29 @@
         socket.onmessage = function (e) {
             opts.onMessage(JSON.parse(e.data));
         };
-        socket.onclose = opts.onClose;
+        const userOnClose = opts.onClose;
+        socket.onclose = function (event) {
+            if (typeof window !== 'undefined' && window.__qiRoomLeaving) return;
+            if (typeof userOnClose === 'function') userOnClose(event);
+        };
         return socket;
     }
 
     global.qiOpenRoomWebSocket = qiOpenRoomWebSocket;
+    global.qiRegisterRoomSocket = qiRegisterRoomSocket;
+    global.qiLeaveRoomIntentionally = qiLeaveRoomIntentionally;
+    global.qiLeaveRoomAndGoLobby = qiLeaveRoomAndGoLobby;
+
+    if (typeof document !== 'undefined') {
+        document.addEventListener('click', (e) => {
+            const t = e.target;
+            if (!t || typeof t.closest !== 'function') return;
+            if (!t.closest('#backToLobbyBtn')) return;
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            qiLeaveRoomAndGoLobby();
+        }, true);
+        window.addEventListener('pagehide', () => { qiLeaveRoomIntentionally(); });
+        window.addEventListener('beforeunload', () => { qiLeaveRoomIntentionally(); });
+    }
 })(typeof window !== 'undefined' ? window : global);

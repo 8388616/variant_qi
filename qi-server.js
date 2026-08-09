@@ -117,6 +117,26 @@ function resolveChatSenderLabel(room, ws) {
     return '观战者' + n;
 }
 
+/** 从房间卸下连接（leave 消息与 close 共用，可幂等） */
+function detachClientFromRoom(ws) {
+    if (!ws || ws._qiDetached) return;
+    ws._qiDetached = true;
+    const room = ws.room;
+    if (!room) return;
+    try {
+        if (room.gameLogic && typeof room.gameLogic.onPlayerLeave === 'function') {
+            room.gameLogic.onPlayerLeave(ws);
+        }
+    } catch (error) {
+        console.error(error);
+    }
+    try {
+        room.removeClient(ws);
+    } catch (error) {
+        console.error(error);
+    }
+}
+
 class BaseGameRoom
 {
     constructor(roomId, gameType, hasPassword, passwordHash, maxPlayers = 2) {
@@ -208,6 +228,27 @@ class BaseGameRoom
         this.scheduleDestruction();
     }
 
+    /**
+     * 清理已断开但仍挂在 players/observers/slotOccupancy 上的僵死连接。
+     * 移动端息屏/切页时 close 可能滞后，导致大厅人数与座位不准。
+     */
+    purgeDeadClients() {
+        const WS_OPEN = 1;
+        const dead = new Set();
+        for (const client of this.players.keys()) {
+            if (!client || client.readyState !== WS_OPEN) dead.add(client);
+        }
+        for (const client of this.observers) {
+            if (!client || client.readyState !== WS_OPEN) dead.add(client);
+        }
+        for (const [slot, client] of this.slotOccupancy.entries()) {
+            if (!client || client.readyState !== WS_OPEN) dead.add(client);
+        }
+        for (const client of dead) {
+            detachClientFromRoom(client);
+        }
+    }
+
     getPlayerBySlot(slot) {
         return this.slotOccupancy.get(slot);
     }
@@ -217,6 +258,7 @@ class BaseGameRoom
     }
 
     getPlayerCount() {
+        this.purgeDeadClients();
         return this.players.size;
     }
 
@@ -492,6 +534,7 @@ wss.on('connection', (ws, req) => {
         }
 
         if (msg.type === 'join') {
+            room.purgeDeadClients();
             if (room.hasPassword) {
                 const hash = crypto.createHash('sha256').update(msg.password || '').digest('hex');
                 if (hash !== room.passwordHash) {
@@ -535,6 +578,10 @@ wss.on('connection', (ws, req) => {
             if (Array.isArray(room.chatLog) && room.chatLog.length) {
                 ws.send(JSON.stringify({ type: 'chatHistory', messages: room.chatLog }));
             }
+        }
+        else if (msg.type === 'leave') {
+            detachClientFromRoom(ws);
+            try { ws.close(); } catch (_) { /* ignore */ }
         }
         else if (msg.type === 'chat') {
             chatMessages = loadChatMessages();
@@ -581,12 +628,7 @@ wss.on('connection', (ws, req) => {
 
     ws.on('close', () => {
         try {
-            const room = ws.room;
-            if (room) {
-                if (room.gameLogic && room.gameLogic.onPlayerLeave)
-                    room.gameLogic.onPlayerLeave(ws);
-                room.removeClient(ws);
-            }
+            detachClientFromRoom(ws);
         }
         catch (error) {
             console.error(error);
@@ -594,7 +636,8 @@ wss.on('connection', (ws, req) => {
     });
 });
 
-const HEARTBEAT_MS = 30000;
+// 心跳：尽快发现僵死连接并释放座位（原 30s 过慢，离开后大厅仍显示 1/2）
+const HEARTBEAT_MS = 10000;
 setInterval(() => {
     wss.clients.forEach((client) => {
         if (client.readyState !== 1) return;

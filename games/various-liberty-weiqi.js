@@ -99,8 +99,7 @@ function tryPlaceStoneVariousLiberty(board, levelBoard, boardSize, row, col, pla
     const enemyColor = 3 - playerVal;
     removeFailingGroupsOfColor(newBoard, newLevel, boardSize, enemyColor);
     removeFailingGroupsOfColor(newBoard, newLevel, boardSize, playerVal);
-
-    if (newBoard[row][col] === 0) return null;
+    // 允许自杀（落子后己方子被提光）；禁全同另判
     return { board: newBoard, levelBoard: newLevel };
 }
 

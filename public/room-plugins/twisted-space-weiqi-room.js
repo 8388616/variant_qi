@@ -562,16 +562,28 @@ if (sizeSelect) {
                 ctx.fillText(ch, p.x, p.y + 1);
             }
 
-            const canHover = tryPlayMode || (!gameOver && isMyTurn);
-            if ((isMouseDevice || mobileTwoStepPlacing()) && canHover && isHoverValid && isValidCoord(hoverR, hoverC) && board[hoverR][hoverC] === 0) {
-                const p = triCellCenter(hoverR, hoverC);
-                ctx.globalAlpha = 0.45;
-                ctx.beginPath();
-                ctx.arc(p.x, p.y, stoneRadius, 0, 2 * Math.PI);
-                const hoverColor = tryPlayMode ? (tryPlayCurrentPlayer === 1 ? '#222' : '#ddd') : (mySlot === 'black' ? '#222' : '#ddd');
-                ctx.fillStyle = hoverColor;
-                ctx.fill();
-                ctx.globalAlpha = 1.0;
+            const editCb = document.getElementById('editModeCheckbox');
+            const editSel = document.getElementById('editToolSelect');
+            const editing = !!(editCb && editCb.checked);
+            const canHover = editing || tryPlayMode || (!gameOver && isMyTurn);
+            if ((isMouseDevice || mobileTwoStepPlacing()) && canHover && isHoverValid && isValidCoord(hoverR, hoverC) && (editing || board[hoverR][hoverC] === 0)) {
+                let hoverColor = null;
+                if (editing) {
+                    const t = (editSel && editSel.value) || 'empty';
+                    if (t === 'white') hoverColor = '#fff';
+                    else if (t === 'black') hoverColor = '#222';
+                    else if (t !== 'empty') hoverColor = '#666';
+                } else if (tryPlayMode) hoverColor = tryPlayCurrentPlayer === 1 ? '#222' : '#ddd';
+                else hoverColor = mySlot === 'black' ? '#222' : '#ddd';
+                if (hoverColor) {
+                    const p = triCellCenter(hoverR, hoverC);
+                    ctx.globalAlpha = 0.45;
+                    ctx.beginPath();
+                    ctx.arc(p.x, p.y, stoneRadius, 0, 2 * Math.PI);
+                    ctx.fillStyle = hoverColor;
+                    ctx.fill();
+                    ctx.globalAlpha = 1.0;
+                }
             }
 
             // 形势判断叠加层：死子/归属小方块
@@ -1217,7 +1229,8 @@ if (sizeSelect) {
                 const { x, y } = canvasCoordsFromClient(e.clientX, e.clientY);
                 const { row, col } = getClosestCell(x, y);
                 hoverR = row; hoverC = col;
-                isHoverValid = (row >= 0 && col >= 0 && isValidCoord(row, col) && board[row][col] === 0);
+                const editing = !!(document.getElementById('editModeCheckbox') || {}).checked;
+                isHoverValid = (row >= 0 && col >= 0 && isValidCoord(row, col) && (editing || board[row][col] === 0));
                 drawBoardWithOverlay();
             });
             canvas.addEventListener('mouseleave', () => {
@@ -1257,6 +1270,12 @@ if (sizeSelect) {
                 set gameStarted(v) { /* derived */ },
                 editModeEnabled: false,
                 editTool: 'empty',
+                get hoverRow() { return hoverR; },
+                set hoverRow(v) { hoverR = v == null ? -1 : v; },
+                get hoverCol() { return hoverC; },
+                set hoverCol(v) { hoverC = v == null ? -1 : v; },
+                get isHoverValid() { return isHoverValid; },
+                set isHoverValid(v) { isHoverValid = !!v; },
                 get ws() { return ws; }
             };
             const _editApi = QiWeiqiSquarePageRuntime.installBoardEditUI({

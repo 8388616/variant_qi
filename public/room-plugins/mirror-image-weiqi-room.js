@@ -231,7 +231,8 @@ const scoreTitle = document.getElementById('scoreTitle'), scoreBoard = document.
             if (ps.showMoveNumbers) d.moveNumbersOnStones(ctx, numsMirror(), ps.board, ps.BOARD_SIZE, ps.PADDING, z);
             const hoverOpts = {
                 tryPlayMode: ps.tryPlayMode, tryPlayCurrentPlayer: ps.tryPlayCurrentPlayer, gameOver: ps.gameOver,
-                isMyTurn: ps.isMyTurn, mySlot: ps.mySlot, isHoverValid: ps.isHoverValid
+                isMyTurn: ps.isMyTurn, mySlot: ps.mySlot, isHoverValid: ps.isHoverValid,
+                pageState: ps, editModeEnabled: !!ps.editModeEnabled, editTool: ps.editTool
             };
             d.hoverPreviewStone(ctx, ps.hoverRow, ps.hoverCol, ps.board, ps.PADDING, z, hoverOpts);
             // 镜像点同步悬停（须用下一手镜面轴，否则白方会画到上一手轴的错误位置）

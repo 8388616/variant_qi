@@ -1236,6 +1236,7 @@ const canvas = document.getElementById('goBoard');
                 if (msg.type === 'gameRecord') downloadRecord(msg.data);
             };
             ws.onclose = () => {
+                if (typeof window !== 'undefined' && window.__qiRoomLeaving) return;
                 if (ps.reconnectTimer) return;
                 ps.reconnectTimer = setTimeout(() => {
                     ps.reconnectTimer = null;

@@ -65,8 +65,20 @@ class TriangleWuziqiRoom extends QiTwoPlayerRoomBase {
         return true;
     }
 
+    _trailingPassCount() {
+        let n = 0;
+        for (let i = this.moveHistory.length - 1; i >= 0; i--) {
+            if (this.moveHistory[i].type === 'pass') n++;
+            else break;
+        }
+        return n;
+    }
+
     wireMoveCoords() {
-        return this.moveHistory.map(m => ({ type: 'move', player: m.player, row: m.row, col: m.col }));
+        return this.moveHistory.map(m => {
+            if (m.type === 'pass') return { type: 'pass', player: m.player };
+            return { type: 'move', player: m.player, row: m.row, col: m.col };
+        });
     }
 
     getState() {
@@ -78,7 +90,11 @@ class TriangleWuziqiRoom extends QiTwoPlayerRoomBase {
             lastMoveMarkers: this.lastMoveMarkers,
             gameOver: this.gameOver,
             winner: this.winner,
-            moveHistory: this.moveHistory.map(m => ({ player: m.player, row: m.row, col: m.col })),
+            moveHistory: this.moveHistory.map(m => (
+                m.type === 'pass'
+                    ? { type: 'pass', player: m.player }
+                    : { type: 'move', player: m.player, row: m.row, col: m.col }
+            )),
             moveCoords: this.wireMoveCoords(),
             matchTime: {
                 negotiation: this.tcNego,
@@ -104,7 +120,10 @@ class TriangleWuziqiRoom extends QiTwoPlayerRoomBase {
             gameType: '三角五子棋',
             gameId: 'triangle-wuziqi',
             boardSize: this.BOARD_SIZE,
-            moves: this.moveHistory.map(m => `${m.player[0].toUpperCase()}${m.row},${m.col}`),
+            moves: this.moveHistory.map(m => {
+                const p = m.player[0].toUpperCase();
+                return m.type === 'pass' ? `${p}p` : `${p}${m.row},${m.col}`;
+            }),
             result: this.gameOver ? this.winner : null,
             timeControl: this.tcSettings ? {
                 enabled: this.tcSettings.timed === true,
@@ -312,11 +331,14 @@ class TriangleWuziqiRoom extends QiTwoPlayerRoomBase {
             let entry = rawMoves[i];
             if (typeof entry === 'string') {
                 const player = entry[0] === 'B' ? 'black' : 'white';
-                const coords = entry.substring(1).split(',').map(Number);
-                entry = { player, row: coords[0], col: coords[1] };
+                if (entry.length >= 2 && entry[1] === 'p') {
+                    entry = { type: 'pass', player };
+                } else {
+                    const coords = entry.substring(1).split(',').map(Number);
+                    entry = { player, row: coords[0], col: coords[1] };
+                }
             }
-            const { row, col, player } = entry;
-            const slot = player;
+            const slot = entry.player;
             const expect = this.currentPlayer === 1 ? 'black' : 'white';
             if (slot !== expect) {
                 this.resetToEmpty();
@@ -324,6 +346,20 @@ class TriangleWuziqiRoom extends QiTwoPlayerRoomBase {
                 this.broadcast({ type: 'roomReset', ...this.getState() });
                 return;
             }
+            if (entry.type === 'pass') {
+                this.lastMoveMarkers = [];
+                this.moveHistory.push({ type: 'pass', player: slot });
+                this.historyBoards.push(this.copyBoard(this.board));
+                this.currentPlayer = this.currentPlayer === 1 ? 2 : 1;
+                if (this._trailingPassCount() >= 2) {
+                    this.gameOver = true;
+                    this.winner = 'draw';
+                    this.recordResultText = '和胜';
+                    break;
+                }
+                continue;
+            }
+            const { row, col } = entry;
             if (!this.isValidCoord(row, col)) {
                 this.resetToEmpty();
                 requesterWs.send(JSON.stringify({ type: 'error', message: `棋谱回放失败：第${i + 1}手坐标越界。` }));
@@ -382,7 +418,10 @@ class TriangleWuziqiRoom extends QiTwoPlayerRoomBase {
             boardSize: this.BOARD_SIZE,
             replayData: {
                 boardSize: this.BOARD_SIZE,
-                moves: this.moveHistory.map(m => `${m.player[0].toUpperCase()}${m.row},${m.col}`)
+                moves: this.moveHistory.map(m => {
+                    const p = m.player[0].toUpperCase();
+                    return m.type === 'pass' ? `${p}p` : `${p}${m.row},${m.col}`;
+                })
             }
         });
     }
@@ -440,6 +479,25 @@ class TriangleWuziqiRoom extends QiTwoPlayerRoomBase {
                     this._stopClockTicker();
                 }
                 this.broadcast({ type: 'broadcast', action: 'move', ...this.getState() });
+                break;
+            case 'pass':
+                if (this.gameOver) return;
+                if (!this._timeAllowsPlay(slot)) return;
+                if (!this._drainClockBeforeMove(slot)) return;
+                this.lastMoveMarkers = [];
+                this.moveHistory.push({ type: 'pass', player: slot });
+                this.historyBoards.push(this.copyBoard(this.board));
+                this.currentPlayer = this.currentPlayer === 1 ? 2 : 1;
+                if (this._trailingPassCount() >= 2) {
+                    this.gameOver = true;
+                    this.winner = 'draw';
+                    this.recordResultText = '和胜';
+                    this._stopClockTicker();
+                    this.broadcast({ type: 'broadcast', action: 'pass', ...this.getState() });
+                    return;
+                }
+                this._syncClockAfterTurnChange();
+                this.broadcast({ type: 'broadcast', action: 'pass', ...this.getState() });
                 break;
             case 'requestUndo':
                 qiProtocol.undoWuziqiHistory(this, ws, msg, slot);

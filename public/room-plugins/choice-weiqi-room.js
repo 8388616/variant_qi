@@ -235,7 +235,7 @@ const scoreTitle = document.getElementById('scoreTitle'), scoreBoard = document.
                 const showCand = !ps.tryPlayMode && !ps.gameOver && !ps.showEstimateActive && ps.candidates.length > 0 && !browsingLive;
                 if (showCand) {
                     ctx.globalAlpha = 0.7;
-                    const playerColor = ps.currentPlayer === 1 ? '#222' : '#ddd', sh = z * 0.18;
+                    const playerColor = ps.currentPlayer === 1 ? '#222' : '#fff', sh = z * 0.18;
                     for (const { row, col } of ps.candidates) {
                         const x = ps.PADDING + col * z, y = ps.PADDING + row * z;
                         ctx.fillStyle = playerColor;
@@ -246,7 +246,10 @@ const scoreTitle = document.getElementById('scoreTitle'), scoreBoard = document.
             }
             d.hoverPreviewStone(ctx, ps.hoverRow, ps.hoverCol, ps.board, ps.PADDING, z, {
                 tryPlayMode: ps.tryPlayMode, tryPlayCurrentPlayer: ps.tryPlayCurrentPlayer, gameOver: ps.gameOver,
-                isMyTurn: ps.isMyTurn, mySlot: ps.mySlot, isHoverValid: ps.isHoverValid
+                isMyTurn: ps.isMyTurn, mySlot: ps.mySlot, isHoverValid: ps.isHoverValid,
+                pageState: ps,
+                editModeEnabled: !!ps.editModeEnabled,
+                editTool: ps.editTool
             });
             if (ps.showEstimateActive && ps.cachedLiveBoard && ps.cachedTerritory)
                 d.estimateOverlay(ctx, ps.board, ps.BOARD_SIZE, ps.PADDING, z, ps.cachedLiveBoard, ps.cachedTerritory);
@@ -290,7 +293,15 @@ const scoreTitle = document.getElementById('scoreTitle'), scoreBoard = document.
             if (!ps.replayMode) {
                 const prevTotal = Math.max(0, ps.liveReplayBoards.length - 1);
                 const wasAtEnd = ps.liveFollowLatest || ps.liveViewStep >= prevTotal;
-                page.rebuildLiveReplayFromMoveCoords(state.moveCoords || [], ((typeof QiWeiqiSquarePageRuntime !== 'undefined' && QiWeiqiSquarePageRuntime.pickRichestBoard) ? QiWeiqiSquarePageRuntime.pickRichestBoard(state.initialBoard, state.board) : (state.initialBoard || state.board)));
+                // 有手数时绝不能拿 state.board（终局盘）当 opening，否则回放错乱并导致候选点被清掉
+                const openingForReplay = (typeof QiWeiqiSquarePageRuntime !== 'undefined' && QiWeiqiSquarePageRuntime.pickRichestBoard)
+                    ? QiWeiqiSquarePageRuntime.pickRichestBoard(
+                        state.initialBoard,
+                        ps.liveOpeningBoard,
+                        (!(state.moveCoords && state.moveCoords.length) ? state.board : null)
+                    )
+                    : (state.initialBoard || ps.liveOpeningBoard || null);
+                page.rebuildLiveReplayFromMoveCoords(state.moveCoords || [], openingForReplay);
                 const newTotal = Math.max(0, ps.liveReplayBoards.length - 1);
                 if (newTotal === 0) { ps.liveViewStep = 0; ps.liveFollowLatest = true; }
                 else if (wasAtEnd) { ps.liveViewStep = newTotal; ps.liveFollowLatest = true; }
@@ -301,8 +312,14 @@ const scoreTitle = document.getElementById('scoreTitle'), scoreBoard = document.
                 page.applyLiveViewBoard();
                 page.updateLiveReplayPanelUI();
                 const liveTotal = Math.max(0, ps.liveReplayBoards.length - 1);
-                if (liveTotal > 0 && ps.liveViewStep < liveTotal) ps.candidates = [];
-                else if (liveTotal > 0 && ps.liveViewStep >= liveTotal) ps.candidates = ps.serverCandidatesSnapshot.map(c => ({ row: c.row, col: c.col }));
+                if (liveTotal > 0 && ps.liveViewStep < liveTotal) {
+                    ps.candidates = [];
+                } else {
+                    // 当前手数（含尚无一手）：必须显示服务器本回合候选点
+                    if (state.board) ps.board = page.deepCopyBoard(state.board);
+                    if (state.lastMoveMarkers) ps.lastMoveMarkers = state.lastMoveMarkers.map(m => ({ ...m }));
+                    ps.candidates = ps.serverCandidatesSnapshot.map(c => ({ row: c.row, col: c.col }));
+                }
             } else {
                 ps.board = state.board;
                 ps.lastMoveMarkers = state.lastMoveMarkers || [];
@@ -433,7 +450,7 @@ const scoreTitle = document.getElementById('scoreTitle'), scoreBoard = document.
             page.applyLiveViewBoard();
             page.updateLiveReplayPanelUI();
             if (total > 0 && step < total) ps.candidates = [];
-            else if (total > 0 && step >= total) ps.candidates = ps.serverCandidatesSnapshot.map(c => ({ row: c.row, col: c.col }));
+            else ps.candidates = ps.serverCandidatesSnapshot.map(c => ({ row: c.row, col: c.col }));
             if (ps.showEstimateActive) page.showEstimate();
             else page.updateTurn();
         };

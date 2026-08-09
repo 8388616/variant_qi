@@ -1,14 +1,14 @@
 window.RoomPlugins = window.RoomPlugins || {};
-window.RoomPlugins["wuziqi"] = {
+window.RoomPlugins["square-diagonal-four"] = {
     shell: {
-        "title": "五子棋",
-        "rulesHtml": "基本规则同五子棋。<br /><br />",
-        "defaultKomiText": "无禁手",
+        "title": "方斜四棋",
+        "rulesHtml": "形成方四胜，形成斜四负。同时形成负。",
+        "defaultKomiText": "",
         "boardSizeMin": 7,
-        "boardSizeMax": 15,
+        "boardSizeMax": 27,
         "defaultBoardSize": 13,
         "minLib": 1,
-        "recordDownloadPrefix": "五子棋",
+        "recordDownloadPrefix": "方斜四棋",
         "standardWeiqiMatchTime": true,
         "features": {
             "editBoard": true
@@ -24,7 +24,7 @@ window.RoomPlugins["wuziqi"] = {
         var roomId = ctx.roomId;
         var roomPassword = ctx.roomPassword || null;
         var config = ctx.config || {};
-        var recordDownloadPrefix = config.recordDownloadPrefix != null ? config.recordDownloadPrefix : "五子棋";
+        var recordDownloadPrefix = config.recordDownloadPrefix != null ? config.recordDownloadPrefix : "方斜四棋";
         var minLib = config.minLib != null ? config.minLib : 1;
         var standardWeiqiMatchTime = config.standardWeiqiMatchTime != null ? config.standardWeiqiMatchTime : true;
 
@@ -91,6 +91,11 @@ const BOARD_MARK_CHAR_LIST = (() => {
         })();
 
         const komiInfo = document.getElementById('komiInfo');
+        if (komiInfo) {
+            komiInfo.hidden = true;
+            komiInfo.style.display = 'none';
+            komiInfo.textContent = '';
+        }
         const canvas = document.getElementById('goBoard');
         const ctx = canvas.getContext('2d');
         const turnDisplay = document.getElementById('turnDisplay');
@@ -116,7 +121,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             leadInfo,
             scoreConfirmPanel: null,
             scoreConfirmText: null,
-            komiInfo,
+            komiInfo: null,
             canvas,
             ctx,
             boardMarkSelect,
@@ -127,7 +132,7 @@ const scoreTitle = document.getElementById('scoreTitle');
         page = QiWeiqiSquarePageRuntime.create(ps, domPage, {
             enableEditBoard: true,
             recordDownloadPrefix,
-            komiInfoText: '无禁手',
+            komiInfoText: '',
             gameType,
             roomId,
             roomPassword,
@@ -138,8 +143,8 @@ const scoreTitle = document.getElementById('scoreTitle');
             ),
             enterReplayMode(data) {
                 const bs = data.boardSize != null ? Number(data.boardSize) : ps.BOARD_SIZE;
-                const snaps = QiWeiqiSquarePageRuntime.buildWuziqiReplaySnapshotsFromMoves(
-                    data.moves, bs, false, () => page.initBoardArray(bs), QiSquareWeiqiCanvas.deepCopyBoard
+                const snaps = QiWeiqiSquarePageRuntime.buildSquareDiagonalFourReplaySnapshotsFromMoves(
+                    data.moves, bs, () => page.initBoardArray(bs), QiSquareWeiqiCanvas.deepCopyBoard
                 );
                 if (!snaps || snaps.length === 0) return;
                 if (bs !== ps.BOARD_SIZE) {
@@ -186,7 +191,13 @@ const scoreTitle = document.getElementById('scoreTitle');
                 ps.lastMoveMarkers = [{ row, col, color: playerVal }];
                 ps.gameOver = false;
                 ps.winner = null;
-                if (QiWeiqiSquarePageRuntime.checkWuziqiFiveInRow(ps.board, row, col, playerVal, ps.BOARD_SIZE)) {
+                const outcome = QiWeiqiSquarePageRuntime.evaluateSquareDiagonalFour(
+                    ps.board, row, col, playerVal, ps.BOARD_SIZE
+                );
+                if (outcome === 'lose') {
+                    ps.gameOver = true;
+                    ps.winner = playerVal === 1 ? 'white' : 'black';
+                } else if (outcome === 'win') {
                     ps.gameOver = true;
                     ps.winner = playerVal === 1 ? 'black' : 'white';
                 }

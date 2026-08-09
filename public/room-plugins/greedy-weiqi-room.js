@@ -96,6 +96,7 @@ window.RoomPlugins['greedy-weiqi'] = {
             hoverRow: -1,
             hoverCol: -1,
             isHoverValid: false,
+            candidates: [],
             liveOpeningBoard: null,
             gameStarted: false,
             editModeEnabled: false,
@@ -156,12 +157,10 @@ const scoreTitle = document.getElementById('scoreTitle');
         }
 
         function basePlaceStone(boardBefore, row, col, playerVal) {
-            const newBoard = R().tryPlaceStoneNLiberty(
+            return R().tryPlaceStoneNLiberty(
                 boardBefore, row, col, playerVal, ps.BOARD_SIZE,
                 (b) => QiSquareWeiqiCanvas.deepCopyBoard(b), 1
             );
-            if (!newBoard || newBoard[row][col] !== playerVal) return null;
-            return newBoard;
         }
 
         function boardToString(brd) {
@@ -191,9 +190,140 @@ const scoreTitle = document.getElementById('scoreTitle');
             return newBoard;
         }
 
-        // 供 create() 使用：试下等场景不带 histSet
+        // 供 create() 使用：正式对局走贪吃规则；试下同普通围棋（不强制有提必提）
         function greedyTryPlaceStoneForPage(boardBefore, row, col, playerVal) {
+            if (ps.tryPlayMode) return basePlaceStone(boardBefore, row, col, playerVal);
             return greedyTryPlaceStone(boardBefore, row, col, playerVal, null);
+        }
+
+        function computeMaxCaptureCandidates(boardBefore, playerVal, histSet) {
+            const n = ps.BOARD_SIZE;
+            let maxCap = 0;
+            const scored = [];
+            for (let r = 0; r < n; r++) {
+                for (let c = 0; c < n; c++) {
+                    if (boardBefore[r][c] !== 0) continue;
+                    const nb = basePlaceStone(boardBefore, r, c, playerVal);
+                    if (!nb) continue;
+                    if (histSet && histSet.has(boardToString(nb))) continue;
+                    const cap = countOpponentCaptures(boardBefore, nb, playerVal);
+                    if (cap > 0) scored.push({ row: r, col: c, cap });
+                    if (cap > maxCap) maxCap = cap;
+                }
+            }
+            if (maxCap <= 0) return [];
+            return scored.filter(p => p.cap === maxCap).map(p => ({ row: p.row, col: p.col }));
+        }
+
+        function browsingLiveHistory() {
+            const tip = ps.liveReplayBoards.length > 0 ? ps.liveReplayBoards.length - 1 : 0;
+            return !ps.replayMode && ps.liveReplayBoards.length > 0 && ps.liveViewStep < tip;
+        }
+
+        function mustCaptureActive() {
+            return !ps.tryPlayMode && !ps.gameOver && !ps.showEstimateActive
+                && !browsingLiveHistory() && ps.candidates.length > 0;
+        }
+
+        function isCandidatePoint(row, col) {
+            return ps.candidates.some(p => p.row === row && p.col === col);
+        }
+
+        function refreshCandidatesFromBoard() {
+            if (ps.gameOver || ps.tryPlayMode || browsingLiveHistory()) {
+                ps.candidates = [];
+                return;
+            }
+            const playerVal = ps.currentPlayer === 1 ? 1 : 2;
+            ps.candidates = computeMaxCaptureCandidates(ps.board, playerVal, null);
+        }
+
+        function drawBoardGreedy() {
+            const C = QiSquareWeiqiCanvas;
+            const d = C.draw;
+            const cs = C.DEFAULT_CANVAS_SIZE;
+            const cellSize = ps.CELL_SIZE;
+            d.clear(ctx, cs);
+            d.grid(ctx, ps.BOARD_SIZE, ps.PADDING, cellSize, cs);
+            d.starPoints(ctx, ps.BOARD_SIZE, ps.PADDING, cellSize);
+            d.coordLabels(ctx, ps.BOARD_SIZE, ps.PADDING, cellSize);
+            const stoneRadius = cellSize * 0.44;
+            const markLenDefault = cellSize * 0.352;
+            const lowerLastMoveMarker = ps.showMoveNumbers || ps.showEstimateActive;
+            if (lowerLastMoveMarker) {
+                d.lastMoveMarkersLower(ctx, ps.lastMoveMarkers, ps.PADDING, cellSize, stoneRadius);
+            }
+            d.stonesBlackWhite(ctx, ps.board, ps.BOARD_SIZE, ps.PADDING, cellSize, stoneRadius, ps.showMoveNumbers);
+            if (!lowerLastMoveMarker) {
+                d.lastMoveMarkersUpper(ctx, ps.lastMoveMarkers, ps.PADDING, cellSize, markLenDefault);
+            }
+            d.userBoardMarks(ctx, ps.userBoardMarks, ps.BOARD_SIZE, ps.PADDING, cellSize, (r, c) => {
+                if (ps.showEstimateActive) return false;
+                if (r < 0 || r >= ps.BOARD_SIZE || c < 0 || c >= ps.BOARD_SIZE) return false;
+                if (ps.board[r][c] !== 0) return false;
+                if (mustCaptureActive() && isCandidatePoint(r, c)) return false;
+                return true;
+            });
+            if (ps.showMoveNumbers) {
+                const nums = Array(ps.BOARD_SIZE).fill().map(() => Array(ps.BOARD_SIZE).fill(0));
+                if (ps.replayMode && ps.tryPlayMode) {
+                    for (let i = 1; i <= ps.tryPlayStep; i++) {
+                        const markers = ps.tryPlayMarkers[i];
+                        if (markers && markers[0] && ps.board[markers[0].row][markers[0].col] !== 0)
+                            nums[markers[0].row][markers[0].col] = i;
+                    }
+                } else if (ps.replayMode) {
+                    for (let i = 1; i <= ps.replayStep; i++) {
+                        const markers = ps.replayMarkers[i];
+                        if (markers && markers[0] && ps.board[markers[0].row][markers[0].col] !== 0)
+                            nums[markers[0].row][markers[0].col] = i;
+                    }
+                } else {
+                    const upto = ps.liveViewStep || 0;
+                    for (let i = 1; i <= upto; i++) {
+                        const markers = ps.liveReplayMarkers[i];
+                        if (markers && markers[0] && ps.board[markers[0].row][markers[0].col] !== 0)
+                            nums[markers[0].row][markers[0].col] = i;
+                    }
+                }
+                d.moveNumbersOnStones(ctx, nums, ps.board, ps.BOARD_SIZE, ps.PADDING, cellSize);
+            }
+            if (mustCaptureActive()) {
+                ctx.globalAlpha = 0.7;
+                const playerColor = ps.currentPlayer === 1 ? '#222' : '#fff';
+                const sh = cellSize * 0.18;
+                for (const { row, col } of ps.candidates) {
+                    const x = ps.PADDING + col * cellSize;
+                    const y = ps.PADDING + row * cellSize;
+                    ctx.fillStyle = playerColor;
+                    ctx.fillRect(x - sh, y - sh, sh * 2, sh * 2);
+                }
+                ctx.globalAlpha = 1;
+            }
+            d.hoverPreviewStone(ctx, ps.hoverRow, ps.hoverCol, ps.board, ps.PADDING, cellSize, {
+                tryPlayMode: ps.tryPlayMode,
+                tryPlayCurrentPlayer: ps.tryPlayCurrentPlayer,
+                gameOver: ps.gameOver,
+                isMyTurn: ps.isMyTurn,
+                mySlot: ps.mySlot,
+                isHoverValid: ps.isHoverValid,
+                hoverCapture: !!ps.hoverCapture,
+                pageState: ps,
+                editModeEnabled: !!ps.editModeEnabled,
+                editTool: ps.editTool
+            });
+            if (ps.hoverCapture) {
+                d.hoverCaptureRing(ctx, ps.hoverRow, ps.hoverCol, ps.PADDING, cellSize, stoneRadius, {
+                    tryPlayMode: ps.tryPlayMode,
+                    gameOver: ps.gameOver,
+                    isMyTurn: ps.isMyTurn,
+                    isHoverValid: ps.isHoverValid,
+                    hoverCapture: !!ps.hoverCapture
+                });
+            }
+            if (ps.showEstimateActive && ps.cachedLiveBoard && ps.cachedTerritory) {
+                d.estimateOverlay(ctx, ps.board, ps.BOARD_SIZE, ps.PADDING, cellSize, ps.cachedLiveBoard, ps.cachedTerritory);
+            }
         }
 
         const domPage = {
@@ -216,6 +346,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             minLib,
             maxWeakLiberties: 2,
             tryPlaceStone: greedyTryPlaceStoneForPage,
+            drawBoard: drawBoardGreedy,
             gameType,
             roomId,
             roomPassword,
@@ -289,7 +420,17 @@ const scoreTitle = document.getElementById('scoreTitle');
         function syncState(state) {
             ps.gameStarted = (state.numberOfHands || 1) > 1;
             syncStateBase(state);
+            if (Array.isArray(state.candidates)) {
+                ps.candidates = state.candidates.map(c => ({ row: c.row, col: c.col }));
+            } else {
+                refreshCandidatesFromBoard();
+            }
             updateEditModeUI();
+        }
+
+        function setLiveViewStepGreedy(step) {
+            setLiveViewStep(step);
+            drawBoard();
         }
 
         const _weiqiBindings = QiBoardRoomClient.createWeiqiMessageBindings({
@@ -301,7 +442,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             enterTryPlay,
             setTryPlayStep,
             setReplayStep,
-            setLiveViewStep,
+            setLiveViewStep: setLiveViewStepGreedy,
             getWs: () => ps.ws,
             getBoardSize: () => ps.BOARD_SIZE,
             setBoardSize: (n) => {
@@ -360,24 +501,10 @@ syncState,
                 if (!ps.ws || ps.gameOver || !ps.isMyTurn || ps.waitingScoreConfirm) return;
                 // 试下/回放中不走服务器虚着
                 if (ps.tryPlayMode || ps.replayMode) return;
-                const playerVal = ps.mySlot === 'black' ? 1 : (ps.mySlot === 'white' ? 2 : 0);
-                if (!playerVal) return;
-                // 粗略本地提示：有提子时阻止虚着（服务器仍为权威）
-                let maxCap = 0;
-                const n = ps.BOARD_SIZE;
-                for (let r = 0; r < n; r++) {
-                    for (let cc = 0; cc < n; cc++) {
-                        if (ps.board[r][cc] !== 0) continue;
-                        const nb = basePlaceStone(ps.board, r, cc, playerVal);
-                        if (!nb) continue;
-                        const cap = countOpponentCaptures(ps.board, nb, playerVal);
-                        if (cap > maxCap) maxCap = cap;
-                    }
-                }
-                if (maxCap > 0) {
+                if (mustCaptureActive() || ps.candidates.length > 0) {
                     e.stopImmediatePropagation();
                     e.preventDefault();
-                    alert('有可提之子时必须提子，不能虚着。');
+                    if (typeof qiAlert === 'function') qiAlert('必须提子。');
                 }
             }, true);
         }
@@ -477,6 +604,13 @@ syncState,
             }
             if (ps.board[row][col] !== 0) return;
 
+            if (mustCaptureActive() && !isCandidatePoint(row, col)) {
+                if (mobileTwoStepPlacing()) clearMobileMovePreview();
+                drawBoard();
+                if (typeof qiAlert === 'function') qiAlert('必须提子');
+                return;
+            }
+
             if (mobileTwoStepPlacing()) {
                 if (ps.hoverRow === row && ps.hoverCol === col && ps.isHoverValid) {
                     clearMobileMovePreview();
@@ -485,7 +619,7 @@ syncState,
                 } else {
                     ps.hoverRow = row;
                     ps.hoverCol = col;
-                    ps.isHoverValid = true;
+                    ps.isHoverValid = !mustCaptureActive() || isCandidatePoint(row, col);
                     drawBoard();
                 }
                 return;
@@ -506,7 +640,12 @@ syncState,
                 const y = (e.clientY - rect.top) * scale;
                 const { row, col } = getClosestIntersection(x, y);
                 ps.hoverRow = row; ps.hoverCol = col;
-                ps.isHoverValid = (row >= 0 && col >= 0 && ps.board[row][col] === 0);
+                const empty = row >= 0 && col >= 0 && ps.board[row][col] === 0;
+                if (mustCaptureActive()) {
+                    ps.isHoverValid = empty && isCandidatePoint(row, col);
+                } else {
+                    ps.isHoverValid = empty;
+                }
                 drawBoard();
             });
             canvas.addEventListener('mouseleave', () => {

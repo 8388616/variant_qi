@@ -146,13 +146,20 @@ class RotationWuziqiRoom extends QiTwoPlayerRoomBase {
         return squareWuziqiRules.isBoardFull(this.board, this.BOARD_SIZE);
     }
 
+    _trailingPassCount() {
+        let n = 0;
+        for (let i = this.moveHistory.length - 1; i >= 0; i--) {
+            if (this.moveHistory[i].type === 'pass') n++;
+            else break;
+        }
+        return n;
+    }
+
     wireMoveCoords() {
-        return this.moveHistory.map(m => ({
-            type: 'move',
-            player: m.player,
-            row: m.row,
-            col: m.col
-        }));
+        return this.moveHistory.map(m => {
+            if (m.type === 'pass') return { type: 'pass', player: m.player };
+            return { type: 'move', player: m.player, row: m.row, col: m.col };
+        });
     }
 
     _stopClockTicker() {
@@ -288,7 +295,11 @@ class RotationWuziqiRoom extends QiTwoPlayerRoomBase {
             lastMoveMarkers: this.lastMoveMarkers,
             gameOver: this.gameOver,
             winner: this.winner,
-            moveHistory: this.moveHistory.map(m => ({ player: m.player, row: m.row, col: m.col })),
+            moveHistory: this.moveHistory.map(m => (
+                m.type === 'pass'
+                    ? { type: 'pass', player: m.player }
+                    : { type: 'move', player: m.player, row: m.row, col: m.col }
+            )),
             moveCoords: this.wireMoveCoords(),
             slots: {
                 black: !!this.room.getPlayerBySlot('black'),
@@ -316,7 +327,10 @@ class RotationWuziqiRoom extends QiTwoPlayerRoomBase {
             gameType: '旋转五子棋',
             gameId: 'rotation-wuziqi',
             boardSize: this.BOARD_SIZE,
-            moves: this.moveHistory.map(m => `${m.player[0].toUpperCase()}${m.row},${m.col}`),
+            moves: this.moveHistory.map(m => {
+                const p = m.player[0].toUpperCase();
+                return m.type === 'pass' ? `${p}p` : `${p}${m.row},${m.col}`;
+            }),
             result: this.gameOver ? this.winner : null
         };
     }
@@ -551,6 +565,92 @@ class RotationWuziqiRoom extends QiTwoPlayerRoomBase {
                 }
                 break;
 
+            case 'pass': {
+                if (this.gameOver) return;
+                if (!this.matchStarted || this.tcSettings === null || this.tcNego) return;
+                if (!slot || slot !== (this.currentPlayer === 1 ? 'black' : 'white')) return;
+                if (!this._drainClockBeforeMove(slot)) return;
+
+                this.lastMoveMarkers = [];
+                this.moveHistory.push({ type: 'pass', player: slot });
+                const completedPlyCount = this.moveHistory.length;
+
+                const prevRotationCount = this.rotationCount;
+                const preBoardAnim = this.copyBoard(this.board);
+                const preHandAnim = this.copyBoard(this.handNumAt);
+                const preMarkersAnim = [];
+
+                const rot = maybeRotateAfterPly({
+                    board: this.board,
+                    handNumAt: this.handNumAt,
+                    rotationCount: this.rotationCount,
+                    n: this.BOARD_SIZE,
+                    rotationInterval: this.rotationInterval,
+                    completedPlyCount,
+                    lastMoveMarkers: this.lastMoveMarkers
+                });
+
+                const rotatedThisPly = rot.rotationCount > prevRotationCount;
+                this.board = rot.board;
+                this.handNumAt = rot.handNumAt;
+                this.rotationCount = rot.rotationCount;
+                this.lastMoveMarkers = rot.lastMoveMarkers;
+
+                this.historyBoards.push(this.copyBoard(this.board));
+                this.historyHandNumAts.push(this.copyBoard(this.handNumAt));
+                this.historyRotationCounts.push(this.rotationCount);
+
+                if (rotatedThisPly) {
+                    const rotWin = winnerSlotAfterRotation(this.board, this.BOARD_SIZE);
+                    if (rotWin) {
+                        this.gameOver = true;
+                        this.winner = rotWin;
+                        this._stopClockTicker();
+                    }
+                }
+
+                if (!this.gameOver && this._trailingPassCount() >= 2) {
+                    this.gameOver = true;
+                    this.winner = 'draw';
+                    this._stopClockTicker();
+                }
+
+                if (!this.gameOver) {
+                    this.currentPlayer = this.currentPlayer === 1 ? 2 : 1;
+                } else if (this.winner === 'black' || this.winner === 'white') {
+                    this.currentPlayer = this.winner === 'black' ? 1 : 2;
+                }
+
+                if (!this.gameOver && this.isBoardFull()) {
+                    this.gameOver = true;
+                    this.winner = 'draw';
+                    this._stopClockTicker();
+                }
+
+                const passPayload = { type: 'broadcast', action: 'pass', ...this.getState() };
+                if (rotatedThisPly) {
+                    passPayload.rotationAnimation = {
+                        preBoard: preBoardAnim,
+                        postBoard: this.copyBoard(this.board),
+                        preHandNumAt: preHandAnim,
+                        postHandNumAt: this.copyBoard(this.handNumAt),
+                        preMarkers: preMarkersAnim,
+                        postMarkers: this.lastMoveMarkers.map(m => ({ ...m }))
+                    };
+                }
+                this.broadcast(passPayload);
+                this._syncClockAfterTurnChange();
+
+                if (
+                    !this.gameOver
+                    && (this.moveHistory.length + 1) % this.rotationInterval === 0
+                    && this.rotationCount < MAX_ROTATIONS
+                ) {
+                    this.broadcast({ type: 'rotatePrepare' });
+                }
+                break;
+            }
+
             case 'requestUndo':
                 this.undoRotationWuziqi(ws, msg, slot);
                 break;
@@ -633,11 +733,14 @@ class RotationWuziqiRoom extends QiTwoPlayerRoomBase {
             let entry = rawMoves[i];
             if (typeof entry === 'string') {
                 const player = entry[0] === 'B' ? 'black' : 'white';
-                const coords = entry.substring(1).split(',').map(Number);
-                entry = { player, row: coords[0], col: coords[1] };
+                if (entry.length >= 2 && entry[1] === 'p') {
+                    entry = { type: 'pass', player };
+                } else {
+                    const coords = entry.substring(1).split(',').map(Number);
+                    entry = { player, row: coords[0], col: coords[1] };
+                }
             }
-            const { row, col, player } = entry;
-            const slot = player;
+            const slot = entry.player;
             const expect = this.currentPlayer === 1 ? 'black' : 'white';
             if (slot !== expect) {
                 this.resetToEmpty();
@@ -645,6 +748,50 @@ class RotationWuziqiRoom extends QiTwoPlayerRoomBase {
                 this.broadcast({ type: 'roomReset', ...this.getState() });
                 return;
             }
+
+            if (entry.type === 'pass') {
+                this.lastMoveMarkers = [];
+                this.moveHistory.push({ type: 'pass', player: slot });
+                const completedPlyCount = this.moveHistory.length;
+                const prevRotationForImport = this.rotationCount;
+                const rot = maybeRotateAfterPly({
+                    board: this.board,
+                    handNumAt: this.handNumAt,
+                    rotationCount: this.rotationCount,
+                    n: this.BOARD_SIZE,
+                    rotationInterval: this.rotationInterval,
+                    completedPlyCount,
+                    lastMoveMarkers: this.lastMoveMarkers
+                });
+                this.board = rot.board;
+                this.handNumAt = rot.handNumAt;
+                this.rotationCount = rot.rotationCount;
+                this.lastMoveMarkers = rot.lastMoveMarkers;
+                this.historyBoards.push(this.copyBoard(this.board));
+                this.historyHandNumAts.push(this.copyBoard(this.handNumAt));
+                this.historyRotationCounts.push(this.rotationCount);
+                const rotatedThisPlyImport = rot.rotationCount > prevRotationForImport;
+                if (rotatedThisPlyImport) {
+                    const rotWin = winnerSlotAfterRotation(this.board, this.BOARD_SIZE);
+                    if (rotWin) {
+                        this.gameOver = true;
+                        this.winner = rotWin;
+                        if (rotWin === 'black' || rotWin === 'white') {
+                            this.currentPlayer = rotWin === 'black' ? 1 : 2;
+                        }
+                        break;
+                    }
+                }
+                if (this._trailingPassCount() >= 2) {
+                    this.gameOver = true;
+                    this.winner = 'draw';
+                    break;
+                }
+                this.currentPlayer = this.currentPlayer === 1 ? 2 : 1;
+                continue;
+            }
+
+            const { row, col } = entry;
             if (row < 0 || row >= this.BOARD_SIZE || col < 0 || col >= this.BOARD_SIZE) {
                 this.resetToEmpty();
                 requesterWs.send(JSON.stringify({ type: 'error', message: `棋谱回放失败：第${i + 1}手坐标越界。` }));
@@ -732,7 +879,10 @@ class RotationWuziqiRoom extends QiTwoPlayerRoomBase {
             boardSize: this.BOARD_SIZE,
             replayData: {
                 boardSize: this.BOARD_SIZE,
-                moves: this.moveHistory.map(m => `${m.player[0].toUpperCase()}${m.row},${m.col}`)
+                moves: this.moveHistory.map(m => {
+                    const p = m.player[0].toUpperCase();
+                    return m.type === 'pass' ? `${p}p` : `${p}${m.row},${m.col}`;
+                })
             }
         });
     }

@@ -172,7 +172,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             isHoverValid = false;
         }
 
-        // ======================== 扭棱图 + 围棋规则（与标准围棋相同：无气提子，自杀无效） ========================
+        // ======================== 扭棱图 + 围棋规则（与标准围棋相同：无气提子，允许自杀，禁全同） ========================
         function deepCopyBoard(src) { return src.map(row => row.slice()); }
 
         function countGroupLiberties(bd, row, col) {
@@ -226,7 +226,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                 }
             }
             if (countGroupLiberties(newBoard, row, col) < 1)
-                return null;
+                removeGroup(newBoard, row, col, playerVal);
             return newBoard;
         }
 
@@ -621,15 +621,26 @@ const scoreTitle = document.getElementById('scoreTitle');
                     }
                 }
             }
-            const canHover = tryPlayMode || (!gameOver && isMyTurn);
-            if (canHover && isHoverValid && hoverRow >= 0 && hoverCol >= 0 && board[hoverRow][hoverCol] === 0) {
-                const { x, y } = pixelAt(hoverRow, hoverCol);
-                ctx.globalAlpha = 0.45;
-                ctx.beginPath();
-                ctx.arc(x, y, stoneR, 0, 2 * Math.PI);
-                ctx.fillStyle = tryPlayMode ? (tryPlayCurrentPlayer === 1 ? '#222' : '#ddd') : (mySlot === 'black' ? '#222' : '#ddd');
-                ctx.fill();
-                ctx.globalAlpha = 1.0;
+            const editing = !!(typeof _editPs !== 'undefined' && _editPs && _editPs.editModeEnabled);
+            const canHover = editing || tryPlayMode || (!gameOver && isMyTurn);
+            if (canHover && isHoverValid && hoverRow >= 0 && hoverCol >= 0 && (editing || board[hoverRow][hoverCol] === 0)) {
+                let hoverColor = null;
+                if (editing) {
+                    const t = _editPs.editTool;
+                    if (t === 'white') hoverColor = '#fff';
+                    else if (t === 'black') hoverColor = '#222';
+                    else if (t !== 'empty') hoverColor = '#666';
+                } else if (tryPlayMode) hoverColor = tryPlayCurrentPlayer === 1 ? '#222' : '#fff';
+                else hoverColor = mySlot === 'black' ? '#222' : '#fff';
+                if (hoverColor) {
+                    const { x, y } = pixelAt(hoverRow, hoverCol);
+                    ctx.globalAlpha = 0.45;
+                    ctx.beginPath();
+                    ctx.arc(x, y, stoneR, 0, 2 * Math.PI);
+                    ctx.fillStyle = hoverColor;
+                    ctx.fill();
+                    ctx.globalAlpha = 1.0;
+                }
             }
             if (showEstimateActive && cachedLiveBoard && cachedTerritory) {
                 const dotRadius = 0.4 * stoneR;
@@ -1515,6 +1526,12 @@ syncState,
                 set gameStarted(v) { if (typeof gameStarted !== 'undefined') gameStarted = !!v; },
                 editModeEnabled: false,
                 editTool: 'empty',
+                get hoverRow() { return hoverRow; },
+                set hoverRow(v) { hoverRow = v == null ? -1 : v; },
+                get hoverCol() { return hoverCol; },
+                set hoverCol(v) { hoverCol = v == null ? -1 : v; },
+                get isHoverValid() { return isHoverValid; },
+                set isHoverValid(v) { isHoverValid = !!v; },
                 get ws() { return typeof ws !== 'undefined' ? ws : null; }
             };
             const _editApi = QiWeiqiSquarePageRuntime.installBoardEditUI({

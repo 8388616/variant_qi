@@ -421,7 +421,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             // 选点阶段：迷惑点方框；第二步快照再叠加行棋方选点圆圈（打谱/回溯）
             if (!tryPlayMode && matchStarted && phase === 'select' && candidates.length && ((replayMode && !gameOver) || (!gameOver && (browsingLiveHist || mySlot === currentPlayer)))) {
                 ctx.globalAlpha = 0.7;
-                const playerColor = currentPlayer === 'black' ? '#222' : '#ddd';
+                const playerColor = currentPlayer === 'black' ? '#222' : '#fff';
                 const squareHalf = cellSize * 0.18;
                 candidates.forEach(({ row, col }) => {
                     const x = PADDING + col * cellSize;
@@ -441,7 +441,7 @@ const scoreTitle = document.getElementById('scoreTitle');
 
             if (!tryPlayMode && matchStarted && phase === 'guess') {
                 ctx.globalAlpha = 0.7;
-                const guessColor = currentPlayer === 'black' ? '#222' : '#ddd';
+                const guessColor = currentPlayer === 'black' ? '#222' : '#fff';
                 const squareHalf = cellSize * 0.18;
                 guessCandidates.forEach(({ row, col }) => {
                     const x = PADDING + col * cellSize;

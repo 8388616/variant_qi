@@ -124,10 +124,50 @@
 
 /* ========== 2. 房间客户端（QiBoardRoomClient） ========== */
 (function (global) {
+    /** 房间页活跃 WebSocket；离开时统一 leave/close，避免服务端仍占座 */
+    const activeRoomSockets = new Set();
+
+    function setQiRoomLeaving(v) {
+        const on = !!v;
+        if (typeof window !== 'undefined') window.__qiRoomLeaving = on;
+    }
+
+    function qiRegisterRoomSocket(socket) {
+        if (!socket) return socket;
+        activeRoomSockets.add(socket);
+        const drop = () => { activeRoomSockets.delete(socket); };
+        socket.addEventListener('close', drop);
+        socket.addEventListener('error', drop);
+        return socket;
+    }
+
+    /** 主动离开房间：通知服务端并关闭连接；禁止随后自动重连 */
+    function qiLeaveRoomIntentionally() {
+        setQiRoomLeaving(true);
+        const sockets = Array.from(activeRoomSockets);
+        for (const s of sockets) {
+            try {
+                if (s.readyState === WebSocket.OPEN) {
+                    s.send(JSON.stringify({ type: 'leave' }));
+                }
+            } catch (_) { /* ignore */ }
+            try { s.close(); } catch (_) { /* ignore */ }
+            activeRoomSockets.delete(s);
+        }
+    }
+
+    function qiLeaveRoomAndGoLobby() {
+        qiLeaveRoomIntentionally();
+        window.location.href = '/qi';
+    }
+
     function qiOpenRoomWebSocket(opts) {
+        // 新连接表示仍在房间内（含断线重连），允许再次自动重连
+        setQiRoomLeaving(false);
         const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
         const url = `${protocol}//${location.host}/qi/ws?game=${encodeURIComponent(opts.gameType)}&room=${encodeURIComponent(opts.roomId)}`;
         const socket = new WebSocket(url);
+        qiRegisterRoomSocket(socket);
         socket.onopen = function () {
             socket.send(JSON.stringify({
                 type: 'join',
@@ -1497,6 +1537,9 @@
                     if (msg.slots) ctx.setSlots(msg.slots);
                     if (msg.hostSlot !== undefined) S.hostSlot = msg.hostSlot;
                     refreshColorStatus();
+                    // 选点等棋种会在约定限时时带上 candidates；勿等下一包 gameState 才画选点
+                    if (msg.board != null || (msg.candidates && msg.candidates.length) || msg.moveCoords || msg.moveLog)
+                        syncStateWithMatch(msg);
                 }
                 if (typeof ctx.updateReplayUI === 'function') ctx.updateReplayUI();
                 updateSeatOverlay();
@@ -2082,7 +2125,7 @@
 
         const backToLobbyBtn = document.getElementById('backToLobbyBtn');
         if (backToLobbyBtn !== null)
-            backToLobbyBtn.onclick = () => { window.location.href = '/qi'; };
+            backToLobbyBtn.onclick = () => { qiLeaveRoomAndGoLobby(); };
 
         if (!ctx.boardSeatOverlay) {
             if (ctx.radioBlack)
@@ -2124,6 +2167,7 @@
         if (replaySlider !== null)
         {
             replaySlider.addEventListener('input', (e) => {
+                if (S._suppressReplaySliderInput) return;
                 const val = parseInt(e.target.value, 10);
                 if (S.replayMode) {
                     if (S.tryPlayMode) ctx.setTryPlayStep(val);
@@ -2150,12 +2194,33 @@
 
     const QiBoardRoomClient = {
         openRoomWebSocket: qiOpenRoomWebSocket,
+        registerRoomSocket: qiRegisterRoomSocket,
+        leaveRoomIntentionally: qiLeaveRoomIntentionally,
+        leaveRoomAndGoLobby: qiLeaveRoomAndGoLobby,
         createWeiqiMessageBindings,
         createStandardWeiqiMatchTimeController: qiCreateStandardWeiqiMatchTimeController
     };
 
     global.qiOpenRoomWebSocket = qiOpenRoomWebSocket;
+    global.qiRegisterRoomSocket = qiRegisterRoomSocket;
+    global.qiLeaveRoomIntentionally = qiLeaveRoomIntentionally;
+    global.qiLeaveRoomAndGoLobby = qiLeaveRoomAndGoLobby;
     global.QiBoardRoomClient = QiBoardRoomClient;
+
+    // 捕获期拦截「返回大厅」，覆盖各插件自行绑定的 location.href
+    if (typeof document !== 'undefined') {
+        document.addEventListener('click', (e) => {
+            const t = e.target;
+            if (!t || typeof t.closest !== 'function') return;
+            const btn = t.closest('#backToLobbyBtn');
+            if (!btn) return;
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            qiLeaveRoomAndGoLobby();
+        }, true);
+        window.addEventListener('pagehide', () => { qiLeaveRoomIntentionally(); });
+        window.addEventListener('beforeunload', () => { qiLeaveRoomIntentionally(); });
+    }
 })(typeof window !== 'undefined' ? window : global);
 
 /* ========== 3. 方格棋盘（QiSquareWeiqiCanvas） ==========
@@ -2416,16 +2481,81 @@
 
         hoverPreviewStone(ctx, hoverRow, hoverCol, board, padding, cellSize, options) {
             const { tryPlayMode, tryPlayCurrentPlayer, gameOver, isMyTurn, mySlot } = options;
-            const canHover = tryPlayMode || (!gameOver && isMyTurn);
-            if (!canHover || hoverRow < 0 || hoverCol < 0 || board[hoverRow][hoverCol] !== 0) return;
+            const ps = options.pageState;
+            const editCb = typeof document !== 'undefined' ? document.getElementById('editModeCheckbox') : null;
+            const editSel = typeof document !== 'undefined' ? document.getElementById('editToolSelect') : null;
+            const editMode = !!(options.editModeEnabled != null
+                ? options.editModeEnabled
+                : ((ps && ps.editModeEnabled) || (editCb && editCb.checked)));
+            const canHover = editMode || tryPlayMode || (!gameOver && isMyTurn);
+            if (!canHover || hoverRow < 0 || hoverCol < 0) return;
             if (!options.isHoverValid) return;
-            if (options.hoverCapture) return;
+            if (!editMode && board[hoverRow][hoverCol] !== 0) return;
+            if (!editMode && options.hoverCapture) return;
+
+            if (editMode) {
+                const RT = global.QiWeiqiSquarePageRuntime;
+                const tool = (options.editTool != null
+                    ? options.editTool
+                    : ((ps && ps.editTool) || (editSel && editSel.value))) || 'empty';
+                const defaults = (RT && RT.DEFAULT_EDIT_CELL_BY_TOOL) || {
+                    empty: 0, black: 1, white: 2, hole: -1, bridge: -2, mine: -3, neutral: 10000
+                };
+                const valueMap = Object.assign({}, defaults, options.editToolValues || null);
+                const cellVal = (RT && typeof RT.resolveEditToolCellValue === 'function')
+                    ? RT.resolveEditToolCellValue(tool, valueMap)
+                    : (Object.prototype.hasOwnProperty.call(valueMap, tool) ? valueMap[tool] : 0);
+                const boardSize = options.boardSize
+                    || (ps && (ps.BOARD_SIZE || ps.boardSize))
+                    || (board && board.length)
+                    || 19;
+                const holeStyle = options.holeDisplayStyle
+                    || (ps && ps.holeDisplayStyle)
+                    || 'block';
+                // 空：无悬停预览
+                if (cellVal === 0 || tool === 'empty') return;
+                const x = padding + hoverCol * cellSize;
+                const y = padding + hoverRow * cellSize;
+                ctx.save();
+                ctx.globalAlpha = 0.45;
+                if (cellVal === 1 || cellVal === 2) {
+                    ctx.beginPath();
+                    ctx.arc(x, y, cellSize * 0.44, 0, 2 * Math.PI);
+                    ctx.fillStyle = cellVal === 1 ? '#222' : '#fff';
+                    ctx.fill();
+                } else if (cellVal === -1 && RT) {
+                    if (holeStyle === 'void' && RT.drawVoidHole)
+                        RT.drawVoidHole(hoverRow, hoverCol, ctx, padding, cellSize, boardSize);
+                    else if (holeStyle === 'hole' && RT.drawPitHole)
+                        RT.drawPitHole(hoverRow, hoverCol, ctx, padding, cellSize, boardSize, () => true);
+                    else if (RT.drawRedBlockHole)
+                        RT.drawRedBlockHole(hoverRow, hoverCol, ctx, padding, cellSize);
+                } else if (cellVal === -2 && RT && RT.drawBridge) {
+                    RT.drawBridge(hoverRow, hoverCol, ctx, padding, cellSize, boardSize);
+                } else if (cellVal === -3 && RT && typeof RT.drawMine === 'function') {
+                    RT.drawMine(hoverRow, hoverCol, ctx, padding, cellSize);
+                } else if (cellVal === -3) {
+                    const r = cellSize * 0.28;
+                    ctx.beginPath();
+                    ctx.arc(x, y, r, 0, 2 * Math.PI);
+                    ctx.fillStyle = '#222';
+                    ctx.fill();
+                } else if ((cellVal === 10000 || tool === 'neutral') && RT) {
+                    if (typeof RT.drawNeutralStone === 'function')
+                        RT.drawNeutralStone(hoverRow, hoverCol, ctx, padding, cellSize);
+                    else if (typeof RT.neutralDrawSmallMarker === 'function')
+                        RT.neutralDrawSmallMarker(ctx, x, y, cellSize * 0.36);
+                }
+                ctx.restore();
+                return;
+            }
+
             ctx.globalAlpha = 0.45;
             ctx.beginPath();
             ctx.arc(padding + hoverCol * cellSize, padding + hoverRow * cellSize, cellSize * 0.44, 0, 2 * Math.PI);
             const hoverColor = tryPlayMode
-                ? (tryPlayCurrentPlayer === 1 ? '#222' : '#ddd')
-                : (mySlot === 'black' ? '#222' : '#ddd');
+                ? (tryPlayCurrentPlayer === 1 ? '#222' : '#fff')
+                : (mySlot === 'black' ? '#222' : '#fff');
             ctx.fillStyle = hoverColor;
             ctx.fill();
             ctx.globalAlpha = 1.0;
@@ -2489,7 +2619,9 @@
                 window.location.href = '/qi';
                 return;
             }
-            o.colorStatus.innerText = '连接断开，重连中...';
+            // 返回大厅 / 关页主动 leave 后不再重连，避免幽灵占座
+            if (typeof window !== 'undefined' && window.__qiRoomLeaving) return;
+            if (o.colorStatus) o.colorStatus.innerText = '连接断开，重连中...';
             const id = setTimeout(o.connectWebSocket, 2000);
             if (o.setReconnectTimer) o.setReconnectTimer(id);
         };
@@ -3016,13 +3148,18 @@
                 isMyTurn: ps.isMyTurn,
                 mySlot: ps.mySlot,
                 isHoverValid: ps.isHoverValid,
-                hoverCapture: !!ps.hoverCapture
+                hoverCapture: !!ps.hoverCapture,
+                pageState: ps,
+                editModeEnabled: !!ps.editModeEnabled,
+                editTool: ps.editTool,
+                holeDisplayStyle: ps.holeDisplayStyle,
+                boardSize: ps.BOARD_SIZE
             });
             if (ps.hoverCapture) {
                 d.hoverCaptureRing(dom.ctx, ps.hoverRow, ps.hoverCol, ps.PADDING, cellSize, stoneRadius, {
                     tryPlayMode: ps.tryPlayMode,
                     gameOver: ps.gameOver,
-                    isMyTurn: ps.isMyTurn,
+                    isMyTurn: ps.isMyTurn || !!ps.editModeEnabled,
                     isHoverValid: ps.isHoverValid,
                     hoverCapture: !!ps.hoverCapture,
                     strokeInvScale: invZ
@@ -3422,9 +3559,11 @@
             if (ps.replayMode) return;
             const total = Math.max(0, ps.liveReplayBoards.length - 1);
             const slider = document.getElementById('replaySlider');
+            ps._suppressReplaySliderInput = true;
             slider.min = 0;
             slider.max = total;
             slider.value = ps.liveViewStep;
+            ps._suppressReplaySliderInput = false;
             document.getElementById('replayStepDisplay').innerText = `${ps.liveViewStep} / ${total}`;
         }
 
@@ -3553,6 +3692,12 @@
                 opts.syncState(state);
                 // 自定义 sync 常从空盘 rebuild，会丢掉 editBoard 写入的 opening / initialBoard
                 applyOpeningBoardIfRicher(state);
+                // 选点类：opening/编辑补丁之后若仍在直播末手，补回服务器本回合候选点
+                if (Array.isArray(ps.serverCandidatesSnapshot) && !ps.replayMode && !ps.tryPlayMode) {
+                    const tip = Math.max(0, ps.liveReplayBoards.length - 1);
+                    if (ps.liveViewStep >= tip)
+                        ps.candidates = ps.serverCandidatesSnapshot.map(c => ({ row: c.row, col: c.col }));
+                }
                 updateEditModeUI();
                 if (editApi) editApi.restoreLocalEditAfterSync();
                 if (editApi) editApi.ensureCommitSnapshotVisible();
@@ -4076,8 +4221,55 @@
             });
         }
         if (editToolSelect) {
-            editToolSelect.addEventListener('change', () => { ps.editTool = editToolSelect.value; });
+            editToolSelect.addEventListener('change', () => {
+                ps.editTool = editToolSelect.value;
+                if (typeof opts.drawBoard === 'function') opts.drawBoard();
+            });
         }
+        // 编辑中未入座/非己方回合时，公共 hoverPreview 也要能画：同步 hover 坐标并重绘
+        canvas.addEventListener('mousemove', (e) => {
+            if (!ps.editModeEnabled || typeof opts.pickAtClient !== 'function') return;
+            const hit = opts.pickAtClient(e.clientX, e.clientY);
+            if (!hit) {
+                if (ps.hoverRow >= 0 || ps.isHoverValid) {
+                    ps.hoverRow = -1;
+                    ps.hoverCol = -1;
+                    ps.isHoverValid = false;
+                    if (typeof opts.drawBoard === 'function') opts.drawBoard();
+                }
+                return;
+            }
+            if (mode === 'flat') {
+                const i = hit.index != null ? hit.index : hit.v;
+                if (i == null || i < 0) return;
+                if (opts.isEditableIndex && !opts.isEditableIndex(i)) return;
+                // flat 棋盘用 hoverRow 存 index，供自绘插件使用；方格盘仍用 row/col
+                if (ps.hoverRow !== i || !ps.isHoverValid) {
+                    ps.hoverRow = i;
+                    ps.hoverCol = 0;
+                    ps.isHoverValid = true;
+                    if (typeof opts.drawBoard === 'function') opts.drawBoard();
+                }
+                return;
+            }
+            const { row, col } = hit;
+            if (row == null || col == null || row < 0 || col < 0) return;
+            if (opts.isEditableCell && !opts.isEditableCell(row, col)) return;
+            if (ps.hoverRow !== row || ps.hoverCol !== col || !ps.isHoverValid) {
+                ps.hoverRow = row;
+                ps.hoverCol = col;
+                ps.isHoverValid = true;
+                if (typeof opts.drawBoard === 'function') opts.drawBoard();
+            }
+        });
+        canvas.addEventListener('mouseleave', () => {
+            if (!ps.editModeEnabled) return;
+            if (ps.hoverRow < 0 && !ps.isHoverValid) return;
+            ps.hoverRow = -1;
+            ps.hoverCol = -1;
+            ps.isHoverValid = false;
+            if (typeof opts.drawBoard === 'function') opts.drawBoard();
+        });
         if (clearBoardBtn) {
             clearBoardBtn.addEventListener('click', () => {
                 if (typeof opts.emptyBoard === 'function') applyEditChange(opts.emptyBoard());
@@ -4908,6 +5100,55 @@
         return false;
     }
 
+    function checkDiagonalFour(board, row, col, colorVal, boardSize) {
+        if (board[row][col] !== colorVal) return false;
+        const dirs = [[1, 1], [1, -1]];
+        for (const [dr, dc] of dirs) {
+            for (let start = -3; start <= 0; start++) {
+                let ok = true;
+                for (let i = 0; i < 4; i++) {
+                    const r = row + (start + i) * dr;
+                    const c = col + (start + i) * dc;
+                    if (r < 0 || r >= boardSize || c < 0 || c >= boardSize || board[r][c] !== colorVal) {
+                        ok = false;
+                        break;
+                    }
+                }
+                if (ok) return true;
+            }
+        }
+        return false;
+    }
+
+    function checkSquareFour(board, row, col, colorVal, boardSize) {
+        if (board[row][col] !== colorVal) return false;
+        const origins = [
+            [row, col],
+            [row - 1, col],
+            [row, col - 1],
+            [row - 1, col - 1]
+        ];
+        for (const [a, b] of origins) {
+            if (a < 0 || b < 0 || a + 1 >= boardSize || b + 1 >= boardSize) continue;
+            if (
+                board[a][b] === colorVal &&
+                board[a + 1][b] === colorVal &&
+                board[a][b + 1] === colorVal &&
+                board[a + 1][b + 1] === colorVal
+            ) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** @returns {'win'|'lose'|null} 斜四负优先于方四胜 */
+    function evaluateSquareDiagonalFour(board, row, col, colorVal, boardSize) {
+        if (checkDiagonalFour(board, row, col, colorVal, boardSize)) return 'lose';
+        if (checkSquareFour(board, row, col, colorVal, boardSize)) return 'win';
+        return null;
+    }
+
     function isWuziqiBoardFull(board, boardSize) {
         for (let r = 0; r < boardSize; r++)
             for (let c = 0; c < boardSize; c++)
@@ -4928,12 +5169,15 @@
             const ch = entry[0];
             if (ch !== 'B' && ch !== 'W') return null;
             const player = ch === 'B' ? 'black' : 'white';
+            if (entry.length >= 2 && entry[1] === 'p') return { type: 'pass', player };
             const coords = entry.substring(1).split(',').map(Number);
             if (coords.length < 2 || !Number.isFinite(coords[0]) || !Number.isFinite(coords[1])) return null;
-            return { player, row: coords[0], col: coords[1] };
+            return { type: 'move', player, row: coords[0], col: coords[1] };
         }
+        if (entry && entry.type === 'pass' && entry.player)
+            return { type: 'pass', player: entry.player };
         if (entry && entry.player && Number.isFinite(entry.row) && Number.isFinite(entry.col))
-            return { player: entry.player, row: entry.row, col: entry.col };
+            return { type: 'move', player: entry.player, row: entry.row, col: entry.col };
         return null;
     }
 
@@ -4950,6 +5194,7 @@
         const snaps = [];
         let b = initBoardArray(boardSize);
         let cur = 1;
+        let trailingPass = 0;
         snaps.push({
             board: deepCopyBoard(b),
             lastMoveMarkers: [],
@@ -4958,22 +5203,102 @@
             winner: null
         });
         for (const m of history) {
-            const pv = m.player === 'black' ? 1 : 2;
-            b[m.row][m.col] = pv;
-            const markers = [{ row: m.row, col: m.col, color: pv }];
             let go = false;
             let win = null;
             let nextCur = cur;
-            if (checkWuziqiFiveInRow(b, m.row, m.col, pv, boardSize)) {
-                go = true;
-                win = reverseWin ? (m.player === 'black' ? 'white' : 'black') : m.player;
-                nextCur = cur;
-            } else if (isWuziqiBoardFull(b, boardSize)) {
-                go = true;
-                win = 'draw';
+            let markers = [];
+            if (m.type === 'pass') {
+                trailingPass++;
+                markers = [];
                 nextCur = cur === 1 ? 2 : 1;
+                if (trailingPass >= 2) {
+                    go = true;
+                    win = 'draw';
+                    nextCur = cur;
+                }
             } else {
+                trailingPass = 0;
+                const pv = m.player === 'black' ? 1 : 2;
+                b[m.row][m.col] = pv;
+                markers = [{ row: m.row, col: m.col, color: pv }];
+                if (checkWuziqiFiveInRow(b, m.row, m.col, pv, boardSize)) {
+                    go = true;
+                    win = reverseWin ? (m.player === 'black' ? 'white' : 'black') : m.player;
+                    nextCur = cur;
+                } else if (isWuziqiBoardFull(b, boardSize)) {
+                    go = true;
+                    win = 'draw';
+                    nextCur = cur === 1 ? 2 : 1;
+                } else {
+                    nextCur = cur === 1 ? 2 : 1;
+                }
+            }
+            snaps.push({
+                board: deepCopyBoard(b),
+                lastMoveMarkers: markers.map(x => ({ ...x })),
+                currentPlayer: nextCur,
+                gameOver: go,
+                winner: go ? win : null
+            });
+            cur = nextCur;
+            if (go) break;
+        }
+        return snaps;
+    }
+
+    function buildSquareDiagonalFourReplaySnapshotsFromMoves(moves, boardSize, initBoardArray, deepCopyBoard) {
+        const history = [];
+        for (const raw of moves || []) {
+            const p = parseWuziqiRecordMoveEntry(raw);
+            if (!p) return null;
+            history.push(p);
+        }
+        const snaps = [];
+        let b = initBoardArray(boardSize);
+        let cur = 1;
+        let trailingPass = 0;
+        snaps.push({
+            board: deepCopyBoard(b),
+            lastMoveMarkers: [],
+            currentPlayer: 1,
+            gameOver: false,
+            winner: null
+        });
+        for (const m of history) {
+            let go = false;
+            let win = null;
+            let nextCur = cur;
+            let markers = [];
+            if (m.type === 'pass') {
+                trailingPass++;
+                markers = [];
                 nextCur = cur === 1 ? 2 : 1;
+                if (trailingPass >= 2) {
+                    go = true;
+                    win = 'draw';
+                    nextCur = cur;
+                }
+            } else {
+                trailingPass = 0;
+                const pv = m.player === 'black' ? 1 : 2;
+                b[m.row][m.col] = pv;
+                markers = [{ row: m.row, col: m.col, color: pv }];
+                const outcome = evaluateSquareDiagonalFour(b, m.row, m.col, pv, boardSize);
+                if (outcome === 'lose') {
+                    go = true;
+                    win = m.player === 'black' ? 'white' : 'black';
+                    nextCur = cur;
+                } else if (outcome === 'win') {
+                    go = true;
+                    win = m.player;
+                    nextCur = cur;
+                } else if (isWuziqiBoardFull(b, boardSize)) {
+                    go = true;
+                    win = 'draw';
+                    nextCur = cur === 1 ? 2 : 1;
+                } else {
+                    nextCur = cur === 1 ? 2 : 1;
+                }
             }
             snaps.push({
                 board: deepCopyBoard(b),
@@ -5029,6 +5354,10 @@
         tryPlaceStoneWuziqi,
         parseWuziqiRecordMoveEntry,
         buildWuziqiReplaySnapshotsFromMoves,
+        evaluateSquareDiagonalFour,
+        checkDiagonalFour,
+        checkSquareFour,
+        buildSquareDiagonalFourReplaySnapshotsFromMoves,
     };
 })(typeof window !== 'undefined' ? window : global);
 
@@ -5282,7 +5611,9 @@
     function loadScript(src) {
         return new Promise((resolve, reject) => {
             const s = document.createElement('script');
-            s.src = src;
+            // 插件脚本曾被强缓存；带版本参数确保部署后立刻拉到新文件
+            const bust = (src.indexOf('?') >= 0 ? '&' : '?') + 'v=' + Date.now();
+            s.src = src + bust;
             s.onload = () => resolve();
             s.onerror = () => reject(new Error('Failed to load ' + src));
             document.head.appendChild(s);
@@ -5628,7 +5959,12 @@
                         if (protocols === undefined) super(url);
                         else super(url, protocols);
                         try {
-                            if (String(url || '').indexOf('/qi/ws') !== -1) setSocket(this);
+                            if (String(url || '').indexOf('/qi/ws') !== -1) {
+                                setSocket(this);
+                                if (typeof globalThis.qiRegisterRoomSocket === 'function') {
+                                    globalThis.qiRegisterRoomSocket(this);
+                                }
+                            }
                         } catch (_) { /* ignore */ }
                     }
                 };

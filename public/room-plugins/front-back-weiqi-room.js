@@ -1170,6 +1170,7 @@ syncState,
             ps.ws.onopen = () => ps.ws.send(JSON.stringify({ type: 'join', password: roomPassword, requestedSlot: null }));
             ps.ws.onmessage = (e) => handleMessage(JSON.parse(e.data));
             ps.ws.onclose = (event) => {
+                if (typeof window !== 'undefined' && window.__qiRoomLeaving) return;
                 if (event.code === 1008 && event.reason && event.reason.includes('房间不存在')) {
                     qiAlert('房间不存在，请返回大厅');
                     window.location.href = '/qi';

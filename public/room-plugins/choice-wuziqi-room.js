@@ -50,6 +50,7 @@ let BOARD_SIZE = 13;
         let matchStarted = false;
         let matchTime = null;
         let candidates = [];          // 当前回合的三个候选点
+        let serverCandidatesSnapshot = []; // 服务器本回合候选（回放到最新时恢复）
         let numberOfHands = 1;
         let lastMoveMarkers = [];
 
@@ -344,10 +345,23 @@ const scoreTitle = document.getElementById('scoreTitle');
             if (replayMode) return;
             const total = Math.max(0, liveSnapshots.length - 1);
             const slider = document.getElementById('replaySlider');
+            psBindings._suppressReplaySliderInput = true;
             slider.min = 0;
             slider.max = total;
             slider.value = liveViewStep;
+            psBindings._suppressReplaySliderInput = false;
             document.getElementById('replayStepDisplay').innerText = `${liveViewStep} / ${total}`;
+        }
+
+        function restoreServerCandidatesAtLiveTip() {
+            const total = Math.max(0, liveSnapshots.length - 1);
+            if (liveViewStep < total) return;
+            candidates = serverCandidatesSnapshot.map(c => ({ row: c.row, col: c.col }));
+            if (liveSnapshots[total]) {
+                liveSnapshots[total] = Object.assign({}, liveSnapshots[total], {
+                    candidates: serverCandidatesSnapshot.map(c => ({ row: c.row, col: c.col }))
+                });
+            }
         }
 
         function setLiveViewStep(step) {
@@ -357,6 +371,9 @@ const scoreTitle = document.getElementById('scoreTitle');
             if (step > total) step = total;
             liveFollowLatest = step >= total;
             applyLiveViewStep(step);
+            // 末帧快照不含「当前回合服务器随机候选」，必须从 snapshot 补回
+            if (step >= total) restoreServerCandidatesAtLiveTip();
+            else candidates = (liveSnapshots[step] && liveSnapshots[step].candidates || []).map(c => ({ row: c.row, col: c.col }));
             psBindings.liveViewStep = liveViewStep;
             updateLiveReplayPanelUI();
             updateTurn();
@@ -425,7 +442,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             }
             if (!tryPlayMode && !gameOver && candidates.length > 0) {
                 ctx.globalAlpha = 0.7;
-                const playerColor = currentPlayer === 'black' ? '#222' : '#ddd';
+                const playerColor = currentPlayer === 'black' ? '#222' : '#fff';
                 const squareHalf = cellSize * 0.18;
                 candidates.forEach(({ row, col }) => {
                     const x = PADDING + col * cellSize;
@@ -622,6 +639,7 @@ syncState,
             psBindings.ws = ws;
             const prevOnClose = ws.onclose;
             ws.onclose = function (event) {
+                if (typeof window !== 'undefined' && window.__qiRoomLeaving) return;
                 roomJoined = false;
                 if (prevOnClose) prevOnClose.call(ws, event);
             };
@@ -679,17 +697,26 @@ syncState,
                 }
                 applyLiveViewStep(liveViewStep);
                 const edgeTotal = Math.max(0, liveSnapshots.length - 1);
+                serverCandidatesSnapshot = (state.candidates || []).map(c => ({ row: c.row, col: c.col }));
                 // 最后一格对应当前局面：候选点由服务器随机生成，不在 moveLog 里，必须用 state 覆盖快照
                 if (liveViewStep === edgeTotal) {
                     board = deepCopyBoard(state.board);
                     currentPlayer = state.currentPlayer;
-                    candidates = (state.candidates || []).map(c => ({ row: c.row, col: c.col }));
+                    candidates = serverCandidatesSnapshot.map(c => ({ row: c.row, col: c.col }));
                     lastMoveMarkers = (state.lastMoveMarkers || []).map(m => ({ ...m }));
                     gameOver = !!state.gameOver;
                     winner = state.winner != null ? state.winner : null;
                     psBindings.gameOver = gameOver;
                     psBindings.winner = winner;
                     numberOfHands = state.numberOfHands != null ? state.numberOfHands : 1;
+                    liveSnapshots[edgeTotal] = {
+                        board: deepCopyBoard(board),
+                        currentPlayer,
+                        candidates: serverCandidatesSnapshot.map(c => ({ row: c.row, col: c.col })),
+                        lastMoveMarkers: lastMoveMarkers.map(m => ({ ...m })),
+                        gameOver,
+                        winner
+                    };
                 }
                 updateLiveReplayPanelUI();
             } else {
@@ -699,7 +726,8 @@ syncState,
                 winner = state.winner || null;
                 psBindings.gameOver = gameOver;
                 psBindings.winner = winner;
-                candidates = state.candidates || [];
+                candidates = (state.candidates || []).map(c => ({ row: c.row, col: c.col }));
+                serverCandidatesSnapshot = candidates.map(c => ({ row: c.row, col: c.col }));
                 lastMoveMarkers = state.lastMoveMarkers || [];
             }
 

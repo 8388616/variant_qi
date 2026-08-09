@@ -265,13 +265,11 @@ class GreedyWeiqiRoom extends QiTwoPlayerRoomBase
         return before - after;
     }
 
-    /** 标准落子（minLib=1）；自杀（落子后己方子被提光）视为非法。 */
+    /** 标准落子（minLib=1）：允许自杀，禁全同另判。 */
     _basePlaceStone(boardBefore, row, col, playerVal) {
-        const newBoard = squareWeiqiRules.tryPlaceStoneNLiberty(
+        return squareWeiqiRules.tryPlaceStoneNLiberty(
             boardBefore, row, col, playerVal, this.boardSize, (b) => this.copyBoard(b), 1
         );
-        if (!newBoard || newBoard[row][col] !== playerVal) return null;
-        return newBoard;
     }
 
     /**
@@ -305,6 +303,26 @@ class GreedyWeiqiRoom extends QiTwoPlayerRoomBase
             }
         }
         return maxCap;
+    }
+
+    /** 当前行棋方必须走的最大提子点；无需提子时返回 [] */
+    collectMaxCaptureCandidates() {
+        if (this.gameOver) return [];
+        const playerVal = this.currentPlayer === 1 ? 1 : 2;
+        const maxCap = this.maxLegalCaptureCount(this.board, playerVal);
+        if (maxCap <= 0) return [];
+        const out = [];
+        for (let r = 0; r < this.boardSize; r++) {
+            for (let c = 0; c < this.boardSize; c++) {
+                if (this.board[r][c] !== 0) continue;
+                const nb = this._basePlaceStone(this.board, r, c, playerVal);
+                if (!nb) continue;
+                if (this.historyBoardSet.has(this.boardToString(nb))) continue;
+                if (this._countOpponentCaptures(this.board, nb, playerVal) === maxCap)
+                    out.push({ row: r, col: c });
+            }
+        }
+        return out;
     }
 
     tryPlaceStone(boardBefore, row, col, playerVal) {
@@ -389,6 +407,7 @@ class GreedyWeiqiRoom extends QiTwoPlayerRoomBase
             gameOver: this.gameOver,
             winner: this.winner,
             moveCoords: this.moveCoords,
+            candidates: this.collectMaxCaptureCandidates(),
             slots: {
                 black: !!this.room.getPlayerBySlot('black'),
                 white: !!this.room.getPlayerBySlot('white')
@@ -488,10 +507,7 @@ class GreedyWeiqiRoom extends QiTwoPlayerRoomBase
                     if (base) {
                         const myCap = this._countOpponentCaptures(this.board, base, playerVal);
                         if (this._hasStrictlyBetterCapture(this.board, playerVal, myCap, row, col)) {
-                            const msgText = myCap === 0
-                                ? '有可提之子时必须提子。'
-                                : '有提子时必须走提子数量最多的点。';
-                            ws.send(JSON.stringify({ type: 'error', message: msgText }));
+                            ws.send(JSON.stringify({ type: 'error', message: '必须提子' }));
                             break;
                         }
                     }
@@ -510,7 +526,7 @@ class GreedyWeiqiRoom extends QiTwoPlayerRoomBase
                 }
                 const passPlayerVal = this.currentPlayer === 1 ? 1 : 2;
                 if (this.maxLegalCaptureCount(this.board, passPlayerVal) > 0) {
-                    ws.send(JSON.stringify({ type: 'error', message: '有可提之子时必须提子，不能虚着。' }));
+                    ws.send(JSON.stringify({ type: 'error', message: '必须提子' }));
                     return;
                 }
                 const beforeP = () => this._drainClockBeforeMove(passSlot);

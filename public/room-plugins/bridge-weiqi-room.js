@@ -188,7 +188,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             for (const [nr, nc] of getBridgeNeighbors(board, row, col)) {
                 if (board[nr][nc] === opp && !hasBridgeLiberty(board, nr, nc)) removeBridgeGroup(board, nr, nc, opp);
             }
-            if (!hasBridgeLiberty(board, row, col)) return null;
+            if (!hasBridgeLiberty(board, row, col)) removeBridgeGroup(board, row, col, playerVal);
             return board;
         }
         function bridgeRemoveDeadAndDying(srcBoard) {
@@ -275,7 +275,10 @@ const scoreTitle = document.getElementById('scoreTitle');
             }
             d.hoverPreviewStone(ctx, ps.hoverRow, ps.hoverCol, ps.board, ps.PADDING, cellSize, {
                 tryPlayMode: ps.tryPlayMode, tryPlayCurrentPlayer: ps.tryPlayCurrentPlayer, gameOver: ps.gameOver,
-                isMyTurn: ps.isMyTurn, mySlot: ps.mySlot, isHoverValid: ps.isHoverValid, hoverCapture: !!ps.hoverCapture
+                isMyTurn: ps.isMyTurn, mySlot: ps.mySlot, isHoverValid: ps.isHoverValid, hoverCapture: !!ps.hoverCapture,
+                pageState: ps,
+                editModeEnabled: !!ps.editModeEnabled,
+                editTool: ps.editTool
             });
             if (ps.showEstimateActive && ps.cachedLiveBoard && ps.cachedTerritory) {
                 d.estimateOverlay(ctx, ps.board, ps.BOARD_SIZE, ps.PADDING, cellSize, ps.cachedLiveBoard, ps.cachedTerritory);

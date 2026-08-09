@@ -376,8 +376,8 @@ const scoreTitle = document.getElementById('scoreTitle');
                 }
             }
 
-            // 检查己方刚落子是否有气
-            if (!hasLiberty(newBoard, vertex)) return null;
+            // 允许自杀：己方无气则提掉己方块
+            if (!hasLiberty(newBoard, vertex)) removeGroup(newBoard, vertex);
             return newBoard;
         }
 
@@ -673,16 +673,26 @@ const scoreTitle = document.getElementById('scoreTitle');
                 ctx.fillStyle = '#3a281c';
                 ctx.fillText(ch, x, y + 1);
             }
-            const canHover = tryPlayMode || (!gameOver && isMyTurn);
-            if ((isMouseDevice || mobileTwoStepPlacing()) && canHover && isHoverValid && hoverVertex >= 0 && board[hoverVertex] === 0) {
-                const { x, y } = transformed[hoverVertex];
-                ctx.globalAlpha = 0.45;
-                ctx.beginPath();
-                ctx.arc(x, y, cellSize * 0.42, 0, 2 * Math.PI);
-                const hoverColor = tryPlayMode ? (tryPlayCurrentPlayer === 1 ? '#222' : '#ddd') : (mySlot === 'black' ? '#222' : '#ddd');
-                ctx.fillStyle = hoverColor;
-                ctx.fill();
-                ctx.globalAlpha = 1.0;
+            const editing = !!(typeof _editPs !== 'undefined' && _editPs && _editPs.editModeEnabled);
+            const canHover = editing || tryPlayMode || (!gameOver && isMyTurn);
+            if ((isMouseDevice || mobileTwoStepPlacing()) && canHover && isHoverValid && hoverVertex >= 0 && (editing || board[hoverVertex] === 0)) {
+                let hoverColor = null;
+                if (editing) {
+                    const t = _editPs.editTool;
+                    if (t === 'white') hoverColor = '#fff';
+                    else if (t === 'black') hoverColor = '#222';
+                    else if (t !== 'empty') hoverColor = '#666';
+                } else if (tryPlayMode) hoverColor = tryPlayCurrentPlayer === 1 ? '#222' : '#fff';
+                else hoverColor = mySlot === 'black' ? '#222' : '#fff';
+                if (hoverColor) {
+                    const { x, y } = transformed[hoverVertex];
+                    ctx.globalAlpha = 0.45;
+                    ctx.beginPath();
+                    ctx.arc(x, y, cellSize * 0.42, 0, 2 * Math.PI);
+                    ctx.fillStyle = hoverColor;
+                    ctx.fill();
+                    ctx.globalAlpha = 1.0;
+                }
             }
             if (showEstimateActive && cachedLiveBoard && cachedTerritory) {
                 drawEstimateOverlay(cachedLiveBoard, cachedTerritory);
@@ -1509,6 +1519,12 @@ komiInfo,
                 set gameStarted(v) { if (typeof gameStarted !== 'undefined') gameStarted = !!v; },
                 editModeEnabled: false,
                 editTool: 'empty',
+                get hoverRow() { return typeof hoverVertex !== 'undefined' ? hoverVertex : -1; },
+                set hoverRow(v) { if (typeof hoverVertex !== 'undefined') hoverVertex = (v == null ? -1 : v); },
+                get hoverCol() { return 0; },
+                set hoverCol(_v) {},
+                get isHoverValid() { return typeof isHoverValid !== 'undefined' ? isHoverValid : false; },
+                set isHoverValid(v) { if (typeof isHoverValid !== 'undefined') isHoverValid = !!v; },
                 get ws() { return typeof ws !== 'undefined' ? ws : null; }
             };
             const _editApi = QiWeiqiSquarePageRuntime.installBoardEditUI({

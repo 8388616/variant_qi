@@ -414,7 +414,10 @@ const scoreTitle = document.getElementById('scoreTitle');
                     isMyTurn: ps.isMyTurn,
                     mySlot: ps.mySlot,
                     isHoverValid: ps.isHoverValid,
-                    hoverCapture: !!ps.hoverCapture
+                    hoverCapture: !!ps.hoverCapture,
+                pageState: ps,
+                editModeEnabled: !!ps.editModeEnabled,
+                editTool: ps.editTool
                 });
                 if (ps.hoverCapture) {
                     d.hoverCaptureRing(ctx, ps.hoverRow, ps.hoverCol, ps.PADDING, cellSize, stoneRadius, {

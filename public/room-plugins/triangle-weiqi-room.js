@@ -730,16 +730,28 @@ const scoreTitle = document.getElementById('scoreTitle');
             }
 
             // 悬停预览
-            const canHover = tryPlayMode || (!gameOver && isMyTurn);
-            if ((isMouseDevice || mobileTwoStepPlacing()) && canHover && isHoverValid && hoverR >= 0 && hoverC >= 0 && board[hoverR][hoverC] === 0) {
-                let { x, y } = triCoordToPixel(hoverR, hoverC);
-                ctx.globalAlpha = 0.45;
-                ctx.beginPath();
-                ctx.arc(x, y, DX * 0.35, 0, 2 * Math.PI);
-                const hoverColor = tryPlayMode ? (tryPlayCurrentPlayer === 1 ? '#222' : '#ddd') : (mySlot === 'black' ? '#222' : '#ddd');
-                ctx.fillStyle = hoverColor;
-                ctx.fill();
-                ctx.globalAlpha = 1.0;
+            const editCb = document.getElementById('editModeCheckbox');
+            const editSel = document.getElementById('editToolSelect');
+            const editing = !!(editCb && editCb.checked);
+            const canHover = editing || tryPlayMode || (!gameOver && isMyTurn);
+            if ((isMouseDevice || mobileTwoStepPlacing()) && canHover && isHoverValid && hoverR >= 0 && hoverC >= 0 && (editing || board[hoverR][hoverC] === 0)) {
+                let hoverColor = null;
+                if (editing) {
+                    const t = (editSel && editSel.value) || 'empty';
+                    if (t === 'white') hoverColor = '#fff';
+                    else if (t === 'black') hoverColor = '#222';
+                    else if (t !== 'empty') hoverColor = '#666';
+                } else if (tryPlayMode) hoverColor = tryPlayCurrentPlayer === 1 ? '#222' : '#ddd';
+                else hoverColor = mySlot === 'black' ? '#222' : '#ddd';
+                if (hoverColor) {
+                    let { x, y } = triCoordToPixel(hoverR, hoverC);
+                    ctx.globalAlpha = 0.45;
+                    ctx.beginPath();
+                    ctx.arc(x, y, DX * 0.35, 0, 2 * Math.PI);
+                    ctx.fillStyle = hoverColor;
+                    ctx.fill();
+                    ctx.globalAlpha = 1.0;
+                }
             }
 
             // 形势判断叠加层（死子标记 + 领地归属点）
@@ -1488,7 +1500,8 @@ syncState,
                 const y = (e.clientY - rect.top) * scale;
                 const { row, col } = getClosestIntersection(x, y);
                 hoverR = row; hoverC = col;
-                isHoverValid = (row >= 0 && col >= 0 && isValidCoord(row, col) && board[row][col] === 0);
+                const editing = !!(document.getElementById('editModeCheckbox') || {}).checked;
+                isHoverValid = (row >= 0 && col >= 0 && isValidCoord(row, col) && (editing || board[row][col] === 0));
                 drawBoardWithOverlay();
             });
             canvas.addEventListener('mouseleave', () => {
@@ -1532,6 +1545,12 @@ syncState,
                 set gameStarted(v) { if (typeof gameStarted !== 'undefined') gameStarted = !!v; },
                 editModeEnabled: false,
                 editTool: 'empty',
+                get hoverRow() { return hoverR; },
+                set hoverRow(v) { hoverR = v == null ? -1 : v; },
+                get hoverCol() { return hoverC; },
+                set hoverCol(v) { hoverC = v == null ? -1 : v; },
+                get isHoverValid() { return isHoverValid; },
+                set isHoverValid(v) { isHoverValid = !!v; },
                 get ws() { return typeof ws !== 'undefined' ? ws : null; }
             };
             const _editApi = QiWeiqiSquarePageRuntime.installBoardEditUI({
@@ -1551,14 +1570,11 @@ syncState,
                     }
                     return null;
                 },
-                drawBoard: typeof drawBoard === 'function' ? drawBoard : function () {},
+                drawBoard: typeof drawBoardWithOverlay === 'function' ? drawBoardWithOverlay
+                    : (typeof drawBoard === 'function' ? drawBoard : function () {}),
                 getBoard() { return board; },
                 setBoard(b) { board = b; },
-                emptyBoard() {
-                    const n = (typeof BOARD_SIZE !== 'undefined' ? BOARD_SIZE
-                        : (typeof ROWS !== 'undefined' ? ROWS : board.length));
-                    return Array(n).fill(null).map(function () { return Array(n).fill(0); });
-                }
+                emptyBoard() { return initBoardArray(ROWS); }
             });
             if (typeof syncState === 'function') {
                 const _sync0 = syncState;

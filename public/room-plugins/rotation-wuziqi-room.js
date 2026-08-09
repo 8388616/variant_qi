@@ -2,7 +2,7 @@ window.RoomPlugins = window.RoomPlugins || {};
 window.RoomPlugins["rotation-wuziqi"] = {
     shell: {
         "title": "旋转五子棋",
-        "rulesHtml": "基本规则同五子棋。<br /><br />棋盘分为四个板块。每隔<strong>0.07×棋盘总点数，向上取奇</strong>数手，所有板块沿<strong>顺时针</strong>轮换旋转。\n每次旋转后会检查是否已形成连五；若已形成，则该局立即结束并按连五方判胜（双方同时连五判和棋）。<br /><br />最多旋转 <strong>8</strong> 次（两整圈），之后不再旋转。<br /><br />棋盘的路数和旋转手数的映射关系为：<br /><strong>8 </strong>5<br /><strong>10 </strong>7<br /><strong>12 </strong>11<br /><strong>14 </strong>15<br /><strong>16 </strong>19<br /><strong>18 </strong>23<br /><strong>20 </strong>29<br />",
+        "rulesHtml": "基本规则同五子棋。<br /><br />棋盘分为四个板块。每隔<strong>0.07×棋盘总点数，向上取奇</strong>数手，所有板块沿<strong>顺时针</strong>轮换旋转。若旋转后双方同时连五则和棋。<br /><br />最多旋转 <strong>8</strong> 次（两整圈），之后不再旋转。<br /><br />棋盘的路数和旋转手数的映射关系为：<br /><strong>8 </strong>5<br /><strong>10 </strong>7<br /><strong>12 </strong>11<br /><strong>14 </strong>15<br /><strong>16 </strong>19<br /><strong>18 </strong>23<br /><strong>20 </strong>29<br /><br />",
         "defaultKomiText": "无禁手",
         "boardSizeMin": 8,
         "boardSizeMax": 20,
@@ -555,7 +555,10 @@ const scoreTitle = document.getElementById('scoreTitle');
                 isMyTurn: ps.isMyTurn,
                 mySlot: ps.mySlot,
                 isHoverValid: ps.isHoverValid,
-                hoverCapture: !!ps.hoverCapture
+                hoverCapture: !!ps.hoverCapture,
+                pageState: ps,
+                editModeEnabled: !!ps.editModeEnabled,
+                editTool: ps.editTool
             });
         }
 
@@ -568,20 +571,48 @@ const scoreTitle = document.getElementById('scoreTitle');
             const replayHandNumAts = [C().deepCopyBoard(handNumAt)];
             const replayRotationCounts = [0];
             const replayStepPlayers = [0];
+            let trailingPass = 0;
 
             for (const raw of moves) {
                 let entry = raw;
                 if (typeof entry === 'string') {
                     const player = entry[0] === 'B' ? 'black' : 'white';
-                    const coords = entry.substring(1).split(',').map(Number);
-                    entry = { player, row: coords[0], col: coords[1] };
+                    if (entry.length >= 2 && entry[1] === 'p') {
+                        entry = { type: 'pass', player };
+                    } else {
+                        const coords = entry.substring(1).split(',').map(Number);
+                        entry = { type: 'move', player, row: coords[0], col: coords[1] };
+                    }
                 }
                 const playerVal = entry.player === 'black' ? 1 : 2;
                 replayStepPlayers.push(playerVal);
+                const completedPly = replayStepPlayers.length - 1;
+
+                if (entry.type === 'pass') {
+                    trailingPass++;
+                    let markers = [];
+                    const prevRot = rotationCount;
+                    const rot = rwMaybeRotate(curBoard, handNumAt, rotationCount, boardSize, rotationInterval, completedPly, markers);
+                    curBoard = rot.board;
+                    handNumAt = rot.handNumAt;
+                    rotationCount = rot.rotationCount;
+                    markers = rot.lastMoveMarkers;
+                    replayBoards.push(C().deepCopyBoard(curBoard));
+                    replayMarkers.push(markers.map(m => ({ ...m })));
+                    replayHandNumAts.push(C().deepCopyBoard(handNumAt));
+                    replayRotationCounts.push(rotationCount);
+                    if (rotationCount > prevRot) {
+                        const rw = rwWinnerSlotAfterRotation(curBoard, boardSize);
+                        if (rw) break;
+                    }
+                    if (trailingPass >= 2) break;
+                    continue;
+                }
+                trailingPass = 0;
+
                 const nb = C().deepCopyBoard(curBoard);
                 nb[entry.row][entry.col] = playerVal;
                 rwSyncHand(nb, handNumAt);
-                const completedPly = replayStepPlayers.length - 1;
                 handNumAt[entry.row][entry.col] = completedPly;
 
                 curBoard = nb;
@@ -634,8 +665,15 @@ const scoreTitle = document.getElementById('scoreTitle');
             return true;
         }
 
+        function rwMovesForSimulate(moveCoords) {
+            return (moveCoords || []).map(m => {
+                if (m.type === 'pass') return `${m.player === 'black' ? 'B' : 'W'}p`;
+                return `${m.player === 'black' ? 'B' : 'W'}${m.row},${m.col}`;
+            });
+        }
+
         function recomputeHandNumAtFromMovesRotationWuziqi(moveCoords, boardSize, rotationInterval) {
-            const moves = (moveCoords || []).filter(m => m.type === 'move').map(m => `${m.player === 'black' ? 'B' : 'W'}${m.row},${m.col}`);
+            const moves = rwMovesForSimulate(moveCoords);
             const o = simulateRotationWuziqiLine(moves, boardSize, rotationInterval);
             if (!o.replayHandNumAts.length) return rwInitZero(boardSize);
             const last = o.replayHandNumAts[o.replayHandNumAts.length - 1];
@@ -643,7 +681,7 @@ const scoreTitle = document.getElementById('scoreTitle');
         }
 
         function rebuildLiveReplayRotationWuziqi(moveCoords) {
-            const moves = (moveCoords || []).filter(m => m.type === 'move').map(m => `${m.player === 'black' ? 'B' : 'W'}${m.row},${m.col}`);
+            const moves = rwMovesForSimulate(moveCoords);
             const o = simulateRotationWuziqiLine(moves, ps.BOARD_SIZE, ps.rotationInterval || rwComputeInterval(ps.BOARD_SIZE));
             ps.liveReplayBoards = o.replayBoards;
             ps.liveReplayMarkers = o.replayMarkers;
@@ -663,7 +701,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             roomId,
             roomPassword,
             isMouseDevice,
-            replayGameButtonIds: ['undoBtn', 'resignBtn', 'drawBtn'],
+            replayGameButtonIds: ['passBtn', 'undoBtn', 'resignBtn', 'drawBtn'],
             drawBoard: rotationWuziqiDrawBoardImpl,
             rebuildLiveReplayFromMoveCoords: rebuildLiveReplayRotationWuziqi,
             tryPlaceStone: (b, r, c, pv) => R().tryPlaceStoneWuziqi(b, r, c, pv, ps.BOARD_SIZE, C().deepCopyBoard),
@@ -723,12 +761,11 @@ const scoreTitle = document.getElementById('scoreTitle');
         const origSync = page.syncState;
         page.syncState = function (state) {
             if (!state.moveCoords && state.moveHistory) {
-                state.moveCoords = state.moveHistory.map(m => ({
-                    type: 'move',
-                    player: m.player,
-                    row: m.row,
-                    col: m.col
-                }));
+                state.moveCoords = state.moveHistory.map(m =>
+                    (m.type === 'pass')
+                        ? { type: 'pass', player: m.player }
+                        : { type: 'move', player: m.player, row: m.row, col: m.col }
+                );
             }
             const prevRc = ps.rotationCount | 0;
             const nr = state.rotationCount | 0;

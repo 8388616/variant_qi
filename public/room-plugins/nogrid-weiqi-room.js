@@ -944,6 +944,7 @@ syncState,
             if (msg.type === 'importSuccess') qiAlert('棋谱已导入');
         };
         ws.onclose = (event) => {
+                if (typeof window !== 'undefined' && window.__qiRoomLeaving) return;
             if (event.code === 1008 && String(event.reason || '').includes('房间')) {
                 qiAlert('房间不存在');
                 window.location.href = '/qi';

@@ -96,7 +96,7 @@ class ChoiceWuziqiRoom extends QiTwoPlayerRoomBase {
         } else {
             this.tcClock = null;
         }
-        this.broadcast({ type: 'timeControlAgreed', settings: this.tcSettings, clock: this.tcClock ? qiMatchTimeControl.snapshotForClient(this.tcClock) : null });
+        this.broadcast({ type: 'timeControlAgreed', settings: this.tcSettings, clock: this.tcClock ? qiMatchTimeControl.snapshotForClient(this.tcClock) : null, ...this.getState() });
         this.broadcast({ type: 'gameState', ...this.getState() });
     }
 

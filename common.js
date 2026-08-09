@@ -2096,10 +2096,10 @@ const qiBoardSeatOverlay = {
             this._qiApplyChooserColorChoice((valid && valid.colorChoice) || 'black', chooserSlot);
             this._qiNotifyColorsFinalized();
 
-            if (origFinalize) {
-                // 原 finalize 会再设 tcSettings / broadcast；先清掉 tcNego 中的 color 已应用
-                // 为带上 slots/hostSlot，拦截 broadcast 一次较难，这里重写标准 finalize
-            }
+            // 有棋种自带 finalize（如选点围棋/五子：generateCandidates + gameState）时必须转调，
+            // 否则选点/局面永远不会生成与下发。
+            if (origFinalize) return origFinalize(valid);
+
             this.tcSettings = valid.timed
                 ? {
                     timed: true,
@@ -2136,7 +2136,6 @@ const qiBoardSeatOverlay = {
                 },
                 hostSlot: this.hostWs ? this.room.getSlotByWs(this.hostWs) : null
             });
-            void origFinalize;
         };
 
         self._handleTimeControlAccept = function (ws) {
