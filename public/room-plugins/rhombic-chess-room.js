@@ -11,7 +11,7 @@ window.RoomPlugins["rhombic-chess"] = {
         "recordDownloadPrefix": "菱国际象棋",
         "standardWeiqiMatchTime": true,
         "features": {
-            "editBoard": false,
+            "editBoard": true,
             "hideBoardSize": true,
             "transparentCanvas": true
         }
@@ -372,8 +372,10 @@ const R = (function () {
             return R.verts(c.type, c.I, c.J).map((v) => toPx(v[0] * A, v[1] * B));
         }
 
-        // 黑方视角：棋盘旋转 180°（黑方坐在对面）
-        let rotated = false;
+        // 黑方视角：棋盘旋转 180°（黑方坐在对面，看到的是倒置的棋盘）
+        function isBlackView() {
+            return ps && ps.mySlot === 'white';
+        }
         const ROT_ID = (() => {
             const map = [];
             for (let i = 0; i < R.CELLS.length; i++) {
@@ -389,7 +391,7 @@ const R = (function () {
             return map;
         })();
         function displayId(id) {
-            if (!rotated || id < 0) return id;
+            if (!isBlackView() || id < 0) return id;
             return ROT_ID[id];
         }
 
@@ -500,7 +502,7 @@ const R = (function () {
                 tracePoly(cellVerts(did));
                 ctx2d.fillStyle = CELL_COLORS[R.CELLS[did].type];
                 ctx2d.fill();
-                ctx2d.strokeStyle = 'rgba(58,40,28,0.55)';
+                ctx2d.strokeStyle = '#b58863';
                 ctx2d.lineWidth = 1;
                 ctx2d.stroke();
             }
@@ -526,20 +528,19 @@ const R = (function () {
                 }
             }
 
-            // 合法目标
+            // 合法目标（小方块，参照国际象棋）
             for (const t of ps.legalTargets) {
                 const did = displayId(t.to);
-                const c = cellCenter(did);
+                const { x, y } = cellCenter(did);
                 if (pieceAt(t.to)) {
-                    tracePoly(cellVerts(did));
-                    ctx2d.strokeStyle = 'rgba(163,92,39,0.95)';
+                    const half = SCALE * 0.38;
+                    ctx2d.strokeStyle = 'rgba(163,92,39,0.9)';
                     ctx2d.lineWidth = 4;
-                    ctx2d.stroke();
+                    ctx2d.strokeRect(x - half, y - half, half * 2, half * 2);
                 } else {
-                    ctx2d.beginPath();
-                    ctx2d.arc(c.x, c.y, SCALE * 0.14, 0, 2 * Math.PI);
-                    ctx2d.fillStyle = 'rgba(163,92,39,0.95)';
-                    ctx2d.fill();
+                    const half = SCALE * 0.12;
+                    ctx2d.fillStyle = 'rgba(163,92,39,0.9)';
+                    ctx2d.fillRect(x - half, y - half, half * 2, half * 2);
                 }
             }
 
@@ -574,10 +575,11 @@ const R = (function () {
         }
 
         function getClosestCell(px, py) {
+            // 按显示位置命中，返回原始 id
             let best = -1;
             let bestD = SCALE * 1.2;
             for (let id = 0; id < R.CELLS.length; id++) {
-                const { x, y } = cellCenter(id);
+                const { x, y } = cellCenter(displayId(id));
                 const d = Math.hypot(px - x, py - y);
                 if (d < bestD) { bestD = d; best = id; }
             }
@@ -727,6 +729,35 @@ const R = (function () {
         function enterReplayMode() {}
         function updateReplayUI() {}
         function showScoreConfirm() {}
+
+        // 编辑模式：安装公共编辑 UI（点击放置棋子，关闭编辑时提交服务器）
+        let editApi = null;
+        if (typeof QiWeiqiSquarePageRuntime !== 'undefined' && QiWeiqiSquarePageRuntime.installBoardEditUI) {
+            editApi = QiWeiqiSquarePageRuntime.installBoardEditUI({
+                ps,
+                canvas,
+                mode: 'flat',
+                editTools: config.editTools,
+                pickAtClient(clientX, clientY) {
+                    const { x, y } = canvasCoordsFromClient(clientX, clientY);
+                    const id = getClosestCell(x, y);
+                    return id >= 0 ? { index: id } : null;
+                },
+                drawBoard,
+                getBoard: () => R.CELLS.map((c) => ps.board[R.key(c.type, c.I, c.J)] || ''),
+                setBoard: (arr) => {
+                    const nb = {};
+                    for (let i = 0; i < arr.length; i++) {
+                        if (arr[i] !== '') {
+                            const c = R.CELLS[i];
+                            nb[R.key(c.type, c.I, c.J)] = arr[i];
+                        }
+                    }
+                    ps.board = nb;
+                },
+                emptyBoard: () => new Array(R.CELLS.length).fill('')
+            });
+        }
 
         const _weiqiBindings = QiBoardRoomClient.createWeiqiMessageBindings({
             pageState: ps,

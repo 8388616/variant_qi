@@ -370,6 +370,41 @@ class RhombicChessRoom extends QiTwoPlayerRoomBase {
         }
     }
 
+    /** 编辑棋盘：客户端提交 flat 数组（72 项，'' 或棋子码），转回对象 board */
+    applyEditBoard(ws, msg) {
+        const edited = msg.board;
+        if (!Array.isArray(edited) || edited.length !== this.boardCells.length) {
+            ws.send(JSON.stringify({ type: 'error', message: '无效的棋盘数据' }));
+            return;
+        }
+        const allowed = this.editBoardAllowedValues;
+        const next = {};
+        for (let i = 0; i < edited.length; i++) {
+            const v = edited[i];
+            if (v !== '' && !allowed.includes(v)) {
+                ws.send(JSON.stringify({ type: 'error', message: '棋盘数据包含非法值' }));
+                return;
+            }
+            if (v !== '') {
+                const c = this.boardCells[i];
+                next[R.key(c.type, c.I, c.J)] = v;
+            }
+        }
+        this.board = next;
+        this.historyBoards = [JSON.stringify(this.board)];
+        this.moveHistory = [];
+        this.moveCoords = [];
+        this.lastFrom = null;
+        this.lastTo = null;
+        this.currentPlayer = 1;
+        this.gameOver = false;
+        this.winner = null;
+        this.sideToMove = 'white';
+        this.halfmoveClock = 0;
+        this.openingBoard = JSON.parse(JSON.stringify(this.board));
+        this.broadcast({ type: 'editBoardAccepted', ...this.getState() });
+    }
+
     _broadcastClock() {
         if (!this.tcClock || !this.tcClock.timed || this.gameOver) return;
         this.broadcast({ type: 'clockUpdate', clock: qiMatchTimeControl.snapshotForClient(this.tcClock) });
