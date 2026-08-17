@@ -725,21 +725,20 @@ return {
             calcGeometry();
             ctx2d.clearRect(0, 0, LOGICAL_SIZE, LOGICAL_SIZE);
 
+            // 全部浅色格 + 格线（颜色粗细与中国象棋相同：#3a281c、1.8）
             const light = '#f0d9b5';
-            const dark = '#b58863';
             for (let r = 0; r < R.BOARD_H; r++) {
                 for (let c = 0; c < R.BOARD_W; c++) {
                     const d = toDisplayCoord(r, c);
                     const x = offsetX + d.col * cellSize;
                     const y = offsetY + d.row * cellSize;
-                    ctx2d.fillStyle = ((r + c) % 2 === 0) ? light : dark;
+                    ctx2d.fillStyle = light;
                     ctx2d.fillRect(x, y, cellSize, cellSize);
+                    ctx2d.strokeStyle = '#3a281c';
+                    ctx2d.lineWidth = 1.8;
+                    ctx2d.strokeRect(x, y, cellSize, cellSize);
                 }
             }
-
-            ctx2d.strokeStyle = '#3a281c';
-            ctx2d.lineWidth = 2;
-            ctx2d.strokeRect(offsetX, offsetY, R.BOARD_W * cellSize, R.BOARD_H * cellSize);
             drawCoordinates();
 
             if (ps.lastFrom && ps.lastTo) {
