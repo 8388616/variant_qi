@@ -275,7 +275,23 @@
                 };
             }
             const n = Number.isFinite(boardSize) && boardSize > 0 ? boardSize : 19;
-            const points = n * n;
+            // 异形棋盘实际格点数与路数不是 n²。统一从客户端棋盘数组（ctx.pageState.board，各棋类都提供）
+            // 取真实总格点数：flat 数组取长度（六角/五边形），二维数组按行求和并排除无效格（-1，开罗/扭棱）。
+            // 开局前棋盘已随游戏状态同步；取不到时退回方形 n²。
+            let points = n * n;
+            const board = ctx.pageState && ctx.pageState.board;
+            if (Array.isArray(board)) {
+                if (Array.isArray(board[0])) {
+                    let cnt = 0;
+                    for (const row of board) {
+                        if (!Array.isArray(row)) continue;
+                        for (const v of row) if (v !== -1) cnt++;
+                    }
+                    if (cnt > 0) points = cnt;
+                } else if (board.length > 0) {
+                    points = board.length;
+                }
+            }
             const scaleRaw = Number(ctx.timeControlMainByoScale);
             const scale = Number.isFinite(scaleRaw) && scaleRaw > 0 ? scaleRaw : 1;
             const baseMain = Math.ceil(0.013 * points);
@@ -301,6 +317,7 @@
             wrap.className = 'qi-time-control-modal';
             wrap.innerHTML = `
 <div class="qi-time-control-dialog" role="dialog" aria-modal="true">
+  <button type="button" class="qi-time-control-close" id="qiTcBtnClose" aria-label="关闭并离座">&times;</button>
   <h3 class="qi-time-control-title">对局设置</h3>
   <div class="qi-time-control-row qi-time-control-radio-row">
     <label class="qi-time-control-radio"><input type="radio" name="qiTimedMode" value="limited" checked> 限时</label>
@@ -337,10 +354,32 @@
             const btnProposeOk = wrap.querySelector('#qiTcBtnProposeOk');
             const btnAccept = wrap.querySelector('#qiTcBtnAccept');
             const btnAdjust = wrap.querySelector('#qiTcBtnAdjust');
+            const btnClose = wrap.querySelector('#qiTcBtnClose');
             const colorRow = wrap.querySelector('#qiTcColorRow');
             const radios = Array.from(wrap.querySelectorAll('input[name="qiTimedMode"]'));
             const colorRadios = Array.from(wrap.querySelectorAll('input[name="qiColorChoice"]'));
             const lowerControls = [mainIn, byoIn, maxTIn];
+
+            function leaveSeatAndClose() {
+                const w = ctx.getWs && ctx.getWs();
+                const my = ctx.getMySlot && ctx.getMySlot();
+                closeModal();
+                if (my && ctx.setMySlot) {
+                    ctx.setMySlot(null);
+                    const slots = ctx.getSlots && ctx.getSlots();
+                    if (slots) {
+                        if (my === 'black') slots.black = false;
+                        else if (my === 'white') slots.white = false;
+                    }
+                }
+                if (ctx.colorStatus) ctx.colorStatus.innerText = '观战';
+                if (typeof ctx.onLeaveSeatLocal === 'function') ctx.onLeaveSeatLocal();
+                else if (typeof ctx.updateTurn === 'function') ctx.updateTurn();
+                if (w && w.readyState === WebSocket.OPEN) {
+                    w.send(JSON.stringify({ type: 'leaveSeat' }));
+                }
+            }
+            if (btnClose) btnClose.onclick = leaveSeatAndClose;
 
             function readPayloadFromInputs() {
                 const unlimited = wrap.querySelector('input[name="qiTimedMode"][value="unlimited"]').checked;
@@ -482,6 +521,16 @@
                 const w = ctx.getWs();
                 if (!w || w.readyState !== WebSocket.OPEN) return;
                 const p = readPayloadFromInputs();
+                if (ui && ui.vsComputerMode) {
+                    ui._vsComputerStarting = true;
+                    w.send(JSON.stringify({
+                        type: 'startVsComputer',
+                        colorChoice: p.colorChoice || 'black'
+                    }));
+                    setDialogReadonly(true);
+                    btnProposeOk.disabled = true;
+                    return;
+                }
                 if (p.timed !== false) {
                     if (!Number.isFinite(p.mainMinutes) || !Number.isFinite(p.byoyomiSeconds) || !Number.isFinite(p.maxTimeouts)) {
                         qiAlert('请填写主时间、读秒与超时次数。');
@@ -532,7 +581,10 @@
 
             ui = {
                 wrap, mainIn, byoIn, maxTIn, hint, footProp, footResp, waitEl,
-                btnProposeOk, btnAccept, btnAdjust, colorRow, colorRadios,
+                btnProposeOk, btnAccept, btnAdjust, btnClose, colorRow, colorRadios,
+                vsComputerMode: false,
+                _vsComputerStarting: false,
+                leaveSeatAndClose,
                 setLimitedDisabled, readPayloadFromInputs, setColorRowVisible, setColorChoice, colorChoiceLabel,
                 selfColorFromProposal, refreshRespondHint, clearProposalHintState,
                 getLastRespondProposal: () => lastRespondProposal,
@@ -541,6 +593,24 @@
                     if (!ui || !ui.wrap || ui.wrap.style.display === 'none') return;
                     ui.wrap.classList.remove('qi-time-control-readonly');
                     ui.waitEl.style.display = 'none';
+                    if (ui.vsComputerMode) {
+                        // 开局失败：可重试，保留已预热进程；关掉窗口时再 cancel
+                        ui._vsComputerStarting = false;
+                        ui.footProp.style.display = 'flex';
+                        ui.footResp.style.display = 'none';
+                        ui.wrap.querySelector('input[name="qiTimedMode"][value="unlimited"]').checked = true;
+                        ui.wrap.querySelector('input[name="qiTimedMode"][value="limited"]').checked = false;
+                        ui.setLimitedDisabled(true);
+                        ui.mainIn.disabled = true;
+                        ui.byoIn.disabled = true;
+                        ui.maxTIn.disabled = true;
+                        ui.wrap.querySelector('input[name="qiTimedMode"][value="unlimited"]').disabled = true;
+                        ui.wrap.querySelector('input[name="qiTimedMode"][value="limited"]').disabled = true;
+                        ui.setColorRowVisible(true, false);
+                        ui.btnProposeOk.disabled = false;
+                        ui.colorRadios.forEach((r) => { r.disabled = false; });
+                        return;
+                    }
                     if (lastRespondProposal) {
                         ui.footProp.style.display = 'none';
                         ui.footResp.style.display = 'flex';
@@ -572,8 +642,12 @@
 
         function closeModal() {
             if (!ui) return;
+            const wasVsComputer = !!ui.vsComputerMode;
+            const startingVsComputer = !!ui._vsComputerStarting;
             ui.wrap.style.display = 'none';
             adjustMode = false;
+            ui.vsComputerMode = false;
+            ui._vsComputerStarting = false;
             ui.footProp.style.display = 'none';
             ui.footResp.style.display = 'none';
             ui.waitEl.style.display = 'none';
@@ -583,10 +657,58 @@
             ui.wrap.querySelector('input[name="qiTimedMode"][value="unlimited"]').disabled = false;
             if (typeof ui.clearProposalHintState === 'function') ui.clearProposalHintState();
             else if (ui.hint) ui.hint.textContent = '';
+            // 打开人机设置后取消：归还预热进程；确认开局则不取消（由 startVsComputer 接手）
+            if (wasVsComputer && !startingVsComputer) {
+                const w = ctx.getWs && ctx.getWs();
+                if (w && w.readyState === WebSocket.OPEN) {
+                    w.send(JSON.stringify({ type: 'cancelVsComputerPrepare' }));
+                }
+            }
+        }
+
+        function openVsComputerSetup() {
+            ensureModal();
+            ui.vsComputerMode = true;
+            ui._vsComputerStarting = false;
+            ui.wrap.style.display = 'flex';
+            ui.waitEl.style.display = 'none';
+            if (typeof ui.clearProposalHintState === 'function') ui.clearProposalHintState();
+            else ui.hint.textContent = '';
+            ui.footProp.style.display = 'flex';
+            ui.footResp.style.display = 'none';
+            ui.wrap.classList.remove('qi-time-control-readonly');
+            ui.wrap.querySelector('input[name="qiTimedMode"][value="unlimited"]').checked = true;
+            ui.wrap.querySelector('input[name="qiTimedMode"][value="limited"]').checked = false;
+            ui.setLimitedDisabled(true);
+            ui.mainIn.disabled = true;
+            ui.byoIn.disabled = true;
+            ui.maxTIn.disabled = true;
+            ui.wrap.querySelector('input[name="qiTimedMode"][value="unlimited"]').disabled = true;
+            ui.wrap.querySelector('input[name="qiTimedMode"][value="limited"]').disabled = true;
+            ui.btnProposeOk.disabled = false;
+            ui.setColorRowVisible(true, false);
+            ui.setColorChoice('black');
+            // 与设置并行：预热/复用 KataGo 进程
+            {
+                const w = ctx.getWs && ctx.getWs();
+                if (w && w.readyState === WebSocket.OPEN) {
+                    w.send(JSON.stringify({ type: 'prepareVsComputer' }));
+                }
+            }
+            if (ui.hint) ui.hint.textContent = ui.colorChoiceLabel('black');
+            ui.colorRadios.forEach((r) => {
+                r.disabled = false;
+                r.onchange = () => {
+                    if (ui.hint) ui.hint.textContent = ui.colorChoiceLabel(
+                        (ui.wrap.querySelector('input[name="qiColorChoice"]:checked') || {}).value || 'black'
+                    );
+                };
+            });
         }
 
         function openNegotiation(msg) {
             ensureModal();
+            ui.vsComputerMode = false;
             ui.wrap.style.display = 'flex';
             ui.waitEl.style.display = 'none';
             // 每次打开先清空上一局/上一轮的「对方提议」，再按本次 mode 写入
@@ -836,8 +958,12 @@
                     ui.waitEl.textContent = '等待对方确认...';
                     ui.wrap.style.display = 'flex';
                     ui.wrap.classList.add('qi-time-control-readonly');
-                    ui.wrap.querySelectorAll('input, button').forEach((el) => { el.disabled = true; });
+                    ui.wrap.querySelectorAll('input, button').forEach((el) => {
+                        if (el && el.classList && el.classList.contains('qi-time-control-close')) return;
+                        el.disabled = true;
+                    });
                     ui.btnAdjust.disabled = false;
+                    if (ui.btnClose) ui.btnClose.disabled = false;
                 }
             }
             if (msg.matchTime && msg.matchTime.settings) {
@@ -864,6 +990,7 @@
         }
 
         return {
+            openVsComputerSetup,
             handleMessage(msg) {
                 switch (msg.type) {
                     case 'timeControlNegotiation':
@@ -879,8 +1006,12 @@
                         ui.waitEl.textContent = msg.text || '请稍候…';
                         ui.wrap.style.display = 'flex';
                         ui.wrap.classList.add('qi-time-control-readonly');
-                        ui.wrap.querySelectorAll('input, button').forEach((el) => { el.disabled = true; });
+                        ui.wrap.querySelectorAll('input, button').forEach((el) => {
+                            if (el && el.classList && el.classList.contains('qi-time-control-close')) return;
+                            el.disabled = true;
+                        });
                         ui.btnAdjust.disabled = false;
+                        if (ui.btnClose) ui.btnClose.disabled = false;
                         break;
                     case 'timeControlAgreed':
                         closeModal();
@@ -928,17 +1059,52 @@
             applyMatchTimeFromState,
             updateTimerPanel,
             stop,
-            restoreAfterError
+            restoreAfterError,
+            closeDialog: closeModal
         };
     }
 
     function createWeiqiMessageBindings(ctx) {
         const S = ctx.pageState;
         if (!S) throw new Error('createWeiqiMessageBindings requires ctx.pageState (page state object, e.g. ps)');
-        const mtCtl = ctx.standardWeiqiMatchTime ? qiCreateStandardWeiqiMatchTimeController(ctx) : null;
+        let lastBusyAlertAt = 0;
+        let mtCtl = ctx.standardWeiqiMatchTime ? qiCreateStandardWeiqiMatchTimeController(ctx) : null;
+        function ensureMatchTimeCtl() {
+            if (!mtCtl) mtCtl = qiCreateStandardWeiqiMatchTimeController(ctx);
+            return mtCtl;
+        }
         if (S.seatOverlayLocalHide === undefined) S.seatOverlayLocalHide = false;
         if (S.seatOverlayForceHide === undefined) S.seatOverlayForceHide = false;
         if (S._prevSeatVacant === undefined) S._prevSeatVacant = null;
+        if (S.katagoAvailable === undefined) S.katagoAvailable = false;
+        if (S.computerSlot === undefined) S.computerSlot = null;
+
+        const vsComputerBtn = document.getElementById('vsComputerBtn');
+        function updateVsComputerBtn() {
+            if (!vsComputerBtn) return;
+            const slots = (ctx.getSlots && ctx.getSlots()) || S.slots || {};
+            const mySlot = ctx.getMySlot ? ctx.getMySlot() : S.mySlot;
+            const seatedCount = (slots.black ? 1 : 0) + (slots.white ? 1 : 0);
+            const matchStarted = !!(S.matchStarted || (S.matchTime && S.matchTime.settings));
+            const canShow = !!S.katagoAvailable
+                && !matchStarted
+                && !S.computerSlot
+                && !S.gameOver
+                && !S.replayMode
+                && !S.waitingScoreConfirm
+                && (seatedCount === 0 || (seatedCount === 1 && mySlot));
+            vsComputerBtn.style.display = canShow ? '' : 'none';
+        }
+        if (vsComputerBtn) {
+            vsComputerBtn.onclick = () => {
+                if (!S.ws || S.ws.readyState !== WebSocket.OPEN) return;
+                if (!S.katagoAvailable || S.computerSlot || S.matchStarted) return;
+                // 尽早预热（openVsComputerSetup 内也会再发，服务端幂等）
+                S.ws.send(JSON.stringify({ type: 'prepareVsComputer' }));
+                const ctl = ensureMatchTimeCtl();
+                if (ctl && typeof ctl.openVsComputerSetup === 'function') ctl.openVsComputerSetup();
+            };
+        }
 
         if (global.RoomChat && typeof global.RoomChat.bindSlotContext === 'function') {
             global.RoomChat.bindSlotContext({
@@ -1052,7 +1218,7 @@
         }
 
         /**
-         * 与棋盘外框完全同一套 canvas arcTo 路径（三角/六角/Sigmoid drawRounded*）。
+         * 与棋盘外框完全同一套 canvas arcTo 路径（三角/六角/菱三角 drawRounded*）。
          */
         function traceRoundedPolygon(ctx2d, vertices, radius) {
             const n = vertices && vertices.length;
@@ -1175,11 +1341,10 @@
             } else {
                 shapeCanvas.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;max-width:none;aspect-ratio:auto;background:transparent;border:none;border-radius:0;box-shadow:none;pointer-events:none;z-index:0;display:block;margin:0;padding:0;';
             }
-            const boardCanvas = layoutSeatOverlayToCanvas(container, overlay);
-            const logical = (boardCanvas && (boardCanvas.width || boardCanvas.height))
-                ? Math.max(boardCanvas.width, boardCanvas.height)
-                : 600;
-            const viewSize = Number(ctx.seatOverlayViewSize) > 0 ? Number(ctx.seatOverlayViewSize) : logical;
+            layoutSeatOverlayToCanvas(container, overlay);
+            // 蒙版多边形顶点坐标以 600×600 逻辑画布为基准（默认顶点与各插件的 seatOverlayShape 顶点均为 600 基准）。
+            // 棋盘 canvas 物理尺寸会被 dpr 放大（600×dpr），不能用作 viewSize，否则 dpr>1 时蒙版形状只覆盖棋盘左上角。
+            const viewSize = Number(ctx.seatOverlayViewSize) > 0 ? Number(ctx.seatOverlayViewSize) : 600;
             if (shapeCanvas.width !== viewSize) shapeCanvas.width = viewSize;
             if (shapeCanvas.height !== viewSize) shapeCanvas.height = viewSize;
             const sctx = shapeCanvas.getContext('2d');
@@ -1517,12 +1682,17 @@
 
         function syncStateWithMatch(msg) {
             ctx.syncState(msg);
+            if (Object.prototype.hasOwnProperty.call(msg, 'katagoAvailable'))
+                S.katagoAvailable = !!msg.katagoAvailable;
+            if (Object.prototype.hasOwnProperty.call(msg, 'computerSlot'))
+                S.computerSlot = msg.computerSlot || null;
             if (mtCtl && msg.matchTime !== undefined) mtCtl.applyMatchTimeFromState(msg);
             if (msg.hostSlot !== undefined) {
                 S.hostSlot = msg.hostSlot;
                 if (ctx.getMySlot()) S.isHost = ctx.getMySlot() === msg.hostSlot;
             }
             if (msg.boardSeatOverlay) ctx.boardSeatOverlay = true;
+            updateVsComputerBtn();
         }
         function handleMessage(msg) {
             if (global.RoomChat && typeof global.RoomChat.consumeIncoming === 'function'
@@ -1536,10 +1706,22 @@
                 if (msg.type === 'timeControlAgreed') {
                     if (msg.slots) ctx.setSlots(msg.slots);
                     if (msg.hostSlot !== undefined) S.hostSlot = msg.hostSlot;
+                    if (Object.prototype.hasOwnProperty.call(msg, 'computerSlot'))
+                        S.computerSlot = msg.computerSlot || null;
+                    if (Object.prototype.hasOwnProperty.call(msg, 'katagoAvailable'))
+                        S.katagoAvailable = !!msg.katagoAvailable;
                     refreshColorStatus();
                     // 选点等棋种会在约定限时时带上 candidates；勿等下一包 gameState 才画选点
-                    if (msg.board != null || (msg.candidates && msg.candidates.length) || msg.moveCoords || msg.moveLog)
+                    // 人机开局也会带完整局面
+                    if (msg.board != null || (msg.candidates && msg.candidates.length) || msg.moveCoords || msg.moveLog
+                        || msg.computerSlot)
                         syncStateWithMatch(msg);
+                    updateVsComputerBtn();
+                }
+                if (msg.type === 'timeControlReset') {
+                    if (Object.prototype.hasOwnProperty.call(msg, 'computerSlot'))
+                        S.computerSlot = msg.computerSlot || null;
+                    updateVsComputerBtn();
                 }
                 if (typeof ctx.updateReplayUI === 'function') ctx.updateReplayUI();
                 updateSeatOverlay();
@@ -1645,6 +1827,23 @@
                     updateRadioStyles();
                     ctx.updateTurn();
                     break;
+                case 'seatLeft':
+                    S._optimisticSeat = null;
+                    S._seatRetryOther = false;
+                    ctx.setMySlot(null);
+                    if (msg.hostSlot !== undefined) {
+                        S.hostSlot = msg.hostSlot;
+                        S.isHost = false;
+                    }
+                    if (mtCtl) mtCtl.stop();
+                    S.matchTime = null;
+                    S.matchStarted = false;
+                    syncStateWithMatch(msg);
+                    refreshColorStatus();
+                    updateRadioStyles();
+                    ctx.updateTurn();
+                    if (typeof updateVsComputerBtn === 'function') updateVsComputerBtn();
+                    break;
                 case 'colorsFinalized':
                     if (msg.slots) ctx.setSlots(msg.slots);
                     if (msg.hostSlot !== undefined) {
@@ -1698,6 +1897,7 @@
                     ctx.setWaitingScoreConfirm(false);
                     ctx.setIRejected(false);
                     ctx.setMySlot(null);
+                    S.computerSlot = null;
                     S.seatOverlayLocalHide = false;
                     S.seatOverlayForceHide = false;
                     refreshColorStatus();
@@ -1710,6 +1910,7 @@
                     if (ctx.onNewGameStarted) ctx.onNewGameStarted();
                     syncStateWithMatch(msg);
                     updateRadioStyles();
+                    updateVsComputerBtn();
                     break;
                 case 'newGameRequest':
                     qiConfirm('对方请求开始新的一局，是否同意？').then(ok => { ws.send(JSON.stringify({ type: 'newGameResponse', accept: !!ok })); });
@@ -1802,6 +2003,7 @@
                     S.matchTime = null;
                     S.matchStarted = false;
                     S.matchStartedOnce = false;
+                    S.computerSlot = null;
                     S.seatOverlayLocalHide = false;
                     S.seatOverlayForceHide = false;
                     clearLocalEditCachesForNewGame();
@@ -1811,6 +2013,7 @@
                     ctx.hideScoreConfirm();
                     ctx.setWaitingScoreConfirm(false);
                     updateRadioStyles();
+                    updateVsComputerBtn();
                     break;
                 case 'boardSizeChanged':
                     if (ctx.onBoardSizeChanged) ctx.onBoardSizeChanged(msg);
@@ -1870,9 +2073,22 @@
                         // 终局观战等场景：不再弹续坐提示
                         break;
                     } else {
-                        if (mtCtl && typeof mtCtl.restoreAfterError === 'function')
-                            mtCtl.restoreAfterError();
-                        qiAlert(msg.message);
+                        const isBusy = msg.message && msg.message.indexOf('服务器繁忙') >= 0;
+                        if (isBusy) {
+                            // 引擎进程已满：关闭人机/限时设置窗，回到点击前状态；
+                            // 预取与开局两条失败路径的重复提示 3 秒内去重，只弹一次
+                            if (mtCtl && typeof mtCtl.closeDialog === 'function')
+                                mtCtl.closeDialog();
+                            const now = Date.now();
+                            if (now - lastBusyAlertAt >= 3000) {
+                                lastBusyAlertAt = now;
+                                qiAlert(msg.message);
+                            }
+                        } else {
+                            if (mtCtl && typeof mtCtl.restoreAfterError === 'function')
+                                mtCtl.restoreAfterError();
+                            qiAlert(msg.message);
+                        }
                     }
                     break;
                 default:
@@ -1929,10 +2145,12 @@
             if (ctx.boardSeatOverlay) {
                 updateRecordButtons();
                 updateSeatOverlay();
+                updateVsComputerBtn();
                 return;
             }
             if (!ctx.labelBlack || !ctx.labelWhite || !ctx.radioBlack || !ctx.radioWhite) {
                 updateRecordButtons();
+                updateVsComputerBtn();
                 return;
             }
             ctx.labelBlack.classList.remove('self-radio', 'opponent-radio', 'checked-disabled');
@@ -1958,14 +2176,22 @@
                 ctx.radioWhite.checked = false;
             }
             updateRecordButtons();
+            updateVsComputerBtn();
         }
+
+        ctx.onLeaveSeatLocal = function () {
+            refreshColorStatus();
+            updateRadioStyles();
+            updateVsComputerBtn();
+            if (typeof ctx.updateTurn === 'function') ctx.updateTurn();
+        };
 
         const newGameBtn = document.getElementById('newGameBtn');
         if (newGameBtn !== null) 
         {
             newGameBtn.onclick = () => {
                 if (!S.mySlot) {
-                    if (S.slots.black || S.slots.white) {
+                    if ((S.slots.black || S.slots.white) && !S.computerSlot) {
                         qiAlert('只有对局者可以开始新局。');
                         return;
                     }
@@ -1975,8 +2201,8 @@
                     return;
                 }
                 const opponentSlot = S.mySlot === 'black' ? 'white' : 'black';
-                const hasOpponent = S.slots[opponentSlot];
-                if (hasOpponent) {
+                const hasHumanOpponent = S.slots[opponentSlot] && S.computerSlot !== opponentSlot;
+                if (hasHumanOpponent) {
                     qiConfirm('确定向对方申请开始新局吗？').then(ok => { if (ok) S.ws.send(JSON.stringify({ type: 'requestNewGame' })); });
                 } else {
                     qiConfirm('确定开始新局吗？').then(ok => { if (ok) S.ws.send(JSON.stringify({ type: 'requestNewGame' })); });
@@ -2450,7 +2676,7 @@
                 const markBgR = cellSize * 0.3;
                 ctx.beginPath();
                 ctx.arc(x, y, markBgR, 0, 2 * Math.PI);
-                ctx.fillStyle = '#deb887';
+                ctx.fillStyle = '#fdcc90';
                 ctx.fill();
                 const fontPx = cellSize * (ch === '🚩' ? 0.6 : 0.66);
                 ctx.font = `bold ${fontPx}px "Segoe UI", "Apple Color Emoji", "Segoe UI Emoji", sans-serif`;
@@ -2878,19 +3104,20 @@
 
     function buildEditToolValueMap(opts) {
         const map = Object.assign({}, DEFAULT_EDIT_CELL_BY_TOOL);
+        const putValue = (key, v) => {
+            if (v === '') { map[key] = ''; return; }
+            const n = Number(v);
+            map[key] = Number.isFinite(n) ? n : v;
+        };
         const extra = opts && opts.editToolValues;
         if (extra && typeof extra === 'object') {
-            for (const k of Object.keys(extra)) {
-                const n = Number(extra[k]);
-                if (Number.isFinite(n)) map[k] = n;
-            }
+            for (const k of Object.keys(extra)) putValue(k, extra[k]);
         }
         const tools = opts && opts.editTools;
         if (Array.isArray(tools)) {
             for (const t of tools) {
                 if (!t || t.value == null || t.cellValue == null) continue;
-                const n = Number(t.cellValue);
-                if (Number.isFinite(n)) map[String(t.value)] = n;
+                putValue(String(t.value), t.cellValue);
             }
         }
         return map;
@@ -2974,6 +3201,23 @@
             if (ps.gameStarted === undefined) ps.gameStarted = false;
             if (ps.liveOpeningBoard === undefined) ps.liveOpeningBoard = null;
         }
+
+        // 高清渲染：棋盘物理分辨率对齐 CSS 尺寸 × devicePixelRatio（绘制逻辑坐标恒为 600）。
+        // 自绘棋类不调用本 create，不受影响；窗口尺寸变化时重新对齐并重绘。
+        let hiDpiInitialized = false;
+        function applyHiDpiCanvas() {
+            if (!dom.canvas || !C().setupHiDpiCanvas) return;
+            hiDpiInitialized = true;
+            C().setupHiDpiCanvas(dom.canvas, C().DEFAULT_CANVAS_SIZE);
+            if (typeof drawBoard === 'function') drawBoard();
+        }
+        applyHiDpiCanvas();
+        if (typeof window !== 'undefined' && window.requestAnimationFrame) {
+            window.requestAnimationFrame(applyHiDpiCanvas);
+        }
+        window.addEventListener('resize', () => {
+            if (hiDpiInitialized) applyHiDpiCanvas();
+        });
 
         function mobileTwoStepPlacing() {
             return !isMouse && ps.BOARD_SIZE > 9;
@@ -3410,6 +3654,8 @@
             slider.value = 0;
             updateTryPlayDisplay();
             updateReplayUI();
+            // 可选钩子：自定义棋种（如易位围棋）在此补专属试下状态（高亮/易位计数/选中子等）
+            if (typeof opts.onEnterTryPlay === 'function') opts.onEnterTryPlay();
         }
 
         function exitTryPlay() {
@@ -3467,6 +3713,8 @@
                 slider.max = ps.replayTotalSteps;
                 setReplayStep(ps.tryPlayBaseStep);
             }
+            // 可选钩子：自定义棋种在此清掉 onEnterTryPlay 里补的专属试下状态
+            if (typeof opts.onExitTryPlay === 'function') opts.onExitTryPlay();
             updateReplayUI();
         }
 
@@ -3706,6 +3954,10 @@
                 ps.gameStarted = (state.numberOfHands || 1) > 1;
             }
             if (opts.syncState) {
+                // 与下方全量同步一致：matchTime/matchStarted 必须在自定义 syncState 之外同步，
+                // 否则对局中途重新进入房间的玩家 ps.matchStarted 恒为 undefined，isMyTurn 永远 false 无法落子
+                if (state.matchTime !== undefined) ps.matchTime = state.matchTime;
+                if (state.matchStarted !== undefined) ps.matchStarted = !!state.matchStarted;
                 opts.syncState(state);
                 // 自定义 sync 常从空盘 rebuild，会丢掉 editBoard 写入的 opening / initialBoard
                 applyOpeningBoardIfRicher(state);
@@ -4012,6 +4264,7 @@
         if (ps.editTool === undefined) ps.editTool = 'empty';
         if (ps.gameStarted === undefined) ps.gameStarted = false;
         if (ps.editDirty === undefined) ps.editDirty = false;
+        if (ps._editPreState === undefined) ps._editPreState = null;
 
         const deepCopy = opts.deepCopyBoard || ((b) => {
             if (!b) return b;
@@ -4039,12 +4292,14 @@
                     const row = bd[r];
                     if (!row) continue;
                     for (let c = 0; c < row.length; c++) {
-                        if (row[c] === 1 || row[c] === 2) n++;
+                        const v = row[c];
+                        if (v === 1 || v === 2 || (typeof v === 'string' && v !== '')) n++;
                     }
                 }
             } else {
                 for (let i = 0; i < bd.length; i++) {
-                    if (bd[i] === 1 || bd[i] === 2) n++;
+                    const v = bd[i];
+                    if (v === 1 || v === 2 || (typeof v === 'string' && v !== '')) n++;
                 }
             }
             return n;
@@ -4071,6 +4326,7 @@
                     ps._editCommitPending = false;
                     ps._editCommitSnapshot = null;
                     ps._editLocalBoard = null;
+                    ps._editPreState = null;
                 }
                 ps.editModeEnabled = false;
                 // 避免设定 checked=false 再次触发 change（会二次 commit / 清脏标记）
@@ -4229,6 +4485,8 @@
                     ps.editModeEnabled = true;
                     ps.editDirty = false;
                     ps._editLocalBoard = deepCopy(currentBoard());
+                    // 编辑前的状态快照，供「取消」按钮还原
+                    ps._editPreState = deepCopy(currentBoard());
                     if (editToolSelect) editToolSelect.classList.remove('hidden');
                     if (clearBoardBtn) clearBoardBtn.classList.remove('hidden');
                 } else {
@@ -4292,14 +4550,51 @@
         });
         if (clearBoardBtn) {
             clearBoardBtn.addEventListener('click', () => {
+                const emptyVal = Object.prototype.hasOwnProperty.call(toolValueMap, 'empty')
+                    ? toolValueMap['empty'] : 0;
                 if (typeof opts.emptyBoard === 'function') applyEditChange(opts.emptyBoard());
                 else if (mode === 'flat') {
                     const n = currentBoard().length;
-                    applyEditChange(Array(n).fill(0));
+                    applyEditChange(Array(n).fill(emptyVal));
                 } else {
                     const n = ps.BOARD_SIZE || ps.boardSize || currentBoard().length;
-                    applyEditChange(Array(n).fill(null).map(() => Array(n).fill(0)));
+                    applyEditChange(Array(n).fill(null).map(() => Array(n).fill(emptyVal)));
                 }
+            });
+        }
+
+        // 确定/取消按钮：仅在编辑开启时显示（显隐跟随清空按钮，覆盖各棋类插件的所有显隐点）
+        const confirmEditBtn = document.getElementById('confirmEditBtn');
+        const cancelEditBtn = document.getElementById('cancelEditBtn');
+        const syncEditActionBtns = () => {
+            if (!clearBoardBtn) return;
+            const hidden = clearBoardBtn.classList.contains('hidden');
+            if (confirmEditBtn) confirmEditBtn.classList.toggle('hidden', hidden);
+            if (cancelEditBtn) cancelEditBtn.classList.toggle('hidden', hidden);
+        };
+        syncEditActionBtns();
+        if (typeof MutationObserver !== 'undefined' && clearBoardBtn) {
+            new MutationObserver(syncEditActionBtns).observe(clearBoardBtn, { attributes: true, attributeFilter: ['class'] });
+        }
+        if (confirmEditBtn) {
+            confirmEditBtn.addEventListener('click', () => {
+                if (!editModeCheckbox || !editModeCheckbox.checked) return;
+                // 与取消勾选编辑框一致：提交当前编辑并退出编辑
+                editModeCheckbox.checked = false;
+                editModeCheckbox.dispatchEvent(new Event('change', { bubbles: true }));
+            });
+        }
+        if (cancelEditBtn) {
+            cancelEditBtn.addEventListener('click', () => {
+                if (!editModeCheckbox || !editModeCheckbox.checked) return;
+                // 取消本次编辑：还原为编辑前的状态，再走退出提交（提交的即还原后的盘）
+                const restore = ps._editPreState != null ? deepCopy(ps._editPreState) : deepCopy(currentBoard());
+                writeBoard(restore);
+                ps._editLocalBoard = deepCopy(restore);
+                syncOpeningCaches(restore);
+                if (typeof opts.drawBoard === 'function') opts.drawBoard();
+                editModeCheckbox.checked = false;
+                editModeCheckbox.dispatchEvent(new Event('change', { bubbles: true }));
             });
         }
 
@@ -4334,22 +4629,26 @@
             e.preventDefault();
             const hit = opts.pickAtClient(e.clientX, e.clientY);
             if (!hit) return;
+            // 右键清除：写入「空」工具值（围棋 0；字符串棋盘（象棋）为 ''）
+            const emptyVal = Object.prototype.hasOwnProperty.call(toolValueMap, 'empty')
+                ? toolValueMap['empty'] : 0;
             const board = currentBoard();
             const nb = deepCopy(board);
             if (mode === 'flat') {
                 const i = hit.index != null ? hit.index : hit.v;
-                if (i == null || i < 0 || nb[i] === 0) return;
-                nb[i] = 0;
+                if (i == null || i < 0 || nb[i] === emptyVal) return;
+                nb[i] = emptyVal;
             } else {
                 const { row, col } = hit;
-                if (row == null || col == null || row < 0 || col < 0 || nb[row][col] === 0) return;
-                nb[row][col] = 0;
+                if (row == null || col == null || row < 0 || col < 0 || nb[row][col] === emptyVal) return;
+                nb[row][col] = emptyVal;
             }
             applyEditChange(nb);
         }, true);
 
         const api = {
             updateEditModeUI,
+            isEditModeActive: () => !!ps.editModeEnabled,
             applyEditChange,
             commitEditToServer,
             restoreLocalEditAfterSync,
@@ -4360,6 +4659,7 @@
                 ps.editModeEnabled = false;
                 ps.editDirty = false;
                 ps._editLocalBoard = null;
+                ps._editPreState = null;
                 ps._editCommitSnapshot = null;
                 ps._editCommitPending = false;
                 ps.liveOpeningBoard = null;
@@ -5358,6 +5658,7 @@
 
     global.QiWeiqiSquarePageRuntime = {
         create,
+        setupHiDpiCanvas: global.QiSquareWeiqiCanvas.setupHiDpiCanvas,
         clearUserBoardMarksMap,
         bindActiveUserBoardMarks,
         waitingSeatTurnText,
@@ -5441,7 +5742,145 @@
         }
     }
 
-    function fillEditToolSelect(select, tools) {
+    /**
+     * 编辑工具图标的文字颜色：优先取工具自带 color（国际象棋等自定色）；否则按棋盘值默认：
+     * 围棋黑子黑、白子深灰；象棋红方 #932c13、黑方 #222
+     */
+    function editToolGlyphColor(t) {
+        if (t && t.color) return t.color;
+        const v = t && t.cellValue;
+        if (v === 1) return '#222';
+        if (v === 2) return '#444';
+        if (typeof v === 'string') {
+            if (v.charAt(0) === 'r') return '#932c13';
+            if (v.charAt(0) === 'w') return '#333';
+            if (v.charAt(0) === 'b') return '#222';
+        }
+        return 'var(--qi-room-ink)';
+    }
+
+    /**
+     * 自定义编辑工具选择器：原生 select 的 option 无法按棋子着色，改用 HTML 文字（矢量渲染、红黑分色）。
+     * 列数按单边子力数计算（象棋 7、国际象棋 6），「空」独占一行；glyphSize 可指定当前框字号（国际象棋 26）。
+     */
+    function createEditToolPicker(select, tools, glyphSize) {
+        if (!select || !select.parentNode) return;
+        const list = Array.isArray(tools) && tools.length
+            ? tools
+            : [
+                { value: 'empty', label: '空' },
+                { value: 'black', label: '黑子' },
+                { value: 'white', label: '白子' }
+            ];
+        if (list.length < 2) return;
+        const wrap = document.createElement('div');
+        wrap.className = 'qi-edit-tool-picker hidden';
+        const current = document.createElement('button');
+        current.type = 'button';
+        current.className = 'qi-edit-tool-current';
+        const curSpan = document.createElement('span');
+        curSpan.className = 'qi-edit-tool-glyph';
+        current.appendChild(curSpan);
+        // 编辑框字号：棋子字符用配置字号（国际象棋 26px）；文字（黑、白、空等）用 CSS 默认（16px）
+        const isPieceGlyph = (t) => {
+            const v = t && t.cellValue;
+            return typeof v === 'string' && v.length > 1;
+        };
+        // 字号规则（下拉框）：棋子字符（車馬/♕♖♘ 等）用新字号，默认 26px；
+        // 非棋子文字（空、黑子、白子等）用原本字号 16px
+        const pieceFontSize = () => ((glyphSize || 26)) + 'px';
+        const TEXT_GLYPH_SIZE = '16px';
+        const labelFontSize = (t) => (isPieceGlyph(t) ? pieceFontSize() : TEXT_GLYPH_SIZE);
+        // 编辑框本框字号：整体为下拉框的 70%（长度、宽度、字号等一并缩小）
+        const curFontSize = (t) => ((isPieceGlyph(t) ? (glyphSize || 26) : 16) * 0.7) + 'px';
+        const panel = document.createElement('div');
+        panel.className = 'qi-edit-tool-panel hidden';
+        // 列数 = 单边子力数（象棋 7、国际象棋 6、围棋空/黑/白则每行一个）
+        let cols = 1;
+        {
+            const sideCounts = new Map();
+            for (const t of list) {
+                const v = t && t.cellValue;
+                if (v == null || v === '' || v === 0 || (t && t.value === 'empty')) continue;
+                const c = String(v).charAt(0);
+                sideCounts.set(c, (sideCounts.get(c) || 0) + 1);
+            }
+            for (const n of sideCounts.values()) cols = Math.max(cols, n);
+        }
+        panel.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+        const applyGlyphStyle = (span, t) => {
+            span.style.color = editToolGlyphColor(t);
+            // 浅色棋子（如国际象棋黑方在白底反白）加同色描边，保证白底可见
+            span.style.textShadow = (t && t.stroke)
+                ? `1px 1px 0 ${t.stroke}, -1px -1px 0 ${t.stroke}, 1px -1px 0 ${t.stroke}, -1px 1px 0 ${t.stroke}`
+                : '';
+            // 倒置棋子（如古印度象棋的象与士）旋转 180°
+            if (t && t.upsideDown) {
+                span.style.display = 'inline-block';
+                span.style.transform = 'rotate(180deg)';
+            }
+        };
+        for (const t of list) {
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.className = 'qi-edit-tool-item' + (t.value === 'empty' ? ' is-empty' : '');
+            const span = document.createElement('span');
+            span.className = 'qi-edit-tool-glyph' + (t.value === 'empty' ? ' is-empty' : '');
+            span.textContent = t.label;
+            applyGlyphStyle(span, t);
+            span.style.fontSize = labelFontSize(t);
+            b.appendChild(span);
+            b.title = t.label;
+            b.addEventListener('click', () => {
+                select.value = t.value;
+                select.dispatchEvent(new Event('change', { bubbles: true }));
+                panel.classList.add('hidden');
+                curSpan.textContent = t.label;
+                applyGlyphStyle(curSpan, t);
+                curSpan.style.fontSize = curFontSize(t);
+                curSpan.classList.toggle('is-empty', t.value === 'empty');
+            });
+            panel.appendChild(b);
+        }
+        current.addEventListener('click', () => {
+            if (panel.classList.contains('hidden')) {
+                // 挂到 body + fixed 定位，脱离编辑控件父链的层叠上下文，避免被棋盘/蒙版遮挡
+                const r = current.getBoundingClientRect();
+                panel.style.left = `${Math.max(4, r.left)}px`;
+                panel.style.top = `${r.bottom + 4}px`;
+                panel.classList.remove('hidden');
+            } else {
+                panel.classList.add('hidden');
+            }
+        });
+        const cur = list.find((t) => t.value === select.value) || list[0];
+        curSpan.textContent = cur.label;
+        applyGlyphStyle(curSpan, cur);
+        curSpan.style.fontSize = curFontSize(cur);
+        curSpan.classList.toggle('is-empty', cur.value === 'empty');
+        wrap.appendChild(current);
+        select.parentNode.insertBefore(wrap, select.nextSibling);
+        // 面板挂到 body（fixed 定位在根层叠上下文，z-index 9999 高于棋盘/蒙版）
+        document.body.appendChild(panel);
+        // 原生 select 恒隐藏（picker 替代）；显示/隐藏跟随 select 的 hidden class（installBoardEditUI 控制）
+        select.style.display = 'none';
+        const syncHidden = () => wrap.classList.toggle('hidden', select.classList.contains('hidden'));
+        syncHidden();
+        if (typeof MutationObserver !== 'undefined') {
+            new MutationObserver(syncHidden).observe(select, { attributes: true, attributeFilter: ['class'] });
+        }
+        select.addEventListener('change', () => {
+            const t = list.find((x) => x.value === select.value);
+            if (t) {
+                curSpan.textContent = t.label;
+                applyGlyphStyle(curSpan, t);
+                curSpan.style.fontSize = curFontSize(t);
+                curSpan.classList.toggle('is-empty', t.value === 'empty');
+            }
+        });
+    }
+
+    function fillEditToolSelect(select, tools, glyphSize) {
         if (!select) return;
         const list = Array.isArray(tools) && tools.length
             ? tools
@@ -5457,6 +5896,7 @@
             opt.textContent = t.label;
             select.appendChild(opt);
         }
+        createEditToolPicker(select, list, glyphSize);
     }
 
     function applyShellChrome(config) {
@@ -5484,7 +5924,7 @@
             else delete edit.dataset.qiEditFeature;
             edit.hidden = !features.editBoard;
         }
-        fillEditToolSelect(document.getElementById('editToolSelect'), config.editTools);
+        fillEditToolSelect(document.getElementById('editToolSelect'), config.editTools, config.editToolGlyphSize);
 
         const styleSelect = document.getElementById('styleSelect');
         if (styleSelect) styleSelect.hidden = !features.holeStyle;
@@ -5755,7 +6195,8 @@
                 standardWeiqiMatchTime: config.standardWeiqiMatchTime,
                 boardSizeMin: config.boardSizeMin,
                 boardSizeMax: config.boardSizeMax,
-                features: config.features
+                features: config.features,
+                editTools: config.editTools
             }
         });
 

@@ -2,7 +2,7 @@ window.RoomPlugins = window.RoomPlugins || {};
 window.RoomPlugins["caturanga"] = {
     shell: {
         "title": "古印度象棋",
-        "rulesHtml": "古印度象棋（Chaturanga）。<br />王一步一格，无易位；车直走任意格；马跳日。<br />象斜走两步，不卡象眼；士（倒置的后）斜走一步。<br />兵直走一格斜吃一格，走到底线自动升变为对应列的棋子（a/h列车、b/g列马、c/f列象、d列士、e列后），需己方缺少该棋子才允许，否则升变为士。<br /><br />",
+        "rulesHtml": "基本规则同古印度象棋。<br /><br />",
         "defaultKomiText": "白先",
         "boardSizeMin": 8,
         "boardSizeMax": 8,
@@ -22,13 +22,13 @@ window.RoomPlugins["caturanga"] = {
             { "value": "wq", "label": "♕", "cellValue": "wq", "color": "#222" },
             { "value": "wr", "label": "♖", "cellValue": "wr", "color": "#222" },
             { "value": "wn", "label": "♘", "cellValue": "wn", "color": "#222" },
-            { "value": "wb", "label": "♗", "cellValue": "wb", "color": "#222" },
+            { "value": "wb", "label": "♗", "cellValue": "wb", "color": "#222", "upsideDown": true },
             { "value": "wp", "label": "♙", "cellValue": "wp", "color": "#222" },
             { "value": "wk", "label": "♔", "cellValue": "wk", "color": "#222" },
             { "value": "bq", "label": "♛", "cellValue": "bq", "color": "#222" },
             { "value": "br", "label": "♜", "cellValue": "br", "color": "#222" },
             { "value": "bn", "label": "♞", "cellValue": "bn", "color": "#222" },
-            { "value": "bb", "label": "♝", "cellValue": "bb", "color": "#222" },
+            { "value": "bb", "label": "♝", "cellValue": "bb", "color": "#222", "upsideDown": true },
             { "value": "bp", "label": "♟", "cellValue": "bp", "color": "#222" },
             { "value": "bk", "label": "♚", "cellValue": "bk", "color": "#222" }
         ],
@@ -799,11 +799,11 @@ return {
                             ctx2d.lineWidth = Math.max(1.5, cellSize * 0.03);
                             ctx2d.strokeStyle = '#1a1a1a';
                             ctx2d.fillStyle = '#f7f7f7';
-                            ctx2d.strokeText(glyph, 0, -cellSize * 0.03);
-                            ctx2d.fillText(glyph, 0, -cellSize * 0.03);
+                            ctx2d.strokeText(glyph, 0, -cellSize * 0.07);
+                            ctx2d.fillText(glyph, 0, -cellSize * 0.07);
                         } else {
                             ctx2d.fillStyle = '#1a1a1a';
-                            ctx2d.fillText(glyph, 0, -cellSize * 0.03);
+                            ctx2d.fillText(glyph, 0, -cellSize * 0.07);
                         }
                         ctx2d.restore();
                     } else if (isWhite) {
