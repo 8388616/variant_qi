@@ -2,7 +2,7 @@ window.RoomPlugins = window.RoomPlugins || {};
 window.RoomPlugins["rhombic-chess"] = {
     shell: {
         "title": "菱国际象棋",
-        "rulesHtml": "基本规则类似国际象棋，采用菱棋盘。<br /><br />",
+        "rulesHtml": "菱形棋盘上的国际象棋变体（Tony Paletta 1980）<br />车循对边直行；象循对角直行并可邻边一步；后兼两者；王一步邻边或对角；无王车易位<br />马先邻边再对角（或反之）跳跃；兵向前邻边一步（首步两步）直走直吃，无吃过路兵；兵到对方兵阵行升变<br /><br />",
         "defaultKomiText": "白先",
         "boardSizeMin": 72,
         "boardSizeMax": 72,
@@ -21,7 +21,6 @@ window.RoomPlugins["rhombic-chess"] = {
         var roomId = ctx.roomId;
         var roomPassword = ctx.roomPassword || null;
         var config = ctx.config || {};
-        var recordDownloadPrefix = config.recordDownloadPrefix != null ? config.recordDownloadPrefix : "菱国际象棋";
         var standardWeiqiMatchTime = config.standardWeiqiMatchTime != null ? config.standardWeiqiMatchTime : true;
 
         (function () {
@@ -45,7 +44,7 @@ const R = (function () {
         // 行 2（黑象）
         add('h', 2, -6, 2); add('h', 4, -6, 2); add('h', 6, -6, 2); add('h', 8, -6, 2);
         // 行 3（黑兵）
-        for (let k = 0; k < 4; k++) { add('l', 0 + 2 * k, -3, 3); add('r', 0 + 2 * k, -3, 3); }
+        for (let k = 0; k < 4; k++) { add('l', 2 + 2 * k, -3, 3); add('r', 2 + 2 * k, -3, 3); }
         // 行 4
         for (let k = 0; k < 5; k++) add('h', 1 + 2 * k, -3, 4);
         // 行 5
@@ -106,12 +105,12 @@ const R = (function () {
                 }
             }
             if (shared) { EDGE_NB[i].push(j); continue; }
-            // pointwise：穿过 60° 角（中心 = 2v - 本格中心）
+            // pointwise：穿过 60° 角（短对角线两端；中心 = 2v - 本格中心）
             const c2 = center(d.type, d.I, d.J);
             let sharp = [];
             if (c.type === 'h') sharp = [[c.I, c.J - 1], [c.I, c.J + 1]];
-            else if (c.type === 'l') sharp = [[c.I, c.J - 1], [c.I - 1, c.J - 2]];
-            else sharp = [[c.I, c.J - 1], [c.I + 1, c.J - 2]];
+            else if (c.type === 'l') sharp = [[c.I - 1, c.J - 3], [c.I, c.J]];
+            else sharp = [[c.I + 1, c.J - 3], [c.I, c.J]];
             for (const v of sharp) {
                 const tv = [2 * v[0] * A - c1[0], 2 * v[1] * B - c1[1]];
                 if (Math.abs(tv[0] - c2[0]) < 1e-6 && Math.abs(tv[1] - c2[1]) < 1e-6) {
@@ -164,7 +163,7 @@ const R = (function () {
         const blackPieces = ['br', 'bn', 'bq', 'bk', 'bn', 'br'];
         for (let k = 0; k < 6; k++) board[blackRow1[k]] = blackPieces[k];
         board['h,4,-6'] = 'bb'; board['h,6,-6'] = 'bb';
-        const blackPawns = ['l,0,-3', 'r,0,-3', 'l,2,-3', 'r,2,-3', 'l,4,-3', 'r,4,-3', 'l,6,-3', 'r,6,-3'];
+        const blackPawns = ['l,2,-3', 'r,2,-3', 'l,4,-3', 'r,4,-3', 'l,6,-3', 'r,6,-3', 'l,8,-3', 'r,8,-3'];
         for (const k of blackPawns) board[k] = 'bp';
         return board;
     }
@@ -336,80 +335,43 @@ const R = (function () {
         const canvas = document.getElementById('goBoard');
         const ctx2d = canvas.getContext('2d');
         const LOGICAL_SIZE = 600;
-        // 菱形棋盘几何：实体单位 (A, B)，画布缩放
         const A = Math.sqrt(3) / 2, B = 0.5;
-        const SCALE = 46;
-        // 棋盘实体范围 x ≈ -0.9..8.7、y ≈ -4.5..4.5 → 宽 9.6、高 9
-        const BOARD_W = 10.6, BOARD_H = 10.2;
-        const OX = (LOGICAL_SIZE - BOARD_W * SCALE) / 2 + 0.9 * SCALE;
-        const OY = (LOGICAL_SIZE - BOARD_H * SCALE) / 2 + 4.5 * SCALE;
+
+        // 棋盘几何：由格子中心范围推导，正六角形外框（尖顶朝上下）恰好罩住全盘
+        let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+        for (const c of R.CELLS) {
+            const p = R.center(c.type, c.I, c.J);
+            minX = Math.min(minX, p[0]); maxX = Math.max(maxX, p[0]);
+            minY = Math.min(minY, p[1]); maxY = Math.max(maxY, p[1]);
+        }
+        minX -= 0.6; maxX += 0.6; minY -= 0.6; maxY += 0.6;
+        const BOARD_CX = (minX + maxX) / 2, BOARD_CY = (minY + maxY) / 2;
+        const FRAME_R = Math.max((maxX - BOARD_CX) / 0.866, maxY - BOARD_CY) * 1.04;
+        const SCALE = LOGICAL_SIZE / 2 / FRAME_R * 0.98;
+        const OX = LOGICAL_SIZE / 2 - BOARD_CX * SCALE;
+        const OY = LOGICAL_SIZE / 2 - BOARD_CY * SCALE;
         const FRAME_CORNER_RADIUS = 12;
 
         function toPx(x, y) {
             return { x: OX + x * SCALE, y: OY + y * SCALE };
         }
-        // 格中心实体坐标
         function cellCenter(id) {
             const c = R.CELLS[id];
             const p = R.center(c.type, c.I, c.J);
             return toPx(p[0], p[1]);
         }
-        // 格多边形顶点（实体 → px）
         function cellVerts(id) {
             const c = R.CELLS[id];
             return R.verts(c.type, c.I, c.J).map((v) => toPx(v[0] * A, v[1] * B));
         }
 
-        // 棋盘外轮廓（1 次边环）
-        function buildOutline() {
-            const edgeUse = new Map();
-            const edgeOf = (id, a, b) => {
-                const p = a[0] < b[0] || (a[0] === b[0] && a[1] <= b[1]) ? [a, b] : [b, a];
-                return p[0][0] + ',' + p[0][1] + '-' + p[1][0] + ',' + p[1][1];
-            };
-            for (const c of R.CELLS) {
-                const v = R.verts(c.type, c.I, c.J);
-                for (let i = 0; i < 4; i++) {
-                    const k = edgeOf(c.id, v[i], v[(i + 1) % 4]);
-                    const list = edgeUse.get(k) || [];
-                    list.push(c.id);
-                    edgeUse.set(k, list);
-                }
-            }
-            const one = [];
-            for (const [k, list] of edgeUse) if (list.length === 1) one.push(k);
-            // 连接成环
-            const pts = one.map((k) => k.split('-').map((p) => p.split(',').map(Number)));
-            const used = new Set();
-            const ring = [];
-            let cur = pts[0];
-            used.add(0);
-            ring.push(cur[0]);
-            while (ring.length < pts.length + 1) {
-                const tail = ring[ring.length - 1];
-                let found = -1;
-                for (let i = 0; i < pts.length; i++) {
-                    if (used.has(i)) continue;
-                    if (pts[i][0][0] === tail[0] && pts[i][0][1] === tail[1]) { found = i; break; }
-                    if (pts[i][1][0] === tail[0] && pts[i][1][1] === tail[1]) { pts[i] = [pts[i][1], pts[i][0]]; found = i; break; }
-                }
-                if (found === -1) break;
-                used.add(found);
-                ring.push(pts[found][1]);
-            }
-            return ring.map((p) => toPx(p[0] * A, p[1] * B));
-        }
-        const OUTLINE = buildOutline();
-
         // 黑方视角：棋盘旋转 180°（黑方坐在对面）
         let rotated = false;
         const ROT_ID = (() => {
             const map = [];
-            const cx = 5 * A, cy = 0; // 棋盘中心（行 6 横带中点）
             for (let i = 0; i < R.CELLS.length; i++) {
-                const c = R.CELLS[i];
-                const p = R.center(c.type, c.I, c.J);
-                const tx = 2 * cx - p[0], ty = 2 * cy - p[1];
+                const p = R.center(R.CELLS[i].type, R.CELLS[i].I, R.CELLS[i].J);
+                const tx = 2 * BOARD_CX - p[0], ty = 2 * BOARD_CY - p[1];
                 let found = -1;
                 for (let j = 0; j < R.CELLS.length; j++) {
                     const q = R.center(R.CELLS[j].type, R.CELLS[j].I, R.CELLS[j].J);
@@ -426,37 +388,37 @@ const R = (function () {
 
         function tracePoly(verts) {
             ctx2d.beginPath();
-            verts.forEach((p, i) => {
-                if (i === 0) ctx2d.moveTo(p.x, p.y);
-                else ctx2d.lineTo(p.x, p.y);
-            });
+            verts.forEach((p, i) => (i === 0 ? ctx2d.moveTo(p.x, p.y) : ctx2d.lineTo(p.x, p.y)));
             ctx2d.closePath();
         }
-        function drawRoundedPolygon(vertices, radius) {
-            if (vertices.length < 3) return;
-            const startPoints = [];
-            const endPoints = [];
-            for (let i = 0; i < vertices.length; i++) {
+        function drawRoundedHexagon(vertices, radius) {
+            const startPoints = [], endPoints = [];
+            for (let i = 0; i < 6; i++) {
                 const curr = vertices[i];
-                const prev = vertices[(i - 1 + vertices.length) % vertices.length];
-                const next = vertices[(i + 1) % vertices.length];
+                const prev = vertices[(i - 1 + 6) % 6];
+                const next = vertices[(i + 1) % 6];
                 const v1 = { x: prev.x - curr.x, y: prev.y - curr.y };
                 const v2 = { x: next.x - curr.x, y: next.y - curr.y };
-                const len1 = Math.hypot(v1.x, v1.y);
-                const len2 = Math.hypot(v2.x, v2.y);
+                const len1 = Math.hypot(v1.x, v1.y), len2 = Math.hypot(v2.x, v2.y);
                 startPoints.push({ x: curr.x + (v1.x / len1) * radius, y: curr.y + (v1.y / len1) * radius });
                 endPoints.push({ x: curr.x + (v2.x / len2) * radius, y: curr.y + (v2.y / len2) * radius });
             }
             ctx2d.beginPath();
             ctx2d.moveTo(startPoints[0].x, startPoints[0].y);
-            for (let i = 0; i < vertices.length; i++) {
+            for (let i = 0; i < 6; i++) {
                 ctx2d.arcTo(vertices[i].x, vertices[i].y, endPoints[i].x, endPoints[i].y, radius);
-                if (i < vertices.length - 1) ctx2d.lineTo(startPoints[i + 1].x, startPoints[i + 1].y);
+                if (i < 5) ctx2d.lineTo(startPoints[i + 1].x, startPoints[i + 1].y);
             }
             ctx2d.lineTo(startPoints[0].x, startPoints[0].y);
             ctx2d.closePath();
             ctx2d.fill();
             ctx2d.stroke();
+        }
+        function outerFrameVerts() {
+            return [30, 90, 150, 210, 270, 330].map((deg) => {
+                const a = deg * Math.PI / 180;
+                return { x: LOGICAL_SIZE / 2 + FRAME_R * SCALE * Math.cos(a), y: LOGICAL_SIZE / 2 + FRAME_R * SCALE * Math.sin(a) };
+            });
         }
 
         // 三色菱形：横=中、竖左=深、竖右=浅
@@ -476,22 +438,17 @@ const R = (function () {
         const turnDisplay = document.getElementById('turnDisplay');
         const colorStatus = document.getElementById('colorStatus');
         const scoreTitle = document.getElementById('scoreTitle');
-        const scoreBoard = document.getElementById('scoreBoard');
-        const leadInfo = document.getElementById('leadInfo');
         const isMouseDevice = window.matchMedia('(hover: hover) and (pointer: fine)').matches;
 
         const ps = {
             board: R.setup(),
             sideToMove: 'white',
-            currentPlayer: 1,
             mySlot: null,
             gameOver: false,
-            gameStarted: false,
             winner: null,
             lastFrom: null,
             lastTo: null,
             ws: null,
-            isMyTurn: false,
             slots: { black: false, white: false },
             reconnectTimer: null,
             matchStarted: false,
@@ -500,11 +457,9 @@ const R = (function () {
             legalTargets: [],
             hoverId: -1,
             inCheck: false,
-            moveHistory: [],
             pendingPromote: null,
             recordResultText: null,
-            waitingScoreConfirm: false,
-            showEstimateActive: false
+            waitingScoreConfirm: false
         };
 
         function pieceAt(id) {
@@ -515,7 +470,6 @@ const R = (function () {
             return R.PIECE_CHAR[piece] || piece;
         }
         function sideOf(slot) { return slot === 'black' ? 'white' : 'black'; }
-        function slotOfSide(side) { return side === 'white' ? 'black' : 'white'; }
         function isMyTurnNow() {
             return ps.mySlot !== null && ps.matchStarted && !ps.gameOver
                 && sideOf(ps.mySlot) === ps.sideToMove && !ps.waitingScoreConfirm;
@@ -523,19 +477,18 @@ const R = (function () {
 
         function drawBoard() {
             ctx2d.clearRect(0, 0, LOGICAL_SIZE, LOGICAL_SIZE);
-            // 木质外框（锯齿六角形轮廓）
+            // 正六角形木质外框（与六角国际象棋同款）
             ctx2d.shadowBlur = 0;
             ctx2d.shadowOffsetY = 0;
             ctx2d.fillStyle = '#fdcc90';
             ctx2d.strokeStyle = '#3a281c';
-            ctx2d.lineWidth = 1.5;
-            drawRoundedPolygon(OUTLINE, FRAME_CORNER_RADIUS);
+            ctx2d.lineWidth = 0.5;
+            drawRoundedHexagon(outerFrameVerts(), FRAME_CORNER_RADIUS);
 
             // 格子
             for (let id = 0; id < R.CELLS.length; id++) {
                 const did = displayId(id);
-                const verts = cellVerts(did);
-                tracePoly(verts);
+                tracePoly(cellVerts(did));
                 ctx2d.fillStyle = CELL_COLORS[R.CELLS[did].type];
                 ctx2d.fill();
                 ctx2d.strokeStyle = 'rgba(58,40,28,0.55)';
@@ -546,10 +499,11 @@ const R = (function () {
             // 上一步标记
             if (ps.lastFrom && ps.lastTo) {
                 [ps.lastFrom.row, ps.lastTo.row].forEach((id) => {
-                    if (id < 0 || id >= 72) return;
-                    tracePoly(cellVerts(displayId(id)));
-                    ctx2d.fillStyle = 'rgba(255,255,120,0.38)';
-                    ctx2d.fill();
+                    if (id >= 0 && id < 72) {
+                        tracePoly(cellVerts(displayId(id)));
+                        ctx2d.fillStyle = 'rgba(255,255,120,0.38)';
+                        ctx2d.fill();
+                    }
                 });
             }
 
@@ -574,33 +528,30 @@ const R = (function () {
                     ctx2d.stroke();
                 } else {
                     ctx2d.beginPath();
-                    ctx2d.arc(c.x, c.y, SCALE * 0.16, 0, 2 * Math.PI);
+                    ctx2d.arc(c.x, c.y, SCALE * 0.14, 0, 2 * Math.PI);
                     ctx2d.fillStyle = 'rgba(163,92,39,0.95)';
                     ctx2d.fill();
                 }
             }
 
-            // 棋子
+            // 棋子（菱形格较扁，字号略小于格高）
+            const fontSize = SCALE * 0.7;
+            ctx2d.font = `${fontSize}px "XiangqiPiece", "Segoe UI Symbol", "Apple Color Emoji", "Noto Sans Symbols", sans-serif`;
+            ctx2d.textAlign = 'center';
+            ctx2d.textBaseline = 'middle';
             for (const k in ps.board) {
                 const id = R.CELL_INDEX[k];
-                const did = displayId(id);
-                const { x, y } = cellCenter(did);
-                const piece = ps.board[k];
-                const isWhite = piece[0] === 'w';
-                const fontSize = SCALE * 1.05;
-                ctx2d.font = `${fontSize}px "XiangqiPiece", "Segoe UI Symbol", "Apple Color Emoji", "Noto Sans Symbols", sans-serif`;
-                ctx2d.textAlign = 'center';
-                ctx2d.textBaseline = 'middle';
-                const glyph = pieceLabel(piece);
-                if (isWhite) {
-                    ctx2d.lineWidth = Math.max(1.5, SCALE * 0.05);
+                const { x, y } = cellCenter(displayId(id));
+                const glyph = pieceLabel(ps.board[k]);
+                if (ps.board[k][0] === 'w') {
+                    ctx2d.lineWidth = Math.max(1.5, SCALE * 0.04);
                     ctx2d.strokeStyle = '#1a1a1a';
                     ctx2d.fillStyle = '#f7f7f7';
-                    ctx2d.strokeText(glyph, x, y + SCALE * 0.04);
-                    ctx2d.fillText(glyph, x, y + SCALE * 0.04);
+                    ctx2d.strokeText(glyph, x, y + SCALE * 0.03);
+                    ctx2d.fillText(glyph, x, y + SCALE * 0.03);
                 } else {
                     ctx2d.fillStyle = '#1a1a1a';
-                    ctx2d.fillText(glyph, x, y + SCALE * 0.04);
+                    ctx2d.fillText(glyph, x, y + SCALE * 0.03);
                 }
             }
 
@@ -623,7 +574,6 @@ const R = (function () {
             }
             return best;
         }
-
         function canvasCoordsFromClient(clientX, clientY) {
             const rect = canvas.getBoundingClientRect();
             const scale = LOGICAL_SIZE / rect.width;
@@ -640,7 +590,6 @@ const R = (function () {
                 drawBoard();
                 return;
             }
-
             const piece = pieceAt(id);
             if (piece && piece[0] === (ps.sideToMove === 'white' ? 'w' : 'b')) {
                 ps.selectedId = id;
@@ -707,11 +656,9 @@ const R = (function () {
             const rect = canvas.getBoundingClientRect();
             const scale = LOGICAL_SIZE / rect.width;
             const { x, y } = cellCenter(displayId(id));
-            const sx = rect.left + x / scale;
-            const sy = rect.top + y / scale;
             promoBar.style.display = 'flex';
-            promoBar.style.left = `${sx - 100}px`;
-            promoBar.style.top = `${sy + 34}px`;
+            promoBar.style.left = `${rect.left + x / scale - 100}px`;
+            promoBar.style.top = `${rect.top + y / scale + 34}px`;
         }
         function hidePromote() {
             if (promoBar) promoBar.style.display = 'none';
@@ -744,7 +691,6 @@ const R = (function () {
         function syncState(state) {
             if (state.board) ps.board = state.board;
             if (state.sideToMove) ps.sideToMove = state.sideToMove;
-            ps.currentPlayer = state.currentPlayer;
             ps.gameOver = state.gameOver || false;
             ps.winner = state.winner || null;
             ps.inCheck = !!state.inCheck;
@@ -754,11 +700,6 @@ const R = (function () {
             ps.lastTo = state.lastTo || null;
             if (state.matchTime !== undefined) ps.matchTime = state.matchTime;
             if (state.slots) ps.slots = state.slots;
-            if (state.pendingPromotion) {
-                ps.pendingPromote = { from: state.pendingPromotion.row, to: state.pendingPromotion.row };
-            } else if (state.pendingPromotion === null) {
-                ps.pendingPromote = null;
-            }
             updateTurn();
             refreshColorStatus();
             drawBoard();
@@ -772,9 +713,7 @@ const R = (function () {
         function showEstimate() {}
         function clearMobileMovePreview() {}
         function downloadRecord() {
-            if (ps.ws && ps.ws.readyState === 1) {
-                ps.ws.send(JSON.stringify({ type: 'exportRecord' }));
-            }
+            if (ps.ws && ps.ws.readyState === 1) ps.ws.send(JSON.stringify({ type: 'exportRecord' }));
         }
         function enterReplayMode() {}
         function updateReplayUI() {}
@@ -824,9 +763,9 @@ const R = (function () {
             standardWeiqiMatchTime,
             slotUi: SLOT_UI,
             boardSeatOverlay: true,
-            seatOverlayShape: 'polygon',
+            seatOverlayShape: 'hexagon',
             seatOverlayCornerRadius: FRAME_CORNER_RADIUS,
-            getSeatOverlayVertices: () => OUTLINE
+            getSeatOverlayVertices: () => outerFrameVerts()
         });
         const handleMessage = _weiqiBindings.handleMessage;
 

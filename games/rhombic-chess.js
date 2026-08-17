@@ -42,7 +42,7 @@ const R = (function () {
         // 行 2（黑象）
         add('h', 2, -6, 2); add('h', 4, -6, 2); add('h', 6, -6, 2); add('h', 8, -6, 2);
         // 行 3（黑兵）
-        for (let k = 0; k < 4; k++) { add('l', 0 + 2 * k, -3, 3); add('r', 0 + 2 * k, -3, 3); }
+        for (let k = 0; k < 4; k++) { add('l', 2 + 2 * k, -3, 3); add('r', 2 + 2 * k, -3, 3); }
         // 行 4
         for (let k = 0; k < 5; k++) add('h', 1 + 2 * k, -3, 4);
         // 行 5
@@ -103,12 +103,12 @@ const R = (function () {
                 }
             }
             if (shared) { EDGE_NB[i].push(j); continue; }
-            // pointwise：穿过 60° 角（中心 = 2v - 本格中心）
+            // pointwise：穿过 60° 角（短对角线两端；中心 = 2v - 本格中心）
             const c2 = center(d.type, d.I, d.J);
             let sharp = [];
             if (c.type === 'h') sharp = [[c.I, c.J - 1], [c.I, c.J + 1]];
-            else if (c.type === 'l') sharp = [[c.I, c.J - 1], [c.I - 1, c.J - 2]];
-            else sharp = [[c.I, c.J - 1], [c.I + 1, c.J - 2]];
+            else if (c.type === 'l') sharp = [[c.I - 1, c.J - 3], [c.I, c.J]];
+            else sharp = [[c.I + 1, c.J - 3], [c.I, c.J]];
             for (const v of sharp) {
                 const tv = [2 * v[0] * A - c1[0], 2 * v[1] * B - c1[1]];
                 if (Math.abs(tv[0] - c2[0]) < 1e-6 && Math.abs(tv[1] - c2[1]) < 1e-6) {
@@ -161,7 +161,7 @@ const R = (function () {
         const blackPieces = ['br', 'bn', 'bq', 'bk', 'bn', 'br'];
         for (let k = 0; k < 6; k++) board[blackRow1[k]] = blackPieces[k];
         board['h,4,-6'] = 'bb'; board['h,6,-6'] = 'bb';
-        const blackPawns = ['l,0,-3', 'r,0,-3', 'l,2,-3', 'r,2,-3', 'l,4,-3', 'r,4,-3', 'l,6,-3', 'r,6,-3'];
+        const blackPawns = ['l,2,-3', 'r,2,-3', 'l,4,-3', 'r,4,-3', 'l,6,-3', 'r,6,-3', 'l,8,-3', 'r,8,-3'];
         for (const k of blackPawns) board[k] = 'bp';
         return board;
     }
