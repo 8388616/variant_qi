@@ -2,7 +2,7 @@ window.RoomPlugins = window.RoomPlugins || {};
 window.RoomPlugins["rhombic-chess"] = {
     shell: {
         "title": "菱国际象棋",
-        "rulesHtml": "菱形棋盘上的国际象棋变体（Tony Paletta 1980）<br />车循对边直行；象循对角直行并可邻边一步；后兼两者；王一步邻边或对角；无王车易位<br />马先邻边再对角（或反之）跳跃；兵向前邻边一步（首步两步）直走直吃，无吃过路兵；兵到对方兵阵行升变<br /><br />",
+        "rulesHtml": "菱形棋盘上的国际象棋变体（Tony Paletta 1980）<br />车循对边直行；象循对角直行并可邻边一步；后兼两者；王一步邻边或对角；无王车易位<br />马先邻边再斜格（或反之）跳跃；兵向前邻边一步（首步两步）斜吃（横格兵不能吃），有吃过路兵；兵到对方兵阵行升变<br /><br />",
         "defaultKomiText": "白先",
         "boardSizeMin": 72,
         "boardSizeMax": 72,
@@ -101,12 +101,20 @@ const R = (function () {
         return [(I + 0.5) * A, (J - 1.5) * B];
     }
 
-    // 预计算邻接
-    const EDGE_NB = [], PT_NB = [];
+    // 预计算邻接：共享边 = edgewise；长边方向 = 斜走
+    const EDGE_NB = [], DIAG_NB = [];
     for (let i = 0; i < CELLS.length; i++) {
         const c = CELLS[i];
         EDGE_NB.push([]);
-        PT_NB.push([]);
+        // 斜走（沿长边/长对角线方向）：横格水平、竖左左上-右下、竖右左下-右上
+        const diagList = [];
+        const dirs = c.type === 'h' ? [[2, 0], [-2, 0]]
+            : (c.type === 'l' ? [[1, 3], [-1, -3]] : [[1, -3], [-1, 3]]);
+        for (const [dI, dJ] of dirs) {
+            const t = CELL_INDEX[c.type + ',' + (c.I + dI) + ',' + (c.J + dJ)];
+            if (t !== undefined) diagList.push(t);
+        }
+        DIAG_NB.push(diagList);
         const v1 = verts(c.type, c.I, c.J);
         const c1 = center(c.type, c.I, c.J);
         for (let j = 0; j < CELLS.length; j++) {
@@ -121,19 +129,6 @@ const R = (function () {
                 }
             }
             if (shared) { EDGE_NB[i].push(j); continue; }
-            // pointwise：穿过 60° 角（短对角线两端；中心 = 2v - 本格中心）
-            const c2 = center(d.type, d.I, d.J);
-            let sharp = [];
-            if (c.type === 'h') sharp = [[c.I, c.J - 1], [c.I, c.J + 1]];
-            else if (c.type === 'l') sharp = [[c.I - 1, c.J - 3], [c.I, c.J]];
-            else sharp = [[c.I + 1, c.J - 3], [c.I, c.J]];
-            for (const v of sharp) {
-                const tv = [2 * v[0] * A - c1[0], 2 * v[1] * B - c1[1]];
-                if (Math.abs(tv[0] - c2[0]) < 1e-6 && Math.abs(tv[1] - c2[1]) < 1e-6) {
-                    PT_NB[i].push(j);
-                    break;
-                }
-            }
         }
     }
 
@@ -196,12 +191,15 @@ const R = (function () {
     function cellKeyOfId(id) { const c = CELLS[id]; return key(c.type, c.I, c.J); }
 
     // 生成一步的所有合法目标
-    function pseudoMoves(board, id, side) {
+    function pseudoMoves(board, id, side, ep) {
         const k = cellKeyOfId(id);
         const pc = board[k];
         if (!pc || pieceSide(pc) !== side) return [];
         const blockers = {};
-        for (const kk in board) blockers[CELL_INDEX[kk]] = pieceSide(board[kk]);
+        for (const kk in board) {
+            if (board[kk] === '' || board[kk] == null) continue;
+            blockers[CELL_INDEX[kk]] = pieceSide(board[kk]);
+        }
         const out = [];
         const add = (t) => { if (!out.includes(t)) out.push(t); };
         const type = pc[1];
@@ -209,19 +207,19 @@ const R = (function () {
             for (const t of lineMoves(id, EDGE_NB, blockers, side)) add(t);
         }
         if (type === 'b' || type === 'q') {
-            for (const t of lineMoves(id, PT_NB, blockers, side)) add(t);
+            for (const t of lineMoves(id, DIAG_NB, blockers, side)) add(t);
             for (const n of EDGE_NB[id]) { const b = blockers[n]; if (!b || b !== side) add(n); }
         }
         if (type === 'k') {
             for (const n of EDGE_NB[id]) { const b = blockers[n]; if (!b || b !== side) add(n); }
-            for (const n of PT_NB[id]) { const b = blockers[n]; if (!b || b !== side) add(n); }
+            for (const n of DIAG_NB[id]) { const b = blockers[n]; if (!b || b !== side) add(n); }
         }
         if (type === 'n') {
             for (const e of EDGE_NB[id]) {
-                for (const p of PT_NB[e]) { const b = blockers[p]; if (!b || b !== side) add(p); }
+                for (const d of DIAG_NB[e]) { const b = blockers[d]; if (!b || b !== side) add(d); }
             }
-            for (const p of PT_NB[id]) {
-                for (const e of EDGE_NB[p]) { const b = blockers[e]; if (!b || b !== side) add(e); }
+            for (const d of DIAG_NB[id]) {
+                for (const e of EDGE_NB[d]) { const b = blockers[e]; if (!b || b !== side) add(e); }
             }
         }
         if (type === 'p') {
@@ -247,7 +245,16 @@ const R = (function () {
                     }
                 }
             }
-            // 直走直吃（同移动，无斜吃）——上面已含
+            // 斜吃：前方斜一格（长边方向前方）有敌子
+            for (const d of DIAG_NB[id]) {
+                const d2 = center(CELLS[d].type, CELLS[d].I, CELLS[d].J);
+                if (fwd * (d2[1] - c1[1]) > 0 && blockers[d] && blockers[d] !== side) add(d);
+            }
+            // 吃过路兵：敌方兵双步后，可斜吃其经过格
+            if (ep && ep.passedId != null && ep.passedId !== id && DIAG_NB[id].includes(ep.passedId)) {
+                const d2 = center(CELLS[ep.passedId].type, CELLS[ep.passedId].I, CELLS[ep.passedId].J);
+                if (fwd * (d2[1] - c1[1]) > 0) add(ep.passedId);
+            }
         }
         return out;
     }
@@ -270,7 +277,7 @@ const R = (function () {
     }
 
     // 应用一步，返回被吃子
-    function applyMove(board, move) {
+    function applyMove(board, move, ep) {
         const fromK = cellKeyOfId(move.from);
         const toK = cellKeyOfId(move.to);
         const pc = board[fromK];
@@ -278,45 +285,66 @@ const R = (function () {
         delete board[fromK];
         board[toK] = { ...pc, hasMoved: true };
         if (move.promote) board[toK] = board[toK][0] + move.promote;
+        // 吃过路兵：吃掉跳越的敌方兵
+        if (ep && move.to === ep.passedId && ep.pawnKey) delete board[ep.pawnKey];
         return captured;
     }
 
-    function legalMovesFor(board, id, side) {
+    function legalMovesFor(board, id, side, ep) {
         const k = cellKeyOfId(id);
         const pc = board[k];
         if (!pc || pieceSide(pc) !== side) return [];
         const promoRow = side === 'white' ? 3 : 9;
-        const raw = pseudoMoves(board, id, side);
+        const fwd = side === 'white' ? -1 : 1;
+        const raw = pseudoMoves(board, id, side, ep);
         const legal = [];
         for (const t of raw) {
             const move = { from: id, to: t };
-            const captured = applyMove(board, move);
+            const captured = applyMove(board, move, ep);
             let promote = false;
             if (pc[1] === 'p' && CELLS[t].row === promoRow) {
                 promote = true;
                 move.promote = 'q';
             }
+            // 兵双步标记（记录经过格，供吃过路兵）
+            if (pc[1] === 'p' && !pc.hasMoved) {
+                const c1 = center(CELLS[id].type, CELLS[id].I, CELLS[id].J);
+                const ct = center(CELLS[t].type, CELLS[t].I, CELLS[t].J);
+                for (const n of EDGE_NB[id]) {
+                    if (!EDGE_NB[t].includes(n)) continue;
+                    const cn = center(CELLS[n].type, CELLS[n].I, CELLS[n].J);
+                    const dx1 = cn[0] - c1[0], dy1 = cn[1] - c1[1];
+                    const dx2 = ct[0] - cn[0], dy2 = ct[1] - cn[1];
+                    if (Math.abs(dx1 * dy2 - dx2 * dy1) < 1e-6 && fwd * dy1 > 0 && fwd * dy2 > 0) {
+                        move.doubleStep = { passed: n };
+                        break;
+                    }
+                }
+            }
             let ok = true;
             const kingId = findKing(board, side);
             if (kingId !== -1 && isAttacked(board, kingId, oppositeSide(side))) ok = false;
-            // 还原
+            // 还原（含吃过路兵删掉的兵）
             const toK = cellKeyOfId(t);
             const fromK = k;
             delete board[toK];
             board[fromK] = pc;
             if (captured !== undefined) board[toK] = captured;
-            if (ok) legal.push({ to: t, promote });
+            if (ep && move.to === ep.passedId && ep.pawnKey && !board[ep.pawnKey]) {
+                board[ep.pawnKey] = (side === 'white' ? 'b' : 'w') + 'p';
+            }
+            if (ok) legal.push({ to: t, promote, doubleStep: move.doubleStep || null, enPassant: !!(ep && move.to === ep.passedId) });
         }
         return legal;
     }
 
-    function allLegalMoves(board, side) {
+    function allLegalMoves(board, side, ep) {
         const out = [];
         for (const k in board) {
             if (pieceSide(board[k]) !== side) continue;
             const id = CELL_INDEX[k];
-            for (const m of legalMovesFor(board, id, side)) {
-                out.push({ from: id, to: m.to, promote: m.promote || null });
+            for (const m of legalMovesFor(board, id, side, ep)) {
+                out.push({ from: id, to: m.to, promote: m.promote || null, doubleStep: m.doubleStep || null, enPassant: m.enPassant });
             }
         }
         return out;
@@ -333,7 +361,7 @@ const R = (function () {
     }
 
     return {
-        CELLS, CELL_INDEX, EDGE_NB, PT_NB, key, center, verts,
+        CELLS, CELL_INDEX, EDGE_NB, DIAG_NB, key, center, verts,
         PIECE_CHAR, PROMOTE_TYPES, normalizePromote,
         setup, pseudoMoves, legalMovesFor, allLegalMoves, applyMove,
         findKing, isAttacked, isInCheck, hasLegalMove,
@@ -474,6 +502,7 @@ const R = (function () {
             winner: null,
             lastFrom: null,
             lastTo: null,
+            lastEnPassant: null,
             ws: null,
             slots: { black: false, white: false },
             reconnectTimer: null,
@@ -620,7 +649,7 @@ const R = (function () {
             const piece = pieceAt(id);
             if (piece && piece[0] === (ps.sideToMove === 'white' ? 'w' : 'b')) {
                 ps.selectedId = id;
-                ps.legalTargets = R.allLegalMoves(ps.board, ps.sideToMove)
+                ps.legalTargets = R.allLegalMoves(ps.board, ps.sideToMove, ps.lastEnPassant)
                     .filter((m) => m.from === id)
                     .map((m) => ({ to: m.to, needsPromote: !!m.promote }));
                 drawBoard();
@@ -725,6 +754,7 @@ const R = (function () {
             ps.recordResultText = state.recordResultText || null;
             ps.lastFrom = state.lastFrom || null;
             ps.lastTo = state.lastTo || null;
+            ps.lastEnPassant = state.lastEnPassant || null;
             if (state.matchTime !== undefined) ps.matchTime = state.matchTime;
             if (state.slots) ps.slots = state.slots;
             updateTurn();
