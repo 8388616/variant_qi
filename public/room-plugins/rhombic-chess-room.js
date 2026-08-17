@@ -10,6 +10,22 @@ window.RoomPlugins["rhombic-chess"] = {
         "minLib": 1,
         "recordDownloadPrefix": "菱国际象棋",
         "standardWeiqiMatchTime": true,
+        "editTools": [
+            { "value": "empty", "label": "空", "cellValue": "" },
+            { "value": "wq", "label": "♕", "cellValue": "wq", "color": "#222" },
+            { "value": "wr", "label": "♖", "cellValue": "wr", "color": "#222" },
+            { "value": "wn", "label": "♘", "cellValue": "wn", "color": "#222" },
+            { "value": "wb", "label": "♗", "cellValue": "wb", "color": "#222" },
+            { "value": "wp", "label": "♙", "cellValue": "wp", "color": "#222" },
+            { "value": "wk", "label": "♔", "cellValue": "wk", "color": "#222" },
+            { "value": "bq", "label": "♛", "cellValue": "bq", "color": "#222" },
+            { "value": "br", "label": "♜", "cellValue": "br", "color": "#222" },
+            { "value": "bn", "label": "♞", "cellValue": "bn", "color": "#222" },
+            { "value": "bb", "label": "♝", "cellValue": "bb", "color": "#222" },
+            { "value": "bp", "label": "♟", "cellValue": "bp", "color": "#222" },
+            { "value": "bk", "label": "♚", "cellValue": "bk", "color": "#222" }
+        ],
+        "editToolGlyphSize": 26,
         "features": {
             "editBoard": true,
             "hideBoardSize": true,
