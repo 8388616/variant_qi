@@ -164,13 +164,22 @@ console.log('  白王 l(6,9) 目标:', wk14.map(m => name(m.to)).join(', '));
 check('白王 edgewise 一步（h(6,6)）', wk14.some(m => m.to === findId('h', 6, 6)));
 check('白王斜走一步（l(5,6)）', wk14.some(m => m.to === findId('l', 5, 6)));
 
-// 15. 升变：白兵行 4 走到行 3
+// 15. 升变：白兵到行 2、黑兵到行 10
 const b15 = {};
 b15['h,3,-3'] = 'wp';
 b15['l,5,-6'] = 'bk';
 b15['l,7,-6'] = 'wk';
 const wpm = R.legalMovesFor(b15, findId('h', 3, -3), 'white');
-check('白兵到行 3 触发升变', wpm.some(m => m.promote === true && m.to === findId('l', 4, -3)));
+check('白兵到行 3 不升变', !wpm.some(m => m.promote === true && (m.to === findId('l', 4, -3) || m.to === findId('r', 2, -3))));
+check('白兵到行 2 触发升变', wpm.some(m => m.promote === true && m.to === findId('h', 4, -6)));
+// 黑兵到行 10（白象行）升变：黑兵放行 9 竖左 (3,6) → 走到行 10 横格
+const b15b = {};
+b15b['l,3,6'] = 'bp';
+b15b['l,5,-6'] = 'bk';
+b15b['l,7,-6'] = 'wk';
+const bpm = R.legalMovesFor(b15b, findId('l', 3, 6), 'black');
+console.log('  行9黑兵 l(3,6) 目标:', bpm.map(m => name(m.to) + ' 升变=' + m.promote).join(', '));
+check('黑兵到行 10 触发升变', bpm.some(m => m.promote === true && m.to === findId('h', 2, 6)));
 
 // 16. 将军检测
 const b16 = {};

@@ -2,7 +2,7 @@ window.RoomPlugins = window.RoomPlugins || {};
 window.RoomPlugins["rhombic-chess"] = {
     shell: {
         "title": "菱国际象棋",
-        "rulesHtml": "基本规则类似国际象棋，采用六角棋盘<br /><br />车循对边直行；象循对角直行并可邻边一步；后兼两者；王一步邻边或对角；无王车易位<br />马先邻边再斜格跳跃；兵向前邻边一步（首步两步）斜吃（横格兵不能吃），有吃过路兵；兵到对方兵阵行升变<br /><br />",
+        "rulesHtml": "基本规则类似国际象棋，采用菱棋盘。<strong>王</strong>：直走或斜走一格，不可易位。<br /><strong>車</strong>：直走任意格，路径上不能有其它棋子。<br /><strong>馬</strong>：直走一格后斜走一格，路径上可以有棋子。<br /><strong>象</strong>：直走一格，或斜走任意格，路径上不能有其它棋子。<br /><strong>后</strong>：直走或斜走任意格，路径上不能有其它棋子。<br /><strong>兵</strong>：直走一格或斜吃一格，到底线时升变。<br /><br />",
         "defaultKomiText": "白先",
         "boardSizeMin": 72,
         "boardSizeMax": 72,
@@ -292,7 +292,7 @@ const R = (function () {
         const k = cellKeyOfId(id);
         const pc = board[k];
         if (!pc || pieceSide(pc) !== side) return [];
-        const promoRow = side === 'white' ? 3 : 9;
+        const promoRow = side === 'white' ? 2 : 10;
         const fwd = side === 'white' ? -1 : 1;
         const raw = pseudoMoves(board, id, side, ep);
         const legal = [];

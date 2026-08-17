@@ -11,7 +11,7 @@
 //   后 = 车 + 象；王 1 步 edgewise 或 pointwise；无易位
 //   马 1 步 edgewise + 1 步 pointwise（或反之），可跳
 //   兵向前 1 步 edgewise（首步 2 步）直走直吃，无过路兵
-//   升变：白兵到行 3（黑兵阵）、黑兵到行 9（白兵阵）
+//   升变：白兵到行 2、黑兵到行 10
 //   将军/将杀/逼和/无王判负
 // 协议坐标：格 id（0-71），fromRow=fromId、fromCol=0、toRow=toId、toCol=0
 
@@ -274,7 +274,7 @@ const R = (function () {
         const k = cellKeyOfId(id);
         const pc = board[k];
         if (!pc || pieceSide(pc) !== side) return [];
-        const promoRow = side === 'white' ? 3 : 9;
+        const promoRow = side === 'white' ? 2 : 10;
         const fwd = side === 'white' ? -1 : 1;
         const raw = pseudoMoves(board, id, side, ep);
         const legal = [];
@@ -371,7 +371,7 @@ class RhombicChessRoom extends QiTwoPlayerRoomBase {
 
     _pendingPawnPromotion() {
         const pawn = this.sideToMove === 'white' ? 'wp' : 'bp';
-        const row = this.sideToMove === 'white' ? 3 : 9;
+        const row = this.sideToMove === 'white' ? 2 : 10;
         for (const c of this.boardCells) {
             if (c.row === row && this.board[R.key(c.type, c.I, c.J)] === pawn) {
                 return { row: c.id, col: 0 };
