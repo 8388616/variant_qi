@@ -20,18 +20,18 @@ window.RoomPlugins["caturanga"] = {
         "editTools": [
             { "value": "empty", "label": "空", "cellValue": "" },
             { "value": "wq", "label": "♕", "cellValue": "wq", "color": "#222" },
+            { "value": "wf", "label": "♕", "cellValue": "wf", "color": "#222", "upsideDown": true },
             { "value": "wr", "label": "♖", "cellValue": "wr", "color": "#222" },
             { "value": "wn", "label": "♘", "cellValue": "wn", "color": "#222" },
             { "value": "wb", "label": "♗", "cellValue": "wb", "color": "#222", "upsideDown": true },
             { "value": "wp", "label": "♙", "cellValue": "wp", "color": "#222" },
             { "value": "wk", "label": "♔", "cellValue": "wk", "color": "#222" },
-            { "value": "wf", "label": "♕", "cellValue": "wf", "color": "#222", "upsideDown": true },
             { "value": "bq", "label": "♛", "cellValue": "bq", "color": "#222" },
+            { "value": "bf", "label": "♛", "cellValue": "bf", "color": "#222", "upsideDown": true },
             { "value": "br", "label": "♜", "cellValue": "br", "color": "#222" },
             { "value": "bn", "label": "♞", "cellValue": "bn", "color": "#222" },
             { "value": "bb", "label": "♝", "cellValue": "bb", "color": "#222", "upsideDown": true },
             { "value": "bp", "label": "♟", "cellValue": "bp", "color": "#222" },
-            { "value": "bf", "label": "♛", "cellValue": "bf", "color": "#222", "upsideDown": true },
             { "value": "bk", "label": "♚", "cellValue": "bk", "color": "#222" }
         ],
         "editToolGlyphSize": 26
@@ -801,11 +801,11 @@ return {
                             ctx2d.lineWidth = Math.max(1.5, cellSize * 0.03);
                             ctx2d.strokeStyle = '#1a1a1a';
                             ctx2d.fillStyle = '#f7f7f7';
-                            ctx2d.strokeText(glyph, 0, -cellSize * 0.07);
-                            ctx2d.fillText(glyph, 0, -cellSize * 0.07);
+                            ctx2d.strokeText(glyph, 0, cellSize * 0.1);
+                            ctx2d.fillText(glyph, 0, cellSize * 0.1);
                         } else {
                             ctx2d.fillStyle = '#1a1a1a';
-                            ctx2d.fillText(glyph, 0, -cellSize * 0.07);
+                            ctx2d.fillText(glyph, 0, cellSize * 0.1);
                         }
                         ctx2d.restore();
                     } else if (isWhite) {
