@@ -4,7 +4,11 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>变体棋类研究中心</title>
-    <link rel="stylesheet" href="/qi/fonts/lxgw-wenkai-gb/index.css">
+    <!-- 大厅字体：CDN 分包按需加载（jsdmirror 国内镜像，路径与 jsDelivr 兼容）。
+         400/500/700 权重分包（game-name-pill 等用粗体）；CDN 不可达时回退页面字体栈。 -->
+    <link rel="stylesheet" href="https://cdn.jsdmirror.com/npm/lxgw-wenkai-gb-web@1.522.0/lxgwwenkaigb-regular/result.css">
+    <link rel="stylesheet" href="https://cdn.jsdmirror.com/npm/lxgw-wenkai-gb-web@1.522.0/lxgwwenkaigb-medium/result.css">
+    <link rel="stylesheet" href="https://cdn.jsdmirror.com/npm/lxgw-wenkai-gb-web@1.522.0/lxgwwenkaigb-bold/result.css">
     <style>
         :root {
             --bg: #f6f0e3;
@@ -360,12 +364,12 @@
         }
 
         .game-card.is-not-recommended .game-name-pill {
-            font-weight: 500;
+            font-weight: 700;
         }
 
         .game-card.has-recommend-badge .game-name-pill {
             color: #492e17;
-            font-weight: 500;
+            font-weight: 700;
         }
 
         .game-card.has-recommend-badge.is-disabled .game-name-pill {
@@ -452,7 +456,7 @@
             background: none;
             font-family: var(--body-font);
             font-size: 1em;
-            font-weight: 500;
+            font-weight: 700;
             line-height: 1.3;
             letter-spacing: 0.01em;
             color: #492e17;
@@ -492,7 +496,7 @@
         .game-intro {
             margin: 0px 0 0;
             color: #7b5c48;
-            font-family: "KaiTi", "Kaiti SC", "STKaiti", "DFKai-SB", "BiauKai", serif;
+            font-family: var(--body-font);
             font-size: 12px;
             font-weight: 500;
             line-height: 1.2;
@@ -1250,7 +1254,6 @@
             { id: 'cairo-pentagon-weiqi', name: '开罗五角围棋', randomLevel: 0, path: 'cairo-pentagon-weiqi', enabled: true, recommended: false, category: '围棋', intro: '开罗五角棋盘！' },
             { id: 'floret-pentagon-weiqi', name: '花形五角围棋', randomLevel: 0, path: 'floret-pentagon-weiqi', enabled: true, recommended: false, category: '围棋', intro: '花形五角棋盘！' },
             { id: 'penrose-p2-weiqi', name: '彭罗斯P2围棋', randomLevel: 0, path: 'penrose-p2-weiqi', enabled: false, recommended: false, category: '围棋', intro: '' },
-            { id: 'sigmoid-triangle-weiqi', name: 'Sigmoid三角围棋', randomLevel: 0, path: 'sigmoid-triangle-weiqi', enabled: true, recommended: false, category: '围棋', intro: 'Sigmoid三角棋盘！' },
             { id: 'big-small-circle-weiqi', name: '大小圆围棋', randomLevel: 0, path: 'big-small-circle-weiqi', enabled: false, recommended: false, category: '围棋', intro: '' },
             { id: 'biliberty-weiqi', name: '二气围棋', randomLevel: 0, path: 'biliberty-weiqi', enabled: true, recommended: true, category: '围棋', intro: '每片棋子少一口气！' },
             { id: 'triliberty-weiqi', name: '三气围棋', randomLevel: 0, path: 'triliberty-weiqi', enabled: true, recommended: false, category: '围棋', intro: '每片棋子少两口气！' },
@@ -1268,9 +1271,7 @@
             { id: 'russian-weiqi', name: '俄罗斯围棋', randomLevel: 4, path: 'russian-weiqi', enabled: true, recommended: false, category: '围棋', intro: '棋子是俄罗斯方块的形状！' },
             { id: 'rus-weiqi', name: '罗斯围棋', randomLevel: 0, path: 'rus-weiqi', enabled: true, recommended: true, category: '围棋', intro: '一次下三颗子，其中有一颗是对方的！' },
             { id: 'mirror-image-weiqi', name: '镜像围棋', randomLevel: 4, path: 'mirror-image-weiqi', enabled: true, recommended: true, category: '围棋', intro: '落子时会同时在镜像位置落子！' },
-            { id: 'weak-magnetism-weiqi', name: '弱磁性围棋', randomLevel: 0, path: 'weak-magnetism-weiqi', enabled: true, recommended: true, category: '围棋', intro: '落子时会吸引或排斥棋盘上的棋子！' },
-            { id: 'medium-magnetism-weiqi', name: '中磁性围棋', randomLevel: 0, path: 'medium-magnetism-weiqi', enabled: true, recommended: false, category: '围棋', intro: '更强的磁性！' },
-            { id: 'strong-magnetism-weiqi', name: '强磁性围棋', randomLevel: 0, path: 'strong-magnetism-weiqi', enabled: true, recommended: false, category: '围棋', intro: '更更强的磁性！' },
+            { id: 'magnetism-weiqi', name: '磁性围棋', randomLevel: 0, path: 'magnetism-weiqi', enabled: true, recommended: true, category: '围棋', intro: '落子时会吸引或排斥棋盘上的棋子！' },
             { id: 'translocation-weiqi', name: '易位围棋', randomLevel: 0, path: 'translocation-weiqi', enabled: true, recommended: true, category: '围棋', intro: '除了落子，还可以交换棋子的位置！' },
             { id: 'rotation-weiqi', name: '旋转围棋', randomLevel: 0, path: 'rotation-weiqi', enabled: true, recommended: true, category: '围棋', intro: '下着下着，棋盘旋转了！' },
             { id: 'nogrid-weiqi', name: '无格线围棋', randomLevel: 0, path: 'nogrid-weiqi', enabled: true, recommended: true, category: '围棋', intro: '棋盘忘记画格线了！' },
@@ -1308,6 +1309,8 @@
             { id: 'hexagon-xiangqi', name: '六角象棋', randomLevel: 0, path: 'hexagon-xiangqi', enabled: true, recommended: false, category: '象棋', intro: '六角棋盘上的象棋！' },
             { id: 'xiangqi', name: '象棋', randomLevel: 0, path: 'xiangqi', enabled: true, recommended: false, category: '象棋', intro: '普通的象棋有什么好玩的！' },
             { id: 'chess', name: '国际象棋', randomLevel: 0, path: 'chess', enabled: true, recommended: false, category: '象棋', intro: '普通的国际象棋有什么好玩的！' },
+            { id: 'rhombic-chess', name: '菱国际象棋', randomLevel: 0, path: 'rhombic-chess', enabled: true, recommended: true, category: '象棋', intro: '菱形棋盘上的国际象棋！' },
+            { id: 'hexagon-chess', name: '六角国际象棋', randomLevel: 0, path: 'hexagon-chess', enabled: true, recommended: true, category: '象棋', intro: '六角棋盘上的国际象棋！' },
             { id: 'simulated-shogi', name: '模拟日本将棋', randomLevel: 0, path: 'simulated-shogi', enabled: true, recommended: false, category: '象棋', intro: '普通的日本将棋有什么好玩的！' },
             { id: 'janggi', name: '朝鲜将棋', randomLevel: 0, path: 'janggi', enabled: true, recommended: false, category: '象棋', intro: '普通的朝鲜将棋有什么好玩的！' },
             { id: 'simulated-makruk', name: '模拟泰国象棋', randomLevel: 0, path: 'simulated-makruk', enabled: true, recommended: false, category: '象棋', intro: '普通的泰国象棋有什么好玩的！' },
