@@ -25,11 +25,13 @@ window.RoomPlugins["caturanga"] = {
             { "value": "wb", "label": "♗", "cellValue": "wb", "color": "#222", "upsideDown": true },
             { "value": "wp", "label": "♙", "cellValue": "wp", "color": "#222" },
             { "value": "wk", "label": "♔", "cellValue": "wk", "color": "#222" },
+            { "value": "wf", "label": "♕", "cellValue": "wf", "color": "#222", "upsideDown": true },
             { "value": "bq", "label": "♛", "cellValue": "bq", "color": "#222" },
             { "value": "br", "label": "♜", "cellValue": "br", "color": "#222" },
             { "value": "bn", "label": "♞", "cellValue": "bn", "color": "#222" },
             { "value": "bb", "label": "♝", "cellValue": "bb", "color": "#222", "upsideDown": true },
             { "value": "bp", "label": "♟", "cellValue": "bp", "color": "#222" },
+            { "value": "bf", "label": "♛", "cellValue": "bf", "color": "#222", "upsideDown": true },
             { "value": "bk", "label": "♚", "cellValue": "bk", "color": "#222" }
         ],
         "editToolGlyphSize": 26
