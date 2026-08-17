@@ -346,7 +346,8 @@ const R = (function () {
         }
         minX -= 0.6; maxX += 0.6; minY -= 0.6; maxY += 0.6;
         const BOARD_CX = (minX + maxX) / 2, BOARD_CY = (minY + maxY) / 2;
-        const FRAME_R = Math.max((maxX - BOARD_CX) / 0.866, maxY - BOARD_CY) * 1.04;
+        // 正六角形外框尖角朝左右：水平半宽 = R、垂直半高 = 0.866R
+        const FRAME_R = Math.max(maxX - BOARD_CX, (maxY - BOARD_CY) / 0.866) * 1.04;
         const SCALE = LOGICAL_SIZE / 2 / FRAME_R * 0.98;
         const OX = LOGICAL_SIZE / 2 - BOARD_CX * SCALE;
         const OY = LOGICAL_SIZE / 2 - BOARD_CY * SCALE;
@@ -357,6 +358,7 @@ const R = (function () {
         }
         function cellCenter(id) {
             const c = R.CELLS[id];
+            if (!c) return { x: 0, y: 0 };
             const p = R.center(c.type, c.I, c.J);
             return toPx(p[0], p[1]);
         }
@@ -415,7 +417,8 @@ const R = (function () {
             ctx2d.stroke();
         }
         function outerFrameVerts() {
-            return [30, 90, 150, 210, 270, 330].map((deg) => {
+            // 尖角朝左右（旋转 90°）
+            return [0, 60, 120, 180, 240, 300].map((deg) => {
                 const a = deg * Math.PI / 180;
                 return { x: LOGICAL_SIZE / 2 + FRAME_R * SCALE * Math.cos(a), y: LOGICAL_SIZE / 2 + FRAME_R * SCALE * Math.sin(a) };
             });
@@ -519,9 +522,9 @@ const R = (function () {
 
             // 合法目标
             for (const t of ps.legalTargets) {
-                const did = displayId(t);
+                const did = displayId(t.to);
                 const c = cellCenter(did);
-                if (pieceAt(t)) {
+                if (pieceAt(t.to)) {
                     tracePoly(cellVerts(did));
                     ctx2d.strokeStyle = 'rgba(163,92,39,0.95)';
                     ctx2d.lineWidth = 4;
@@ -761,6 +764,7 @@ const R = (function () {
             showScoreConfirm,
             isMouseDevice,
             standardWeiqiMatchTime,
+            timeControlDefaults: { mainMinutes: 5, byoyomiSeconds: 30, maxTimeouts: 3 },
             slotUi: SLOT_UI,
             boardSeatOverlay: true,
             seatOverlayShape: 'hexagon',
