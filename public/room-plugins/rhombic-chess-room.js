@@ -2,7 +2,7 @@ window.RoomPlugins = window.RoomPlugins || {};
 window.RoomPlugins["rhombic-chess"] = {
     shell: {
         "title": "菱国际象棋",
-        "rulesHtml": "菱形棋盘上的国际象棋变体（Tony Paletta 1980）<br />车循对边直行；象循对角直行并可邻边一步；后兼两者；王一步邻边或对角；无王车易位<br />马先邻边再斜格（或反之）跳跃；兵向前邻边一步（首步两步）斜吃（横格兵不能吃），有吃过路兵；兵到对方兵阵行升变<br /><br />",
+        "rulesHtml": "基本规则类似国际象棋，采用六角棋盘<br /><br />车循对边直行；象循对角直行并可邻边一步；后兼两者；王一步邻边或对角；无王车易位<br />马先邻边再斜格跳跃；兵向前邻边一步（首步两步）斜吃（横格兵不能吃），有吃过路兵；兵到对方兵阵行升变<br /><br />",
         "defaultKomiText": "白先",
         "boardSizeMin": 72,
         "boardSizeMax": 72,
@@ -215,11 +215,9 @@ const R = (function () {
             for (const n of DIAG_NB[id]) { const b = blockers[n]; if (!b || b !== side) add(n); }
         }
         if (type === 'n') {
+            // 马：先走一个邻格，再走一个斜格（跳过中间格）
             for (const e of EDGE_NB[id]) {
                 for (const d of DIAG_NB[e]) { const b = blockers[d]; if (!b || b !== side) add(d); }
-            }
-            for (const d of DIAG_NB[id]) {
-                for (const e of EDGE_NB[d]) { const b = blockers[e]; if (!b || b !== side) add(e); }
             }
         }
         if (type === 'p') {

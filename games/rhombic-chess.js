@@ -197,11 +197,9 @@ const R = (function () {
             for (const n of DIAG_NB[id]) { const b = blockers[n]; if (!b || b !== side) add(n); }
         }
         if (type === 'n') {
+            // 马：先走一个邻格，再走一个斜格（跳过中间格）
             for (const e of EDGE_NB[id]) {
                 for (const d of DIAG_NB[e]) { const b = blockers[d]; if (!b || b !== side) add(d); }
-            }
-            for (const d of DIAG_NB[id]) {
-                for (const e of EDGE_NB[d]) { const b = blockers[e]; if (!b || b !== side) add(e); }
             }
         }
         if (type === 'p') {
