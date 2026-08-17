@@ -923,7 +923,7 @@ return {
                     traceHex(x, y, HEX_OUTER);
                     ctx2d.fillStyle = cellColor(r, c);
                     ctx2d.fill();
-                    ctx2d.strokeStyle = '#b58863';
+                    ctx2d.strokeStyle = '#8a5a3b';
                     ctx2d.lineWidth = 1;
                     ctx2d.stroke();
                 }
