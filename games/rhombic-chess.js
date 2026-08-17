@@ -324,6 +324,17 @@ const R = (function () {
     };
 })();
 
+/** 内部棋子可能带 hasMoved 标记（对象 {0:'w',1:'p',hasMoved:true}），发送给客户端时转回 'wp' 字符串 */
+function wirePiece(v) {
+    if (typeof v === 'string') return v;
+    return v ? v[0] + v[1] : '';
+}
+function wireBoard(board) {
+    const out = {};
+    for (const k in board) out[k] = wirePiece(board[k]);
+    return out;
+}
+
 class RhombicChessRoom extends QiTwoPlayerRoomBase {
     constructor(room) {
         super(room);
@@ -495,7 +506,7 @@ class RhombicChessRoom extends QiTwoPlayerRoomBase {
 
     getState() {
         return {
-            board: this.board,
+            board: wireBoard(this.board),
             boardCells: this.boardCells,
             boardSize: 72,
             sideToMove: this.sideToMove,
@@ -509,7 +520,7 @@ class RhombicChessRoom extends QiTwoPlayerRoomBase {
             halfmoveClock: this.halfmoveClock,
             inCheck: R.isInCheck(this.board, this.sideToMove),
             pendingPromotion: this._pendingPawnPromotion(),
-            moveHistory: this.moveHistory.map((m) => ({ ...m })),
+            moveHistory: this.moveHistory.map((m) => ({ ...m, piece: wirePiece(m.piece) })),
             moveCoords: this.wireMoveCoords(),
             matchTime: {
                 negotiation: this.tcNego,

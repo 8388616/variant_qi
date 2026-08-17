@@ -475,6 +475,7 @@ const R = (function () {
             return ps.board[R.key(c.type, c.I, c.J)] || '';
         }
         function pieceLabel(piece) {
+            if (piece && typeof piece === 'object') piece = piece[0] + piece[1];
             return R.PIECE_CHAR[piece] || piece;
         }
         function sideOf(slot) { return slot === 'black' ? 'white' : 'black'; }
