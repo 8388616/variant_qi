@@ -1,20 +1,14 @@
 // 菱国际象棋（Rhombic Chess，Tony Paletta 1980）
 // 棋盘：11 行 72 格，三方向菱形（横/竖左/竖右），六角形轮廓
-// 格坐标：(type, I, J)：
-//   横 h(i,j)：中心 (i·a, j·b)，顶点 (i±1,j)、(i,j±1)
-//   竖左 l(I,J)：中心 (I-0.5, J-1.5)，顶点 (I-1,J),(I,J-1),(I,J-3),(I-1,J-2)
-//   竖右 r(I,J)：中心 (I+0.5, J-1.5)，顶点 (I+1,J),(I,J-1),(I,J-3),(I+1,J-2)
-//   a = √3/2、b = 1/2
+// 坐标：行列 (row, col)，row 0-10、col 0 起从左到右；奇数 row 为横格行（h），偶数 row 为竖带行
+//   竖带行：顶部（row<5）col 偶 = 竖左 l、col 奇 = 竖右 r；底部（row>5）col 偶 = r、col 奇 = l
 // 走法：
-//   车 edgewise（穿过对边直线，4 方向）
-//   象 pointwise（穿过 60° 角直线，2 方向）+ 1 步 edgewise
-//   后 = 车 + 象；王 1 步 edgewise 或 pointwise；无易位
-//   马 1 步 edgewise + 1 步 pointwise（或反之），可跳
-//   兵向前 1 步 edgewise（首步 2 步）直走直吃，无过路兵
-//   升变：白兵到行 2、黑兵到行 10
-//   将军/将杀/逼和/无王判负
-// 协议坐标：格 id（0-71），fromRow=fromId、fromCol=0、toRow=toId、toCol=0
-
+//   车 edgewise（穿过对边直线）；象斜走（沿长边方向直线）+ 1 步 edgewise；后 = 车 + 象
+//   王 1 步 edgewise 或斜走一步；无易位
+//   马 1 步 edgewise + 1 步斜走（单向），可跳
+//   兵向前 1 步 edgewise（首步 2 步）斜吃（横格兵不能吃），有吃过路兵
+//   升变：白兵到 row 1、黑兵到 row 9
+// 协议坐标：row/col（从 0 开始）
 const {
     QiTwoPlayerRoomBase,
     qiProtocol,
@@ -25,84 +19,86 @@ const {
 const R = (function () {
     'use strict';
     const A = Math.sqrt(3) / 2, B = 0.5;
-    const key = (type, I, J) => type + ',' + I + ',' + J;
+    const key = (row, col) => row + ',' + col;
     const PIECE_CHAR = {
         wk: '♚', wq: '♛', wr: '♜', wn: '♞', wb: '♝', wp: '♟',
         bk: '♚', bq: '♛', br: '♜', bn: '♞', bb: '♝', bp: '♟'
     };
     const PROMOTE_TYPES = ['q', 'r', 'n', 'b'];
 
+    // 每行格数（row 0-10）
+    const ROW_COUNT = [6, 4, 8, 5, 10, 6, 10, 5, 8, 4, 6];
+
     function buildBoard() {
         const cells = [];
-        const add = (type, I, J, row) => cells.push({ type, I, J, row });
-        // 行 1（黑大子）
-        add('l', 3, -6, 1); add('r', 3, -6, 1);
-        add('l', 5, -6, 1); add('r', 5, -6, 1);
-        add('l', 7, -6, 1); add('r', 7, -6, 1);
-        // 行 2（黑象）
-        add('h', 2, -6, 2); add('h', 4, -6, 2); add('h', 6, -6, 2); add('h', 8, -6, 2);
-        // 行 3（黑兵）
-        for (let k = 0; k < 4; k++) { add('l', 2 + 2 * k, -3, 3); add('r', 2 + 2 * k, -3, 3); }
-        // 行 4
-        for (let k = 0; k < 5; k++) add('h', 1 + 2 * k, -3, 4);
-        // 行 5
-        for (let k = 0; k < 5; k++) { add('l', 1 + 2 * k, 0, 5); add('r', 1 + 2 * k, 0, 5); }
-        // 行 6
-        for (let k = 0; k < 6; k++) add('h', 2 * k, 0, 6);
-        // 行 7（从竖右开始）
-        for (let k = 0; k < 5; k++) add('r', 0 + 2 * k, 3, 7);
-        for (let k = 0; k < 5; k++) add('l', 2 + 2 * k, 3, 7);
-        // 行 8
-        for (let k = 0; k < 5; k++) add('h', 1 + 2 * k, 3, 8);
-        // 行 9（白兵）
-        for (let k = 0; k < 4; k++) add('r', 1 + 2 * k, 6, 9);
-        for (let k = 0; k < 4; k++) add('l', 3 + 2 * k, 6, 9);
-        // 行 10（白象）
-        for (let k = 0; k < 4; k++) add('h', 2 + 2 * k, 6, 10);
-        // 行 11（白大子，从竖右开始）
-        add('r', 2, 9, 11); add('l', 4, 9, 11);
-        add('r', 4, 9, 11); add('l', 6, 9, 11);
-        add('r', 6, 9, 11); add('l', 8, 9, 11);
-        cells.forEach((c, i) => { c.id = i; });
+        for (let row = 0; row < 11; row++) {
+            const n = ROW_COUNT[row];
+            if (row % 2 === 1) {
+                for (let col = 0; col < n; col++) cells.push({ type: 'h', row, col });
+            } else {
+                const isTop = row < 5;
+                for (let col = 0; col < n; col++) {
+                    cells.push({ type: (col % 2 === 0) === isTop ? 'l' : 'r', row, col });
+                }
+            }
+        }
         return cells;
     }
 
     const CELLS = buildBoard();
     const CELL_INDEX = {};
-    CELLS.forEach((c) => { CELL_INDEX[key(c.type, c.I, c.J)] = c.id; });
+    CELLS.forEach((c, i) => { CELL_INDEX[key(c.row, c.col)] = i; });
+    function cellIdOf(row, col) {
+        const id = CELL_INDEX[key(row, col)];
+        return id === undefined ? -1 : id;
+    }
+    function cellKeyOfId(id) { const c = CELLS[id]; return key(c.row, c.col); }
 
-    function verts(type, I, J) {
-        if (type === 'h') return [[I - 1, J], [I, J - 1], [I + 1, J], [I, J + 1]];
-        if (type === 'l') return [[I - 1, J - 3], [I, J - 2], [I, J], [I - 1, J - 1]];
-        return [[I + 1, J - 3], [I + 1, J - 1], [I, J], [I, J - 2]];
+    // 半对角向量（实体单位）：长对角线（长边方向）与短对角线
+    const HALF = {
+        h: { long: [A, 0], short: [0, B] },
+        l: { long: [0.5 * A, 0.75], short: [-0.5 * A, 0.25] },
+        r: { long: [-0.5 * A, 0.75], short: [-0.5 * A, -0.25] }
+    };
+    function centerOf(cell) {
+        const off = Math.abs(cell.row - 5) / 2;
+        const x = cell.type === 'h' ? (2 * cell.col + off) * A : (cell.col + off) * A;
+        return [x, (cell.row - 5) * 0.75];
     }
-    const eq = (p, q) => p[0] === q[0] && p[1] === q[1];
-    function center(type, I, J) {
-        if (type === 'h') return [I * A, J * B];
-        if (type === 'l') return [(I - 0.5) * A, (J - 1.5) * B];
-        return [(I + 0.5) * A, (J - 1.5) * B];
+    function vertsOf(cell) {
+        const [x, y] = centerOf(cell);
+        const u = HALF[cell.type].long, v = HALF[cell.type].short;
+        return [
+            [x + u[0], y + u[1]],
+            [x + v[0], y + v[1]],
+            [x - u[0], y - u[1]],
+            [x - v[0], y - v[1]]
+        ];
     }
+    const eq = (p, q) => Math.abs(p[0] - q[0]) < 1e-9 && Math.abs(p[1] - q[1]) < 1e-9;
 
     // 预计算邻接：共享边 = edgewise；长边方向 = 斜走
     const EDGE_NB = [], DIAG_NB = [];
     for (let i = 0; i < CELLS.length; i++) {
         const c = CELLS[i];
         EDGE_NB.push([]);
-        // 斜走（沿长边/长对角线方向）：横格水平、竖左左上-右下、竖右左下-右上
+        // 斜走邻居：中心沿长对角线方向 ±2×长半向量
         const diagList = [];
-        const dirs = c.type === 'h' ? [[2, 0], [-2, 0]]
-            : (c.type === 'l' ? [[1, 3], [-1, -3]] : [[1, -3], [-1, 3]]);
-        for (const [dI, dJ] of dirs) {
-            const t = CELL_INDEX[c.type + ',' + (c.I + dI) + ',' + (c.J + dJ)];
-            if (t !== undefined) diagList.push(t);
+        const u = HALF[c.type].long;
+        const [cx, cy] = centerOf(c);
+        for (const s of [1, -1]) {
+            const tx = cx + 2 * u[0] * s, ty = cy + 2 * u[1] * s;
+            for (let j = 0; j < CELLS.length; j++) {
+                if (j === i) continue;
+                const p = centerOf(CELLS[j]);
+                if (Math.abs(p[0] - tx) < 1e-6 && Math.abs(p[1] - ty) < 1e-6) { diagList.push(j); break; }
+            }
         }
         DIAG_NB.push(diagList);
-        const v1 = verts(c.type, c.I, c.J);
-        const c1 = center(c.type, c.I, c.J);
+        const v1 = vertsOf(c);
         for (let j = 0; j < CELLS.length; j++) {
             if (i === j) continue;
-            const d = CELLS[j];
-            const v2 = verts(d.type, d.I, d.J);
+            const v2 = vertsOf(CELLS[j]);
             let shared = false;
             for (let a = 0; a < 4 && !shared; a++) {
                 for (let b = 0; b < 4; b++) {
@@ -119,22 +115,21 @@ const R = (function () {
         const out = [];
         for (const n of nbTable[id]) {
             const c = CELLS[id], d = CELLS[n];
-            const c1 = center(c.type, c.I, c.J), c2 = center(d.type, d.I, d.J);
+            const c1 = centerOf(c), c2 = centerOf(d);
             const dx = c2[0] - c1[0], dy = c2[1] - c1[1];
             let cur = n;
             while (true) {
-                const cc = CELLS[cur];
-                const b = blockers[cc.id];
+                const b = blockers[cur];
                 if (b) {
                     if (b !== side) out.push(cur);
                     break;
                 }
                 out.push(cur);
-                const cc1 = center(cc.type, cc.I, cc.J);
+                const cc1 = centerOf(CELLS[cur]);
                 const tx = cc1[0] + dx, ty = cc1[1] + dy;
                 let next = -1;
                 for (const nn of nbTable[cur]) {
-                    const n2 = center(CELLS[nn].type, CELLS[nn].I, CELLS[nn].J);
+                    const n2 = centerOf(CELLS[nn]);
                     if (Math.abs(n2[0] - tx) < 1e-6 && Math.abs(n2[1] - ty) < 1e-6) { next = nn; break; }
                 }
                 if (next === -1) break;
@@ -146,18 +141,16 @@ const R = (function () {
 
     function setup() {
         const board = {};
-        const whiteRow11 = ['r,2,9', 'l,4,9', 'r,4,9', 'l,6,9', 'r,6,9', 'l,8,9'];
-        const whitePieces = ['wr', 'wn', 'wq', 'wk', 'wn', 'wr'];
-        for (let k = 0; k < 6; k++) board[whiteRow11[k]] = whitePieces[k];
-        board['h,4,6'] = 'wb'; board['h,6,6'] = 'wb';
-        const whitePawns = ['r,1,6', 'l,3,6', 'r,3,6', 'l,5,6', 'r,5,6', 'l,7,6', 'r,7,6', 'l,9,6'];
-        for (const k of whitePawns) board[k] = 'wp';
-        const blackRow1 = ['l,3,-6', 'r,3,-6', 'l,5,-6', 'r,5,-6', 'l,7,-6', 'r,7,-6'];
-        const blackPieces = ['br', 'bn', 'bq', 'bk', 'bn', 'br'];
-        for (let k = 0; k < 6; k++) board[blackRow1[k]] = blackPieces[k];
-        board['h,4,-6'] = 'bb'; board['h,6,-6'] = 'bb';
-        const blackPawns = ['l,2,-3', 'r,2,-3', 'l,4,-3', 'r,4,-3', 'l,6,-3', 'r,6,-3', 'l,8,-3', 'r,8,-3'];
-        for (const k of blackPawns) board[k] = 'bp';
+        // 白方（底部）
+        const whiteRow = ['wr', 'wn', 'wq', 'wk', 'wn', 'wr'];
+        for (let c = 0; c < 6; c++) board[key(10, c)] = whiteRow[c];
+        board[key(9, 1)] = 'wb'; board[key(9, 2)] = 'wb';
+        for (let c = 0; c < 8; c++) board[key(8, c)] = 'wp';
+        // 黑方（顶部）
+        const blackRow = ['br', 'bn', 'bq', 'bk', 'bn', 'br'];
+        for (let c = 0; c < 6; c++) board[key(0, c)] = blackRow[c];
+        board[key(1, 1)] = 'bb'; board[key(1, 2)] = 'bb';
+        for (let c = 0; c < 8; c++) board[key(2, c)] = 'bp';
         return board;
     }
 
@@ -170,7 +163,6 @@ const R = (function () {
         if (PROMOTE_TYPES.includes(p)) return p;
         return 'q';
     }
-    function cellKeyOfId(id) { const c = CELLS[id]; return key(c.type, c.I, c.J); }
 
     // 生成一步的所有合法目标
     function pseudoMoves(board, id, side, ep) {
@@ -204,9 +196,9 @@ const R = (function () {
         }
         if (type === 'p') {
             const fwd = side === 'white' ? -1 : 1;
-            const c1 = center(CELLS[id].type, CELLS[id].I, CELLS[id].J);
+            const c1 = centerOf(CELLS[id]);
             const fwdNbs = EDGE_NB[id].filter(n => {
-                const n2 = center(CELLS[n].type, CELLS[n].I, CELLS[n].J);
+                const n2 = centerOf(CELLS[n]);
                 return fwd * (n2[1] - c1[1]) > 0;
             });
             for (const n of fwdNbs) {
@@ -214,12 +206,11 @@ const R = (function () {
                     add(n);
                     // 首步 2 步
                     if (!board[k].hasMoved) {
-                        const cc = CELLS[n];
-                        const cc1 = center(cc.type, cc.I, cc.J);
+                        const cc1 = centerOf(CELLS[n]);
                         const dx = cc1[0] - c1[0], dy = cc1[1] - c1[1];
                         const tx = cc1[0] + dx, ty = cc1[1] + dy;
                         for (const nn of EDGE_NB[n]) {
-                            const n3 = center(CELLS[nn].type, CELLS[nn].I, CELLS[nn].J);
+                            const n3 = centerOf(CELLS[nn]);
                             if (Math.abs(n3[0] - tx) < 1e-6 && Math.abs(n3[1] - ty) < 1e-6 && blockers[nn] === undefined) add(nn);
                         }
                     }
@@ -227,12 +218,12 @@ const R = (function () {
             }
             // 斜吃：前方斜一格（长边方向前方）有敌子
             for (const d of DIAG_NB[id]) {
-                const d2 = center(CELLS[d].type, CELLS[d].I, CELLS[d].J);
+                const d2 = centerOf(CELLS[d]);
                 if (fwd * (d2[1] - c1[1]) > 0 && blockers[d] && blockers[d] !== side) add(d);
             }
             // 吃过路兵：敌方兵双步后，可斜吃其经过格
             if (ep && ep.passedId != null && ep.passedId !== id && DIAG_NB[id].includes(ep.passedId)) {
-                const d2 = center(CELLS[ep.passedId].type, CELLS[ep.passedId].I, CELLS[ep.passedId].J);
+                const d2 = centerOf(CELLS[ep.passedId]);
                 if (fwd * (d2[1] - c1[1]) > 0) add(ep.passedId);
             }
         }
@@ -274,7 +265,7 @@ const R = (function () {
         const k = cellKeyOfId(id);
         const pc = board[k];
         if (!pc || pieceSide(pc) !== side) return [];
-        const promoRow = side === 'white' ? 2 : 10;
+        const promoRow = side === 'white' ? 1 : 9;
         const fwd = side === 'white' ? -1 : 1;
         const raw = pseudoMoves(board, id, side, ep);
         const legal = [];
@@ -288,11 +279,11 @@ const R = (function () {
             }
             // 兵双步标记（记录经过格，供吃过路兵）
             if (pc[1] === 'p' && !pc.hasMoved) {
-                const c1 = center(CELLS[id].type, CELLS[id].I, CELLS[id].J);
-                const ct = center(CELLS[t].type, CELLS[t].I, CELLS[t].J);
+                const c1 = centerOf(CELLS[id]);
+                const ct = centerOf(CELLS[t]);
                 for (const n of EDGE_NB[id]) {
                     if (!EDGE_NB[t].includes(n)) continue;
-                    const cn = center(CELLS[n].type, CELLS[n].I, CELLS[n].J);
+                    const cn = centerOf(CELLS[n]);
                     const dx1 = cn[0] - c1[0], dy1 = cn[1] - c1[1];
                     const dx2 = ct[0] - cn[0], dy2 = ct[1] - cn[1];
                     if (Math.abs(dx1 * dy2 - dx2 * dy1) < 1e-6 && fwd * dy1 > 0 && fwd * dy2 > 0) {
@@ -341,12 +332,11 @@ const R = (function () {
     }
 
     return {
-        CELLS, CELL_INDEX, EDGE_NB, DIAG_NB, key, center, verts,
-        PIECE_CHAR, PROMOTE_TYPES, normalizePromote,
+        CELLS, CELL_INDEX, EDGE_NB, DIAG_NB, key, cellIdOf, cellKeyOfId,
+        centerOf, vertsOf, PIECE_CHAR, PROMOTE_TYPES, normalizePromote,
         setup, pseudoMoves, legalMovesFor, allLegalMoves, applyMove,
         findKing, isAttacked, isInCheck, hasLegalMove,
         pieceSide, oppositeSide, sideFromSlot, slotFromSide,
-        cellKeyOfId,
     };
 })();
 
@@ -371,19 +361,20 @@ class RhombicChessRoom extends QiTwoPlayerRoomBase {
 
     _pendingPawnPromotion() {
         const pawn = this.sideToMove === 'white' ? 'wp' : 'bp';
-        const row = this.sideToMove === 'white' ? 2 : 10;
+        const row = this.sideToMove === 'white' ? 1 : 9;
         for (const c of this.boardCells) {
-            if (c.row === row && this.board[R.key(c.type, c.I, c.J)] === pawn) {
-                return { row: c.id, col: 0 };
+            if (c.row === row && this.board[R.key(c.row, c.col)] === pawn) {
+                return { row: c.row, col: c.col };
             }
         }
         return null;
     }
 
-    _applyPawnPromotion(id, promote) {
+    _applyPawnPromotion(row, col, promote) {
         const pawn = this.sideToMove === 'white' ? 'wp' : 'bp';
+        const id = R.cellIdOf(row, col);
         const c = this.boardCells[id];
-        const k = R.key(c.type, c.I, c.J);
+        const k = R.key(c.row, c.col);
         if (!c || this.board[k] !== pawn) return false;
         this.board[k] = (this.sideToMove === 'white' ? 'w' : 'b') + R.normalizePromote(promote);
         return true;
@@ -413,7 +404,7 @@ class RhombicChessRoom extends QiTwoPlayerRoomBase {
             }
             if (v !== '') {
                 const c = this.boardCells[i];
-                next[R.key(c.type, c.I, c.J)] = v;
+                next[R.key(c.row, c.col)] = v;
             }
         }
         this.board = next;
@@ -575,7 +566,7 @@ class RhombicChessRoom extends QiTwoPlayerRoomBase {
             numberOfHands: this.moveHistory.length + 1,
             lastFrom: this.lastFrom,
             lastTo: this.lastTo,
-            lastMoveMarkers: this.lastTo ? [{ row: this.lastTo.row, col: 0, color: this.sideToMove === 'white' ? 2 : 1 }] : [],
+            lastMoveMarkers: this.lastTo ? [{ row: this.lastTo.row, col: this.lastTo.col, color: this.sideToMove === 'white' ? 2 : 1 }] : [],
             lastEnPassant: this.lastEnPassant,
             gameOver: this.gameOver,
             winner: this.winner,
@@ -618,10 +609,10 @@ class RhombicChessRoom extends QiTwoPlayerRoomBase {
             version: 2,
             gameType: '菱国际象棋',
             gameId: 'rhombic-chess',
-            boardRows: 72,
-            boardCols: 1,
+            boardRows: 11,
+            boardCols: 10,
             moves: this.moveHistory.map((m) => {
-                let s = `${m.player[0].toUpperCase()}${m.fromRow}-${m.toRow}`;
+                let s = `${m.player[0].toUpperCase()}${m.fromRow},${m.fromCol}-${m.toRow},${m.toCol}`;
                 if (m.promote) s += `=${m.promote.toUpperCase()}`;
                 return s;
             }),
@@ -671,11 +662,13 @@ class RhombicChessRoom extends QiTwoPlayerRoomBase {
         this._stopClockTicker();
     }
 
-    _applyMoveCore(fromId, toId, slot, promote) {
+    _applyMoveCore(fromRow, fromCol, toRow, toCol, slot, promote) {
         const side = R.sideFromSlot(slot);
         if (side !== this.sideToMove) return { ok: false };
-        if (!Number.isInteger(fromId) || !Number.isInteger(toId)) return { ok: false };
-        if (fromId < 0 || fromId >= 72 || toId < 0 || toId >= 72) return { ok: false };
+        if (!Number.isInteger(fromRow) || !Number.isInteger(fromCol) || !Number.isInteger(toRow) || !Number.isInteger(toCol)) return { ok: false };
+        const fromId = R.cellIdOf(fromRow, fromCol);
+        const toId = R.cellIdOf(toRow, toCol);
+        if (fromId < 0 || toId < 0) return { ok: false };
         const legal = R.allLegalMoves(this.board, side, this.lastEnPassant);
         const found = legal.find(m => m.from === fromId && m.to === toId);
         if (!found) return { ok: false };
@@ -700,11 +693,11 @@ class RhombicChessRoom extends QiTwoPlayerRoomBase {
         this.historySides.push(this.sideToMove);
         this.historyHalfmoves.push(this.halfmoveClock);
 
-        this.lastFrom = { row: fromId, col: 0 };
-        this.lastTo = { row: toId, col: 0 };
+        this.lastFrom = { row: fromRow, col: fromCol };
+        this.lastTo = { row: toRow, col: toCol };
         this.moveHistory.push({
             player: slot,
-            fromRow: fromId, fromCol: 0, toRow: toId, toCol: 0,
+            fromRow, fromCol, toRow, toCol,
             piece: this.board[toK] || piece, captured: captured || '',
             promote: promoteUsed
         });
@@ -767,9 +760,9 @@ class RhombicChessRoom extends QiTwoPlayerRoomBase {
         const rawMoves = data.moves || [];
         for (let i = 0; i < rawMoves.length; i++) {
             let entry = rawMoves[i];
-            let player; let fromId; let toId; let promote = null;
+            let player; let fromRow; let fromCol; let toRow; let toCol; let promote = null;
             if (typeof entry === 'string') {
-                const m = entry.match(/^([BW])(\d+)-(\d+)(?:=([QRNB]))?$/i);
+                const m = entry.match(/^([BW])(\d+),(\d+)-(\d+),(\d+)(?:=([QRNB]))?$/i);
                 if (!m) {
                     this.resetToEmpty();
                     requesterWs.send(JSON.stringify({ type: 'error', message: `棋谱回放失败：第${i + 1}手格式错误。` }));
@@ -777,11 +770,11 @@ class RhombicChessRoom extends QiTwoPlayerRoomBase {
                     return;
                 }
                 player = m[1].toUpperCase() === 'B' ? 'black' : 'white';
-                fromId = +m[2]; toId = +m[3];
-                if (m[4]) promote = m[4].toLowerCase();
+                fromRow = +m[2]; fromCol = +m[3]; toRow = +m[4]; toCol = +m[5];
+                if (m[6]) promote = m[6].toLowerCase();
             } else {
                 player = entry.player;
-                fromId = entry.fromRow; toId = entry.toRow;
+                fromRow = entry.fromRow; fromCol = entry.fromCol; toRow = entry.toRow; toCol = entry.toCol;
                 promote = entry.promote || null;
             }
             const expect = R.slotFromSide(this.sideToMove);
@@ -791,7 +784,7 @@ class RhombicChessRoom extends QiTwoPlayerRoomBase {
                 this.broadcast({ type: 'roomReset', ...this.getState() });
                 return;
             }
-            const r = this._applyMoveCore(fromId, toId, player, promote);
+            const r = this._applyMoveCore(fromRow, fromCol, toRow, toCol, player, promote);
             if (!r.ok) {
                 this.resetToEmpty();
                 requesterWs.send(JSON.stringify({ type: 'error', message: `棋谱回放失败：第${i + 1}手非法。` }));
@@ -850,7 +843,7 @@ class RhombicChessRoom extends QiTwoPlayerRoomBase {
                 if (!this._timeAllowsPlay(slot)) return;
                 const { row, col, promote } = msg;
                 if (!Number.isInteger(row) || !Number.isInteger(col)) return;
-                if (!this._applyPawnPromotion(row, promote)) return;
+                if (!this._applyPawnPromotion(row, col, promote)) return;
                 this.broadcast({ type: 'broadcast', action: 'promotePawn', ...this.getState() });
                 break;
             }
@@ -862,7 +855,7 @@ class RhombicChessRoom extends QiTwoPlayerRoomBase {
                 const { fromRow, fromCol, toRow, toCol } = msg;
                 if (![fromRow, fromCol, toRow, toCol].every((n) => Number.isInteger(n))) return;
                 const promote = msg.promote != null ? String(msg.promote).toLowerCase() : null;
-                const r = this._applyMoveCore(fromRow, toRow, slot, promote);
+                const r = this._applyMoveCore(fromRow, fromCol, toRow, toCol, slot, promote);
                 if (!r.ok) return;
                 this._resolveAfterMove();
                 if (!this.gameOver) this._syncClockAfterTurnChange();
@@ -888,42 +881,78 @@ class RhombicChessRoom extends QiTwoPlayerRoomBase {
                 const requester = this.pendingUndo.requester;
                 this.pendingUndo = null;
                 if (!msg.accept) {
-                    if (requester && requester.readyState === 1) {
-                        requester.send(JSON.stringify({ type: 'undoRejected' }));
-                    }
-                    return;
+                    requester.send(JSON.stringify({ type: 'undoDeclined' }));
+                    break;
+                }
+                const current = this.room.getSlotByWs(ws);
+                const requesterSlot = this.room.getSlotByWs(requester);
+                if (current !== requesterSlot) {
+                    this._undoOne();
                 }
                 this._undoOne();
                 this.broadcast({ type: 'broadcast', action: 'undoAccept', ...this.getState() });
                 break;
             }
-            case 'resign':
-                qiProtocol.resign(this, ws, slot);
-                if (this.gameOver && slot) {
-                    this.recordResultText = slot === 'black' ? '白认输黑胜' : '黑认输白胜';
-                    this._stopClockTicker();
+            case 'requestDraw': {
+                if (!slot || this.gameOver) return;
+                const opp = slot === 'black' ? 'white' : 'black';
+                const oppWs = this.room.getPlayerBySlot(opp);
+                if (!oppWs) {
+                    this._endGame('draw', '和棋');
+                    this.broadcast({ type: 'broadcast', action: 'drawAccept', ...this.getState() });
+                    return;
                 }
+                this.pendingDraw = { requester: ws };
+                oppWs.send(JSON.stringify({ type: 'drawRequest' }));
                 break;
-            case 'requestNewGame':
-                qiProtocol.requestNewGame(this, ws, slot);
+            }
+            case 'drawResponse': {
+                if (!this.pendingDraw) return;
+                const requester = this.pendingDraw.requester;
+                this.pendingDraw = null;
+                if (!msg.accept) {
+                    requester.send(JSON.stringify({ type: 'drawDeclined' }));
+                    break;
+                }
+                this._endGame('draw', '和棋');
+                this.broadcast({ type: 'broadcast', action: 'drawAccept', ...this.getState() });
                 break;
-            case 'newGameResponse':
-                qiProtocol.newGameResponse(this, ws, msg);
+            }
+            case 'requestNewGame': {
+                if (!slot) return;
+                const opp = slot === 'black' ? 'white' : 'black';
+                const oppWs = this.room.getPlayerBySlot(opp);
+                if (!oppWs) {
+                    this._startNewGame();
+                    return;
+                }
+                this.pendingNewGame = { requester: ws };
+                oppWs.send(JSON.stringify({ type: 'newGameRequest' }));
                 break;
-            case 'requestDraw':
-                qiProtocol.requestDraw(this, ws, slot);
+            }
+            case 'newGameResponse': {
+                if (!this.pendingNewGame) return;
+                const requester = this.pendingNewGame.requester;
+                this.pendingNewGame = null;
+                if (msg.accept) this._startNewGame();
+                else requester.send(JSON.stringify({ type: 'newGameDeclined' }));
                 break;
-            case 'drawResponse':
-                qiProtocol.drawResponse(this, ws, msg, {
-                    onDrawResolved: () => {
-                        this.recordResultText = '双方同意作和';
-                        this._stopClockTicker();
-                    }
-                });
+            }
+            case 'resign': {
+                if (!slot || this.gameOver) return;
+                const opp = slot === 'black' ? 'white' : 'black';
+                this._endGame(opp, slot === 'black' ? '白方认输黑胜' : '黑方认输白胜');
+                this.broadcast({ type: 'broadcast', action: 'resign', ...this.getState() });
                 break;
+            }
             default:
                 break;
         }
+    }
+
+    _startNewGame() {
+        this.resetToEmpty();
+        this.broadcast({ type: 'broadcast', action: 'newGame', ...this.getState() });
     }
 
     _undoOne() {
@@ -944,9 +973,6 @@ class RhombicChessRoom extends QiTwoPlayerRoomBase {
     }
 }
 
-RhombicChessRoom.prototype.slotFromSide = R.slotFromSide;
-RhombicChessRoom.prototype.sideFromSlot = R.sideFromSlot;
-
 module.exports = {
     RhombicChessRoom,
     R,
@@ -956,4 +982,3 @@ module.exports = {
         room.maxPlayers = 2;
     }
 };
-
