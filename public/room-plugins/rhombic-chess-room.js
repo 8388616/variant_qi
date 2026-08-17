@@ -353,8 +353,13 @@ const R = (function () {
         const OY = LOGICAL_SIZE / 2 - BOARD_CY * SCALE;
         const FRAME_CORNER_RADIUS = 12;
 
+        // 格线整体缩小 GRID_SCALE（外框不变），与六角形外框之间留出木边
+        const GRID_SCALE = 0.95;
         function toPx(x, y) {
-            return { x: OX + x * SCALE, y: OY + y * SCALE };
+            return {
+                x: OX + BOARD_CX * SCALE + (x - BOARD_CX) * SCALE * GRID_SCALE,
+                y: OY + BOARD_CY * SCALE + (y - BOARD_CY) * SCALE * GRID_SCALE
+            };
         }
         function cellCenter(id) {
             const c = R.CELLS[id];

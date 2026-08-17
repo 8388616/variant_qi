@@ -612,8 +612,8 @@ class RhombicChessRoom extends QiTwoPlayerRoomBase {
         const opp = R.oppositeSide(side);
         const gaveCheck = R.isInCheck(this.board, opp);
         const promoteUsed = found.promote ? R.normalizePromote(promote) : null;
+        const toK = R.cellKeyOfId(toId);
         if (promoteUsed) {
-            const toK = R.cellKeyOfId(toId);
             this.board[toK] = (side === 'white' ? 'w' : 'b') + promoteUsed;
         }
 
