@@ -96,7 +96,8 @@ check('马先邻后斜（r(10,2)→r(8,2)）', wn9.some(m => m.to === R.cellIdOf
 const wp = R.legalMovesFor(board, R.cellIdOf(8, 0), 'white');
 console.log('  白兵 (8,0) 目标:', wp.map(m => name(m.to) + (m.doubleStep ? '(双步过' + name(m.doubleStep.passed) + ')' : '')).join(', '));
 check('白兵 (8,0) 向前 (7,0)', wp.some(m => m.to === R.cellIdOf(7, 0)));
-check('白兵 (8,0) 首步双步 (6,0)', wp.some(m => m.to === R.cellIdOf(6, 0)));
+check('白兵 (8,0) 首步双步有两个选择（r(6,0) 与 l(6,1)）', wp.some(m => m.to === R.cellIdOf(6, 0) && m.doubleStep) && wp.some(m => m.to === R.cellIdOf(6, 1) && m.doubleStep));
+check('双步经过格 = h(7,0)', wp.filter(m => m.doubleStep).every(m => m.doubleStep.passed === R.cellIdOf(7, 0)));
 
 // 11. 兵斜吃：竖格兵斜前方有敌子（白兵 (6,1) 竖左，斜前方左上 = (4,0)）
 const b11 = {};

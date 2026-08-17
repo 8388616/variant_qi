@@ -204,14 +204,12 @@ const R = (function () {
             for (const n of fwdNbs) {
                 if (blockers[n] === undefined) {
                     add(n);
-                    // 首步 2 步
+                    // 首步 2 步：第一步向前一格后，第二步可选左前方或右前方（任一前方向）
                     if (!board[k].hasMoved) {
                         const cc1 = centerOf(CELLS[n]);
-                        const dx = cc1[0] - c1[0], dy = cc1[1] - c1[1];
-                        const tx = cc1[0] + dx, ty = cc1[1] + dy;
                         for (const nn of EDGE_NB[n]) {
                             const n3 = centerOf(CELLS[nn]);
-                            if (Math.abs(n3[0] - tx) < 1e-6 && Math.abs(n3[1] - ty) < 1e-6 && blockers[nn] === undefined) add(nn);
+                            if (fwd * (n3[1] - cc1[1]) > 0 && blockers[nn] === undefined) add(nn);
                         }
                     }
                 }
@@ -277,16 +275,14 @@ const R = (function () {
                 promote = true;
                 move.promote = 'q';
             }
-            // 兵双步标记（记录经过格，供吃过路兵）
+            // 兵双步标记（记录经过格，供吃过路兵）：两步都向前（可折线）
             if (pc[1] === 'p' && !pc.hasMoved) {
                 const c1 = centerOf(CELLS[id]);
                 const ct = centerOf(CELLS[t]);
                 for (const n of EDGE_NB[id]) {
                     if (!EDGE_NB[t].includes(n)) continue;
                     const cn = centerOf(CELLS[n]);
-                    const dx1 = cn[0] - c1[0], dy1 = cn[1] - c1[1];
-                    const dx2 = ct[0] - cn[0], dy2 = ct[1] - cn[1];
-                    if (Math.abs(dx1 * dy2 - dx2 * dy1) < 1e-6 && fwd * dy1 > 0 && fwd * dy2 > 0) {
+                    if (fwd * (cn[1] - c1[1]) > 0 && fwd * (ct[1] - cn[1]) > 0) {
                         move.doubleStep = { passed: n };
                         break;
                     }
