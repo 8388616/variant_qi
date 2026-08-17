@@ -2,7 +2,7 @@ window.RoomPlugins = window.RoomPlugins || {};
 window.RoomPlugins["rhombic-chess"] = {
     shell: {
         "title": "菱国际象棋",
-        "rulesHtml": "菱形棋盘上的国际象棋变体（Tony Paletta 1980）<br />车循对边直行；象循对角直行并可邻边一步；后兼两者；王一步邻边或对角；无王车易位<br />马先邻边再对角（或反之）跳跃；兵向前邻边一步（首步两步）直走直吃，无吃过路兵；兵到对方兵阵行升变<br /><br />",
+        "rulesHtml": "基本规则类似国际象棋，采用菱棋盘。<br /><br />",
         "defaultKomiText": "白先",
         "boardSizeMin": 72,
         "boardSizeMax": 72,
@@ -39,33 +39,33 @@ const R = (function () {
         const cells = [];
         const add = (type, I, J, row) => cells.push({ type, I, J, row });
         // 行 1（黑大子）
-        add('l', 2, -6, 1); add('r', 2, -6, 1);
-        add('l', 4, -6, 1); add('r', 4, -6, 1);
-        add('l', 6, -6, 1); add('r', 6, -6, 1);
+        add('l', 3, -6, 1); add('r', 3, -6, 1);
+        add('l', 5, -6, 1); add('r', 5, -6, 1);
+        add('l', 7, -6, 1); add('r', 7, -6, 1);
         // 行 2（黑象）
         add('h', 2, -6, 2); add('h', 4, -6, 2); add('h', 6, -6, 2); add('h', 8, -6, 2);
         // 行 3（黑兵）
-        for (let k = 0; k < 4; k++) { add('l', 3 + 2 * k, -3, 3); add('r', 3 + 2 * k, -3, 3); }
+        for (let k = 0; k < 4; k++) { add('l', 0 + 2 * k, -3, 3); add('r', 0 + 2 * k, -3, 3); }
         // 行 4
         for (let k = 0; k < 5; k++) add('h', 1 + 2 * k, -3, 4);
         // 行 5
-        for (let k = 0; k < 5; k++) { add('l', 2 * k, 0, 5); add('r', 2 * k, 0, 5); }
+        for (let k = 0; k < 5; k++) { add('l', 1 + 2 * k, 0, 5); add('r', 1 + 2 * k, 0, 5); }
         // 行 6
         for (let k = 0; k < 6; k++) add('h', 2 * k, 0, 6);
         // 行 7（从竖右开始）
-        for (let k = 0; k < 5; k++) add('r', -1 + 2 * k, 3, 7);
-        for (let k = 0; k < 5; k++) add('l', 1 + 2 * k, 3, 7);
+        for (let k = 0; k < 5; k++) add('r', 0 + 2 * k, 3, 7);
+        for (let k = 0; k < 5; k++) add('l', 2 + 2 * k, 3, 7);
         // 行 8
         for (let k = 0; k < 5; k++) add('h', 1 + 2 * k, 3, 8);
         // 行 9（白兵）
-        for (let k = 0; k < 4; k++) add('r', 2 * k, 6, 9);
-        for (let k = 0; k < 4; k++) add('l', 2 + 2 * k, 6, 9);
+        for (let k = 0; k < 4; k++) add('r', 1 + 2 * k, 6, 9);
+        for (let k = 0; k < 4; k++) add('l', 3 + 2 * k, 6, 9);
         // 行 10（白象）
         for (let k = 0; k < 4; k++) add('h', 2 + 2 * k, 6, 10);
         // 行 11（白大子，从竖右开始）
-        add('r', 1, 9, 11); add('l', 3, 9, 11);
-        add('r', 3, 9, 11); add('l', 5, 9, 11);
-        add('r', 5, 9, 11); add('l', 7, 9, 11);
+        add('r', 2, 9, 11); add('l', 4, 9, 11);
+        add('r', 4, 9, 11); add('l', 6, 9, 11);
+        add('r', 6, 9, 11); add('l', 8, 9, 11);
         cells.forEach((c, i) => { c.id = i; });
         return cells;
     }
@@ -76,8 +76,8 @@ const R = (function () {
 
     function verts(type, I, J) {
         if (type === 'h') return [[I - 1, J], [I, J - 1], [I + 1, J], [I, J + 1]];
-        if (type === 'l') return [[I - 1, J], [I, J - 1], [I, J - 3], [I - 1, J - 2]];
-        return [[I + 1, J], [I, J - 1], [I, J - 3], [I + 1, J - 2]];
+        if (type === 'l') return [[I - 1, J - 3], [I, J - 2], [I, J], [I - 1, J - 1]];
+        return [[I + 1, J - 3], [I + 1, J - 1], [I, J], [I, J - 2]];
     }
     const eq = (p, q) => p[0] === q[0] && p[1] === q[1];
     function center(type, I, J) {
@@ -154,17 +154,17 @@ const R = (function () {
 
     function setup() {
         const board = {};
-        const whiteRow11 = ['r,1,9', 'l,3,9', 'r,3,9', 'l,5,9', 'r,5,9', 'l,7,9'];
+        const whiteRow11 = ['r,2,9', 'l,4,9', 'r,4,9', 'l,6,9', 'r,6,9', 'l,8,9'];
         const whitePieces = ['wr', 'wn', 'wq', 'wk', 'wn', 'wr'];
         for (let k = 0; k < 6; k++) board[whiteRow11[k]] = whitePieces[k];
         board['h,4,6'] = 'wb'; board['h,6,6'] = 'wb';
-        const whitePawns = ['r,0,6', 'l,2,6', 'r,2,6', 'l,4,6', 'r,4,6', 'l,6,6', 'r,6,6', 'l,8,6'];
+        const whitePawns = ['r,1,6', 'l,3,6', 'r,3,6', 'l,5,6', 'r,5,6', 'l,7,6', 'r,7,6', 'l,9,6'];
         for (const k of whitePawns) board[k] = 'wp';
-        const blackRow1 = ['l,2,-6', 'r,2,-6', 'l,4,-6', 'r,4,-6', 'l,6,-6', 'r,6,-6'];
+        const blackRow1 = ['l,3,-6', 'r,3,-6', 'l,5,-6', 'r,5,-6', 'l,7,-6', 'r,7,-6'];
         const blackPieces = ['br', 'bn', 'bq', 'bk', 'bn', 'br'];
         for (let k = 0; k < 6; k++) board[blackRow1[k]] = blackPieces[k];
         board['h,4,-6'] = 'bb'; board['h,6,-6'] = 'bb';
-        const blackPawns = ['l,3,-3', 'r,3,-3', 'l,5,-3', 'r,5,-3', 'l,7,-3', 'r,7,-3', 'l,9,-3', 'r,9,-3'];
+        const blackPawns = ['l,0,-3', 'r,0,-3', 'l,2,-3', 'r,2,-3', 'l,4,-3', 'r,4,-3', 'l,6,-3', 'r,6,-3'];
         for (const k of blackPawns) board[k] = 'bp';
         return board;
     }
