@@ -5814,10 +5814,10 @@
             span.style.textShadow = (t && t.stroke)
                 ? `1px 1px 0 ${t.stroke}, -1px -1px 0 ${t.stroke}, 1px -1px 0 ${t.stroke}, -1px 1px 0 ${t.stroke}`
                 : '';
-            // 倒置棋子（如古印度象棋的象与士）旋转 180°
+            // 倒置棋子（如古印度象棋的象与士）旋转 180° 并向上偏移对齐（与棋盘绘制比例一致：0.1×字号）
             if (t && t.upsideDown) {
                 span.style.display = 'inline-block';
-                span.style.transform = 'rotate(180deg)';
+                span.style.transform = 'rotate(180deg) translateY(0.1em)';
             }
         };
         for (const t of list) {

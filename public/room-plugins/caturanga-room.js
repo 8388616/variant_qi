@@ -19,14 +19,12 @@ window.RoomPlugins["caturanga"] = {
         // 顺序：后车马象兵王。白棋用空心字形♙♘♗♖♕♔（与最初黑棋相同的字形和颜色 #222），黑棋用实心字形♛♜♞♝♟♚
         "editTools": [
             { "value": "empty", "label": "空", "cellValue": "" },
-            { "value": "wq", "label": "♕", "cellValue": "wq", "color": "#222" },
             { "value": "wf", "label": "♕", "cellValue": "wf", "color": "#222", "upsideDown": true },
             { "value": "wr", "label": "♖", "cellValue": "wr", "color": "#222" },
             { "value": "wn", "label": "♘", "cellValue": "wn", "color": "#222" },
             { "value": "wb", "label": "♗", "cellValue": "wb", "color": "#222", "upsideDown": true },
             { "value": "wp", "label": "♙", "cellValue": "wp", "color": "#222" },
             { "value": "wk", "label": "♔", "cellValue": "wk", "color": "#222" },
-            { "value": "bq", "label": "♛", "cellValue": "bq", "color": "#222" },
             { "value": "bf", "label": "♛", "cellValue": "bf", "color": "#222", "upsideDown": true },
             { "value": "br", "label": "♜", "cellValue": "br", "color": "#222" },
             { "value": "bn", "label": "♞", "cellValue": "bn", "color": "#222" },
