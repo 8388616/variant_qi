@@ -978,7 +978,8 @@ return {
                     const dp = displayPos(r, c);
                     const { x, y } = cellCenter(dp.row, dp.col);
                     const isWhite = piece[0] === 'w';
-                    const fontSize = CELL * 0.8;
+                    // 黑棋比白棋略大（与国际象棋一致）
+                    const fontSize = CELL * 0.8 * (isWhite ? 1 : 1.05);
                     ctx2d.font = `${fontSize}px "XiangqiPiece", "Segoe UI Symbol", "Apple Color Emoji", "Noto Sans Symbols", sans-serif`;
                     ctx2d.textAlign = 'center';
                     ctx2d.textBaseline = 'middle';
@@ -1432,6 +1433,7 @@ return {
             showScoreConfirm,
             isMouseDevice,
             standardWeiqiMatchTime,
+            timeControlDefaults: { mainMinutes: 5, byoyomiSeconds: 30, maxTimeouts: 3 },
             slotUi: SLOT_UI,
             boardSeatOverlay: true,
             seatOverlayShape: 'hexagon',

@@ -589,8 +589,8 @@ const R = (function () {
                 }
             }
 
-            // 棋子（菱形格较扁，字号略小于格高）
-            const fontSize = SCALE * 0.7;
+            // 棋子（菱形格较扁，字号略小于格高；黑棋比白棋略大，与国际象棋一致）
+            const fontSize = SCALE * 0.7 * (ps.board[k][0] === 'w' ? 1 : 1.05);
             ctx2d.font = `${fontSize}px "XiangqiPiece", "Segoe UI Symbol", "Apple Color Emoji", "Noto Sans Symbols", sans-serif`;
             ctx2d.textAlign = 'center';
             ctx2d.textBaseline = 'middle';
