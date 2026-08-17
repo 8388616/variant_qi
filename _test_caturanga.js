@@ -72,4 +72,10 @@ check('升变走法单一（promote null）', pm.length === 1 && pm[0].promote =
 // 9. 黑方王后调换后白方视角黑王在左
 check('黑王在 d8（白方视角左侧）', board[0][3] === 'bk' && board[0][4] === 'bf');
 
+// 10. 困毙：无合法走法且不被将军 → 判负（类似中国象棋）
+b = setup({ '0,7': 'bk', '2,5': 'wk', '1,6': 'wr' });
+check('困毙局面：黑方无合法走法', R.generateLegalMoves(b, 'black', M()).length === 0);
+check('困毙局面：黑方不被将军', !R.isInCheck(b, 'black'));
+check('困毙局面：白王 f6→f7 后黑方仍无合法走法', R.generateLegalMoves(R.applyMoveOnBoard(b, 2, 5, 1, 5, M(), null).board, 'black', M()).length === 0);
+
 console.log('\n通过', pass, '失败', fail);

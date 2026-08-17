@@ -780,13 +780,12 @@ class SimulatedChessRoom extends QiTwoPlayerRoomBase {
         const canMove = R.hasLegalMove(this.board, side, meta);
 
         if (!canMove) {
-            if (inCheck) {
-                const winnerSlot = R.slotFromSide(R.oppositeSide(side));
-                const text = side === 'black' ? '白将死黑胜' : '黑将死白胜';
-                this._endGame(winnerSlot, text);
-            } else {
-                this._endGame('draw', '逼和');
-            }
+            // 困毙：无子可动（或所有走法都送将）即判负，类似中国象棋
+            const winnerSlot = R.slotFromSide(R.oppositeSide(side));
+            const text = inCheck
+                ? (side === 'black' ? '白将死黑胜' : '黑将死白胜')
+                : (side === 'black' ? '白困毙黑胜' : '黑困毙白胜');
+            this._endGame(winnerSlot, text);
             return;
         }
 
