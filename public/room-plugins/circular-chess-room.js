@@ -15,7 +15,8 @@ window.RoomPlugins["circular-chess"] = {
             "xiangqi": true,
             "chess": true,
             "hideBoardSize": true,
-            "transparentCanvas": true
+            "transparentCanvas": true,
+            "circularChess": true
         },
         // 顺序：后车马象兵王。白棋用空心字形♙♘♗♖♕♔（与最初黑棋相同的字形和颜色 #222），黑棋用实心字形♛♜♞♝♟♚
         "editTools": [
@@ -1079,6 +1080,17 @@ return {
         const _weiqiBindings = QiBoardRoomClient.createWeiqiMessageBindings({
             standardWeiqiMatchTime,
             boardSeatOverlay: true,
+            // 圆形蒙版：与棋盘木质圆形外框重合（棋盘 560 逻辑内切圆 ↔ 蒙版 600 基准内切圆）
+            seatOverlayCornerRadius: 0,
+            getSeatOverlayVertices: () => {
+                const verts = [];
+                const N = 32;
+                for (let i = 0; i < N; i++) {
+                    const a = (i / N) * Math.PI * 2;
+                    verts.push({ x: 300 + 300 * Math.cos(a), y: 300 + 300 * Math.sin(a) });
+                }
+                return verts;
+            },
             slotUi: SLOT_UI,
             timeControlDefaults: { mainMinutes: 5, byoyomiSeconds: 30, maxTimeouts: 3 },
             roomId,

@@ -5999,6 +5999,7 @@
         document.body.classList.toggle('qi-room-has-dyeing-bags', useDyeingBags);
         document.body.classList.toggle('qi-room-shogi-bags', useShogiBags);
         document.body.classList.toggle('qi-room-transparent-canvas', !!features.transparentCanvas);
+        document.body.classList.toggle('qi-room-circular-chess', !!features.circularChess);
         document.body.classList.toggle('qi-room-xiangqi', !!features.xiangqi);
         document.body.classList.toggle('qi-room-chess', !!features.chess);
         document.body.classList.toggle('qi-room-simulated-makruk', !!features.simulatedMakruk);

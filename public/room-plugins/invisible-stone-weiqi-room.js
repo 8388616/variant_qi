@@ -559,9 +559,9 @@ const scoreTitle = document.getElementById('scoreTitle');
                 if (!lowerLastMoveMarker) {
                     d.lastMoveMarkersUpper(ctx, ps.lastMoveMarkers, ps.PADDING, cellSize, markLenDefault);
                 }
-                d.userBoardMarks(ctx, ps.userBoardMarks, ps.BOARD_SIZE, ps.PADDING, cellSize, page.isUserBoardMarkVisibleAt);
+                d.userBoardMarks(ctx, ps.userBoardMarks, ps.BOARD_SIZE, ps.PADDING, cellSize, page && page.isUserBoardMarkVisibleAt);
                 if (ps.showMoveNumbers) {
-                    const nums = page.computeStoneNumbers();
+                    const nums = page ? page.computeStoneNumbers() : [];
                     d.moveNumbersOnStones(ctx, nums, ps.board, ps.BOARD_SIZE, ps.PADDING, cellSize);
                 }
                 d.hoverPreviewStone(ctx, ps.hoverRow, ps.hoverCol, ps.board, ps.PADDING, cellSize, {

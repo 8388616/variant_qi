@@ -1864,6 +1864,13 @@ body.qi-room.qi-room-transparent-canvas.qi-room-chess .board-container.xiangqi-b
     background: transparent !important;
 }
 
+/* 环国际象棋：圆形棋盘 + 圆形蒙版，画布必须保持正方形（否则圆形被拉成椭圆） */
+body.qi-room.qi-room-circular-chess canvas#goBoard {
+    aspect-ratio: 1 / 1 !important;
+    width: min(100%, var(--qi-room-board-size), var(--qi-room-board-max-height)) !important;
+    max-height: none !important;
+}
+
 /* 模拟日本将棋：9×9 正方形盘 */
 body.qi-room.qi-room-xiangqi.qi-room-simulated-shogi .weiqi-board-view-row #goBoard,
 body.qi-room.qi-room-xiangqi.qi-room-simulated-shogi .board-container.xiangqi-board-wrap #goBoard {
