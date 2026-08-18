@@ -16,6 +16,11 @@ if (!R || typeof R.createInitialBoard !== 'function') {
 class XiangqiRoom extends QiTwoPlayerRoomBase {
     constructor(room) {
         super(room);
+        // 开局前编辑允许的棋子值（字符串棋盘：空 '' + 全部棋子编码）
+        this.editBoardAllowedValues = ['', 'rk', 'ra', 're', 'rn', 'rr', 'rc', 'rp', 'bk', 'ba', 'be', 'bn', 'br', 'bc', 'bp'];
+        // 棋盘维度（非方形 10×9，公共编辑校验用）
+        this.boardRows = R.BOARD_H;
+        this.boardCols = R.BOARD_W;
         this.resetToEmpty();
     }
 
@@ -265,6 +270,13 @@ class XiangqiRoom extends QiTwoPlayerRoomBase {
     _applyMoveCore(fromRow, fromCol, toRow, toCol, slot) {
         const side = R.sideFromSlot(slot);
         if (side !== this.sideToMove) return { ok: false };
+        // 编辑盘面若将帅照面：行棋方直接判负（照面只能来自编辑；正常行棋走成照面会被送将检查阻止）
+        if (R.kingsFaceEachOther(this.board)) {
+            const loserSlot = R.slotFromSide(side);
+            const winnerSlot = loserSlot === 'black' ? 'white' : 'black';
+            this._endGame(winnerSlot, loserSlot === 'black' ? '红方照面判负' : '黑方照面判负');
+            return { ok: false, gameOver: true };
+        }
         if (!R.isLegalMove(this.board, fromRow, fromCol, toRow, toCol, side)) return { ok: false };
 
         const piece = this.board[fromRow][fromCol];
@@ -295,9 +307,43 @@ class XiangqiRoom extends QiTwoPlayerRoomBase {
         return { ok: true, gaveCheck, captured: !!captured };
     }
 
-    _resolveAfterMove() {
-        // 将死 / 困毙优先于限着与循环（限着满 120 时若同时将死/困毙/循环则限着失效）
+    /** 行棋方无将/帅：直接判负（编辑盘面可能出现） */
+    _resolveTurnStartLoss() {
+        if (this.gameOver) return false;
         const side = this.sideToMove;
+        if (R.countKings(this.board, side) === 0) {
+            const winnerSlot = R.slotFromSide(R.oppositeSide(side));
+            this._endGame(winnerSlot, side === 'red' ? '红方无帅黑胜' : '黑方无将红胜');
+            return true;
+        }
+        return false;
+    }
+
+    /** 开局判定（编辑盘面）：1 无将/帅判负；2 单将被将军且无法应将判负（将死）；3 其余无子可动判负（困毙） */
+    onMatchStarted() {
+        this._resolveTurnStartLoss();
+        if (this.gameOver) return;
+        const side = this.sideToMove;
+        const kings = R.countKings(this.board, side);
+        if (R.hasLegalMove(this.board, side)) return;
+        const winnerSlot = R.slotFromSide(R.oppositeSide(side));
+        if (kings === 1 && R.isInCheck(this.board, side)) {
+            this._endGame(winnerSlot, side === 'black' ? '红将死黑胜' : '黑将死红胜');
+        } else {
+            this._endGame(winnerSlot, side === 'black' ? '红困毙黑胜' : '黑困毙红胜');
+        }
+    }
+
+    _resolveAfterMove() {
+        if (this._resolveTurnStartLoss()) return;
+        const side = this.sideToMove;
+        // 吃光对方所有王：立即获胜（多王编辑盘面规则，不必等对方无着法）
+        if (R.countKings(this.board, R.oppositeSide(side)) === 0) {
+            const winnerSlot = R.slotFromSide(side);
+            this._endGame(winnerSlot, side === 'red' ? '红方吃掉对方王获胜' : '黑方吃掉对方王获胜');
+            return;
+        }
+        // 将死 / 困毙优先于限着与循环（限着满 120 时若同时将死/困毙/循环则限着失效）
         const inCheck = R.isInCheck(this.board, side);
         const canMove = R.hasLegalMove(this.board, side);
 

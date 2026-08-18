@@ -809,12 +809,23 @@ class SimulatedChessRoom extends QiTwoPlayerRoomBase {
         return false;
     }
 
-    /** 开局（时间协商完成/双方入座即开始）时判定：编辑盘面某方无王则直接判负；行棋方无子可动则判和 */
+    /** 开局判定（编辑盘面）：1 无王判负；2 单王被将军且无法应将判负；3 无子可动（其余情况）判和 */
     onMatchStarted() {
         this._resolveTurnStartLoss();
         if (this.gameOver) return;
         const side = this.sideToMove;
-        if (!R.hasLegalMove(this.board, side, this._meta())) {
+        let kingCount = 0;
+        for (let r = 0; r < 8; r++) {
+            for (let c = 0; c < 8; c++) {
+                if (this.board[r][c] === side[0] + 'k') kingCount++;
+            }
+        }
+        if (R.hasLegalMove(this.board, side, this._meta())) return;
+        if (kingCount === 1 && R.isInCheck(this.board, side)) {
+            // 单王被将军且无法应将 → 判负
+            const winnerSlot = R.slotFromSide(R.oppositeSide(side));
+            this._endGame(winnerSlot, side === 'white' ? '白方被将死黑胜' : '黑方被将死白胜');
+        } else {
             this._endGame('draw', side === 'white' ? '白方无子可动，和棋' : '黑方无子可动，和棋');
         }
     }

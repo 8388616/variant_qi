@@ -267,6 +267,9 @@ const R = (function () {
 class SimulatedMakrukRoom extends QiTwoPlayerRoomBase {
     constructor(room) {
         super(room);
+        this.editBoardAllowedValues = ['', 'rk', 'rm', 're', 'rn', 'rr', 'rp', 'bk', 'bm', 'be', 'bn', 'br', 'bp'];
+        this.boardRows = R.BOARD_H;
+        this.boardCols = R.BOARD_W;
         this.resetToEmpty();
     }
 
@@ -531,7 +534,64 @@ class SimulatedMakrukRoom extends QiTwoPlayerRoomBase {
         return { ok: true, gaveCheck };
     }
 
+    /** 编辑盘面升变位兵：直接升变为士（泰国象棋升变无选择，直接升变，不记入棋谱） */
+    _resolveTurnStartPromotions() {
+        if (this.gameOver) return false;
+        const side = this.sideToMove;
+        const pawn = side === 'red' ? 'rp' : 'bp';
+        const promote = side === 'red' ? 'rm' : 'bm';
+        let changed = false;
+        for (let r = 0; r < R.BOARD_H; r++) {
+            for (let c = 0; c < R.BOARD_W; c++) {
+                if (this.board[r][c] === pawn && R.pawnPromotesAt(side, r)) {
+                    this.board[r][c] = promote;
+                    changed = true;
+                }
+            }
+        }
+        if (changed) {
+            this.historyKeys = [R.positionKey(this.board, this.sideToMove)];
+        }
+        return changed;
+    }
+
+    /** 行棋方无王：直接判负（编辑盘面可能出现；吃王后下一回合也由此触发） */
+    _resolveTurnStartLoss() {
+        if (this.gameOver) return false;
+        const side = this.sideToMove;
+        if (R.findKing(this.board, side) == null) {
+            const winnerSlot = R.slotFromSide(R.oppositeSide(side));
+            this._endGame(winnerSlot, side === 'red' ? '红方无王黑胜' : '黑方无王红胜');
+            return true;
+        }
+        return false;
+    }
+
+    /** 开局判定（编辑盘面）：升变位兵升变；1 无王判负；2 单王被将军且无法应将判负（将死）；3 无子可动判和（逼和） */
+    onMatchStarted() {
+        this._resolveTurnStartPromotions();
+        this._resolveTurnStartLoss();
+        if (this.gameOver) return;
+        const side = this.sideToMove;
+        let kingCount = 0;
+        for (let r = 0; r < 8; r++) {
+            for (let c = 0; c < 8; c++) {
+                if (this.board[r][c] === side[0] + 'k') kingCount++;
+            }
+        }
+        if (R.hasLegalMove(this.board, side)) return;
+        if (kingCount === 1 && R.isInCheck(this.board, side)) {
+            const winnerSlot = R.slotFromSide(R.oppositeSide(side));
+            this._endGame(winnerSlot, side === 'black' ? '红将死黑胜' : '黑将死红胜');
+        } else {
+            this._endGame('draw', '逼和');
+        }
+    }
+
     _resolveAfterMove() {
+        // 轮到该方时升变位兵直接升变；再判无王
+        this._resolveTurnStartPromotions();
+        if (this._resolveTurnStartLoss()) return;
         const side = this.sideToMove;
         const inCheck = R.isInCheck(this.board, side);
         const canMove = R.hasLegalMove(this.board, side);

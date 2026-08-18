@@ -767,9 +767,25 @@ class SimulatedChessRoom extends QiTwoPlayerRoomBase {
         return false;
     }
 
-    /** 开局（时间协商完成/双方入座即开始）时判定：编辑盘面某方无王则直接判负 */
+    /** 开局判定（编辑盘面）：1 无王判负；2 单王被将军且无法应将判负（将死）；3 其余无子可动判负（困毙） */
     onMatchStarted() {
         this._resolveTurnStartLoss();
+        if (this.gameOver) return;
+        const side = this.sideToMove;
+        let kingCount = 0;
+        for (let r = 0; r < 8; r++) {
+            for (let c = 0; c < 8; c++) {
+                if (this.board[r][c] === side[0] + 'k') kingCount++;
+            }
+        }
+        const meta = this._meta();
+        if (R.hasLegalMove(this.board, side, meta)) return;
+        const winnerSlot = R.slotFromSide(R.oppositeSide(side));
+        if (kingCount === 1 && R.isInCheck(this.board, side)) {
+            this._endGame(winnerSlot, side === 'black' ? '白将死黑胜' : '黑将死白胜');
+        } else {
+            this._endGame(winnerSlot, side === 'black' ? '白困毙黑胜' : '黑困毙白胜');
+        }
     }
 
     _resolveAfterMove() {

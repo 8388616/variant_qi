@@ -134,6 +134,11 @@ function hasLegalMoveDouble(board, side) {
 class DoubleXiangqiRoom extends QiTwoPlayerRoomBase {
     constructor(room) {
         super(room);
+        // 开局前编辑允许的棋子值（字符串棋盘：空 '' + 全部棋子编码）
+        this.editBoardAllowedValues = ['', 'rk', 'ra', 're', 'rn', 'rr', 'rc', 'rp', 'bk', 'ba', 'be', 'bn', 'br', 'bc', 'bp'];
+        // 棋盘维度（非方形 10×9，公共编辑校验用）
+        this.boardRows = R.BOARD_H;
+        this.boardCols = R.BOARD_W;
         this.resetToEmpty();
     }
 
@@ -293,7 +298,8 @@ class DoubleXiangqiRoom extends QiTwoPlayerRoomBase {
             gameOver: this.gameOver,
             winner: this.winner,
             halfmoveClock: this.halfmove.halfmoveClock,
-            inCheck: isInCheckDouble(this.board, this.sideToMove),
+            // 只有叫吃最后一枚王才算将军（有提示并须应将）；多王时被吃不算将军
+            inCheck: isTrueCheck(this.board, this.sideToMove),
             moveHistory: this.moveHistory.map((m) => ({ ...m })),
             moveCoords: this.wireMoveCoords(),
             matchTime: {
@@ -383,6 +389,13 @@ class DoubleXiangqiRoom extends QiTwoPlayerRoomBase {
     _applyMoveCore(fromRow, fromCol, toRow, toCol, slot) {
         const side = R.sideFromSlot(slot);
         if (side !== this.sideToMove) return { ok: false };
+        // 编辑盘面若将帅照面：行棋方直接判负（照面只能来自编辑；正常行棋走成照面会被送将检查阻止）
+        if (kingsFaceEachOtherMulti(this.board)) {
+            const loserSlot = R.slotFromSide(side);
+            const winnerSlot = loserSlot === 'black' ? 'white' : 'black';
+            this._endGame(winnerSlot, loserSlot === 'black' ? '红方照面判负' : '黑方照面判负');
+            return { ok: false, gameOver: true };
+        }
         if (!isLegalMoveDouble(this.board, fromRow, fromCol, toRow, toCol, side)) return { ok: false };
 
         const piece = this.board[fromRow][fromCol];
@@ -414,17 +427,37 @@ class DoubleXiangqiRoom extends QiTwoPlayerRoomBase {
         return { ok: true, gaveCheck, captured: !!captured };
     }
 
-    _resolveAfterMove() {
+    /** 行棋方无将：直接判负（编辑盘面可能出现；吃尽对方双将后下一回合也由此触发） */
+    _resolveTurnStartLoss() {
+        if (this.gameOver) return false;
+        const side = this.sideToMove;
+        if (countKings(this.board, side) === 0) {
+            const winnerSlot = R.slotFromSide(R.oppositeSide(side));
+            this._endGame(winnerSlot, side === 'black' ? '黑方无将红胜' : '红方无将黑胜');
+            return true;
+        }
+        return false;
+    }
+
+    /** 开局判定（编辑盘面）：1 无将判负；2 单将被将军且无法应将判负（将死）；3 其余无子可动判负（困毙；双将时可不应） */
+    onMatchStarted() {
+        this._resolveTurnStartLoss();
+        if (this.gameOver) return;
         const side = this.sideToMove;
         const kings = countKings(this.board, side);
-
-        // 吃尽对方两将即胜
-        if (kings === 0) {
-            const winnerSlot = R.slotFromSide(R.oppositeSide(side));
-            const text = side === 'black' ? '红吃尽双将胜' : '黑吃尽双将胜';
-            this._endGame(winnerSlot, text);
-            return;
+        if (hasLegalMoveDouble(this.board, side)) return;
+        const winnerSlot = R.slotFromSide(R.oppositeSide(side));
+        if (kings === 1 && isInCheckDouble(this.board, side)) {
+            this._endGame(winnerSlot, side === 'black' ? '红将死黑胜' : '黑将死红胜');
+        } else {
+            this._endGame(winnerSlot, side === 'black' ? '红困毙黑胜' : '黑困毙红胜');
         }
+    }
+
+    _resolveAfterMove() {
+        if (this._resolveTurnStartLoss()) return;
+        const side = this.sideToMove;
+        const kings = countKings(this.board, side);
 
         // 将死 / 困毙优先于限着与循环（仅剩一将时将死才成立；双将时可不应）
         const inCheck = isInCheckDouble(this.board, side);

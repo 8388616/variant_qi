@@ -807,6 +807,36 @@ class HexagonXiangqiRoom extends QiTwoPlayerRoomBase {
         this._stopClockTicker();
     }
 
+    /** 行棋方无将/帅：直接判负（编辑盘面可能出现） */
+    _resolveTurnStartLoss() {
+        if (this.gameOver) return false;
+        const side = this.sideToMove;
+        if (R.findKing(this.board, side) < 0) {
+            const winnerSlot = R.slotFromSide(R.oppositeSide(side));
+            this._endGame(winnerSlot, side === 'red' ? '红方无帅黑胜' : '黑方无将红胜');
+            return true;
+        }
+        return false;
+    }
+
+    /** 开局判定（编辑盘面）：1 无将/帅判负；2 单将被将军且无法应将判负（将死）；3 其余无子可动判负（困毙） */
+    onMatchStarted() {
+        this._resolveTurnStartLoss();
+        if (this.gameOver) return;
+        const side = this.sideToMove;
+        let kings = 0;
+        for (const pc of this.board) {
+            if (pc === side[0] + 'k') kings++;
+        }
+        if (R.hasLegalMove(this.board, side)) return;
+        const winnerSlot = R.slotFromSide(R.oppositeSide(side));
+        if (kings === 1 && R.isInCheck(this.board, side)) {
+            this._endGame(winnerSlot, side === 'black' ? '红将死黑胜' : '黑将死红胜');
+        } else {
+            this._endGame(winnerSlot, side === 'black' ? '红困毙黑胜' : '黑困毙红胜');
+        }
+    }
+
     _applyMoveCore(from, to, slot) {
         const side = R.sideFromSlot(slot);
         if (side !== this.sideToMove) return { ok: false };
