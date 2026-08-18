@@ -43,9 +43,13 @@ window.QiBoardRoomClient = { createWeiqiMessageBindings: (b) => ({
         try {
             const m = typeof msg === 'string' ? JSON.parse(msg) : msg;
             if (m.type === 'fakeJoin') {
+                // 自定义局面：新棋子（象 e1、士 d1、相 c1、亚 b1）+ 双王
+                const custom = Array(8).fill(null).map(() => Array(8).fill(''));
+                custom[7][4] = 'we'; custom[7][3] = 'wf'; custom[7][2] = 'wc'; custom[7][1] = 'wa';
+                custom[7][0] = 'wk'; custom[0][4] = 'bk';
                 b.setMySlot('black');
                 b.setSlots({ black: true, white: true });
-                if (b.syncState) b.syncState({ board: b.getBoard(), sideToMove: 'white', matchStarted: true, slots: { black: true, white: true } });
+                if (b.syncState) b.syncState({ board: custom, sideToMove: 'white', matchStarted: true, slots: { black: true, white: true } });
                 if (b.updateTurn) b.updateTurn();
             }
         } catch (e) { window.__fakeJoinErr = e.message; }
@@ -87,9 +91,62 @@ try {
         if (Math.abs(r - 26) < 8 && Math.abs(g - 26) < 8 && Math.abs(b - 26) < 8) blackPx++;
         else if (Math.abs(r - 247) < 8 && Math.abs(g - 247) < 8 && Math.abs(b - 247) < 8) whitePx++;
     }
+    // chess 几何：PAD=0.55，cellSize = 560/(8+1.1)，offset = (560-8*cellSize)/2
+    const PAD = 0.55, units = 8 + 2 * PAD;
+    const cellSize = w / units;
+    const off = (w - 8 * cellSize) / 2;
+    // 各新棋子格的白色字形像素（白棋空心填充）
+    const cellWhite = (row, col) => {
+        const x0 = off + col * cellSize, y0 = off + row * cellSize;
+        let n = 0;
+        for (let y = y0; y < y0 + cellSize; y += 2) {
+            for (let x = x0; x < x0 + cellSize; x += 2) {
+                const i = ((Math.floor(y) * w + Math.floor(x)) * 4) | 0;
+                if (Math.abs(img[i] - 247) < 10 && Math.abs(img[i + 1] - 247) < 10 && Math.abs(img[i + 2] - 247) < 10) n++;
+            }
+        }
+        return n;
+    };
+    // 叠加格上部（马偏上 y-0.1cell）与中心（车/后）的白色像素
+    const compositeParts = (row, col) => {
+        const cx = off + col * cellSize + cellSize / 2, cy = off + row * cellSize + cellSize / 2;
+        const count = (y0, y1) => {
+            let n = 0;
+            for (let y = cy + y0; y < cy + y1; y += 2) {
+                for (let x = cx - cellSize * 0.3; x < cx + cellSize * 0.3; x += 2) {
+                    const i = ((Math.floor(y) * w + Math.floor(x)) * 4) | 0;
+                    if (Math.abs(img[i] - 247) < 10 && Math.abs(img[i + 1] - 247) < 10 && Math.abs(img[i + 2] - 247) < 10) n++;
+                }
+            }
+            return n;
+        };
+        return { top: count(-cellSize * 0.32, -cellSize * 0.08), mid: count(-cellSize * 0.08, cellSize * 0.3) };
+    };
+    // c1 格（相）非背景颜色直方图
+    const colorHist = {};
+    {
+        const x0 = off + 2 * cellSize, y0 = off + 7 * cellSize;
+        for (let y = y0; y < y0 + cellSize; y += 2) {
+            for (let x = x0; x < x0 + cellSize; x += 2) {
+                const i = ((Math.floor(y) * w + Math.floor(x)) * 4) | 0;
+                const a = img[i + 3];
+                if (a === 0) continue;
+                const k = img[i] + ',' + img[i + 1] + ',' + img[i + 2];
+                colorHist[k] = (colorHist[k] || 0) + 1;
+            }
+        }
+    }
+    const topColors = Object.entries(colorHist).sort((x, y) => y[1] - x[1]).slice(0, 6);
     document.getElementById('result').textContent = JSON.stringify({
         canvas: w + 'x' + h,
         blackPx, whitePx,
+        c1_colors: topColors,
+        e1_elephant: cellWhite(7, 4),
+        d1_ferz: cellWhite(7, 3),
+        c1_chancellor: cellWhite(7, 2),
+        b1_amazon: cellWhite(7, 1),
+        c1_parts: compositeParts(7, 2),
+        b1_parts: compositeParts(7, 1),
         editTools: (window.RoomPlugins["chess"].shell.editTools || []).length,
         editCols: (() => {
             const list = window.RoomPlugins["chess"].shell.editTools || [];

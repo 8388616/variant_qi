@@ -27,8 +27,8 @@ window.RoomPlugins["chess"] = {
             { "value": "wk", "label": "♔", "cellValue": "wk", "color": "#222" },
             { "value": "we", "label": "♗", "cellValue": "we", "color": "#222", "upsideDown": true },
             { "value": "wf", "label": "♕", "cellValue": "wf", "color": "#222", "upsideDown": true },
-            { "value": "wc", "label": "♖♘", "cellValue": "wc", "color": "#222" },
-            { "value": "wa", "label": "♕♘", "cellValue": "wa", "color": "#222" },
+            { "value": "wc", "label": "♖ ♘", "cellValue": "wc", "color": "#222" },
+            { "value": "wa", "label": "♕ ♘", "cellValue": "wa", "color": "#222" },
             { "value": "bq", "label": "♛", "cellValue": "bq", "color": "#222" },
             { "value": "br", "label": "♜", "cellValue": "br", "color": "#222" },
             { "value": "bn", "label": "♞", "cellValue": "bn", "color": "#222" },
@@ -37,8 +37,8 @@ window.RoomPlugins["chess"] = {
             { "value": "bk", "label": "♚", "cellValue": "bk", "color": "#222" },
             { "value": "be", "label": "♝", "cellValue": "be", "color": "#222", "upsideDown": true },
             { "value": "bf", "label": "♛", "cellValue": "bf", "color": "#222", "upsideDown": true },
-            { "value": "bc", "label": "♜♞", "cellValue": "bc", "color": "#222" },
-            { "value": "ba", "label": "♛♞", "cellValue": "ba", "color": "#222" }
+            { "value": "bc", "label": "♜ ♞", "cellValue": "bc", "color": "#222" },
+            { "value": "ba", "label": "♛ ♞", "cellValue": "ba", "color": "#222" }
         ],
         "editToolGlyphSize": 26
     },
@@ -898,9 +898,9 @@ return {
                         }
                     };
                     if (type === 'c' || type === 'a') {
-                        // 相/亚：下层车/后 + 上层马（马偏上略小）
-                        paintGlyph(type === 'c' ? '♜' : '♛', x, gy, fontSize);
-                        paintGlyph('♞', x, y - cellSize * 0.1, fontSize * 0.72);
+                        // 相/亚：下层车/后 + 上层马（两层都缩小，马更小且偏上）
+                        paintGlyph(type === 'c' ? '♜' : '♛', x, gy, fontSize * 0.85);
+                        paintGlyph('♞', x, y - cellSize * 0.1, fontSize * 0.6);
                     } else if (type === 'e' || type === 'f') {
                         // 象/士：倒置显示（旋转 180°，偏移与古印度象棋一致）
                         ctx2d.save();
