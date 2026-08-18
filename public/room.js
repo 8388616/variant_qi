@@ -5819,6 +5819,16 @@
                 span.style.display = 'inline-block';
                 span.style.transform = 'rotate(180deg) translateY(0.1em)';
             }
+            // 叠加棋子（如国际象棋的相/亚）：同一位置上下叠加，上层=label[0]（马）靠上、下层=label[1]（车/后）靠下，各 0.9×，总高一致
+            if (t && t.stack && typeof t.label === 'string' && t.label.length >= 2) {
+                span.style.position = 'relative';
+                span.style.display = 'inline-block';
+                span.style.width = '1em';
+                span.style.height = '1em';
+                span.innerHTML = ''
+                    + '<i style="position:absolute;top:0;left:0;right:0;text-align:center;font-style:normal;font-size:0.9em;line-height:1.1">' + t.label.charAt(0) + '</i>'
+                    + '<i style="position:absolute;bottom:0;left:0;right:0;text-align:center;font-style:normal;font-size:0.9em;line-height:1.1">' + t.label.charAt(1) + '</i>';
+            }
         };
         for (const t of list) {
             const b = document.createElement('button');
