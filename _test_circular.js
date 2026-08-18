@@ -1,5 +1,5 @@
 // 环国际象棋（Ring Chess）规则测试
-const { R } = require('./games/ring-chess.js');
+const { R } = require('./games/circular-chess.js');
 
 let pass = 0, fail = 0;
 function check(name, cond) {

@@ -1083,8 +1083,14 @@ class HexagonalChessRoom extends QiTwoPlayerRoomBase {
         return false;
     }
 
+    /** 开局（时间协商完成/双方入座即开始）时判定：编辑盘面某方无王则直接判负；行棋方无子可动则判和 */
     onMatchStarted() {
         this._resolveTurnStartLoss();
+        if (this.gameOver) return;
+        const side = this.sideToMove;
+        if (!R.hasLegalMove(this.board, side, this._meta())) {
+            this._endGame('draw', side === 'white' ? '白方无子可动，和棋' : '黑方无子可动，和棋');
+        }
     }
 
     _resolveAfterMove() {

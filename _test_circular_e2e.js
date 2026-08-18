@@ -19,7 +19,7 @@ class Client {
     }
     connect(roomId) {
         return new Promise((resolve, reject) => {
-            this.ws = new WebSocket(`ws://127.0.0.1:3100/qi/ws?game=ring-chess&room=${roomId}`);
+            this.ws = new WebSocket(`ws://127.0.0.1:3100/qi/ws?game=circular-chess&room=${roomId}`);
             this.ws.on('message', (d) => {
                 const m = JSON.parse(d.toString());
                 this.msgs.push(m);
@@ -55,7 +55,7 @@ async function createRoom() {
     const r = await fetch(BASE + '/qi/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ game: 'ring-chess' })
+        body: JSON.stringify({ game: 'circular-chess' })
     });
     return r.json();
 }
@@ -195,10 +195,37 @@ async function move(receiver, sender, fr, fc, tr, tc, promote) {
     // 棋谱导出
     r2.a.send({ type: 'exportRecord' });
     const rec = await r2.a.waitFor(m => m.type === 'gameRecord');
-    check('棋谱 gameId=ring-chess', rec.data && rec.data.gameId === 'ring-chess');
+    check('棋谱 gameId=circular-chess', rec.data && rec.data.gameId === 'circular-chess');
     check('棋谱含升变手 =Q', JSON.stringify(rec.data.moves).includes('=Q'));
 
     r2.a.close(); r2.b.close();
+
+    // ============ 房间3：编辑后开局无子可动 → 判和 ============
+    console.log('== 房间3：编辑后开局判和 ==');
+    const r3 = await setupRoom();
+    // 白王 (0,4) 被 5 个死兵（sector 3/5 等 dir=0）围住 → 白方无合法走法
+    const edit4 = Array(64).fill('');
+    edit4[0] = 'bk';          // (0,0)
+    edit4[4] = 'wk';          // (0,4)
+    edit4[3] = 'wp';          // (0,3)
+    edit4[5] = 'wp';          // (0,5)
+    edit4[19] = 'wp';         // (1,3)
+    edit4[20] = 'wp';         // (1,4)
+    edit4[21] = 'wp';         // (1,5)
+    r3.a.send({ type: 'editBoard', board: edit4 });
+    await r3.b.waitFor(m => m.type === 'editBoardAccepted');
+    await r3.finishTC();
+    const over = await r3.a.waitFor(m => m.type === 'broadcast' && m.action === 'matchStartOver');
+    check('开局判和：gameOver=true', over.gameOver === true);
+    check('开局判和：winner=draw', over.winner === 'draw');
+    check('开局判和：白方无子可动，和棋', over.recordResultText === '白方无子可动，和棋');
+    // 判和后再走子被拒
+    const before3 = over.moveHistory.length;
+    r3.a.send({ type: 'move', fromRow: 0, fromCol: 0, toRow: 0, toCol: 1 });
+    await wait(300);
+    check('判和后走子被忽略', !r3.b.has(m => m.type === 'broadcast' && m.action === 'move' && m.moveHistory.length > before3));
+    r3.a.close(); r3.b.close();
+
     console.log('\n通过', pass, '失败', fail);
     process.exit(fail ? 1 : 0);
 })().catch((e) => { console.error('E2E 错误:', e.message); process.exit(1); });

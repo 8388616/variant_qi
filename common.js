@@ -586,6 +586,11 @@ const qiProtocol = {
         if (slot) return;
         if (self.gameOver) return;
 
+        const seatFree = (color) => {
+            if (self.computerSlot && self.computerSlot === color) return false;
+            return !self.room.getPlayerBySlot(color);
+        };
+
         let color = null;
         if (self.matchStarted) {
             color = msg && (msg.color === 'black' || msg.color === 'white') ? msg.color : null;
@@ -593,14 +598,14 @@ const qiProtocol = {
                 ws.send(JSON.stringify({ type: 'error', message: '请选择继续执黑或执白。' }));
                 return;
             }
-            if (self.room.getPlayerBySlot(color)) {
+            if (!seatFree(color)) {
                 ws.send(JSON.stringify({ type: 'error', message: occupiedMsg }));
                 return;
             }
         } else {
             // 开局前不采纳客户端 color，按空位依次分配，避免两人同时点落座都抢黑
-            if (!self.room.getPlayerBySlot('black')) color = 'black';
-            else if (!self.room.getPlayerBySlot('white')) color = 'white';
+            if (seatFree('black')) color = 'black';
+            else if (seatFree('white')) color = 'white';
             else {
                 // 座位已满：静默忽略，不弹错误
                 return;
@@ -631,6 +636,55 @@ const qiProtocol = {
         if (self.room.getPlayerBySlot('black') || self.room.getPlayerBySlot('white')) return;
         self.resetToEmpty();
         self.broadcast({ type: 'roomReset', ...self.getState() });
+    },
+
+    /**
+     * 开局前离座：转为观战，并取消未完成的对局设置协商。
+     * 对局已开始后不可离座（应认输/断线等）。
+     */
+    leaveSeat(self, ws) {
+        const room = self.room;
+        const slot = room.getSlotByWs(ws);
+        if (self.matchStarted) {
+            try {
+                ws.send(JSON.stringify({ type: 'error', message: '对局已开始，无法离座。' }));
+            } catch (_) { /* ignore */ }
+            return;
+        }
+        if (!slot) {
+            try {
+                ws.send(JSON.stringify({
+                    type: 'seatLeft',
+                    slot: null,
+                    ...(typeof self.getState === 'function' ? self.getState() : {})
+                }));
+            } catch (_) { /* ignore */ }
+            return;
+        }
+
+        room.slotOccupancy.delete(slot);
+        room.players.delete(ws);
+        room.observers.add(ws);
+
+        if (self.slotJoinedAt && Object.prototype.hasOwnProperty.call(self.slotJoinedAt, slot)) {
+            self.slotJoinedAt[slot] = null;
+        }
+        if (self.hostWs === ws) {
+            const other = slot === 'black'
+                ? room.getPlayerBySlot('white')
+                : room.getPlayerBySlot('black');
+            self.hostWs = other || null;
+        }
+        if (self.tcNego) self.tcNego = null;
+
+        room.broadcast({ type: 'timeControlReset', reason: 'leaveSeat' });
+        room.broadcast({ type: 'slotReleased', slot });
+        const state = typeof self.getState === 'function' ? self.getState() : {};
+        const hostSlot = self.hostWs ? room.getSlotByWs(self.hostWs) : null;
+        try {
+            ws.send(JSON.stringify({ type: 'seatLeft', slot, hostSlot, ...state }));
+        } catch (_) { /* ignore */ }
+        room.broadcast({ type: 'gameState', hostSlot, ...state }, ws);
     },
 
     resign(self, ws, slot, opts = {}) {
@@ -835,6 +889,7 @@ const qiProtocol = {
         const allowed = self.editBoardAllowedValues || [0, 1, 2];
         const mode = self.editBoardMode || 'grid2d';
         const asInt = (v) => {
+            if (v === '') return '';   // 象棋等字符串棋盘的空格保持 ''，勿转成 0
             const n = Number(v);
             return Number.isInteger(n) ? n : v;
         };
@@ -925,18 +980,21 @@ const qiProtocol = {
             }
             self.board = next;
         } else {
+            // 默认方格盘：支持非方形（象棋 10×9 等）——用 boardRows/boardCols，回退 boardSize
             const editedBoard = msg.board;
-            const size = self.boardSize != null ? self.boardSize : self.BOARD_SIZE;
-            if (!editedBoard || !Array.isArray(editedBoard) || editedBoard.length !== size) {
+            const rows = self.boardRows != null ? self.boardRows
+                : (self.boardSize != null ? self.boardSize : self.BOARD_SIZE);
+            const cols = self.boardCols != null ? self.boardCols : rows;
+            if (!editedBoard || !Array.isArray(editedBoard) || editedBoard.length !== rows) {
                 ws.send(JSON.stringify({ type: 'error', message: '无效的棋盘数据' }));
                 return true;
             }
-            for (let r = 0; r < size; r++) {
-                if (!Array.isArray(editedBoard[r]) || editedBoard[r].length !== size) {
+            for (let r = 0; r < rows; r++) {
+                if (!Array.isArray(editedBoard[r]) || editedBoard[r].length !== cols) {
                     ws.send(JSON.stringify({ type: 'error', message: '无效的棋盘数据' }));
                     return true;
                 }
-                for (let c = 0; c < size; c++) {
+                for (let c = 0; c < cols; c++) {
                     if (!allowed.includes(asInt(editedBoard[r][c]))) {
                         ws.send(JSON.stringify({ type: 'error', message: '棋盘数据包含非法值' }));
                         return true;
@@ -982,23 +1040,33 @@ const qiProtocol = {
     installStandardEditBoard(self) {
         if (!self || self._qiStandardEditBoardInstalled) return self;
         self._qiStandardEditBoardInstalled = true;
-        if (self.openingBoard === undefined && self.board) {
-            self.openingBoard = typeof self.copyBoard === 'function'
-                ? self.copyBoard(self.board)
-                : (Array.isArray(self.board[0]) ? copyBoard(self.board) : self.board.slice());
+
+        /** 连续围棋等：board 为对象而非数组，且 useCustomEditBoard 时勿用二维 copyBoard */
+        const copyGridBoard = (roomSelf, src) => {
+            if (src == null) return src;
+            if (roomSelf && roomSelf.useCustomEditBoard && !Array.isArray(src)) return null;
+            if (!Array.isArray(src)) return null;
+            if (typeof roomSelf.copyBoard === 'function' && Array.isArray(src[0])) {
+                return roomSelf.copyBoard(src);
+            }
+            if (Array.isArray(src[0])) return copyBoard(src);
+            return src.slice();
+        };
+
+        if (self.openingBoard === undefined && self.board && Array.isArray(self.board)) {
+            const ob = copyGridBoard(self, self.board);
+            if (ob != null) self.openingBoard = ob;
         }
         const copyOpeningFromBoard = (roomSelf) => {
-            if (!roomSelf || !roomSelf.board) return;
-            roomSelf.openingBoard = typeof roomSelf.copyBoard === 'function'
-                ? roomSelf.copyBoard(roomSelf.board)
-                : (Array.isArray(roomSelf.board[0]) ? copyBoard(roomSelf.board) : roomSelf.board.slice());
+            if (!roomSelf || !roomSelf.board || !Array.isArray(roomSelf.board)) return;
+            const ob = copyGridBoard(roomSelf, roomSelf.board);
+            if (ob != null) roomSelf.openingBoard = ob;
         };
         const enrich = (state) => {
             if (!state || typeof state !== 'object') return state;
-            if (state.initialBoard == null && self.openingBoard) {
-                state.initialBoard = typeof self.copyBoard === 'function'
-                    ? self.copyBoard(self.openingBoard)
-                    : (Array.isArray(self.openingBoard[0]) ? copyBoard(self.openingBoard) : self.openingBoard.slice());
+            if (state.initialBoard == null && self.openingBoard && Array.isArray(self.openingBoard)) {
+                const ib = copyGridBoard(self, self.openingBoard);
+                if (ib != null) state.initialBoard = ib;
             }
             return state;
         };
@@ -1989,7 +2057,8 @@ const qiBoardSeatOverlay = {
         self._firstPickerSlot = function () {
             if (this.hostWs) {
                 const hs = this.room.getSlotByWs(this.hostWs);
-                if (hs) return hs;
+                // 房主连接已断/僵死时不再把协商提案发给它（否则另一方永远收不到协商，matchStarted 恒 false 无法落子）
+                if (hs && (!this.hostWs.readyState || this.hostWs.readyState === 1)) return hs;
             }
             return origFirst ? origFirst() : 'black';
         };
@@ -2045,6 +2114,17 @@ const qiBoardSeatOverlay = {
                 const w = this.room.getPlayerBySlot('white');
                 if (b && w) {
                     this.matchStarted = true;
+                    // 开局即判定：编辑盘面某方无将/帅/王则直接判负，行棋方无子可动则判和（象棋/国际象棋等实现 onMatchStarted）
+                    if (typeof this.onMatchStarted === 'function') {
+                        try { this.onMatchStarted(); } catch (e) { /* ignore */ }
+                    }
+                    if (this.gameOver) {
+                        try {
+                            if (typeof this.getState === 'function') {
+                                this.broadcast({ type: 'broadcast', action: 'matchStartOver', ...this.getState() });
+                            }
+                        } catch (e) { /* ignore */ }
+                    }
                     this._qiNotifyColorsFinalized();
                 }
             }
@@ -2084,6 +2164,13 @@ const qiBoardSeatOverlay = {
             this.tcNego.waitingSlot = other;
             const me = room.getPlayerBySlot(slot);
             if (me) me.send(JSON.stringify({ type: 'timeControlWaitPeer', text: '等待对方确认...' }));
+            // 对方已离开/座位空缺：单人直接完成协商，否则提案发不出去永远卡住（matchStarted 恒 false 无法落子）
+            if (!room.getPlayerBySlot(other)) {
+                if (typeof this._finalizeTimeControl === 'function') {
+                    try { this._finalizeTimeControl(v); } catch (_) { /* ignore */ }
+                }
+                return;
+            }
             this._qiSendRespondDialog(other, v);
         };
 
@@ -2110,6 +2197,17 @@ const qiBoardSeatOverlay = {
                 : { timed: false };
             this.tcNego = null;
             this.matchStarted = true;
+            // 开局即判定：编辑盘面某方无将/帅/王则直接判负，行棋方无子可动则判和（象棋/国际象棋等实现 onMatchStarted）
+            if (typeof this.onMatchStarted === 'function') {
+                try { this.onMatchStarted(); } catch (e) { /* ignore */ }
+            }
+            if (this.gameOver) {
+                try {
+                    if (typeof this.getState === 'function') {
+                        this.broadcast({ type: 'broadcast', action: 'matchStartOver', ...this.getState() });
+                    }
+                } catch (e) { /* ignore */ }
+            }
             const now = Date.now();
             this.tcClock = qiMatchTimeControl.createClock(this.tcSettings, now);
             if (this.tcClock.timed) {
@@ -2220,6 +2318,11 @@ const qiBoardSeatOverlay = {
                 } finally {
                     room.broadcast = origBroadcast;
                 }
+                // 修复：协商提案已发给离开方时，剩下一方永远收不到提案（matchStarted 恒 false 无法落子）。
+                // 离座清理 tcNego 后若双方仍在座，重新发起协商（对局已开始/已定限时则内部自行跳过）
+                if (typeof this._maybeBeginTimeNegotiation === 'function') {
+                    try { this._maybeBeginTimeNegotiation(); } catch (_) { /* ignore */ }
+                }
             };
         } else {
             self.onPlayerLeave = function (ws) {
@@ -2236,6 +2339,9 @@ const qiBoardSeatOverlay = {
                     this.room.broadcast({ type: 'timeControlReset', reason: 'playerLeft' });
                 }
                 if (slot && this.slotJoinedAt) this.slotJoinedAt[slot] = null;
+                if (typeof this._maybeBeginTimeNegotiation === 'function') {
+                    try { this._maybeBeginTimeNegotiation(); } catch (_) { /* ignore */ }
+                }
             };
         }
 
@@ -2246,6 +2352,10 @@ const qiBoardSeatOverlay = {
                     qiProtocol.takeSeat(this, ws, msg);
                 else
                     qiProtocol.selectColor(this, ws, msg);
+                return;
+            }
+            if (msg.type === 'leaveSeat') {
+                qiProtocol.leaveSeat(this, ws);
                 return;
             }
             if (msg.type === 'timeControlSubmit') {

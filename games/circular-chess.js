@@ -546,7 +546,7 @@ class RingChessRoom extends QiTwoPlayerRoomBase {
             format: 'muzei',
             version: 2,
             gameType: '环国际象棋',
-            gameId: 'ring-chess',
+            gameId: 'circular-chess',
             boardRows: R.RINGS,
             boardCols: R.SECTORS,
             moves: this.moveHistory.map((m) => {
@@ -650,8 +650,14 @@ class RingChessRoom extends QiTwoPlayerRoomBase {
         return false;
     }
 
+    /** 开局（时间协商完成/双方入座即开始）时判定：编辑盘面某方无王则直接判负；行棋方无子可动则判和 */
     onMatchStarted() {
         this._resolveTurnStartLoss();
+        if (this.gameOver) return;
+        const side = this.sideToMove;
+        if (!R.hasLegalMove(this.board, side)) {
+            this._endGame('draw', side === 'white' ? '白方无子可动，和棋' : '黑方无子可动，和棋');
+        }
     }
 
     _resolveAfterMove() {
@@ -681,7 +687,7 @@ class RingChessRoom extends QiTwoPlayerRoomBase {
     }
 
     importRecord(data, requesterWs) {
-        if (!data || data.gameId !== 'ring-chess') {
+        if (!data || data.gameId !== 'circular-chess') {
             requesterWs.send(JSON.stringify({ type: 'error', message: '棋谱格式不匹配（需要环国际象棋棋谱）。' }));
             return;
         }

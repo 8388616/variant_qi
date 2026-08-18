@@ -3,7 +3,7 @@ const fs = require('fs');
 const { execSync } = require('child_process');
 const path = require('path');
 
-const pluginSrc = fs.readFileSync(path.join(__dirname, 'public/room-plugins/ring-chess-room.js'), 'utf8');
+const pluginSrc = fs.readFileSync(path.join(__dirname, 'public/room-plugins/circular-chess-room.js'), 'utf8');
 
 const html = `<!DOCTYPE html>
 <html><head><meta charset="utf-8"><style>html,body{margin:0;padding:0}canvas{width:600px;height:600px}</style></head>
@@ -65,8 +65,8 @@ ${pluginSrc}
 
 // ---------- 执行 mount ----------
 try {
-    window.RoomPlugins["ring-chess"].mount({
-        gameType: 'ring-chess', roomId: 'test', roomPassword: null, config: {}
+    window.RoomPlugins["circular-chess"].mount({
+        gameType: 'circular-chess', roomId: 'test', roomPassword: null, config: {}
     });
     document.getElementById('result').textContent = 'step2';
 } catch (e) {
@@ -159,7 +159,7 @@ try {
 </script>
 </body></html>`;
 
-const htmlPath = path.join(__dirname, '_render_ring_check.html');
+const htmlPath = path.join(__dirname, '_render_circular_check.html');
 fs.writeFileSync(htmlPath, html);
 const chrome = 'C:/Program Files/Google/Chrome/Application/chrome.exe';
 const out = execSync(`"${chrome}" --headless=new --disable-gpu --no-sandbox --virtual-time-budget=3000 --dump-dom "file:///${htmlPath.replace(/\\/g, '/')}"`, {

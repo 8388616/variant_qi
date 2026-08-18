@@ -114,7 +114,7 @@ function attacksSquare(piece, fromRow, fromCol, toRow, toCol, board) {
         const forward = piece[0] === 'w' ? -1 : 1;
         return dR === forward && aC === 1;
     }
-    if (type === 'w') {
+    if (type === 'r') {
         if (fromRow !== toRow && fromCol !== toCol) return false;
         return pathClear(board, fromRow, fromCol, toRow, toCol);
     }
@@ -174,7 +174,7 @@ function isPseudoLegalMove(piece, fromRow, fromCol, toRow, toCol, board, meta) {
         return pathClear(board, fromRow, fromCol, toRow, toCol);
     }
 
-    if (type === 'w') {
+    if (type === 'r') {
         if (fromRow !== toRow && fromCol !== toCol) return false;
         return pathClear(board, fromRow, fromCol, toRow, toCol);
     }
@@ -474,7 +474,31 @@ return {
 class SimulatedChessRoom extends QiTwoPlayerRoomBase {
     constructor(room) {
         super(room);
+        // 开局前编辑允许的棋子值（字符串棋盘：空 '' + 全部棋子编码）
+        this.editBoardAllowedValues = ['', 'wp', 'wb', 'wn', 'wr', 'wq', 'wk', 'bp', 'bb', 'bn', 'br', 'bq', 'bk'];
+        // 棋盘维度（8×8，公共编辑校验用）
+        this.boardRows = R.BOARD_H;
+        this.boardCols = R.BOARD_W;
         this.resetToEmpty();
+    }
+
+    /** 编辑盘面若有兵已在对方底线（白兵 row0 / 黑兵 row7），须先逐一升变才能走棋 */
+    _pendingPawnPromotion() {
+        const pawn = this.sideToMove === 'white' ? 'wp' : 'bp';
+        const row = this.sideToMove === 'white' ? 0 : 7;
+        for (let c = 0; c < 8; c++) {
+            if (this.board[row][c] === pawn) return { row, col: c };
+        }
+        return null;
+    }
+
+    /** 不走子升变：把指定格的行棋方底线兵替换为所选的子力（非走子，不记入 moveHistory/historyBoards） */
+    _applyPawnPromotion(row, col, promote) {
+        const pawn = this.sideToMove === 'white' ? 'wp' : 'bp';
+        if (!this.board[row] || this.board[row][col] !== pawn) return false;
+        const t = R.normalizePromote(promote);
+        this.board[row][col] = (this.sideToMove === 'white' ? 'w' : 'b') + t;
+        return true;
     }
 
     _meta() {
@@ -640,6 +664,8 @@ class SimulatedChessRoom extends QiTwoPlayerRoomBase {
             castling: R.copyCastling(this.castling),
             enPassant: this.enPassant ? { ...this.enPassant } : null,
             inCheck: R.isInCheck(this.board, this.sideToMove),
+            // 编辑盘面的底线兵：当前行棋方须先逐一升变（客户端据此弹升变选择）
+            pendingPromotion: this._pendingPawnPromotion(),
             moveHistory: this.moveHistory.map((m) => ({ ...m })),
             moveCoords: this.wireMoveCoords(),
             matchTime: {
@@ -771,7 +797,30 @@ class SimulatedChessRoom extends QiTwoPlayerRoomBase {
         return { ok: true, gaveCheck, captured: !!applied.captured };
     }
 
+    /** 行棋方无王：直接判负（编辑盘面可能出现；吃王后下一回合也由此触发） */
+    _resolveTurnStartLoss() {
+        if (this.gameOver) return false;
+        const side = this.sideToMove;
+        if (R.findKing(this.board, side) == null) {
+            const winnerSlot = R.slotFromSide(R.oppositeSide(side));
+            this._endGame(winnerSlot, side === 'white' ? '白方无王黑胜' : '黑方无王白胜');
+            return true;
+        }
+        return false;
+    }
+
+    /** 开局（时间协商完成/双方入座即开始）时判定：编辑盘面某方无王则直接判负；行棋方无子可动则判和 */
+    onMatchStarted() {
+        this._resolveTurnStartLoss();
+        if (this.gameOver) return;
+        const side = this.sideToMove;
+        if (!R.hasLegalMove(this.board, side, this._meta())) {
+            this._endGame('draw', side === 'white' ? '白方无子可动，和棋' : '黑方无子可动，和棋');
+        }
+    }
+
     _resolveAfterMove() {
+        if (this._resolveTurnStartLoss()) return;
         const side = this.sideToMove;
         const meta = this._meta();
         const inCheck = R.isInCheck(this.board, side);
@@ -892,10 +941,21 @@ class SimulatedChessRoom extends QiTwoPlayerRoomBase {
             case 'resetRoom':
                 qiProtocol.resetRoomToEmpty(this, ws);
                 break;
+            case 'promotePawn': {
+                if (this.gameOver) return;
+                if (!this._timeAllowsPlay(slot)) return;
+                const { row, col, promote } = msg;
+                if (!Number.isInteger(row) || !Number.isInteger(col)) return;
+                if (!this._applyPawnPromotion(row, col, promote)) return;
+                this.broadcast({ type: 'broadcast', action: 'promotePawn', ...this.getState() });
+                break;
+            }
             case 'move': {
                 if (this.gameOver) return;
                 if (!this._timeAllowsPlay(slot)) return;
                 if (!this._drainClockBeforeMove(slot)) return;
+                // 编辑盘面有底线兵：必须先逐一升变，暂不接受走子
+                if (this._pendingPawnPromotion()) return;
                 const { fromRow, fromCol, toRow, toCol } = msg;
                 if (![fromRow, fromCol, toRow, toCol].every((n) => Number.isInteger(n))) return;
                 const promote = msg.promote != null ? String(msg.promote).toLowerCase() : null;

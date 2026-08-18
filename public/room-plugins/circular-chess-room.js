@@ -1,5 +1,5 @@
 window.RoomPlugins = window.RoomPlugins || {};
-window.RoomPlugins["ring-chess"] = {
+window.RoomPlugins["circular-chess"] = {
     shell: {
         "title": "环国际象棋",
         "rulesHtml": "基本规则类似国际象棋。<br /><br />",

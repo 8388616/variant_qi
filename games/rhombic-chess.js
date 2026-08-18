@@ -229,8 +229,11 @@ const R = (function () {
     }
 
     function findKing(board, side) {
+        // 王可能是字符串（'wk'）或对象（applyMove 后 {0:'w',1:'k',hasMoved:true}）
+        const ch = side[0];
         for (const k in board) {
-            if (board[k] === (side === 'white' ? 'wk' : 'bk')) return CELL_INDEX[k];
+            const pc = board[k];
+            if (pc && pc[0] === ch && pc[1] === 'k') return CELL_INDEX[k];
         }
         return -1;
     }
@@ -717,8 +720,14 @@ class RhombicChessRoom extends QiTwoPlayerRoomBase {
         return false;
     }
 
+    /** 开局（时间协商完成/双方入座即开始）时判定：编辑盘面某方无王则直接判负；行棋方无子可动则判和 */
     onMatchStarted() {
         this._resolveTurnStartLoss();
+        if (this.gameOver) return;
+        const side = this.sideToMove;
+        if (!R.hasLegalMove(this.board, side)) {
+            this._endGame('draw', side === 'white' ? '白方无子可动，和棋' : '黑方无子可动，和棋');
+        }
     }
 
     _resolveAfterMove() {
