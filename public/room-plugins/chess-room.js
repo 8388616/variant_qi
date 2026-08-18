@@ -11,11 +11,36 @@ window.RoomPlugins["chess"] = {
         "recordDownloadPrefix": "国际象棋",
         "standardWeiqiMatchTime": true,
         "features": {
-            "editBoard": false,
+            "editBoard": true,
             "xiangqi": true,
             "chess": true,
             "hideBoardSize": true
-        }
+        },
+        // 顺序：后车马象兵王 + 象(倒置主教)士(倒置后)相(车+马)亚(后+马)。白棋用空心字形（与最初黑棋相同的字形和颜色 #222），黑棋用实心字形
+        "editTools": [
+            { "value": "empty", "label": "空", "cellValue": "" },
+            { "value": "wq", "label": "♕", "cellValue": "wq", "color": "#222" },
+            { "value": "wr", "label": "♖", "cellValue": "wr", "color": "#222" },
+            { "value": "wn", "label": "♘", "cellValue": "wn", "color": "#222" },
+            { "value": "wb", "label": "♗", "cellValue": "wb", "color": "#222" },
+            { "value": "wp", "label": "♙", "cellValue": "wp", "color": "#222" },
+            { "value": "wk", "label": "♔", "cellValue": "wk", "color": "#222" },
+            { "value": "we", "label": "♗", "cellValue": "we", "color": "#222", "upsideDown": true },
+            { "value": "wf", "label": "♕", "cellValue": "wf", "color": "#222", "upsideDown": true },
+            { "value": "wc", "label": "♖♘", "cellValue": "wc", "color": "#222" },
+            { "value": "wa", "label": "♕♘", "cellValue": "wa", "color": "#222" },
+            { "value": "bq", "label": "♛", "cellValue": "bq", "color": "#222" },
+            { "value": "br", "label": "♜", "cellValue": "br", "color": "#222" },
+            { "value": "bn", "label": "♞", "cellValue": "bn", "color": "#222" },
+            { "value": "bb", "label": "♝", "cellValue": "bb", "color": "#222" },
+            { "value": "bp", "label": "♟", "cellValue": "bp", "color": "#222" },
+            { "value": "bk", "label": "♚", "cellValue": "bk", "color": "#222" },
+            { "value": "be", "label": "♝", "cellValue": "be", "color": "#222", "upsideDown": true },
+            { "value": "bf", "label": "♛", "cellValue": "bf", "color": "#222", "upsideDown": true },
+            { "value": "bc", "label": "♜♞", "cellValue": "bc", "color": "#222" },
+            { "value": "ba", "label": "♛♞", "cellValue": "ba", "color": "#222" }
+        ],
+        "editToolGlyphSize": 26
     },
     mount: function (ctx) {
         var gameType = ctx.gameType;
@@ -35,7 +60,9 @@ const BOARD_W = 8;
 
 const PIECE_CHAR = {
     wk: '♚', wq: '♛', wr: '♜', wn: '♞', wb: '♝', wp: '♟',
-    bk: '♚', bq: '♛', br: '♜', bn: '♞', bb: '♝', bp: '♟'
+    bk: '♚', bq: '♛', br: '♜', bn: '♞', bb: '♝', bp: '♟',
+    we: '♝', wf: '♛', wc: '♜', wa: '♛',
+    be: '♝', bf: '♛', bc: '♜', ba: '♛'
 };
 
 const PROMOTE_TYPES = ['q', 'r', 'n', 'b'];
@@ -134,7 +161,7 @@ function attacksSquare(piece, fromRow, fromCol, toRow, toCol, board) {
         const forward = piece[0] === 'w' ? -1 : 1;
         return dR === forward && aC === 1;
     }
-    if (type === 'w') {
+    if (type === 'r') {
         if (fromRow !== toRow && fromCol !== toCol) return false;
         return pathClear(board, fromRow, fromCol, toRow, toCol);
     }
@@ -143,6 +170,26 @@ function attacksSquare(piece, fromRow, fromCol, toRow, toCol, board) {
         return pathClear(board, fromRow, fromCol, toRow, toCol);
     }
     if (type === 'q') {
+        if (fromRow !== toRow && fromCol !== toCol && aR !== aC) return false;
+        return pathClear(board, fromRow, fromCol, toRow, toCol);
+    }
+    // 象（elephant）：斜走两步，不卡象眼
+    if (type === 'e') {
+        return aR === aC && aR >= 1 && aR <= 2;
+    }
+    // 士（ferz）：斜走一格
+    if (type === 'f') {
+        return aR === 1 && aC === 1;
+    }
+    // 相（chancellor）：车 + 马
+    if (type === 'c') {
+        if ((aR === 2 && aC === 1) || (aR === 1 && aC === 2)) return true;
+        if (fromRow !== toRow && fromCol !== toCol) return false;
+        return pathClear(board, fromRow, fromCol, toRow, toCol);
+    }
+    // 亚（amazon）：后 + 马
+    if (type === 'a') {
+        if ((aR === 2 && aC === 1) || (aR === 1 && aC === 2)) return true;
         if (fromRow !== toRow && fromCol !== toCol && aR !== aC) return false;
         return pathClear(board, fromRow, fromCol, toRow, toCol);
     }
@@ -194,7 +241,7 @@ function isPseudoLegalMove(piece, fromRow, fromCol, toRow, toCol, board, meta) {
         return pathClear(board, fromRow, fromCol, toRow, toCol);
     }
 
-    if (type === 'w') {
+    if (type === 'r') {
         if (fromRow !== toRow && fromCol !== toCol) return false;
         return pathClear(board, fromRow, fromCol, toRow, toCol);
     }
@@ -245,6 +292,27 @@ function isPseudoLegalMove(piece, fromRow, fromCol, toRow, toCol, board, meta) {
             if (ep && ep.row === toRow && ep.col === toCol) return true;
         }
         return false;
+    }
+
+    // 象（elephant）：斜走两步，不卡象眼
+    if (type === 'e') {
+        return aR === aC && aR >= 1 && aR <= 2;
+    }
+    // 士（ferz）：斜走一格
+    if (type === 'f') {
+        return aR === 1 && aC === 1;
+    }
+    // 相（chancellor）：车 + 马
+    if (type === 'c') {
+        if ((aR === 2 && aC === 1) || (aR === 1 && aC === 2)) return true;
+        if (fromRow !== toRow && fromCol !== toCol) return false;
+        return pathClear(board, fromRow, fromCol, toRow, toCol);
+    }
+    // 亚（amazon）：后 + 马
+    if (type === 'a') {
+        if ((aR === 2 && aC === 1) || (aR === 1 && aC === 2)) return true;
+        if (fromRow !== toRow && fromCol !== toCol && aR !== aC) return false;
+        return pathClear(board, fromRow, fromCol, toRow, toCol);
     }
 
     return false;
@@ -497,8 +565,18 @@ return {
         const ctx2d = canvas.getContext('2d');
         const PAD = 0.55;
         const units = R.BOARD_W + 2 * PAD;
-        canvas.width = 560;
-        canvas.height = 560;
+        // 高清渲染：物理分辨率对齐 CSS 尺寸 × devicePixelRatio；绘制逻辑坐标恒为 LOGICAL_SIZE（与下拉框文字同清晰度）
+        const LOGICAL_SIZE = 560;
+        function applyHiDpiCanvas(redraw) {
+            if (typeof QiWeiqiSquarePageRuntime === 'undefined' || !QiWeiqiSquarePageRuntime.setupHiDpiCanvas) return;
+            QiWeiqiSquarePageRuntime.setupHiDpiCanvas(canvas, LOGICAL_SIZE);
+            if (redraw) drawBoard();
+        }
+        applyHiDpiCanvas(false); // 挂载早期 ps 尚未初始化，首帧仅设置尺寸，布局完成后重绘
+        if (typeof window !== 'undefined' && window.requestAnimationFrame) {
+            window.requestAnimationFrame(() => applyHiDpiCanvas(true));
+        }
+        window.addEventListener('resize', () => applyHiDpiCanvas(true));
         const turnDisplay = document.getElementById('turnDisplay');
         const colorStatus = document.getElementById('colorStatus');
         const scoreTitle = document.getElementById('scoreTitle');
@@ -515,6 +593,7 @@ return {
             currentPlayer: 1,
             mySlot: null,
             gameOver: false,
+            gameStarted: false,
             winner: null,
             lastFrom: null,
             lastTo: null,
@@ -604,6 +683,16 @@ return {
                 btn.dataset.promote = t;
                 btn.style.cssText = 'width:48px;height:48px;border:1px solid #555;border-radius:6px;background:#f0e6d2;color:#1a1a1a;font:28px "Segoe UI Symbol", "Apple Color Emoji", sans-serif;cursor:pointer;line-height:1;';
                 btn.onclick = () => {
+                    // 编辑盘面底线兵：不走子升变（逐一）
+                    if (ps.pendingPawnPromote) {
+                        const { row, col } = ps.pendingPawnPromote;
+                        ps.pendingPawnPromote = null;
+                        hidePromote();
+                        if (ps.ws && ps.ws.readyState === 1) {
+                            ps.ws.send(JSON.stringify({ type: 'promotePawn', row, col, promote: t }));
+                        }
+                        return;
+                    }
                     if (!ps.pendingPromote) return;
                     const { fromRow, fromCol, toRow, toCol, tryPlay } = ps.pendingPromote;
                     hidePromote();
@@ -618,15 +707,30 @@ return {
 
         function hidePromote() {
             ps.pendingPromote = null;
+            ps.pendingPawnPromote = null;
             promoBar.style.display = 'none';
+        }
+
+        /** 编辑盘面底线兵：显示升变选择条（不走子，直接升变该兵） */
+        function showPromotePawn(row, col) {
+            ps.pendingPawnPromote = { row, col };
+            const d = toDisplayCoord(row, col);
+            const rect = canvas.getBoundingClientRect();
+            const scaleX = rect.width / LOGICAL_SIZE;
+            const scaleY = rect.height / LOGICAL_SIZE;
+            const cx = offsetX + (d.col + 0.5) * cellSize;
+            const cy = offsetY + d.row * cellSize;
+            promoBar.style.display = 'flex';
+            promoBar.style.left = Math.max(4, cx * scaleX - 100) + 'px';
+            promoBar.style.top = Math.max(4, cy * scaleY - 56) + 'px';
         }
 
         function showPromote(fromRow, fromCol, toRow, toCol, tryPlay) {
             ps.pendingPromote = { fromRow, fromCol, toRow, toCol, tryPlay: !!tryPlay };
             const d = toDisplayCoord(toRow, toCol);
             const rect = canvas.getBoundingClientRect();
-            const scaleX = rect.width / canvas.width;
-            const scaleY = rect.height / canvas.height;
+            const scaleX = rect.width / LOGICAL_SIZE;
+            const scaleY = rect.height / LOGICAL_SIZE;
             const cx = offsetX + (d.col + 0.5) * cellSize;
             const cy = offsetY + d.row * cellSize;
             promoBar.style.display = 'flex';
@@ -655,7 +759,7 @@ return {
         }
 
         function calcGeometry() {
-            const w = canvas.width, h = canvas.height;
+            const w = LOGICAL_SIZE, h = LOGICAL_SIZE;
             cellSize = Math.min(w / units, h / units);
             offsetX = (w - R.BOARD_W * cellSize) / 2;
             offsetY = (h - R.BOARD_H * cellSize) / 2;
@@ -713,7 +817,7 @@ return {
 
         function drawBoard() {
             calcGeometry();
-            ctx2d.clearRect(0, 0, canvas.width, canvas.height);
+            ctx2d.clearRect(0, 0, LOGICAL_SIZE, LOGICAL_SIZE);
 
             const light = '#f0d9b5';
             const dark = '#b58863';
@@ -773,20 +877,49 @@ return {
                     const { x, y } = squareCenter(d.row, d.col);
                     const isWhite = piece[0] === 'w';
                     const fontSize = cellSize * 0.78 * (isWhite ? 1 : 1.05);
-                    ctx2d.font = `${fontSize}px "Segoe UI Symbol", "Apple Color Emoji", "Noto Sans Symbols", sans-serif`;
+                    const type = piece[1];
+                    // 与编辑下拉框同一字体栈（XiangqiPiece 不含国际象棋字形时回退 Segoe UI Symbol）
+                    const fontStack = `"XiangqiPiece", "Segoe UI Symbol", "Apple Color Emoji", "Noto Sans Symbols", sans-serif`;
                     ctx2d.textAlign = 'center';
                     ctx2d.textBaseline = 'middle';
                     const glyph = R.pieceLabel(piece);
                     const gy = y + cellSize * 0.03;
-                    if (isWhite) {
-                        ctx2d.lineWidth = Math.max(1.5, cellSize * 0.03);
-                        ctx2d.strokeStyle = '#1a1a1a';
-                        ctx2d.fillStyle = '#f7f7f7';
-                        ctx2d.strokeText(glyph, x, gy);
-                        ctx2d.fillText(glyph, x, gy);
+                    const paintGlyph = (g, px, py, size) => {
+                        ctx2d.font = `${size}px ${fontStack}`;
+                        if (isWhite) {
+                            ctx2d.lineWidth = Math.max(1.5, cellSize * 0.03);
+                            ctx2d.strokeStyle = '#1a1a1a';
+                            ctx2d.fillStyle = '#f7f7f7';
+                            ctx2d.strokeText(g, px, py);
+                            ctx2d.fillText(g, px, py);
+                        } else {
+                            ctx2d.fillStyle = '#1a1a1a';
+                            ctx2d.fillText(g, px, py);
+                        }
+                    };
+                    if (type === 'c' || type === 'a') {
+                        // 相/亚：下层车/后 + 上层马（马偏上略小）
+                        paintGlyph(type === 'c' ? '♜' : '♛', x, gy, fontSize);
+                        paintGlyph('♞', x, y - cellSize * 0.1, fontSize * 0.72);
+                    } else if (type === 'e' || type === 'f') {
+                        // 象/士：倒置显示（旋转 180°，偏移与古印度象棋一致）
+                        ctx2d.save();
+                        ctx2d.translate(x, y);
+                        ctx2d.rotate(Math.PI);
+                        ctx2d.font = `${fontSize}px ${fontStack}`;
+                        if (isWhite) {
+                            ctx2d.lineWidth = Math.max(1.5, cellSize * 0.03);
+                            ctx2d.strokeStyle = '#1a1a1a';
+                            ctx2d.fillStyle = '#f7f7f7';
+                            ctx2d.strokeText(glyph, 0, cellSize * 0.1);
+                            ctx2d.fillText(glyph, 0, cellSize * 0.1);
+                        } else {
+                            ctx2d.fillStyle = '#1a1a1a';
+                            ctx2d.fillText(glyph, 0, cellSize * 0.1);
+                        }
+                        ctx2d.restore();
                     } else {
-                        ctx2d.fillStyle = '#1a1a1a';
-                        ctx2d.fillText(glyph, x, gy);
+                        paintGlyph(glyph, x, gy, fontSize);
                     }
                 }
             }
@@ -1108,8 +1241,8 @@ return {
 
         function getRowColFromClient(clientX, clientY) {
             const rect = canvas.getBoundingClientRect();
-            const scaleX = canvas.width / rect.width;
-            const scaleY = canvas.height / rect.height;
+            const scaleX = LOGICAL_SIZE / rect.width;
+            const scaleY = LOGICAL_SIZE / rect.height;
             const canvasX = (clientX - rect.left) * scaleX;
             const canvasY = (clientY - rect.top) * scaleY;
             const dispCol = Math.floor((canvasX - offsetX) / cellSize);
@@ -1145,6 +1278,8 @@ return {
                 hidePromote();
                 drawBoard();
             }
+            // 编辑盘面底线兵逐一升变中：忽略棋盘点击，只能点升变按钮
+            if (ps.pendingPawnPromote) return;
             const viewingPast = !ps.replayMode && !ps.tryPlayMode && ps.liveSnapshots.length && ps.liveViewStep < ps.liveSnapshots.length - 1;
             if (viewingPast) return;
             if (ps.gameOver && !ps.tryPlayMode) return;
@@ -1229,7 +1364,19 @@ return {
             colorStatus,
             scoreTitle,
             turnDisplay,
-            syncState,
+            syncState: (state) => {
+                if (state) {
+                    ps.gameStarted = (state.numberOfHands || 1) > 1 || !!state.matchStarted;
+                }
+                // 开局后先强制退出编辑模式，编辑中的状态同步不弹升变条
+                if (editApi) editApi.updateEditModeUI();
+                syncState(state);
+                // 编辑盘面底线兵：逐一升变（不走子）。必须在 syncState 之后，否则会被 hidePromote 清掉
+                const editing = !!(editApi && editApi.isEditModeActive && editApi.isEditModeActive());
+                if (state && state.pendingPromotion && !editing && !ps.gameOver && !ps.replayMode && !ps.tryPlayMode) {
+                    showPromotePawn(state.pendingPromotion.row, state.pendingPromotion.col);
+                }
+            },
             updateBoardGeometry: () => {},
             initBoardArray: () => R.createInitialBoard(),
             exitReplayMode,
@@ -1313,6 +1460,25 @@ return {
         document.getElementById('helpBtn').onclick = () => { document.getElementById('rulesModal').style.display = 'flex'; };
         document.getElementById('closeRulesBtn').onclick = () => { document.getElementById('rulesModal').style.display = 'none'; };
         document.getElementById('backToLobbyBtn').onclick = () => { location.href = '/qi'; };
+
+        // 编辑模式：安装公共编辑 UI（点击放置棋子，关闭编辑时提交服务器）
+        let editApi = null;
+        if (typeof QiWeiqiSquarePageRuntime !== 'undefined' && QiWeiqiSquarePageRuntime.installBoardEditUI) {
+            editApi = QiWeiqiSquarePageRuntime.installBoardEditUI({
+                ps,
+                canvas,
+                mode: 'grid2d',
+                editTools: config.editTools,
+                pickAtClient(clientX, clientY) {
+                    return getRowColFromClient(clientX, clientY);
+                },
+                drawBoard,
+                getBoard: () => ps.board,
+                setBoard: (b) => { ps.board = b; },
+                emptyBoard: () => R.emptyBoard()
+            });
+        }
+
 
         updateTurn();
         drawBoard();

@@ -126,6 +126,26 @@ function attacksSquare(piece, fromRow, fromCol, toRow, toCol, board) {
         if (fromRow !== toRow && fromCol !== toCol && aR !== aC) return false;
         return pathClear(board, fromRow, fromCol, toRow, toCol);
     }
+    // 象（elephant）：斜走两步，不卡象眼（同古印度象棋）
+    if (type === 'e') {
+        return aR === aC && aR >= 1 && aR <= 2;
+    }
+    // 士（ferz）：斜走一格
+    if (type === 'f') {
+        return aR === 1 && aC === 1;
+    }
+    // 相（chancellor）：车 + 马
+    if (type === 'c') {
+        if ((aR === 2 && aC === 1) || (aR === 1 && aC === 2)) return true;
+        if (fromRow !== toRow && fromCol !== toCol) return false;
+        return pathClear(board, fromRow, fromCol, toRow, toCol);
+    }
+    // 亚（amazon）：后 + 马
+    if (type === 'a') {
+        if ((aR === 2 && aC === 1) || (aR === 1 && aC === 2)) return true;
+        if (fromRow !== toRow && fromCol !== toCol && aR !== aC) return false;
+        return pathClear(board, fromRow, fromCol, toRow, toCol);
+    }
     return false;
 }
 
@@ -225,6 +245,27 @@ function isPseudoLegalMove(piece, fromRow, fromCol, toRow, toCol, board, meta) {
             if (ep && ep.row === toRow && ep.col === toCol) return true;
         }
         return false;
+    }
+
+    // 象（elephant）：斜走两步，不卡象眼（同古印度象棋）
+    if (type === 'e') {
+        return aR === aC && aR >= 1 && aR <= 2;
+    }
+    // 士（ferz）：斜走一格
+    if (type === 'f') {
+        return aR === 1 && aC === 1;
+    }
+    // 相（chancellor）：车 + 马
+    if (type === 'c') {
+        if ((aR === 2 && aC === 1) || (aR === 1 && aC === 2)) return true;
+        if (fromRow !== toRow && fromCol !== toCol) return false;
+        return pathClear(board, fromRow, fromCol, toRow, toCol);
+    }
+    // 亚（amazon）：后 + 马
+    if (type === 'a') {
+        if ((aR === 2 && aC === 1) || (aR === 1 && aC === 2)) return true;
+        if (fromRow !== toRow && fromCol !== toCol && aR !== aC) return false;
+        return pathClear(board, fromRow, fromCol, toRow, toCol);
     }
 
     return false;
@@ -475,7 +516,8 @@ class SimulatedChessRoom extends QiTwoPlayerRoomBase {
     constructor(room) {
         super(room);
         // 开局前编辑允许的棋子值（字符串棋盘：空 '' + 全部棋子编码）
-        this.editBoardAllowedValues = ['', 'wp', 'wb', 'wn', 'wr', 'wq', 'wk', 'bp', 'bb', 'bn', 'br', 'bq', 'bk'];
+        this.editBoardAllowedValues = ['', 'wp', 'wb', 'wn', 'wr', 'wq', 'wk', 'we', 'wf', 'wc', 'wa',
+            'bp', 'bb', 'bn', 'br', 'bq', 'bk', 'be', 'bf', 'bc', 'ba'];
         // 棋盘维度（8×8，公共编辑校验用）
         this.boardRows = R.BOARD_H;
         this.boardCols = R.BOARD_W;
