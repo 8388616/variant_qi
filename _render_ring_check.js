@@ -10,8 +10,9 @@ const html = `<!DOCTYPE html>
 <body>
 <pre id="result">running</pre>
 <script>
-window.onerror = function (msg, src, line) {
-    document.getElementById('result').textContent = 'SYNC ERROR: ' + msg + ' @' + line;
+window.onerror = function (msg, src, line, col, err) {
+    window.__lastErr = msg + ' @' + line + ' | ' + (err && err.stack ? err.stack.split('\n').slice(0, 6).join(' | ') : '');
+    document.getElementById('result').textContent = 'SYNC ERROR: ' + window.__lastErr;
 };
 </script>
 <script>
@@ -96,12 +97,20 @@ try {
         else if (near(rgb, '#1a1a1a', 6)) blackPx++;
         else if (near(rgb, '#f7f7f7', 6)) whitePx++;
     }
-    // 采样点（逻辑 560 坐标系；R_OUT=260, R_IN=52, ringW=52）
-    const C = 280;
-    const center = at(C, C);                       // 中心圆内：无绘制（透明）
-    const a3 = (-22.5) * Math.PI / 180;            // sector 3 ring 0 中心（空格，深色：(0+3)%2=1）
+    // 采样点（逻辑 560 坐标系；C=280, R_OUT=260, R_IN=52, ringW=52；整体旋转 11.25°）
+    const C = 280, R_IN = 52, R_OUT = 260;
+    const center = at(C, C);                       // 中心小圆内：木色 #fdcc90
+    const a3 = (-11.25) * Math.PI / 180;           // sector 3 ring 0 中心（空格，深色：(0+3)%2=1）
     const s1 = at(C + 78 * Math.cos(a3), C + 78 * Math.sin(a3));
-    const s0 = at(C + 78, C);                      // sector 4 ring 0 中心（空格，浅色：(0+4)%2=0）
+    const a4 = (11.25) * Math.PI / 180;            // sector 4 ring 0 中心（空格，浅色：(0+4)%2=0）
+    const s0 = at(C + 78 * Math.cos(a4), C + 78 * Math.sin(a4));
+    // 圆形外框：环带（R_OUT=260 与 C=280 之间）木色、外沿描边
+    const band = at(C, C - 270);
+    // 王/后之间的界线竖直：x=C 竖线（sector 8 左边界 90°）应有格线色
+    let vertLine = 0;
+    for (let y = C + R_IN + 6; y < C + R_OUT - 6; y += 3) {
+        if (near(at(C, y), '#8a5a3b', 12)) vertLine++;
+    }
     // 白王在底部（sector 8 ring 0）：(C, C+78) 附近应有字形像素
     let kingBottomWhite = 0;
     for (let y = C + 50; y < C + 110; y += 2) {
@@ -128,14 +137,20 @@ try {
         const top = Object.entries(set).sort((x, y) => y[1] - x[1]).slice(0, 4).map(([k, v]) => k + 'x' + v);
         return top.join(' ');
     };
+    const bkBlock = block(C, C - 78);   // 黑王显示格（顶部 sector 0 ring 0）
+    const wkBlock = block(C, C + 78);   // 白王显示格（底部 sector 8 ring 0）
     document.getElementById('result').textContent = JSON.stringify({
         canvas: w + 'x' + h,
         light, dark, line, blackPx, whitePx,
-        centerAlpha: center[3],
+        center: '#' + center[0].toString(16).padStart(2, '0') + center[1].toString(16).padStart(2, '0') + center[2].toString(16).padStart(2, '0'),
+        band: '#' + band[0].toString(16).padStart(2, '0') + band[1].toString(16).padStart(2, '0') + band[2].toString(16).padStart(2, '0'),
         s0: '#' + s0[0].toString(16).padStart(2, '0') + s0[1].toString(16).padStart(2, '0') + s0[2].toString(16).padStart(2, '0'),
         s1: '#' + s1[0].toString(16).padStart(2, '0') + s1[1].toString(16).padStart(2, '0') + s1[2].toString(16).padStart(2, '0'),
-        block0: block(358, 280), block1: block(352.06, 250.15),
-        kingBottomWhite, kingTopBlack
+        block0: block(C + 78 * Math.cos(a4), C + 78 * Math.sin(a4)), block1: block(C + 78 * Math.cos(a3), C + 78 * Math.sin(a3)),
+        vertLine, kingBottomWhite, kingTopBlack,
+        bkBlock, wkBlock,
+        fakeJoinErr: window.__fakeJoinErr || null,
+        lastErr: window.__lastErr || null
     });
 } catch (err) {
     document.getElementById('result').textContent = 'ERROR: ' + err.message + '\\n' + err.stack;

@@ -14,7 +14,8 @@ window.RoomPlugins["ring-chess"] = {
             "editBoard": true,
             "xiangqi": true,
             "chess": true,
-            "hideBoardSize": true
+            "hideBoardSize": true,
+            "transparentCanvas": true
         },
         // 顺序：后车马象兵王。白棋用空心字形♙♘♗♖♕♔（与最初黑棋相同的字形和颜色 #222），黑棋用实心字形♛♜♞♝♟♚
         "editTools": [
@@ -486,8 +487,13 @@ return {
             promoBar.style.display = 'none';
         }
 
+        /** 扇区中心角（度）：整体顺时针旋转 360/32=11.25°，使王/后之间的界线竖直 */
+        function sectAngle(sector) {
+            return (sector * 22.5 - 90 + 11.25) * Math.PI / 180;
+        }
+
         function cellCenter(ring, sector) {
-            const a = (sector * 22.5 - 90) * Math.PI / 180;
+            const a = sectAngle(sector);
             const r = R_IN + (ring + 0.5) * ringW;
             return { x: C + r * Math.cos(a), y: C + r * Math.sin(a) };
         }
@@ -547,8 +553,8 @@ return {
 
         /** 环形格路径：显示扇区 dispSector、半径 [inner, outer]（canvas 角度：0° 正右顺时针；sector 0 在正上） */
         function sectorPath(dispSector, inner, outer) {
-            const a0 = (dispSector * 22.5 - 90 - 11.25) * Math.PI / 180;
-            const a1 = (dispSector * 22.5 - 90 + 11.25) * Math.PI / 180;
+            const a0 = (dispSector * 22.5 - 90) * Math.PI / 180;
+            const a1 = (dispSector * 22.5 - 90 + 22.5) * Math.PI / 180;
             ctx2d.beginPath();
             ctx2d.arc(C, C, outer, a0, a1, false);
             ctx2d.arc(C, C, inner, a1, a0, true);
@@ -557,7 +563,7 @@ return {
 
         /** 旋转方块（目标格 / 选中框）：沿扇区中心角度方向 */
         function rotatedSquare(ring, dispSector, halfW, halfH, draw) {
-            const a = (dispSector * 22.5 - 90) * Math.PI / 180;
+            const a = sectAngle(dispSector);
             const p = cellCenter(ring, dispSector);
             ctx2d.save();
             ctx2d.translate(p.x, p.y);
@@ -568,6 +574,21 @@ return {
 
         function drawBoard() {
             ctx2d.clearRect(0, 0, LOGICAL_SIZE, LOGICAL_SIZE);
+
+            // 木质圆形外框（直径 = LOGICAL_SIZE；内部线 R_OUT 不变，间距 = C - R_OUT = 20）
+            ctx2d.shadowBlur = 0;
+            ctx2d.shadowOffsetY = 0;
+            ctx2d.fillStyle = '#fdcc90';
+            ctx2d.strokeStyle = '#3a281c';
+            ctx2d.lineWidth = 0.5;
+            ctx2d.beginPath();
+            ctx2d.arc(C, C, C, 0, Math.PI * 2);
+            ctx2d.fill();
+            ctx2d.stroke();
+            // 中心小圆填充木色（透明 canvas 下自绘棋盘背景）
+            ctx2d.beginPath();
+            ctx2d.arc(C, C, R_IN, 0, Math.PI * 2);
+            ctx2d.fill();
 
             // 黑白相间棋格（浅/深，参照国际象棋格色）
             for (let r = 0; r < R.RINGS; r++) {
@@ -594,9 +615,9 @@ return {
             ctx2d.beginPath();
             ctx2d.arc(C, C, R_OUT, 0, Math.PI * 2);
             ctx2d.stroke();
-            // 径向分隔线（扇区边界：中心角 ±11.25°）
+            // 径向分隔线（扇区边界）
             for (let s = 0; s < R.SECTORS; s++) {
-                const a = (s * 22.5 - 90 + 11.25) * Math.PI / 180;
+                const a = (s * 22.5 - 90) * Math.PI / 180;
                 ctx2d.beginPath();
                 ctx2d.moveTo(C + R_IN * Math.cos(a), C + R_IN * Math.sin(a));
                 ctx2d.lineTo(C + R_OUT * Math.cos(a), C + R_OUT * Math.sin(a));
@@ -650,14 +671,14 @@ return {
                     const disp = toDisplaySector(s);
                     const { x, y } = cellCenter(r, disp);
                     const isWhite = piece[0] === 'w';
-                    const fontSize = ringW * 0.8 * (isWhite ? 1 : 1.05);
+                    const fontSize = ringW * 0.64 * (isWhite ? 1 : 1.05);
                     ctx2d.font = `${fontSize}px "XiangqiPiece", "Segoe UI Symbol", "Apple Color Emoji", "Noto Sans Symbols", sans-serif`;
                     ctx2d.textAlign = 'center';
                     ctx2d.textBaseline = 'middle';
                     const glyph = R.pieceLabel(piece);
                     const gy = y + ringW * 0.03;
                     if (isWhite) {
-                        ctx2d.lineWidth = Math.max(1.5, ringW * 0.04);
+                        ctx2d.lineWidth = Math.max(1.5, ringW * 0.032);
                         ctx2d.strokeStyle = '#1a1a1a';
                         ctx2d.fillStyle = '#f7f7f7';
                         ctx2d.strokeText(glyph, x, gy);
@@ -978,7 +999,7 @@ return {
             if (d < R_IN - 0.5 || d > R_OUT + 0.5) return { row: -1, col: -1 };
             const ring = Math.min(R.RINGS - 1, Math.max(0, Math.floor((d - R_IN) / ringW)));
             const aDeg = Math.atan2(dy, dx) * 180 / Math.PI;
-            let raw = (aDeg + 90 + 11.25) / 22.5;
+            let raw = (aDeg + 90) / 22.5;
             raw = ((raw % R.SECTORS) + R.SECTORS) % R.SECTORS;
             const disp = Math.floor(raw) % R.SECTORS;
             return { row: ring, col: toOriginalSector(disp) };
