@@ -87,7 +87,6 @@ body.qi-room .color-status {
 
 body.qi-room .board-size-select,
 body.qi-room .edit-tool-select {
-    font-family: var(--qi-room-font);
     min-height: 34px;
     padding: 0 12px;
     border-radius: 999px;
@@ -96,6 +95,15 @@ body.qi-room .edit-tool-select {
     color: var(--qi-room-ink);
     font-weight: 500;
     cursor: pointer;
+}
+
+/* 路数/形状等普通下拉框用正文字体；只有编辑工具下拉框的选项是棋子字符，需要棋子字体渲染 */
+body.qi-room .board-size-select {
+    font-family: var(--qi-room-font);
+}
+
+body.qi-room .edit-tool-select {
+    font-family: 'XiangqiPiece', var(--qi-room-font);
 }
 
 body.qi-room .show-numbers-label,
@@ -111,8 +119,12 @@ body.qi-room .edit-checkbox {
 body.qi-room .edit-controls {
     display: inline-flex;
     align-items: center;
-    gap: 8px;
+    /* 控件间距为原 8px 的 70% */
+    gap: 5.6px;
     flex-wrap: wrap;
+    /* 供编辑工具下拉面板建立层叠上下文，避免被棋盘遮挡 */
+    position: relative;
+    z-index: 100;
 }
 
 body.qi-room .edit-controls[hidden] {
@@ -590,6 +602,38 @@ body.qi-room .score-confirm-dialog {
     width: 90%;
     padding: 18px 20px 16px;
     outline: none;
+}
+
+body.qi-room .qi-time-control-dialog {
+    position: relative;
+}
+
+body.qi-room .qi-time-control-close {
+    position: absolute;
+    top: 8px;
+    right: 10px;
+    width: 32px;
+    height: 32px;
+    margin: 0;
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: var(--qi-room-ink);
+    font-size: 1.6rem;
+    line-height: 1;
+    cursor: pointer;
+    opacity: 0.7;
+    border-radius: 6px;
+}
+
+body.qi-room .qi-time-control-close:hover {
+    opacity: 1;
+    background: rgba(0, 0, 0, 0.06);
+}
+
+body.qi-room .qi-time-control-close:disabled {
+    opacity: 0.7;
+    cursor: pointer;
 }
 
 body.qi-room .qi-room-msg-title,
@@ -1814,6 +1858,12 @@ body.qi-room.qi-room-xiangqi.qi-room-simulated-makruk .board-container.xiangqi-b
     aspect-ratio: 1 / 1 !important;
 }
 
+/* 国际象棋变体 + 透明画布（如环国际象棋）：隐藏木色方框背景，由 canvas 自绘外框 */
+body.qi-room.qi-room-transparent-canvas.qi-room-chess .weiqi-board-view-row #goBoard,
+body.qi-room.qi-room-transparent-canvas.qi-room-chess .board-container.xiangqi-board-wrap #goBoard {
+    background: transparent !important;
+}
+
 /* 模拟日本将棋：9×9 正方形盘 */
 body.qi-room.qi-room-xiangqi.qi-room-simulated-shogi .weiqi-board-view-row #goBoard,
 body.qi-room.qi-room-xiangqi.qi-room-simulated-shogi .board-container.xiangqi-board-wrap #goBoard {
@@ -2027,6 +2077,116 @@ body.qi-room .side-select label.opponent-radio.checked-disabled::before {
 body.qi-room .edit-tool-select.hidden,
 body.qi-room .edit-clear-btn.hidden {
     display: none !important;
+}
+
+/* 编辑操作按钮（确定/取消/清空）：整体为 komi-info 的 70%（长度、宽度、字号、内外间距）；
+   与编辑框本框高度恒等（21px） */
+body.qi-room .edit-clear-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    height: 21px;
+    box-sizing: border-box;
+    background: rgba(255, 250, 241, 0.92);
+    color: var(--qi-room-ink);
+    padding: 3px 10px;
+    border: 1px solid var(--qi-room-line);
+    border-radius: 999px;
+    font-size: 0.665rem;
+    font-weight: 500;
+    white-space: nowrap;
+    box-shadow: none;
+}
+body.qi-room .edit-clear-btn:hover {
+    background: #fff;
+    border-color: var(--qi-room-accent);
+}
+
+/* 自定义编辑工具选择器（canvas 绘制棋子，红黑分色） */
+body.qi-room .qi-edit-tool-picker {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+}
+body.qi-room .qi-edit-tool-picker.hidden {
+    display: none !important;
+}
+body.qi-room .qi-edit-tool-current {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    /* 与确定/取消/清空按钮高度恒等（21px），棋子字形较大时向外溢出而不撑高 */
+    height: 21px;
+    box-sizing: border-box;
+    overflow: visible;
+    /* 整体为 komi-info 的 70%：长度、宽度、字号、内外间距 */
+    min-width: 39px;
+    padding: 3px 10px;
+    border-radius: 999px;
+    border: 1px solid var(--qi-room-line);
+    background: rgba(255, 250, 241, 0.92);
+    color: var(--qi-room-ink);
+    font-size: 0.665rem;
+    font-weight: 500;
+    white-space: nowrap;
+    cursor: pointer;
+}
+/* 棋子文字（矢量渲染）：当前按钮适中、面板大号；「空」用普通字体（与围棋一致） */
+body.qi-room .qi-edit-tool-glyph {
+    /* 象棋棋子用 XiangqiPiece；国际象棋 unicode 符号回退 Segoe UI Symbol / 系统字体 */
+    font-family: 'XiangqiPiece', 'Segoe UI Symbol', var(--qi-room-font);
+    line-height: 1;
+    display: inline-block;
+}
+body.qi-room .qi-edit-tool-glyph.is-empty {
+    font-family: var(--qi-room-font);
+}
+body.qi-room .qi-edit-tool-current .qi-edit-tool-glyph {
+    font-size: 16px;
+}
+body.qi-room .qi-edit-tool-panel {
+    position: fixed;
+    z-index: 9999;
+    display: grid;
+    /* 列数由 JS 按单边子力数设置（象棋 7、国际象棋 6 等）；此处仅作回退 */
+    grid-template-columns: repeat(7, 1fr);
+    gap: 2px;
+    padding: 4px;
+    background: rgba(255, 249, 240, 0.98);
+    border: 1px solid var(--qi-room-line);
+    border-radius: 10px;
+    box-shadow: 0 6px 18px rgba(94, 68, 38, 0.18);
+}
+body.qi-room .qi-edit-tool-panel.hidden {
+    display: none !important;
+}
+body.qi-room .qi-edit-tool-item {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 44px;
+    min-height: 36px;
+    padding: 2px;
+    border: none;
+    background: transparent;
+    border-radius: 6px;
+    cursor: pointer;
+}
+body.qi-room .qi-edit-tool-item.is-empty {
+    grid-column: 1 / -1;
+    justify-self: start;
+    min-height: 36px;
+}
+body.qi-room .qi-edit-tool-item:hover {
+    background: rgba(184, 110, 52, 0.12);
+}
+body.qi-room .qi-edit-tool-item .qi-edit-tool-glyph {
+    /* 棋子字符 26px；非棋子文字（空/黑子/白子）由 JS 行内设 16px，此处为回退 */
+    font-size: 26px;
+}
+body.qi-room .qi-edit-tool-item .qi-edit-tool-glyph.is-empty {
+    font-size: 16px;
+    color: var(--qi-room-ink);
 }
 
 body.qi-room .button-panel {
