@@ -1,4 +1,4 @@
-﻿const { QiTwoPlayerRoomBase, gridGraphWeiqiRules, qiMatchTimeControl, qiBoardSeatOverlay } = require('../common');
+﻿const { QiTwoPlayerRoomBase, gridGraphWeiqiRules, qiMatchTimeControl, qiBoardSeatOverlay, qiProtocol } = require('../common');
 
 class TriangleWeiqiRoom extends QiTwoPlayerRoomBase
 {
@@ -874,26 +874,9 @@ class TriangleWeiqiRoom extends QiTwoPlayerRoomBase
                 }
                 if (!slot || slot !== (this.currentPlayer === 1 ? 'black' : 'white')) return;
                 if (!this._drainClockBeforeMove(slot)) return;
-                this.historyBoards.push(this.copyBoard(this.board));
-                this.historyMarkers.push(this.copyMarkers(this.lastMoveMarkers));
-                this.moveHistory.push(slot);
-                this.moveCoords.push({ type: 'pass', player: slot });
-                this.currentPlayer = this.currentPlayer === 1 ? 2 : 1;
-                this.passCounter++;
-                this.lastMoveMarkers = [];
-                this.broadcast({ type: 'broadcast', action: 'pass', ...this.getState() });
-                this._syncClockAfterTurnChange();
-                if (this.passCounter >= 2) {
-                    this.passCounter = 0;
-                    const blackPlayer = room.getPlayerBySlot('black');
-                    const whitePlayer = room.getPlayerBySlot('white');
-                    if (blackPlayer && whitePlayer) {
-                        this.startScoreCounting(blackPlayer, whitePlayer);
-                    } else {
-                        this.gameOver = true;
-                        this.broadcast({ type: 'broadcast', action: 'endAgreed', ...this.getState() });
-                    }
-                }
+                qiProtocol.weiqiPass(this, ws, slot, {
+                    afterBroadcast: () => this._syncClockAfterTurnChange(),
+                });
                 break;
 
             case 'requestUndo':
