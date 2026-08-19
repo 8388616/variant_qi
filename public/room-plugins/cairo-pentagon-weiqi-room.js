@@ -6,7 +6,7 @@ window.RoomPlugins["cairo-pentagon-weiqi"] = {
         "defaultKomiText": "黑贴白3.25点",
         "boardSizeMin": 3,
         "boardSizeMax": 10,
-        "defaultBoardSize": 7,
+        "defaultBoardSize": 4,
         "minLib": 1,
         "recordDownloadPrefix": "开罗五角围棋",
         "standardWeiqiMatchTime": true,
@@ -31,7 +31,7 @@ window.RoomPlugins["cairo-pentagon-weiqi"] = {
 
         (function () {
 // ======================== 配置 ========================
-        let BOARD_LANES = 7;
+        let BOARD_LANES = 4;
         let GRID_W = 4 * BOARD_LANES - 5;   // 行数
         let GRID_H = 4 * BOARD_LANES - 3;   // 列数
         function komiForLanes(lanes) {

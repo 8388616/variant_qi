@@ -5,7 +5,7 @@ function komiForLanes(lanes) {
 }
 
 class CairoPentagonWeiqiRoom extends QiTwoPlayerRoomBase {
-    constructor(room, initialLanes = 7) {
+    constructor(room, initialLanes = 4) {
         super(room);
         this.boardLanes = initialLanes;
         this.editBoardMode = 'maskedGrid';
