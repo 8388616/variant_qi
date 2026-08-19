@@ -462,6 +462,24 @@ const scoreTitle = document.getElementById('scoreTitle');
                     ctx.globalAlpha = 1.0;
                 }
             }
+            // 编辑模式悬停预览（按当前工具着色）
+            const editCb = document.getElementById('editModeCheckbox');
+            const editSel = document.getElementById('editToolSelect');
+            if (isMouseDevice && editCb && editCb.checked && isHoverValid && hoverRow >= 0 && hoverCol >= 0) {
+                const t = (editSel && editSel.value) || 'empty';
+                let hoverColor = null;
+                if (t === 'white') hoverColor = '#fff';
+                else if (t === 'black') hoverColor = '#222';
+                else if (t !== 'empty') hoverColor = '#666';
+                if (hoverColor) {
+                    ctx.globalAlpha = 0.45;
+                    ctx.beginPath();
+                    ctx.arc(PADDING + hoverCol * cellSize, PADDING + hoverRow * cellSize, cellSize * 0.44, 0, 2 * Math.PI);
+                    ctx.fillStyle = hoverColor;
+                    ctx.fill();
+                    ctx.globalAlpha = 1.0;
+                }
+            }
             if (isMouseDevice && tryPlayMode && replayMode && !gameOver && isHoverValid && hoverRow >= 0 && hoverCol >= 0 && board[hoverRow][hoverCol] === 0) {
                 ctx.globalAlpha = 0.45;
                 ctx.beginPath();
@@ -1092,6 +1110,12 @@ syncState,
                 set gameStarted(v) { if (typeof gameStarted !== 'undefined') gameStarted = !!v; },
                 editModeEnabled: false,
                 editTool: 'empty',
+                get hoverRow() { return hoverRow; },
+                set hoverRow(v) { hoverRow = v == null ? -1 : v; },
+                get hoverCol() { return hoverCol; },
+                set hoverCol(v) { hoverCol = v == null ? -1 : v; },
+                get isHoverValid() { return isHoverValid; },
+                set isHoverValid(v) { isHoverValid = !!v; },
                 get ws() { return typeof ws !== 'undefined' ? ws : null; }
             };
             const _editApi = QiWeiqiSquarePageRuntime.installBoardEditUI({

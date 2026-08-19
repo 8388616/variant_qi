@@ -900,7 +900,7 @@ return {
                     if (type === 'c' || type === 'a') {
                         // 相/亚：下层车/后靠下、上层马靠上，各 0.9×，轻微错位叠加，总高与正常棋子一致
                         paintGlyph(type === 'c' ? '♜' : '♛', x, y + cellSize * 0.06, fontSize * 0.9);
-                        paintGlyph('♞', x, y - cellSize * 0.06, fontSize * 0.9);
+                        paintGlyph('♞', x - cellSize * 0.04, y - cellSize * 0.04, fontSize * 0.9);
                     } else if (type === 'e' || type === 'f') {
                         // 象/士：倒置显示（旋转 180°，偏移与古印度象棋一致）
                         ctx2d.save();

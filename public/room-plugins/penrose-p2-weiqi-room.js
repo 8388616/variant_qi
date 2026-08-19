@@ -796,7 +796,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                 const markBgR = cellSize * 0.3;
                 ctx.beginPath();
                 ctx.arc(x, y, markBgR, 0, 2 * Math.PI);
-                ctx.fillStyle = '#deb887';
+                ctx.fillStyle = '#fdcc90';
                 ctx.fill();
                 const fontPx = cellSize * (ch === '🚩' ? 0.6 : 0.66);
                 ctx.font = `bold ${fontPx}px "Segoe UI", "Apple Color Emoji", "Segoe UI Emoji", sans-serif`;
@@ -805,12 +805,14 @@ const scoreTitle = document.getElementById('scoreTitle');
                 ctx.fillStyle = '#3a281c';
                 ctx.fillText(ch, x, y + 1);
             }
-            const editing = !!(typeof _editPs !== 'undefined' && _editPs && _editPs.editModeEnabled);
+            const editCb = document.getElementById('editModeCheckbox');
+            const editSel = document.getElementById('editToolSelect');
+            const editing = !!(editCb && editCb.checked);
             const canHover = editing || tryPlayMode || (!gameOver && isMyTurn);
             if ((isMouseDevice || mobileTwoStepPlacing()) && canHover && isHoverValid && hoverVertex >= 0 && (editing || board[hoverVertex] === 0)) {
                 let hoverColor = null;
                 if (editing) {
-                    const t = _editPs.editTool;
+                    const t = (editSel && editSel.value) || 'empty';
                     if (t === 'white') hoverColor = '#fff';
                     else if (t === 'black') hoverColor = '#222';
                     else if (t !== 'empty') hoverColor = '#666';

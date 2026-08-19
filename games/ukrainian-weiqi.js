@@ -34,8 +34,6 @@ class UkrainianWeiqiRoom extends QiTwoPlayerRoomBase {
         this.tcClock = null;
         this._clockInterval = null;
         this.matchStarted = false;
-        /** @type {'black'|'white'|null} 无 WebSocket 的电脑所占座位 */
-        this.computerSlot = null;
 
         this.SHAPES = [
             [[-1, -1], [0, 0], [1, 1]],
@@ -95,30 +93,8 @@ class UkrainianWeiqiRoom extends QiTwoPlayerRoomBase {
         return tb <= tw ? 'black' : 'white';
     }
 
-    _slotOccupied(slot) {
-        return !!(this.room.getPlayerBySlot(slot) || this.computerSlot === slot);
-    }
-
-    _finalizeUnlimitedVsComputer() {
-        this.tcNego = null;
-        this.tcSettings = { timed: false };
-        this.matchStarted = true;
-        this.tcClock = null;
-        this.broadcast({
-            type: 'timeControlAgreed',
-            settings: this.tcSettings,
-            clock: null
-        });
-    }
-
     _maybeBeginTimeNegotiation() {
         if (this.gameOver) return;
-        if (!this._slotOccupied('black') || !this._slotOccupied('white')) return;
-        if (this.computerSlot) {
-            if (this.tcSettings !== null) return;
-            this._finalizeUnlimitedVsComputer();
-            return;
-        }
         if (this.moveHistory.length > 0) return;
         const room = this.room;
         if (!room.getPlayerBySlot('black') || !room.getPlayerBySlot('white')) return;
@@ -445,10 +421,9 @@ class UkrainianWeiqiRoom extends QiTwoPlayerRoomBase {
             winner: this.winner,
             lastUsedShapeByColor: this.lastUsedShapeByColor,
             moveCoords: this.moveCoords,
-            computerSlot: this.computerSlot,
             slots: {
-                black: this._slotOccupied('black'),
-                white: this._slotOccupied('white')
+                black: !!this.room.getPlayerBySlot('black'),
+                white: !!this.room.getPlayerBySlot('white')
             },
             matchTime: {
                 negotiation: this.tcNego,
@@ -529,7 +504,6 @@ class UkrainianWeiqiRoom extends QiTwoPlayerRoomBase {
         this.winner = null;
         this.passCounter = 0;
         this.normalGoPhase = false;
-        this.computerSlot = null;
         for (let [client, slot] of this.room.players.entries()) {
             this.room.slotOccupancy.delete(slot);
             this.room.players.delete(client);
@@ -569,12 +543,9 @@ class UkrainianWeiqiRoom extends QiTwoPlayerRoomBase {
         if (this.passCounter >= 4) {
             const blackPlayer = room.getPlayerBySlot('black');
             const whitePlayer = room.getPlayerBySlot('white');
-            const humanWs = blackPlayer || whitePlayer;
             this.broadcast({ type: 'broadcast', action: 'pass', ...this.getState() });
             if (blackPlayer && whitePlayer) {
                 this.startScoreCounting(blackPlayer, whitePlayer);
-            } else if (this.computerSlot && humanWs) {
-                this.startScoreCounting(humanWs, humanWs);
             } else {
                 this.gameOver = true;
                 this.broadcast({ type: 'broadcast', action: 'endAgreed', ...this.getState() });
@@ -661,18 +632,6 @@ class UkrainianWeiqiRoom extends QiTwoPlayerRoomBase {
         const room = this.room;
 
         switch (msg.type) {
-            case 'requestComputerOpponent': {
-                const my = room.getSlotByWs(ws);
-                if (!my || this.gameOver || this.computerSlot) return;
-                const other = my === 'black' ? 'white' : 'black';
-                if (room.getPlayerBySlot(other)) return;
-                this.computerSlot = other;
-                room.broadcast({ type: 'slotOccupied', slot: other });
-                this._maybeBeginTimeNegotiation();
-                this.broadcast({ type: 'gameState', ...this.getState() });
-                break;
-            }
-
             case 'selectColor':
                 qiProtocol.selectColor(this, ws, msg);
                 break;
@@ -723,52 +682,6 @@ class UkrainianWeiqiRoom extends QiTwoPlayerRoomBase {
                     return;
                 }
                 if (!this._applyCompoundMove(moveSlot, shapeIndex, rotation, flipped, row, col, { preBoard: newBoard })) return;
-                break;
-            }
-
-            /** 人机时由前端代电脑提交着法，不占服务器算力 */
-            case 'computerMove': {
-                const humanSlot = slot;
-                if (!humanSlot || !this.computerSlot || this.gameOver) return;
-                const turnSlot = this.currentPlayer === 1 ? 'black' : 'white';
-                if (turnSlot !== this.computerSlot) return;
-                if (humanSlot === this.computerSlot) return;
-                if (!this._timeAllowsPlay(this.computerSlot)) {
-                    ws.send(JSON.stringify({ type: 'error', message: '请先与对手确认限时规则。' }));
-                    return;
-                }
-                if (msg.pass === true) {
-                    if (!this._drainClockBeforeMove(this.computerSlot)) return;
-                    this.compoundPass(this.computerSlot);
-                    this._syncClockAfterTurnChange();
-                    break;
-                }
-                if (this.normalGoPhase) {
-                    if (!msg.singleStone || msg.row === undefined || msg.col === undefined) return;
-                    const { row, col } = msg;
-                    const playerVal = this.currentPlayer === 1 ? 1 : 2;
-                    const tryBoard = this.tryPlaceStonesAt(this.board, [[row, col]], playerVal);
-                    if (!tryBoard) return;
-                    const tryStr = this.boardToString(tryBoard);
-                    if (this.historyBoardSet.has(tryStr)) {
-                        ws.send(JSON.stringify({ type: 'error', message: '禁全同。' }));
-                        return;
-                    }
-                    if (!this._applySingleStoneMove(this.computerSlot, row, col, { preBoard: tryBoard })) return;
-                    break;
-                }
-                const { shapeIndex, rotation, flipped, row, col } = msg;
-                if (shapeIndex === undefined || rotation === undefined || flipped === undefined || row === undefined || col === undefined) return;
-                const playerVal = this.currentPlayer === 1 ? 1 : 2;
-                if (this.lastUsedShapeByColor[playerVal] === shapeIndex) return;
-                const tryBoard = this.tryPlaceShape(this.board, shapeIndex, rotation, flipped, row, col, playerVal);
-                if (!tryBoard) return;
-                const tryStr = this.boardToString(tryBoard);
-                if (this.historyBoardSet.has(tryStr)) {
-                    ws.send(JSON.stringify({ type: 'error', message: '禁全同。' }));
-                    return;
-                }
-                if (!this._applyCompoundMove(this.computerSlot, shapeIndex, rotation, flipped, row, col, { preBoard: tryBoard })) return;
                 break;
             }
 
@@ -881,7 +794,7 @@ class UkrainianWeiqiRoom extends QiTwoPlayerRoomBase {
             return false;
         }
         const hasAnyStone = this.board.some(row => row.some(v => v !== 0));
-        const hasPlayer = this._slotOccupied('black') || this._slotOccupied('white');
+        const hasPlayer = this.room.getPlayerBySlot('black') || this.room.getPlayerBySlot('white');
         if (hasAnyStone || hasPlayer) return false;
         this.boardSize = newSize;
         this.board = Array(this.boardSize).fill().map(() => Array(this.boardSize).fill(0));
@@ -958,7 +871,6 @@ class UkrainianWeiqiRoom extends QiTwoPlayerRoomBase {
         this.pendingEnd = null;
         this.pendingScore = null;
         this.scoreProposalData = null;
-        this.computerSlot = null;
     }
 
     static parseMove(entry) {
@@ -1137,9 +1049,6 @@ class UkrainianWeiqiRoom extends QiTwoPlayerRoomBase {
             this.room.broadcast({ type: 'timeControlReset', reason: 'playerLeft' });
         }
         if (slot) this.slotJoinedAt[slot] = null;
-        setImmediate(() => {
-            if (this.room.getPlayerCount() === 0) this.computerSlot = null;
-        });
     }
 }
 

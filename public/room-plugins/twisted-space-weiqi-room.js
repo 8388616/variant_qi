@@ -247,7 +247,11 @@ let ROWS = 9; // 扭曲空间路数（比三角围棋少一路）
         }
 
         const canvas = document.getElementById('goBoard');
+        const dpr = window.devicePixelRatio || 1;
+        canvas.width = 600 * dpr;
+        canvas.height = 600 * dpr;
         const ctx = canvas.getContext('2d');
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
         const turnDisplay = document.getElementById('turnDisplay');
         const colorStatus = document.getElementById('colorStatus');
         const scoreTitle = document.getElementById('scoreTitle');
@@ -337,7 +341,24 @@ if (sizeSelect) {
             leadInfo.innerText = `黑${lead >= 0 ? '+' : ''}${lead.toFixed(1)}点`;
         }
 
+        /** 点在多边形内判定（ray casting，顶点按 {x,y} 数组） */
+        function pointInPolygon(px, py, verts) {
+            let inside = false;
+            for (let i = 0, j = verts.length - 1; i < verts.length; j = i++) {
+                const xi = verts[i].x, yi = verts[i].y;
+                const xj = verts[j].x, yj = verts[j].y;
+                if (((yi > py) !== (yj > py)) && (px < (xj - xi) * (py - yi) / (yj - yi) + xi)) {
+                    inside = !inside;
+                }
+            }
+            return inside;
+        }
+
         function getClosestCell(px, py) {
+            // 点在三角棋盘区域之外时返回无效（-1）：避免正方形画布内的外部点击吸附到邻近格点
+            if (!pointInPolygon(px, py, [FIXED_OUTER_A, FIXED_OUTER_B, FIXED_OUTER_C])) {
+                return { row: -1, col: -1 };
+            }
             let best = { row: -1, col: -1, dist: Infinity };
             for (let r = 0; r < ROWS; r++) {
                 for (let c = 0; c <= 2 * r; c++) {
@@ -426,12 +447,12 @@ if (sizeSelect) {
         function drawBoard() {
             ctx.clearRect(0, 0, 600, 600);
             ctx.save();
-            ctx.shadowBlur = 20;
-            ctx.shadowColor = 'rgba(0,0,0,0.8)';
-            ctx.shadowOffsetY = 8;
-            ctx.fillStyle = '#edbc80';
-            ctx.strokeStyle = '#6b4a2e';
-            ctx.lineWidth = 1;
+            // 木质外框与 weiqi 统一：无阴影、背景 #fdcc90、边线 #3a281c 0.5px
+            ctx.shadowBlur = 0;
+            ctx.shadowOffsetY = 0;
+            ctx.fillStyle = '#fdcc90';
+            ctx.strokeStyle = '#3a281c';
+            ctx.lineWidth = 0.5;
             ctx.beginPath();
             ctx.moveTo(FIXED_OUTER_A.x, FIXED_OUTER_A.y);
             ctx.lineTo(FIXED_OUTER_B.x, FIXED_OUTER_B.y);
@@ -552,7 +573,7 @@ if (sizeSelect) {
                 const markBgR = stoneRadius * 0.9;
                 ctx.beginPath();
                 ctx.arc(p.x, p.y, markBgR, 0, 2 * Math.PI);
-                ctx.fillStyle = '#edbc80';
+                ctx.fillStyle = '#fdcc90';
                 ctx.fill();
                 const fontPx = stoneRadius * (ch === '🚩' ? 1.1 : 1.2);
                 ctx.font = `bold ${fontPx}px "Segoe UI", "Apple Color Emoji", "Segoe UI Emoji", sans-serif`;

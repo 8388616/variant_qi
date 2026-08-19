@@ -4,9 +4,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=2.0, user-scalable=yes">
     <title>房间</title>
-    <!-- 房间页用精简字体 CSS（无巨型 unicode-range）；大厅仍用完整 index.css -->
-    <link rel="preload" href="/qi/fonts/lxgw-wenkai-gb/files/lxgw-wenkai-gb-medium-ui.woff2" as="font" type="font/woff2" crossorigin>
-    <link rel="stylesheet" href="/qi/fonts/lxgw-wenkai-gb/room.css">
+    <!-- 房间页字体：CDN 分包按需加载（jsdmirror 国内镜像，路径与 jsDelivr 兼容）。
+         400/500 权重分包；CDN 不可达时回退 --qi-room-font 字体栈（楷体/系统）。 -->
+    <link rel="stylesheet" href="https://cdn.jsdmirror.com/npm/lxgw-wenkai-gb-web@1.522.0/lxgwwenkaigb-regular/result.css">
+    <link rel="stylesheet" href="https://cdn.jsdmirror.com/npm/lxgw-wenkai-gb-web@1.522.0/lxgwwenkaigb-medium/result.css">
     <link rel="stylesheet" href="/qi/room.css">
     <script>
     (function () {
@@ -35,6 +36,11 @@
                 <option value="hole">洞</option>
                 <option value="void">空</option>
             </select>
+            <select id="subGameSelect" class="board-size-select" style="display: none;">
+                <option value="triangle">三角形</option>
+                <option value="rhombus">菱形</option>
+                <option value="hexagon">六角形</option>
+            </select>
             <select id="boardSizeSelect" class="board-size-select" style="display: none;"></select>
             <label class="show-numbers-label">
                 <input type="checkbox" id="showNumbersCheck"> 显示序号
@@ -56,6 +62,8 @@
                     <input type="checkbox" id="editModeCheckbox"> 编辑
                 </label>
                 <select id="editToolSelect" class="edit-tool-select hidden"></select>
+                <button type="button" id="confirmEditBtn" class="edit-clear-btn hidden">确定</button>
+                <button type="button" id="cancelEditBtn" class="edit-clear-btn hidden">取消</button>
                 <button type="button" id="clearBoardBtn" class="edit-clear-btn hidden">清空</button>
             </div>
         </div>
@@ -100,6 +108,7 @@
             <button class="ctrl-btn" id="buryFinishBtn" style="display:none;">埋雷结束</button>
             <button class="ctrl-btn" id="importBtn">导入棋谱</button>
             <button class="ctrl-btn" id="exportBtn" style="display:none;">导出棋谱</button>
+            <button class="ctrl-btn" id="vsComputerBtn" style="display:none;">与电脑对战</button>
         </div>
         <div class="room-chat" id="roomChat" aria-label="房间聊天">
             <div class="room-chat-log" id="roomChatLog" role="log" aria-live="polite"></div>

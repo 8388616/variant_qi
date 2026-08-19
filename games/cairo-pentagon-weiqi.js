@@ -1,201 +1,15 @@
-const SQRT3 = Math.sqrt(3);
-const CAIRO_PENT_T = SQRT3 - 1;
-const CAIRO_PENT_STACK_H = 2;
-const CAIRO_PENT_TEMPLATE = {
-    A: [0, 1.3660254037844388],
-    B: [0.8660254037844386, 0.8660254037844386],
-    C: [0.3660254037844386, 0],
-    D: [-0.3660254037844386, 0],
-    E: [-0.8660254037844386, 0.8660254037844386]
-};
+const { QiTwoPlayerRoomBase, gridGraphWeiqiRules, qiMatchTimeControl, qiProtocol, qiBoardSeatOverlay } = require('../common');
 
-function alignCairoPentagon(pent, mapC, mapD, flipY) {
-    const pts = {};
-    for (const k of Object.keys(pent)) {
-        let p = [...pent[k]];
-        if (flipY) p[1] = -p[1];
-        pts[k] = p;
-    }
-    const Cs = pts.C, Ds = pts.D;
-    const a1 = Math.atan2(Ds[1] - Cs[1], Ds[0] - Cs[0]);
-    const a2 = Math.atan2(mapD[1] - mapC[1], mapD[0] - mapC[0]);
-    const ang = a2 - a1;
-    const c = Math.cos(ang), s = Math.sin(ang);
-    function rot(p) { return [c * p[0] - s * p[1], s * p[0] + c * p[1]]; }
-    const Cs2 = rot(Cs);
-    const tx = mapC[0] - Cs2[0], ty = mapC[1] - Cs2[1];
-    const out = {};
-    for (const k of Object.keys(pts)) {
-        const p = rot(pts[k]);
-        out[k] = [p[0] + tx, p[1] + ty];
-    }
-    return out;
+function komiForLanes(lanes) {
+    return 3.25;
 }
 
-function oneCairoCompound(ox, oy) {
-    const P4 = alignCairoPentagon(CAIRO_PENT_TEMPLATE, [CAIRO_PENT_T / 2 + ox, oy - CAIRO_PENT_T], [-CAIRO_PENT_T / 2 + ox, oy - CAIRO_PENT_T], false);
-    const P1 = alignCairoPentagon(CAIRO_PENT_TEMPLATE, [CAIRO_PENT_T / 2 + ox, CAIRO_PENT_STACK_H + oy + CAIRO_PENT_T], [-CAIRO_PENT_T / 2 + ox, CAIRO_PENT_STACK_H + oy + CAIRO_PENT_T], true);
-    const P2 = alignCairoPentagon(CAIRO_PENT_TEMPLATE, P4.A, P1.A, false);
-    const P3 = alignCairoPentagon(CAIRO_PENT_TEMPLATE, P1.A, P4.A, false);
-    return [P1, P2, P3, P4];
-}
-
-function cairoVertexKey(x, y) {
-    return `${Math.round(x * 1e6) / 1e6},${Math.round(y * 1e6) / 1e6}`;
-}
-
-/**
- * 在完整棋盘的第 2 列左侧、倒数第 2 列右侧按 (2,3)、(4,5)、… 补翼点（边长为棋盘长边）。
- * 对应「曾去掉最左/最右列后」那一版首/末列外侧的补点位置。
- */
-function addCairoSideWingPoints(vertices, edgeSet) {
-    let longLen = 0;
-    for (const e of edgeSet) {
-        const [a, b] = e.split(',').map(Number);
-        const d = Math.hypot(vertices[a].x - vertices[b].x, vertices[a].y - vertices[b].y);
-        if (d > longLen) longLen = d;
-    }
-    if (!(longLen > 0)) return;
-
-    const xRounded = vertices.map(v => Math.round(v.x * 1e6) / 1e6);
-    const uniqueXs = [...new Set(xRounded)].sort((a, b) => a - b);
-    if (uniqueXs.length < 3) return;
-    // 保留最左/最右列；翼点仍加在原「新首列 / 新末列」（第 2 / 倒数第 2 列）外侧
-    const xWingLeft = uniqueXs[1];
-    const xWingRight = uniqueXs[uniqueXs.length - 2];
-
-    function columnSorted(xr) {
-        return vertices
-            .map((v, i) => ({ i, y: v.y, xr: Math.round(v.x * 1e6) / 1e6 }))
-            .filter(v => v.xr === xr)
-            .sort((a, b) => a.y - b.y);
-    }
-
-    function addWings(col, side) {
-        // 1-based 第 2–3、4–5、… 点 → 0-based (1,2)、(3,4)、…
-        for (let p = 1; p + 1 < col.length; p += 2) {
-            const ia = col[p].i;
-            const ib = col[p + 1].i;
-            const ya = vertices[ia].y;
-            const yb = vertices[ib].y;
-            const yMid = (ya + yb) / 2;
-            const halfDy = (yb - ya) / 2;
-            const dx2 = longLen * longLen - halfDy * halfDy;
-            if (!(dx2 > 0)) continue;
-            const dx = Math.sqrt(dx2);
-            const nx = vertices[ia].x + side * dx;
-            const id = vertices.length;
-            vertices.push({ x: nx, y: yMid });
-            edgeSet.add(id < ia ? `${id},${ia}` : `${ia},${id}`);
-            edgeSet.add(id < ib ? `${id},${ib}` : `${ib},${id}`);
-        }
-    }
-
-    addWings(columnSorted(xWingLeft), -1);
-    addWings(columnSorted(xWingRight), 1);
-}
-
-/** 按 (x, y) 重排顶点并重映射边，得到稳定编号。 */
-function renumberCairoVertices(vertices, edgeSet) {
-    const order = vertices.map((_, i) => i).sort((a, b) => {
-        const xa = Math.round(vertices[a].x * 1e6);
-        const xb = Math.round(vertices[b].x * 1e6);
-        if (xa !== xb) return xa - xb;
-        return Math.round(vertices[a].y * 1e6) - Math.round(vertices[b].y * 1e6);
-    });
-    const oldToNew = new Array(vertices.length);
-    const next = order.map((old, ni) => {
-        oldToNew[old] = ni;
-        return vertices[old];
-    });
-    vertices.length = 0;
-    for (const v of next) vertices.push(v);
-    const remapped = new Set();
-    for (const e of edgeSet) {
-        const [a, b] = e.split(',').map(Number);
-        const na = oldToNew[a], nb = oldToNew[b];
-        remapped.add(na < nb ? `${na},${nb}` : `${nb},${na}`);
-    }
-    edgeSet.clear();
-    for (const e of remapped) edgeSet.add(e);
-}
-
-/**
- * 路数 n：主格 (n−1)² 个「平行六边形」单元 + 半格嵌入 (n−2)² 个单元（与五角围棋铺法一致）；子下在格点（顶点）上。
- * 保留全部列，并在第 2 / 倒数第 2 列外侧补翼点，最后按坐标重编号。
- * @param {number} n 路数 3～13
- * @returns {{ vertexCount: number, neighbors: number[][] }}
- */
-function generateCairoPentBoardData(n) {
-    const ux = 2 * SQRT3, uy = 0, vx = 0, vy = 2 * SQRT3;
-    const vertexMap = new Map();
-    const vertices = [];
-    const edgeSet = new Set();
-
-    function addVertex(x, y) {
-        const k = cairoVertexKey(x, y);
-        if (!vertexMap.has(k)) {
-            vertexMap.set(k, vertices.length);
-            vertices.push({ x, y });
-        }
-        return vertexMap.get(k);
-    }
-
-    function addEdge(a, b) {
-        if (a === b) return;
-        edgeSet.add(a < b ? `${a},${b}` : `${b},${a}`);
-    }
-
-    function addCompoundAtGrid(px, py) {
-        const ox = px * ux + py * vx;
-        const oy = px * uy + py * vy;
-        for (const P of oneCairoCompound(ox, oy)) {
-            const order = ['A', 'B', 'C', 'D', 'E'];
-            const ids = order.map(k => addVertex(P[k][0], P[k][1]));
-            for (let k = 0; k < 5; k++)
-                addEdge(ids[k], ids[(k + 1) % 5]);
-        }
-    }
-
-    for (let i = 0; i <= n - 2; i++) {
-        for (let j = 0; j <= n - 2; j++)
-            addCompoundAtGrid(i, j);
-    }
-    for (let i = 0; i <= n - 3; i++) {
-        for (let j = 0; j <= n - 3; j++)
-            addCompoundAtGrid(i + 0.5, j + 0.5);
-    }
-
-    for (let i = 0; i < vertices.length; i++) {
-        const { x, y } = vertices[i];
-        vertices[i] = { x: -y, y: x };
-    }
-
-    addCairoSideWingPoints(vertices, edgeSet);
-    renumberCairoVertices(vertices, edgeSet);
-
-    const V = vertices.length;
-    const neighborSets = Array.from({ length: V }, () => new Set());
-    for (const e of edgeSet) {
-        const [a, b] = e.split(',').map(Number);
-        neighborSets[a].add(b);
-        neighborSets[b].add(a);
-    }
-    const neighbors = neighborSets.map(set => Array.from(set));
-    return { vertexCount: V, neighbors };
-}
-
-const { QiTwoPlayerRoomBase, qiMatchTimeControl, vertexGraphWeiqiRules, qiBoardSeatOverlay } = require('../common');
 class CairoPentagonWeiqiRoom extends QiTwoPlayerRoomBase {
-    constructor(room, initialSize = 7) {
+    constructor(room, initialLanes = 7) {
         super(room);
-        this.editBoardMode = 'flat';
-        this.boardSize = initialSize;
-        const { vertexCount, neighbors } = generateCairoPentBoardData(initialSize);
-        this.vertexCount = vertexCount;
-        this.neighbors = neighbors;
-        this.board = Array(this.vertexCount).fill(0);
-        if (this.openingBoard === undefined) this.openingBoard = (typeof this.copyBoard === 'function' ? this.copyBoard(this.board) : (Array.isArray(this.board[0]) ? this.board.map(r => r.slice()) : this.board.slice()));
+        this.boardLanes = initialLanes;
+        this.editBoardMode = 'maskedGrid';
+        this._allocBoard();
         this.currentPlayer = 1;
         this.historyBoards = [];
         this.historyBoardSet = new Set();
@@ -230,7 +44,8 @@ class CairoPentagonWeiqiRoom extends QiTwoPlayerRoomBase {
 
     _broadcastClock() {
         if (!this.tcClock || !this.tcClock.timed || this.gameOver) return;
-        this.broadcast({ type: 'clockUpdate', clock: qiMatchTimeControl.snapshotForClient(this.tcClock) });
+        const snap = qiMatchTimeControl.snapshotForClient(this.tcClock);
+        this.broadcast({ type: 'clockUpdate', clock: snap });
     }
 
     _startClockTicker() {
@@ -242,7 +57,8 @@ class CairoPentagonWeiqiRoom extends QiTwoPlayerRoomBase {
                 return;
             }
             if (this.pendingScore) return;
-            const { lostSlot, winnerSlot } = qiMatchTimeControl.drain(this.tcClock, Date.now());
+            const now = Date.now();
+            const { lostSlot, winnerSlot } = qiMatchTimeControl.drain(this.tcClock, now);
             if (lostSlot) {
                 this._stopClockTicker();
                 this.gameOver = true;
@@ -261,11 +77,6 @@ class CairoPentagonWeiqiRoom extends QiTwoPlayerRoomBase {
         }, 1000);
     }
 
-    _clearTimeNegotiation(reason) {
-        this.tcNego = null;
-        this.broadcast({ type: 'timeControlReset', reason: reason || 'cleared' });
-    }
-
     _firstPickerSlot() {
         const tb = this.slotJoinedAt.black;
         const tw = this.slotJoinedAt.white;
@@ -275,15 +86,22 @@ class CairoPentagonWeiqiRoom extends QiTwoPlayerRoomBase {
 
     _maybeBeginTimeNegotiation() {
         if (this.moveHistory.length > 0 || this.gameOver) return;
-        if (!this.room.getPlayerBySlot('black') || !this.room.getPlayerBySlot('white')) return;
-        if (this.tcNego !== null || this.tcSettings !== null) return;
+        const room = this.room;
+        if (!room.getPlayerBySlot('black') || !room.getPlayerBySlot('white')) return;
+        if (this.tcNego !== null) return;
+        if (this.tcSettings !== null) return;
         const first = this._firstPickerSlot();
-        this.tcNego = { phase: 'propose', proposal: null, waitingSlot: first, lastProposerSlot: null };
-        const firstWs = this.room.getPlayerBySlot(first);
-        if (firstWs) firstWs.send(JSON.stringify({ type: 'timeControlNegotiation', mode: 'propose' }));
+        this.tcNego = {
+            phase: 'propose',
+            proposal: null,
+            waitingSlot: first,
+            lastProposerSlot: null
+        };
+        const ws = room.getPlayerBySlot(first);
+        if (ws) ws.send(JSON.stringify({ type: 'timeControlNegotiation', mode: 'propose' }));
         const other = first === 'black' ? 'white' : 'black';
-        const otherWs = this.room.getPlayerBySlot(other);
-        if (otherWs) otherWs.send(JSON.stringify({ type: 'timeControlWaitPeer', text: '等待对方设置限时规则...' }));
+        const ws2 = room.getPlayerBySlot(other);
+        if (ws2) ws2.send(JSON.stringify({ type: 'timeControlWaitPeer', text: '等待对方设置限时规则...' }));
     }
 
     _finalizeTimeControl(valid) {
@@ -297,9 +115,10 @@ class CairoPentagonWeiqiRoom extends QiTwoPlayerRoomBase {
             : { timed: false };
         this.tcNego = null;
         this.matchStarted = true;
-        this.tcClock = qiMatchTimeControl.createClock(this.tcSettings, Date.now());
+        const now = Date.now();
+        this.tcClock = qiMatchTimeControl.createClock(this.tcSettings, now);
         if (this.tcClock.timed) {
-            qiMatchTimeControl.setActiveSlot(this.tcClock, this.currentPlayer === 1 ? 'black' : 'white', Date.now());
+            qiMatchTimeControl.setActiveSlot(this.tcClock, this.currentPlayer === 1 ? 'black' : 'white', now);
             this._startClockTicker();
             this._broadcastClock();
         } else {
@@ -314,18 +133,19 @@ class CairoPentagonWeiqiRoom extends QiTwoPlayerRoomBase {
 
     _sendRespondDialog(toSlot, proposal) {
         const ws = this.room.getPlayerBySlot(toSlot);
-        if (!ws) return;
-        ws.send(JSON.stringify({
-            type: 'timeControlNegotiation',
-            mode: 'respond',
-            proposal: {
-                ok: true,
-                timed: proposal.timed,
-                mainMinutes: proposal.mainMinutes,
-                byoyomiSeconds: proposal.byoyomiSeconds,
-                maxTimeouts: proposal.maxTimeouts
-            }
-        }));
+        if (ws) {
+            ws.send(JSON.stringify({
+                type: 'timeControlNegotiation',
+                mode: 'respond',
+                proposal: {
+                    ok: true,
+                    timed: proposal.timed,
+                    mainMinutes: proposal.mainMinutes,
+                    byoyomiSeconds: proposal.byoyomiSeconds,
+                    maxTimeouts: proposal.maxTimeouts
+                }
+            }));
+        }
     }
 
     _handleTimeControlSubmit(ws, msg) {
@@ -360,7 +180,7 @@ class CairoPentagonWeiqiRoom extends QiTwoPlayerRoomBase {
         }
     }
 
-    _handleTimeControlAccept(ws, msg) {
+    _handleTimeControlAccept(ws) {
         const slot = this.room.getSlotByWs(ws);
         if (!slot || !this.tcNego || this.tcNego.phase !== 'respond') return;
         if (slot !== this.tcNego.waitingSlot) return;
@@ -407,100 +227,188 @@ class CairoPentagonWeiqiRoom extends QiTwoPlayerRoomBase {
         this._broadcastClock();
     }
 
-    copyBoard(src) { return src.slice(); }
-
-    boardToString(board) { return board.join(','); }
-
-    hasLiberty(boardState, start) {
-        return vertexGraphWeiqiRules.hasLiberty(boardState, start, this.neighbors);
-    }
-
-    removeGroup(boardState, start) {
-        vertexGraphWeiqiRules.removeGroup(boardState, start, this.neighbors);
-    }
-
-    tryPlaceStone(boardBefore, vertex, playerVal) {
-        return vertexGraphWeiqiRules.tryPlaceStone(boardBefore, vertex, playerVal, this.neighbors);
-    }
-
-    removeDeadAndDying(srcBoard) {
-        return vertexGraphWeiqiRules.removeDeadAndDying(
-            srcBoard, this.neighbors, this.vertexCount, (b) => this.copyBoard(b)
-        );
-    }
-
-    multiSourceBFS(liveBoard, color) {
-        const dist = new Array(this.vertexCount).fill(Infinity);
-        const queue = [];
-        for (let v = 0; v < this.vertexCount; v++) {
-            if (liveBoard[v] === color) {
-                dist[v] = 0;
-                queue.push(v);
-            }
-        }
-        let head = 0;
-        while (head < queue.length) {
-            const cur = queue[head++];
-            for (const nb of this.neighbors[cur]) {
-                if (dist[nb] > dist[cur] + 1) {
-                    dist[nb] = dist[cur] + 1;
-                    queue.push(nb);
+    _allocBoard() {
+        const { rows, cols } = CairoPentagonWeiqiRoom.gridDims(this.boardLanes);
+        this.rows = rows;
+        this.cols = cols;
+        this.board = Array(rows).fill().map(() => Array(cols).fill(-1));
+        let validCount = 0;
+        for (let r = 0; r < rows; r++) {
+            for (let c = 0; c < cols; c++) {
+                if (CairoPentagonWeiqiRoom.isValidVertex(r, c, rows, cols)) {
+                    this.board[r][c] = 0;
+                    validCount++;
                 }
             }
         }
-        return dist;
+        // 实际有效格点数（客户端默认对局时间按此计算）
+        this.vertexCount = validCount;
+        // 开局盘必须在有效格置 0 之后拷贝，否则 openingBoard 全 -1，
+        // 客户端以其为直播重放起点，整盘都是 -1，任何落子都被判非法（首局无法落子）
+        if (this.openingBoard === undefined) this.openingBoard = (typeof this.copyBoard === 'function' ? this.copyBoard(this.board) : (Array.isArray(this.board[0]) ? this.board.map(r => r.slice()) : this.board.slice()));
     }
 
-    assignTerritory(liveBoard) {
-        const territory = new Array(this.vertexCount).fill(0);
-        let blackCount = 0, whiteCount = 0;
-        for (let v = 0; v < this.vertexCount; v++) {
-            if (liveBoard[v] === 1) blackCount++;
-            else if (liveBoard[v] === 2) whiteCount++;
+    /** n 路 = 4n−5 行 × 4n−3 列（与 VariantQi / cpp cairopentagon.h 一致） */
+    static gridDims(lanes) {
+        return { rows: 4 * lanes - 5, cols: 4 * lanes - 3 };
+    }
+
+    /** 0-based：合法格 = (row 偶) || (col 奇)，即 1-based 奇数行全列、偶数行仅偶数列 */
+    static isValidVertex(row, col, rows, cols) {
+        if (row < 0 || col < 0 || row >= rows || col >= cols) return false;
+        if ((row & 1) === 1 && (col & 1) === 0) return false;
+        return true;
+    }
+
+    isValidVertex(r, c) {
+        return CairoPentagonWeiqiRoom.isValidVertex(r, c, this.rows, this.cols);
+    }
+
+    /** 与 VariantQi / cpp 一致：规则1 曼哈顿距离 1；规则2 水平 Δ2；规则3 垂直 Δ2（按 (r%4,c%4) 类） */
+    static getNeighbors(row, col, rows, cols) {
+        const arr = [];
+        if ((col & 1) === 1) {
+            arr.push([row - 1, col], [row + 1, col]);
         }
-        if (blackCount === 0 && whiteCount === 0) return territory;
-        if (blackCount === 0) {
-            for (let v = 0; v < this.vertexCount; v++) if (liveBoard[v] === 0) territory[v] = 2;
-            return territory;
+        if ((row & 1) === 0) {
+            arr.push([row, col - 1], [row, col + 1]);
         }
-        if (whiteCount === 0) {
-            for (let v = 0; v < this.vertexCount; v++) if (liveBoard[v] === 0) territory[v] = 1;
-            return territory;
+        const rm = row & 3, cm = col & 3;
+        if (rm === 1) {
+            if (cm === 1) arr.push([row, col + 2]);
+            else if (cm === 3) arr.push([row, col - 2]);
+        } else if (rm === 3) {
+            if (cm === 3) arr.push([row, col + 2]);
+            else if (cm === 1) arr.push([row, col - 2]);
         }
-        const distBlack = this.multiSourceBFS(liveBoard, 1);
-        const distWhite = this.multiSourceBFS(liveBoard, 2);
-        for (let v = 0; v < this.vertexCount; v++) {
-            if (liveBoard[v] !== 0) continue;
-            if (distBlack[v] < distWhite[v]) territory[v] = 1;
-            else if (distWhite[v] < distBlack[v]) territory[v] = 2;
-            else territory[v] = 3;
+        if (cm === 0) {
+            if (rm === 0) arr.push([row + 2, col]);
+            else if (rm === 2) arr.push([row - 2, col]);
+        } else if (cm === 2) {
+            if (rm === 2) arr.push([row + 2, col]);
+            else if (rm === 0) arr.push([row - 2, col]);
         }
-        return territory;
+        const out = [];
+        for (const [a, b] of arr) {
+            if (CairoPentagonWeiqiRoom.isValidVertex(a, b, rows, cols))
+                out.push([a, b]);
+        }
+        return out;
+    }
+
+    getNeighbors(r, c) {
+        return CairoPentagonWeiqiRoom.getNeighbors(r, c, this.rows, this.cols);
+    }
+
+    copyBoard(src) { return src.map(row => row.slice()); }
+
+    boardToString(board) {
+        let s = '';
+        for (let r = 0; r < this.rows; r++) {
+            for (let c = 0; c < this.cols; c++) {
+                if (this.isValidVertex(r, c))
+                    s += board[r][c];
+                else
+                    s += 'x';
+            }
+        }
+        return s;
+    }
+
+    _nb() {
+        return (r, c) => this.getNeighbors(r, c);
+    }
+
+    countGroupLiberties(board, row, col) {
+        return gridGraphWeiqiRules.countGroupLiberties(board, row, col, this._nb());
+    }
+
+    removeGroup(board, row, col, color) {
+        gridGraphWeiqiRules.removeGroup(board, row, col, color, this._nb());
+    }
+
+    tryPlaceStone(boardBefore, row, col, playerVal) {
+        if (!this.isValidVertex(row, col) || boardBefore[row][col] !== 0) return null;
+        return gridGraphWeiqiRules.tryPlaceStoneNLiberty(
+            boardBefore, row, col, playerVal, (b) => this.copyBoard(b), this._nb(), 1
+        );
+    }
+
+    removeDeadAndDying(srcBoard) {
+        return gridGraphWeiqiRules.removeDeadAndDying(
+            srcBoard,
+            this.rows,
+            this.cols,
+            (b) => this.copyBoard(b),
+            this._nb(),
+            (r, c) => this.isValidVertex(r, c)
+        );
+    }
+
+    assignTerritoryWithRange(liveBoard) {
+        return gridGraphWeiqiRules.assignTerritoryWithRange(
+            liveBoard,
+            this.rows,
+            this.cols,
+            this._nb(),
+            (r, c) => this.isValidVertex(r, c)
+        );
     }
 
     computeScore(liveBoard, territory) {
-        let blackStones = 0, whiteStones = 0;
-        let blackTerritory = 0, whiteTerritory = 0, publicTerritory = 0;
-        for (let v = 0; v < this.vertexCount; v++) {
-            if (liveBoard[v] === 1) blackStones++;
-            else if (liveBoard[v] === 2) whiteStones++;
-            else {
-                if (territory[v] === 1) blackTerritory++;
-                else if (territory[v] === 2) whiteTerritory++;
-                else if (territory[v] === 3) publicTerritory++;
-            }
-        }
-        const blackTotal = blackStones + blackTerritory + publicTerritory / 2;
-        const whiteTotal = whiteStones + whiteTerritory + publicTerritory / 2;
-        return { blackTotal, whiteTotal };
+        return gridGraphWeiqiRules.computeScore(
+            liveBoard, territory, this.rows, this.cols,
+            (r, c) => this.isValidVertex(r, c)
+        );
     }
 
     computeLead() {
         const liveBoard = this.removeDeadAndDying(this.board);
-        const territory = this.assignTerritory(liveBoard);
+        const territory = this.assignTerritoryWithRange(liveBoard);
         const { blackTotal, whiteTotal } = this.computeScore(liveBoard, territory);
-        const KOMI = 3.25;
-        return blackTotal - whiteTotal - 2 * KOMI;
+        return blackTotal - whiteTotal - 2 * komiForLanes(this.boardLanes);
+    }
+
+    getState() {
+        return {
+            boardLanes: this.boardLanes,
+            vertexCount: this.vertexCount,
+            gridWidth: this.cols,
+            gridHeight: this.rows,
+            boardSize: this.boardLanes,
+            komi: komiForLanes(this.boardLanes),
+            board: this.board,
+            numberOfHands: 1 + this.historyBoards.length,
+            currentPlayer: this.currentPlayer,
+            lastMoveMarkers: this.lastMoveMarkers,
+            gameOver: this.gameOver,
+            winner: this.winner,
+            moveCoords: this.moveCoords,
+            slots: {
+                black: !!this.room.getPlayerBySlot('black'),
+                white: !!this.room.getPlayerBySlot('white')
+            },
+            matchTime: {
+                negotiation: this.tcNego,
+                settings: this.tcSettings,
+                clock: this.tcClock && this.tcClock.timed
+                    ? qiMatchTimeControl.snapshotForClient(this.tcClock)
+                    : (this.tcSettings && this.tcSettings.timed === false
+                        ? { timed: false, ruleLine: '本局不限时' }
+                        : null)
+            },
+            matchStarted: this.matchStarted
+        };
+    }
+
+    startScoreCounting(requester, opponent) {
+        if (this.tcClock && this.tcClock.timed) qiMatchTimeControl.setPaused(this.tcClock, true);
+        const lead = this.computeLead();
+        this.scoreProposalData = { lead, requester, opponent };
+        const proposalMsg = { type: 'scoreProposal', lead };
+        requester.send(JSON.stringify(proposalMsg));
+        opponent.send(JSON.stringify(proposalMsg));
+        this.pendingScore = { requester, opponent, agreed: new Set() };
     }
 
     onResignResolved(resignSlot) {
@@ -543,302 +451,6 @@ class CairoPentagonWeiqiRoom extends QiTwoPlayerRoomBase {
         return text;
     }
 
-    getState() {
-        return {
-            boardSize: this.boardSize,
-            board: this.board,
-            komi: 3.25,
-            numberOfHands: 1 + this.historyBoards.length,
-            currentPlayer: this.currentPlayer,
-            lastMoveMarkers: this.lastMoveMarkers,
-            gameOver: this.gameOver,
-            winner: this.winner,
-            moveCoords: this.moveCoords,
-            slots: {
-                black: !!this.room.getPlayerBySlot('black'),
-                white: !!this.room.getPlayerBySlot('white')
-            },
-            matchTime: {
-                negotiation: this.tcNego,
-                settings: this.tcSettings,
-                clock: this.tcClock && this.tcClock.timed
-                    ? qiMatchTimeControl.snapshotForClient(this.tcClock)
-                    : (this.tcSettings && this.tcSettings.timed === false
-                        ? { timed: false, ruleLine: '本局不限时' }
-                        : null)
-            },
-            matchStarted: this.matchStarted
-        };
-    }
-
-    startScoreCounting(requester, opponent) {
-        if (this.tcClock && this.tcClock.timed) qiMatchTimeControl.setPaused(this.tcClock, true);
-        const lead = this.computeLead();
-        this.scoreProposalData = { lead, requester, opponent };
-        const proposalMsg = { type: 'scoreProposal', lead };
-        requester.send(JSON.stringify(proposalMsg));
-        opponent.send(JSON.stringify(proposalMsg));
-        this.pendingScore = { requester, opponent, agreed: new Set() };
-    }
-
-    setBoardSize(newSize, requesterWs) {
-        if (!Number.isInteger(newSize) || newSize < 3 || newSize > 13) {
-            requesterWs.send(JSON.stringify({ type: 'error', message: '棋盘路数无效（3-13）' }));
-            return false;
-        }
-        const hasAnyStone = this.board.some(v => v !== 0);
-        const hasPlayer = this.room.getPlayerBySlot('black') || this.room.getPlayerBySlot('white');
-        if (hasAnyStone || hasPlayer) {
-            requesterWs.send(JSON.stringify({ type: 'error', message: '已有棋子或玩家，不能改变路数' }));
-            return false;
-        }
-        const { vertexCount, neighbors } = generateCairoPentBoardData(newSize);
-        this.boardSize = newSize;
-        this.vertexCount = vertexCount;
-        this.neighbors = neighbors;
-        this.board = Array(this.vertexCount).fill(0);
-        this.currentPlayer = 1;
-        this.historyBoards = [];
-        this.historyBoardSet.clear();
-        this.moveHistory = [];
-        this.historyMarkers = [];
-        this.lastMoveMarkers = [];
-        this.gameOver = false;
-        this.winner = null;
-        this.passCounter = 0;
-        this.moveCoords = [];
-        this.recordResultText = null;
-        this.slotJoinedAt = { black: null, white: null };
-        this.tcNego = null;
-        this.tcSettings = null;
-        this.tcClock = null;
-        this.matchStarted = false;
-        this._stopClockTicker();
-        this.broadcast({ type: 'boardSizeChanged', boardSize: this.boardSize });
-        this.broadcast({ type: 'gameState', ...this.getState() });
-        return true;
-    }
-
-    exportRecord() {
-        const mainMinutes = this.tcSettings && this.tcSettings.timed ? this.tcSettings.mainMinutes : 0;
-        const byoyomiSeconds = this.tcSettings && this.tcSettings.timed ? this.tcSettings.byoyomiSeconds : 0;
-        const maxTimeouts = this.tcSettings && this.tcSettings.timed ? this.tcSettings.maxTimeouts : 0;
-        const exportedTimeControl = (this.tcSettings && this.tcSettings.timed) ? `S${mainMinutes},${byoyomiSeconds},${maxTimeouts}` : null;
-        let resultText = null;
-        if (this.gameOver) {
-            if (this.recordResultText) resultText = this.recordResultText;
-            else if (this.winner === 'draw') resultText = '和胜';
-            else if (this.winner === 'black') resultText = '黑胜';
-            else if (this.winner === 'white') resultText = '白胜';
-        }
-        return {
-            format: 'muzei',
-            version: 1,
-            gameType: '开罗五角围棋',
-            gameId: 'cairo-pentagon-weiqi',
-            boardSize: this.boardSize,
-            komi: 3.25,
-            players: { black: null, white: null },
-            initialPosition: [],
-            moves: this.moveCoords.map(m => {
-                const p = m.player === 'black' ? 'B' : 'W';
-                return m.type === 'pass' ? p + 'p' : p + m.vertex;
-            }),
-            timeControl: (this.tcSettings && this.tcSettings.timed) ? `S${this.tcSettings.mainMinutes || 0},${this.tcSettings.byoyomiSeconds || 0},${this.tcSettings.maxTimeouts || 0}` : null,
-            result: resultText,
-            resultText
-        };
-    }
-
-    resetToEmpty() {
-        this._stopClockTicker();
-        this.board = Array(this.vertexCount).fill(0);
-        this.currentPlayer = 1;
-        this.historyBoards = [];
-        this.historyBoardSet.clear();
-        this.moveHistory = [];
-        this.moveCoords = [];
-        this.historyMarkers = [];
-        this.lastMoveMarkers = [];
-        this.gameOver = false;
-        this.winner = null;
-        this.passCounter = 0;
-        this.pendingNewGame = null;
-        this.pendingUndo = null;
-        this.pendingDraw = null;
-        this.pendingEnd = null;
-        this.pendingScore = null;
-        this.scoreProposalData = null;
-        this.recordResultText = null;
-        this.slotJoinedAt = { black: null, white: null };
-        this.tcNego = null;
-        this.tcSettings = null;
-        this.tcClock = null;
-        this.matchStarted = false;
-    }
-
-    static parseMove(entry) {
-        if (typeof entry === 'string') {
-            const player = entry[0] === 'B' ? 'black' : 'white';
-            if (entry[1] === 'p') return { type: 'pass', player };
-            const vertex = parseInt(entry.substring(1), 10);
-            return { type: 'move', player, vertex };
-        }
-        return entry;
-    }
-
-    parseInitialPositionCompact(initialPosition) {
-        if (!Array.isArray(initialPosition)) return [];
-        const out = [];
-        for (const s of initialPosition) {
-            if (typeof s !== 'string' || s.length < 2) continue;
-            const p = s[0];
-            if (p !== 'B' && p !== 'W') continue;
-            const vertex = parseInt(s.slice(1), 10);
-            if (!Number.isInteger(vertex) || vertex < 0 || vertex >= this.vertexCount) continue;
-            out.push(`${p}${vertex}`);
-        }
-        return out;
-    }
-
-    importRecord(data, requesterWs) {
-        if (!data || data.gameId !== 'cairo-pentagon-weiqi') {
-            requesterWs.send(JSON.stringify({ type: 'error', message: '棋谱格式不匹配（需要开罗五角围棋棋谱）' }));
-            return;
-        }
-        const newSize = data.boardSize || 7;
-        if (!Number.isInteger(newSize) || newSize < 3 || newSize > 13) {
-            requesterWs.send(JSON.stringify({ type: 'error', message: '棋谱中棋盘路数无效（3-13）' }));
-            return;
-        }
-
-        const { vertexCount, neighbors } = generateCairoPentBoardData(newSize);
-        this.boardSize = newSize;
-        this.vertexCount = vertexCount;
-        this.neighbors = neighbors;
-        this.resetToEmpty();
-
-        let compactInitialPosition = this.parseInitialPositionCompact(data.initialPosition);
-        for (const s of compactInitialPosition) {
-            const p = s[0];
-            const v = parseInt(s.slice(1), 10);
-            this.board[v] = p === 'B' ? 1 : 2;
-        }
-
-        const rawMoves = data.moves || [];
-        const moves = rawMoves.map(CairoPentagonWeiqiRoom.parseMove);
-        for (let i = 0; i < moves.length; i++) {
-            const move = moves[i];
-            const slot = move.player;
-            const playerVal = slot === 'black' ? 1 : 2;
-            if (move.type === 'move') {
-                const { vertex } = move;
-                if (!Number.isInteger(vertex) || vertex < 0 || vertex >= this.vertexCount) {
-                    this.resetToEmpty();
-                    requesterWs.send(JSON.stringify({ type: 'error', message: `棋谱回放失败：第${i + 1}手坐标越界` }));
-                    this.broadcast({ type: 'roomReset', ...this.getState() });
-                    return;
-                }
-                const occ = this.board[vertex];
-                if (occ !== 0 && occ !== playerVal) {
-                    this.resetToEmpty();
-                    requesterWs.send(JSON.stringify({ type: 'error', message: `棋谱回放失败：第${i + 1}手位置已有子` }));
-                    this.broadcast({ type: 'roomReset', ...this.getState() });
-                    return;
-                }
-                // 兼容旧版导出：initialPosition 含全盘快照且 moves 仍含相同落子——盘面不变但仍记入手顺，供客户端从空盘复原。
-                if (occ === playerVal) {
-                    this.historyBoards.push(this.copyBoard(this.board));
-                    this.historyMarkers.push(this.copyMarkers(this.lastMoveMarkers));
-                    this.moveHistory.push(slot);
-                    this.moveCoords.push({ type: 'move', player: slot, vertex });
-                    this.lastMoveMarkers = [{ vertex, color: playerVal }];
-                    this.currentPlayer = 3 - this.currentPlayer;
-                    this.passCounter = 0;
-                    continue;
-                }
-                const newBoard = this.tryPlaceStone(this.board, vertex, playerVal);
-                if (!newBoard) {
-                    this.resetToEmpty();
-                    requesterWs.send(JSON.stringify({ type: 'error', message: `棋谱回放失败：第${i + 1}手无法落子` }));
-                    this.broadcast({ type: 'roomReset', ...this.getState() });
-                    return;
-                }
-                const newBoardStr = this.boardToString(newBoard);
-                this.historyBoards.push(this.copyBoard(newBoard));
-                this.historyBoardSet.add(newBoardStr);
-                this.historyMarkers.push(this.copyMarkers(this.lastMoveMarkers));
-                this.moveHistory.push(slot);
-                this.moveCoords.push({ type: 'move', player: slot, vertex });
-                this.board = newBoard;
-                this.lastMoveMarkers = [{ vertex, color: playerVal }];
-                this.currentPlayer = 3 - this.currentPlayer;
-                this.passCounter = 0;
-            } else if (move.type === 'pass') {
-                this.historyBoards.push(this.copyBoard(this.board));
-                this.historyMarkers.push(this.copyMarkers(this.lastMoveMarkers));
-                this.moveHistory.push(slot);
-                this.moveCoords.push({ type: 'pass', player: slot });
-                this.currentPlayer = 3 - this.currentPlayer;
-                this.passCounter++;
-                this.lastMoveMarkers = [];
-            }
-        }
-
-        if (data.timeControl === null) {
-            this.tcSettings = { timed: false };
-            this.matchStarted = true;
-        } else if (data.timeControl && typeof data.timeControl === 'object') {
-            const tc = data.timeControl;
-            if (tc.enabled === true) {
-                this.tcSettings = {
-                    timed: true,
-                    mainMinutes: parseInt(String(tc.mainMinutes ?? 0), 10) || 0,
-                    byoyomiSeconds: parseInt(String(tc.byoyomiSeconds ?? 0), 10) || 0,
-                    maxTimeouts: parseInt(String(tc.maxTimeouts ?? 0), 10) || 0
-                };
-            } else if (tc.enabled === false) {
-                this.tcSettings = { timed: false };
-            }
-            this.matchStarted = true;
-        } else if (typeof data.timeControl === 'string') {
-            const m = data.timeControl.match(/^S(\d+),(\d+),(\d+)$/);
-            if (m) {
-                this.tcSettings = {
-                    timed: true,
-                    mainMinutes: parseInt(m[1], 10) || 0,
-                    byoyomiSeconds: parseInt(m[2], 10) || 0,
-                    maxTimeouts: parseInt(m[3], 10) || 0
-                };
-                this.matchStarted = true;
-            }
-        }
-
-        if (data.result || data.resultText) {
-            this.gameOver = true;
-            const importedResultText = CairoPentagonWeiqiRoom.normalizeResultText(
-                data.resultText != null ? data.resultText : data.result
-            );
-            this.recordResultText = importedResultText;
-            this.winner = CairoPentagonWeiqiRoom.parseResultTextToWinner(importedResultText);
-            if (!this.winner && (data.result === 'black' || data.result === 'white' || data.result === 'draw'))
-                this.winner = data.result;
-        }
-
-        this.broadcast({
-            type: 'importSuccess',
-            ...this.getState(),
-            replayData: {
-                boardSize: this.boardSize,
-                // 打谱从空盘 + 全手顺即可；避免 initialPosition 与 moves 重复导致客户端回放失败
-                initialPosition: [],
-                moves: moves.map(m => (m.type === 'pass'
-                    ? { type: 'pass', player: m.player }
-                    : { type: 'move', player: m.player, vertex: m.vertex }))
-            }
-        });
-    }
-
     handleMessage(ws, msg) {
         const slot = this.room.getSlotByWs(ws);
         const room = this.room;
@@ -849,13 +461,11 @@ class CairoPentagonWeiqiRoom extends QiTwoPlayerRoomBase {
                 const newSlot = this.assignSlot(ws, msg.color);
                 if (newSlot) {
                     room.setPlayerSlot(ws, newSlot);
+                    this.slotJoinedAt[newSlot] = Date.now();
                     ws.send(JSON.stringify({ type: 'colorAssigned', color: newSlot }));
                     this.sendState(ws);
                     room.broadcast({ type: 'slotOccupied', slot: newSlot }, ws);
-                    this.slotJoinedAt[newSlot] = Date.now();
                     this._maybeBeginTimeNegotiation();
-                } else {
-                    ws.send(JSON.stringify({ type: 'error', message: '该颜色已被占用' }));
                 }
                 break;
 
@@ -867,12 +477,10 @@ class CairoPentagonWeiqiRoom extends QiTwoPlayerRoomBase {
                 this._handleTimeControlAccept(ws);
                 break;
 
-            case 'setBoardSize': {
-                if (slot) break;
-                const n = parseInt(String(msg.size ?? ''), 10);
-                this.setBoardSize(n, ws);
+            case 'setBoardSize':
+                if (!slot && !this.room.players.size)
+                    this.setBoardSize(msg.size, ws);
                 break;
-            }
 
             case 'move':
                 if (this.gameOver) return;
@@ -882,26 +490,33 @@ class CairoPentagonWeiqiRoom extends QiTwoPlayerRoomBase {
                 }
                 if (!this._drainClockBeforeMove(slot)) return;
                 if (!slot || slot !== (this.currentPlayer === 1 ? 'black' : 'white')) return;
-                const { vertex } = msg;
-                if (!Number.isInteger(vertex) || vertex < 0 || vertex >= this.vertexCount) return;
-                if (this.board[vertex] !== 0) return;
+                const { row, col } = msg;
+                if (row < 0 || row >= this.rows || col < 0 || col >= this.cols) return;
+                if (!this.isValidVertex(row, col)) {
+                    ws.send(JSON.stringify({ type: 'error', message: '无效交点' }));
+                    return;
+                }
+                if (this.board[row][col] !== 0) {
+                    return;
+                }
                 const playerVal = this.currentPlayer === 1 ? 1 : 2;
-                const newBoard = this.tryPlaceStone(this.board, vertex, playerVal);
-                if (!newBoard) return;
+                const newBoard = this.tryPlaceStone(this.board, row, col, playerVal);
+                if (!newBoard)
+                    return;
                 const newBoardStr = this.boardToString(newBoard);
                 if (this.historyBoardSet.has(newBoardStr)) 
                 {
                     ws.send(JSON.stringify({ type: 'error', message: '禁全同。' }));
                     return;
-                } 
+                }
                 this.historyBoards.push(this.copyBoard(newBoard));
                 this.historyBoardSet.add(newBoardStr);
                 this.historyMarkers.push(this.copyMarkers(this.lastMoveMarkers));
                 this.moveHistory.push(slot);
-                this.moveCoords.push({ type: 'move', player: slot, vertex });
+                this.moveCoords.push({ type: 'move', player: slot, row, col });
                 this.board = newBoard;
-                this.lastMoveMarkers = [{ vertex, color: playerVal }];
-                this.currentPlayer = this.currentPlayer === 1 ? 2 : 1;
+                this.lastMoveMarkers = [{ row, col, color: playerVal }];
+                this.currentPlayer = 3 - this.currentPlayer;
                 this.passCounter = 0;
                 this.broadcast({ type: 'broadcast', action: 'move', ...this.getState() });
                 this._syncClockAfterTurnChange();
@@ -949,8 +564,7 @@ class CairoPentagonWeiqiRoom extends QiTwoPlayerRoomBase {
                 }
                 const opponentSlot = slot === 'black' ? 'white' : 'black';
                 const opponent = room.getPlayerBySlot(opponentSlot);
-                if (!opponent)
-                    this.performUndo(steps, ws);
+                if (!opponent) this.performUndo(steps, ws);
                 else {
                     this.pendingUndo = { requester: ws, steps };
                     opponent.send(JSON.stringify({ type: 'undoRequest' }));
@@ -959,10 +573,8 @@ class CairoPentagonWeiqiRoom extends QiTwoPlayerRoomBase {
 
             case 'undoResponse':
                 if (this.pendingUndo) {
-                    if (msg.accept)
-                        this.performUndo(this.pendingUndo.steps, this.pendingUndo.requester);
-                    else
-                        this.pendingUndo.requester.send(JSON.stringify({ type: 'error', message: '对方拒绝悔棋。' }));
+                    if (msg.accept) this.performUndo(this.pendingUndo.steps, this.pendingUndo.requester);
+                    else this.pendingUndo.requester.send(JSON.stringify({ type: 'error', message: '对方拒绝悔棋。' }));
                 }
                 this.pendingUndo = null;
                 break;
@@ -972,28 +584,16 @@ class CairoPentagonWeiqiRoom extends QiTwoPlayerRoomBase {
                 this.gameOver = true;
                 this.winner = slot === 'black' ? 'white' : 'black';
                 this.onResignResolved(slot);
-                this._stopClockTicker();
                 this.broadcast({ type: 'broadcast', action: 'resign', player: slot, winner: this.winner, ...this.getState() });
+                this._stopClockTicker();
                 break;
 
             case 'requestNewGame':
-                if (!slot) return;
-                const newGameOpponent = room.getPlayerBySlot(slot === 'black' ? 'white' : 'black');
-                if (!newGameOpponent) {
-                    this.resetGame();
-                } else {
-                    this.pendingNewGame = ws;
-                    newGameOpponent.send(JSON.stringify({ type: 'newGameRequest' }));
-                }
+                qiProtocol.requestNewGame(this, ws, slot);
                 break;
 
             case 'newGameResponse':
-                if (this.pendingNewGame && msg.accept) {
-                    this.resetGame();
-                } else if (this.pendingNewGame && !msg.accept) {
-                    this.pendingNewGame.send(JSON.stringify({ type: 'error', message: '对方拒绝开始新局' }));
-                }
-                this.pendingNewGame = null;
+                qiProtocol.newGameResponse(this, ws, msg, { newGameDeniedMsg: '对方拒绝开始新局' });
                 break;
 
             case 'requestDraw':
@@ -1002,6 +602,7 @@ class CairoPentagonWeiqiRoom extends QiTwoPlayerRoomBase {
                 if (!drawOpponent) {
                     this.gameOver = true;
                     this.winner = 'draw';
+                    this.onDrawResolved();
                     this.broadcast({ type: 'broadcast', action: 'drawAgreed', ...this.getState() });
                 } else {
                     this.pendingDraw = ws;
@@ -1014,8 +615,8 @@ class CairoPentagonWeiqiRoom extends QiTwoPlayerRoomBase {
                     this.gameOver = true;
                     this.winner = 'draw';
                     this.onDrawResolved();
-                    this._stopClockTicker();
                     this.broadcast({ type: 'broadcast', action: 'drawAgreed', ...this.getState() });
+                    this._stopClockTicker();
                 } else if (this.pendingDraw && !msg.accept) {
                     this.pendingDraw.send(JSON.stringify({ type: 'error', message: '对方拒绝和棋。' }));
                 }
@@ -1025,20 +626,18 @@ class CairoPentagonWeiqiRoom extends QiTwoPlayerRoomBase {
             case 'requestEnd':
                 if (!slot) return;
                 const endOpponent = room.getPlayerBySlot(slot === 'black' ? 'white' : 'black');
-                if (!endOpponent) {
-                    this.startScoreCounting(ws, ws);
-                } else {
+                if (!endOpponent) this.startScoreCounting(ws, ws);
+                else {
                     this.pendingEnd = { requester: ws, opponent: endOpponent };
                     endOpponent.send(JSON.stringify({ type: 'requestEnd' }));
                 }
                 break;
 
             case 'endResponse':
-                if (this.pendingEnd && msg.accept) {
+                if (this.pendingEnd && msg.accept)
                     this.startScoreCounting(this.pendingEnd.requester, this.pendingEnd.opponent);
-                } else if (this.pendingEnd && !msg.accept) {
+                else if (this.pendingEnd && !msg.accept)
                     this.pendingEnd.requester.send(JSON.stringify({ type: 'error', message: '对方拒绝数点。' }));
-                }
                 this.pendingEnd = null;
                 break;
 
@@ -1098,27 +697,32 @@ class CairoPentagonWeiqiRoom extends QiTwoPlayerRoomBase {
                 this.lastMoveMarkers = this.historyMarkers.pop() || [];
             else
                 this.lastMoveMarkers = [];
-            if (this.moveHistory.length > 0)
-                this.moveHistory.pop();
-            if (this.moveCoords.length > 0)
-                this.moveCoords.pop();
-
+            if (this.moveHistory.length > 0) this.moveHistory.pop();
+            if (this.moveCoords.length > 0) this.moveCoords.pop();
             this.currentPlayer = 3 - this.currentPlayer;
         }
-        if (this.historyBoards.length === 0)
-            this.board = Array(this.vertexCount).fill(0);
-        else
+        if (this.historyBoards.length === 0) {
+            this._allocBoard();
+        } else {
             this.board = this.copyBoard(this.historyBoards.at(-1));
+        }
         this.broadcast({ type: 'broadcast', action: 'undoAccept', ...this.getState() });
+        this._syncClockAfterTurnChange();
     }
 
     copyMarkers(markers) {
-        return markers.map(m => ({ vertex: m.vertex, color: m.color }));
+        return markers.map(m => ({ row: m.row, col: m.col, color: m.color }));
     }
 
     resetGame() {
         this._stopClockTicker();
-        this.board = Array(this.vertexCount).fill(0);
+        this.slotJoinedAt = { black: null, white: null };
+        this.tcNego = null;
+        this.tcSettings = null;
+        this.tcClock = null;
+        this.recordResultText = null;
+        this.matchStarted = false;
+        this._allocBoard();
         this.currentPlayer = 1;
         this.historyBoards = [];
         this.historyBoardSet.clear();
@@ -1129,21 +733,270 @@ class CairoPentagonWeiqiRoom extends QiTwoPlayerRoomBase {
         this.winner = null;
         this.passCounter = 0;
         this.moveCoords = [];
-        this.recordResultText = null;
+        for (const [client, slot] of this.room.players.entries()) {
+            this.room.slotOccupancy.delete(slot);
+            this.room.players.delete(client);
+            this.room.observers.add(client);
+            client.send(JSON.stringify({ type: 'slotReleased', slot }));
+        }
+        this.broadcast({ type: 'newGameStarted', ...this.getState(), slots: { black: false, white: false } });
+    }
+
+    setBoardSize(newSize, requesterWs) {
+        if (!Number.isInteger(newSize) || newSize < 3 || newSize > 10) {
+            requesterWs.send(JSON.stringify({ type: 'error', message: '棋盘路数无效' }));
+            return false;
+        }
+        const hasStone = this.board.some((row, r) => row.some((v, c) => this.isValidVertex(r, c) && v !== 0));
+        const hasPlayer = this.room.getPlayerBySlot('black') || this.room.getPlayerBySlot('white');
+        if (hasStone || hasPlayer) {
+            requesterWs.send(JSON.stringify({ type: 'error', message: '已有棋子或玩家，不能改变路数' }));
+            return false;
+        }
+        this.boardLanes = newSize;
+        this._allocBoard();
+        this.currentPlayer = 1;
+        this.gameOver = false;
+        this.winner = null;
+        this.passCounter = 0;
+        this.historyBoards = [];
+        this.historyBoardSet.clear();
+        this.moveHistory = [];
+        this.historyMarkers = [];
+        this.lastMoveMarkers = [];
+        this.moveCoords = [];
+        this.broadcast({ type: 'boardSizeChanged', ...this.getState() });
+        return true;
+    }
+
+    exportRecord() {
+        const mainMinutes = this.tcSettings && this.tcSettings.timed ? this.tcSettings.mainMinutes : 0;
+        const byoyomiSeconds = this.tcSettings && this.tcSettings.timed ? this.tcSettings.byoyomiSeconds : 0;
+        const maxTimeouts = this.tcSettings && this.tcSettings.timed ? this.tcSettings.maxTimeouts : 0;
+        const exportedTimeControl = (this.tcSettings && this.tcSettings.timed)
+            ? `S${mainMinutes},${byoyomiSeconds},${maxTimeouts}`
+            : null;
+        let resultText = null;
+        if (this.gameOver) {
+            if (this.recordResultText) resultText = this.recordResultText;
+            else if (this.winner === 'draw') resultText = '和胜';
+            else if (this.winner === 'black') resultText = '黑胜';
+            else if (this.winner === 'white') resultText = '白胜';
+        }
+        // 只用手顺即可从空盘复原终局；不要把全盘快照放进 initialPosition，
+        // 否则与 moves 重复，导入时第一手会因“已有子”而失败。
+        return {
+            format: 'muzei',
+            version: 1,
+            gameType: '开罗五角围棋',
+            gameId: 'cairo-pentagon-weiqi',
+            boardLanes: this.boardLanes,
+            gridWidth: this.cols,
+            gridHeight: this.rows,
+            boardSize: this.boardLanes,
+            komi: komiForLanes(this.boardLanes),
+            players: { black: null, white: null },
+            initialPosition: [],
+            moves: this.moveCoords.map(m => {
+                const p = m.player === 'black' ? 'B' : 'W';
+                return m.type === 'pass' ? p + 'p' : p + m.row + ',' + m.col;
+            }),
+            timeControl: (this.tcSettings && this.tcSettings.timed) ? `S${this.tcSettings.mainMinutes || 0},${this.tcSettings.byoyomiSeconds || 0},${this.tcSettings.maxTimeouts || 0}` : null,
+            result: resultText,
+            resultText
+        };
+    }
+
+    resetToEmpty() {
+        this._stopClockTicker();
         this.slotJoinedAt = { black: null, white: null };
         this.tcNego = null;
         this.tcSettings = null;
         this.tcClock = null;
+        this.recordResultText = null;
         this.matchStarted = false;
-        // 必须先广播 newGameStarted：broadcast 只遍历 players 与 observers。
-        // 若先清空 players，原对局连接不在任何集合里，会收不到消息，客户端局面/路数 UI 不会更新。
-        this.broadcast({ type: 'newGameStarted', ...this.getState(), slots: { black: false, white: false } });
-        const toRelease = [...this.room.players.entries()];
-        for (const [client, slot] of toRelease) {
-            this.room.players.delete(client);
-            this.room.slotOccupancy.delete(slot);
-            client.send(JSON.stringify({ type: 'slotReleased', slot }));
+        this._allocBoard();
+        this.currentPlayer = 1;
+        this.historyBoards = [];
+        this.historyBoardSet.clear();
+        this.moveHistory = [];
+        this.moveCoords = [];
+        this.historyMarkers = [];
+        this.lastMoveMarkers = [];
+        this.gameOver = false;
+        this.winner = null;
+        this.passCounter = 0;
+        this.pendingNewGame = null;
+        this.pendingUndo = null;
+        this.pendingDraw = null;
+        this.pendingEnd = null;
+        this.pendingScore = null;
+        this.scoreProposalData = null;
+    }
+
+    static parseMove(entry) {
+        if (typeof entry === 'string') {
+            const player = entry[0] === 'B' ? 'black' : 'white';
+            if (entry[1] === 'p') return { type: 'pass', player };
+            const coords = entry.substring(1).split(',').map(Number);
+            return { type: 'move', player, row: coords[0], col: coords[1] };
         }
+        return entry;
+    }
+
+    parseInitialPositionCompact(initialPosition) {
+        if (!Array.isArray(initialPosition)) return [];
+        const out = [];
+        for (const s of initialPosition) {
+            if (typeof s !== 'string' || s.length < 4) continue;
+            const p = s[0];
+            if (p !== 'B' && p !== 'W') continue;
+            const comma = s.indexOf(',');
+            if (comma <= 1) continue;
+            const r = parseInt(s.slice(1, comma), 10);
+            const c = parseInt(s.slice(comma + 1), 10);
+            if (!Number.isInteger(r) || !Number.isInteger(c)) continue;
+            if (!this.isValidVertex(r, c)) continue;
+            out.push(`${p}${r},${c}`);
+        }
+        return out;
+    }
+
+    importRecord(data, requesterWs) {
+        const okId = data.gameId === 'cairo-pentagon-weiqi' || data.gameId === 'cairo-pentagon-weiqi';
+        if (!data || (!okId && data.gameType !== '开罗五角围棋')) {
+            requesterWs.send(JSON.stringify({ type: 'error', message: '棋谱格式不匹配（需要开罗五角围棋棋谱）' }));
+            return;
+        }
+        const lanes = data.boardLanes != null ? data.boardLanes : data.boardSize;
+        if (!Number.isInteger(lanes) || lanes < 3 || lanes > 10) {
+            requesterWs.send(JSON.stringify({ type: 'error', message: '棋谱中棋盘路数无效' }));
+            return;
+        }
+
+        this.boardLanes = lanes;
+        this.resetToEmpty();
+
+        const compactInitialPosition = this.parseInitialPositionCompact(data.initialPosition);
+        for (const s of compactInitialPosition) {
+            const p = s[0];
+            const comma = s.indexOf(',');
+            const r = parseInt(s.slice(1, comma), 10);
+            const c = parseInt(s.slice(comma + 1), 10);
+            this.board[r][c] = p === 'B' ? 1 : 2;
+        }
+
+        const rawMoves = data.moves || [];
+        const moves = rawMoves.map(CairoPentagonWeiqiRoom.parseMove);
+        for (let i = 0; i < moves.length; i++) {
+            const move = moves[i];
+            const slot = move.player;
+            const playerVal = slot === 'black' ? 1 : 2;
+            if (move.type === 'move') {
+                const { row, col } = move;
+                if (row < 0 || row >= this.rows || col < 0 || col >= this.cols || !this.isValidVertex(row, col)) {
+                    this.resetToEmpty();
+                    requesterWs.send(JSON.stringify({ type: 'error', message: `棋谱回放失败：第${i + 1}手坐标越界` }));
+                    this.broadcast({ type: 'roomReset', ...this.getState() });
+                    return;
+                }
+                // 兼容旧版导出：initialPosition 含全盘快照且 moves 仍含相同落子——盘面不变但仍记入手顺，供客户端从空盘复原。
+                if (this.board[row][col] === playerVal) {
+                    this.historyBoards.push(this.copyBoard(this.board));
+                    this.historyMarkers.push(this.copyMarkers(this.lastMoveMarkers));
+                    this.moveHistory.push(slot);
+                    this.moveCoords.push({ type: 'move', player: slot, row, col });
+                    this.lastMoveMarkers = [{ row, col, color: playerVal }];
+                    this.currentPlayer = 3 - this.currentPlayer;
+                    this.passCounter = 0;
+                    continue;
+                }
+                const newBoard = this.tryPlaceStone(this.board, row, col, playerVal);
+                if (!newBoard) {
+                    this.resetToEmpty();
+                    requesterWs.send(JSON.stringify({ type: 'error', message: `棋谱回放失败：第${i + 1}手无法落子` }));
+                    this.broadcast({ type: 'roomReset', ...this.getState() });
+                    return;
+                }
+                const newBoardStr = this.boardToString(newBoard);
+                this.historyBoards.push(this.copyBoard(newBoard));
+                this.historyBoardSet.add(newBoardStr);
+                this.historyMarkers.push(this.copyMarkers(this.lastMoveMarkers));
+                this.moveHistory.push(slot);
+                this.moveCoords.push({ type: 'move', player: slot, row, col });
+                this.board = newBoard;
+                this.lastMoveMarkers = [{ row, col, color: playerVal }];
+                this.currentPlayer = 3 - this.currentPlayer;
+                this.passCounter = 0;
+            } else if (move.type === 'pass') {
+                this.historyBoards.push(this.copyBoard(this.board));
+                this.historyMarkers.push(this.copyMarkers(this.lastMoveMarkers));
+                this.moveHistory.push(slot);
+                this.moveCoords.push({ type: 'pass', player: slot });
+                this.currentPlayer = 3 - this.currentPlayer;
+                this.passCounter++;
+                this.lastMoveMarkers = [];
+            }
+        }
+
+        if (data.timeControl === null) {
+            this.tcSettings = { timed: false };
+            this.matchStarted = true;
+        } else if (data.timeControl && typeof data.timeControl === 'object') {
+            const tc = data.timeControl;
+            if (tc.enabled === true) {
+                this.tcSettings = {
+                    timed: true,
+                    mainMinutes: parseInt(String(tc.mainMinutes ?? 0), 10) || 0,
+                    byoyomiSeconds: parseInt(String(tc.byoyomiSeconds ?? 0), 10) || 0,
+                    maxTimeouts: parseInt(String(tc.maxTimeouts ?? 0), 10) || 0
+                };
+            } else if (tc.enabled === false) {
+                this.tcSettings = { timed: false };
+            }
+            this.matchStarted = true;
+        } else if (typeof data.timeControl === 'string') {
+            const m = data.timeControl.match(/^S(\d+),(\d+),(\d+)$/);
+            if (m) {
+                this.tcSettings = {
+                    timed: true,
+                    mainMinutes: parseInt(m[1], 10) || 0,
+                    byoyomiSeconds: parseInt(m[2], 10) || 0,
+                    maxTimeouts: parseInt(m[3], 10) || 0
+                };
+                this.matchStarted = true;
+            }
+        }
+
+        if (data.result || data.resultText) {
+            this.gameOver = true;
+            const importedResultText = CairoPentagonWeiqiRoom.normalizeResultText(
+                data.resultText != null ? data.resultText : data.result
+            );
+            this.recordResultText = importedResultText;
+            this.winner = CairoPentagonWeiqiRoom.parseResultTextToWinner(importedResultText);
+            if (!this.winner && (data.result === 'black' || data.result === 'white' || data.result === 'draw'))
+                this.winner = data.result;
+        }
+
+        this.broadcast({
+            type: 'importSuccess',
+            ...this.getState(),
+            replayData: {
+                boardLanes: this.boardLanes,
+                gridWidth: this.cols,
+                gridHeight: this.rows,
+                // 打谱从空盘 + 全手顺即可；避免 initialPosition 与 moves 重复导致客户端回放失败
+                initialPosition: [],
+                moves: moves.map(m => (m.type === 'pass'
+                    ? { type: 'pass', player: m.player }
+                    : { type: 'move', player: m.player, row: m.row, col: m.col }))
+            }
+        });
+    }
+
+    getMoveCount() {
+        return this.moveHistory.length;
     }
 
     onPlayerLeave(ws) {
@@ -1168,7 +1021,6 @@ class CairoPentagonWeiqiRoom extends QiTwoPlayerRoomBase {
 }
 
 module.exports = {
-    generateCairoPentBoardData,
     initRoom(room) {
         room.gameLogic = new CairoPentagonWeiqiRoom(room);
         if (typeof qiBoardSeatOverlay !== 'undefined' && qiBoardSeatOverlay) qiBoardSeatOverlay.install(room.gameLogic);

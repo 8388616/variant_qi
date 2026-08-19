@@ -88,16 +88,40 @@
         return null;
     }
 
-    function kingsFaceEachOther(board) {
-        const rk = findKing(board, 'red');
-        const bk = findKing(board, 'black');
-        if (!rk || !bk || rk.col !== bk.col) return false;
-        const minR = Math.min(rk.row, bk.row);
-        const maxR = Math.max(rk.row, bk.row);
-        for (let r = minR + 1; r < maxR; r++) {
-            if (board[r][rk.col] !== '') return false;
+    /** 编辑盘面可能出现多枚王：返回该方所有王的位置数组 */
+    function findKings(board, side) {
+        const code = side === 'red' ? 'rk' : 'bk';
+        const kings = [];
+        for (let r = 0; r < BOARD_H; r++) {
+            for (let c = 0; c < BOARD_W; c++) {
+                if (board[r][c] === code) kings.push({ row: r, col: c });
+            }
         }
-        return true;
+        return kings;
+    }
+
+    function countKings(board, side) {
+        return findKings(board, side).length;
+    }
+
+    /** 将帅照面：双方任一王同列且之间无棋子遮挡（多王编辑盘面同样适用） */
+    function kingsFaceEachOther(board) {
+        const redKings = findKings(board, 'red');
+        const blackKings = findKings(board, 'black');
+        if (!redKings.length || !blackKings.length) return false;
+        for (const rk of redKings) {
+            for (const bk of blackKings) {
+                if (rk.col !== bk.col) continue;
+                const minR = Math.min(rk.row, bk.row);
+                const maxR = Math.max(rk.row, bk.row);
+                let clear = true;
+                for (let r = minR + 1; r < maxR; r++) {
+                    if (board[r][rk.col] !== '') { clear = false; break; }
+                }
+                if (clear) return true;
+            }
+        }
+        return false;
     }
 
     /** 几何走法（不含将军/应将/对脸） */
@@ -203,9 +227,13 @@
         return false;
     }
 
+    /** 多王规则：只有叫吃「最后一枚」王才算将军；前面被吃掉的王不算将军，也不触发应将。
+     *  无王 = 已败（返回 true，供判负）。 */
     function isInCheck(board, side) {
-        const king = findKing(board, side);
-        if (!king) return true;
+        const kings = findKings(board, side);
+        if (kings.length === 0) return true;
+        if (kings.length > 1) return false;
+        const king = kings[0];
         if (kingsFaceEachOther(board)) return true;
         return isSquareAttackedBy(board, king.row, king.col, oppositeSide(side));
     }
@@ -352,6 +380,8 @@
         slotFromSide,
         inBounds,
         findKing,
+        findKings,
+        countKings,
         kingsFaceEachOther,
         isPseudoLegalMove,
         applyMoveOnBoard,

@@ -18,6 +18,11 @@ if (!R || typeof R.createInitialBoard !== 'function') {
 class FogXiangqiRoom extends QiTwoPlayerRoomBase {
     constructor(room) {
         super(room);
+        // 开局前编辑允许的棋子值（字符串棋盘：空 '' + 全部棋子编码）
+        this.editBoardAllowedValues = ['', 'rk', 'ra', 're', 'rn', 'rr', 'rc', 'rp', 'bk', 'ba', 'be', 'bn', 'br', 'bc', 'bp'];
+        // 棋盘维度（非方形 10×9，公共编辑校验用）
+        this.boardRows = R.BOARD_H;
+        this.boardCols = R.BOARD_W;
         this.resetToEmpty();
     }
 
@@ -563,8 +568,26 @@ class FogXiangqiRoom extends QiTwoPlayerRoomBase {
         return { ok: true, gaveCheck, captured: !!captured, capturedKing, faced, side };
     }
 
+    /** 行棋方无将/帅：直接判负（编辑盘面可能出现） */
+    _resolveTurnStartLoss() {
+        if (this.gameOver) return false;
+        const side = this.sideToMove;
+        if (R.countKings(this.board, side) === 0) {
+            const winnerSlot = R.slotFromSide(R.oppositeSide(side));
+            this._endGame(winnerSlot, side === 'red' ? '红方无帅黑胜' : '黑方无将红胜');
+            return true;
+        }
+        return false;
+    }
+
+    /** 开局（时间协商完成/双方入座即开始）时判定：编辑盘面某方无将/帅则直接判负 */
+    onMatchStarted() {
+        this._resolveTurnStartLoss();
+    }
+
     _resolveAfterMove(moveResult) {
         if (!moveResult || !moveResult.ok) return;
+        if (this._resolveTurnStartLoss()) return;
 
         // 将帅照面：着法合法，行棋方立即判负
         if (moveResult.faced) {
@@ -574,10 +597,10 @@ class FogXiangqiRoom extends QiTwoPlayerRoomBase {
             return;
         }
 
-        // 吃将/帅即胜
-        if (moveResult.capturedKing) {
+        // 吃尽对方所有将/帅才胜（多王编辑盘面：吃一枚不算，须吃光）
+        if (moveResult.capturedKing && R.countKings(this.board, R.oppositeSide(moveResult.side)) === 0) {
             const winnerSlot = R.slotFromSide(moveResult.side);
-            this._endGame(winnerSlot, moveResult.side === 'red' ? '红吃将胜' : '黑吃帅胜');
+            this._endGame(winnerSlot, moveResult.side === 'red' ? '红吃尽将胜' : '黑吃尽帅胜');
             return;
         }
 

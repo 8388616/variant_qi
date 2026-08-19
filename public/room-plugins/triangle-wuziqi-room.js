@@ -105,7 +105,24 @@ let ROWS = 19;
             const x = leftX + c * DX;
             return { x, y };
         }
+        /** 点在多边形内判定（ray casting，顶点按 {x,y} 数组） */
+        function pointInPolygon(px, py, verts) {
+            let inside = false;
+            for (let i = 0, j = verts.length - 1; i < verts.length; j = i++) {
+                const xi = verts[i].x, yi = verts[i].y;
+                const xj = verts[j].x, yj = verts[j].y;
+                if (((yi > py) !== (yj > py)) && (px < (xj - xi) * (py - yi) / (yj - yi) + xi)) {
+                    inside = !inside;
+                }
+            }
+            return inside;
+        }
+
         function getClosestIntersection(px, py) {
+            // 点在三角棋盘区域之外时返回无效（-1）：避免正方形画布内的外部点击吸附到邻近格点
+            if (!pointInPolygon(px, py, [FIXED_OUTER_A, FIXED_OUTER_B, FIXED_OUTER_C])) {
+                return { row: -1, col: -1 };
+            }
             let minDist = Infinity;
             let bestR = -1;
             let bestC = -1;
@@ -178,6 +195,8 @@ let board = initBoardArray(ROWS);
         let tryPlayCurrentPlayer = 1;
         let tryPlayStep = 0;
         let tryPlayTotalSteps = 0;
+        let tryPlayFromLive = false;
+        let tryPlayFromLiveStep = null;
         let liveReplayBoards = [];
         let liveReplayMarkers = [];
         let liveReplayStepPlayers = [];
@@ -188,7 +207,11 @@ let board = initBoardArray(ROWS);
         let hoverR = -1, hoverC = -1, isHoverValid = false;
 
         const canvas = document.getElementById('goBoard');
+        const dpr = window.devicePixelRatio || 1;
+        canvas.width = 600 * dpr;
+        canvas.height = 600 * dpr;
         const ctx = canvas.getContext('2d');
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
         const turnDisplay = document.getElementById('turnDisplay');
         const colorStatus = document.getElementById('colorStatus');
 const scoreTitle = document.getElementById('scoreTitle');
@@ -244,14 +267,14 @@ const scoreTitle = document.getElementById('scoreTitle');
         function drawBoard() {
             ctx.clearRect(0, 0, 600, 600);
             ctx.save();
-            ctx.shadowBlur = 20;
-            ctx.shadowColor = 'rgba(0,0,0,0.8)';
-            ctx.shadowOffsetY = 8;
-            ctx.fillStyle = '#edbc80';
-            ctx.strokeStyle = '#6b4a2e';
-            ctx.lineWidth = 1;
+            // 木质外框与 weiqi 统一：无阴影、背景 #fdcc90、边线 #3a281c 0.5px
+            ctx.shadowBlur = 0;
+            ctx.shadowOffsetY = 0;
+            ctx.fillStyle = '#fdcc90';
+            ctx.strokeStyle = '#3a281c';
+            ctx.lineWidth = 0.5;
             const cornerRadius = 3;
-            (function drawRoundedTriangle(vertices, radius) {
+            (function drawRoundedTriangle(vertices, radius, skipStroke) {
                 const startPoints = [], endPoints = [];
                 for (let i = 0; i < 3; i++) {
                     const curr = vertices[i];
@@ -269,8 +292,8 @@ const scoreTitle = document.getElementById('scoreTitle');
                 for (let i = 0; i < 3; i++) ctx.arcTo(vertices[i].x, vertices[i].y, endPoints[i].x, endPoints[i].y, radius);
                 ctx.closePath();
                 ctx.fill();
-                ctx.stroke();
-            })([FIXED_OUTER_A, FIXED_OUTER_B, FIXED_OUTER_C], cornerRadius);
+                if (!skipStroke) ctx.stroke();
+            })([FIXED_OUTER_A, FIXED_OUTER_B, FIXED_OUTER_C], cornerRadius, false);
             ctx.restore();
 
             ctx.lineWidth = 1.2;
@@ -354,7 +377,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                 const markBgR = DX * 0.3;
                 ctx.beginPath();
                 ctx.arc(p.x, p.y, markBgR, 0, 2 * Math.PI);
-                ctx.fillStyle = '#edbc80';
+                ctx.fillStyle = '#fdcc90';
                 ctx.fill();
                 const fontPx = DX * (ch === '🚩' ? 0.47 : 0.52);
                 ctx.font = `bold ${fontPx}px "Segoe UI", "Apple Color Emoji", "Segoe UI Emoji", sans-serif`;
@@ -512,6 +535,20 @@ const scoreTitle = document.getElementById('scoreTitle');
                 : (replayStep > 0 ? (3 - replayStepPlayers[replayStep]) : ((currentPlayer === 1 || currentPlayer === 2) ? currentPlayer : 1));
             tryPlayBasePlayer = _startPlayer;
             tryPlayCurrentPlayer = _startPlayer;
+            // 与公共 enterTryPlay 一致：从直播局面进入试下时挂 replayMode 脚手架。
+            // 点击/绘制均以 replayMode && tryPlayMode 判断，缺了它试下点击无反应
+            if (_fromLive) {
+                tryPlayFromLive = true;
+                tryPlayFromLiveStep = liveViewStep || 0;
+                replayMode = true;
+                replayBoards = [deepCopyBoard(board)];
+                replayMarkers = [(lastMoveMarkers || []).map(m => ({ ...m }))];
+                replayStepPlayers = [tryPlayCurrentPlayer === 1 ? 2 : 1];
+                replayStep = 0;
+                replayTotalSteps = 0;
+            } else {
+                tryPlayFromLive = false;
+            }
             tryPlayStep = 0;
             tryPlayTotalSteps = 0;
             const slider = document.getElementById('replaySlider');
@@ -520,12 +557,51 @@ const scoreTitle = document.getElementById('scoreTitle');
             updateReplayUI();
         }
         function exitTryPlay() {
+            // 与公共 exitTryPlay 一致：从直播进入试下的要退回直播局面，而不是走打谱 setReplayStep
+            const fromLive = !!tryPlayFromLive;
+            const savedLiveStep = tryPlayFromLiveStep != null ? tryPlayFromLiveStep : liveViewStep;
+            const snapBoard = fromLive && tryPlayBoards.length > 0 ? deepCopyBoard(tryPlayBoards[0]) : null;
+            const snapMarkers = fromLive && tryPlayMarkers.length > 0 && tryPlayMarkers[0]
+                ? tryPlayMarkers[0].map(m => ({ ...m }))
+                : [];
             tryPlayMode = false;
+            tryPlayFromLive = false;
+            tryPlayFromLiveStep = null;
             tryPlayBoards = []; tryPlayMarkers = [];
             tryPlayStep = 0; tryPlayTotalSteps = 0;
             const slider = document.getElementById('replaySlider');
-            slider.min = 0; slider.max = replayTotalSteps;
-            setReplayStep(tryPlayBaseStep);
+            slider.min = 0;
+            if (fromLive) {
+                replayMode = false;
+                replayBoards = [];
+                replayMarkers = [];
+                replayStepPlayers = [];
+                replayStep = 0;
+                replayTotalSteps = 0;
+                if (snapBoard) {
+                    board = snapBoard;
+                    lastMoveMarkers = snapMarkers;
+                    if (liveReplayBoards.length > 0) {
+                        const step = Math.min(Math.max(0, savedLiveStep), liveReplayBoards.length - 1);
+                        liveReplayBoards[step] = deepCopyBoard(snapBoard);
+                        if (!liveReplayMarkers[step]) liveReplayMarkers[step] = [];
+                        liveReplayMarkers[step] = snapMarkers.map(m => ({ ...m }));
+                        liveViewStep = step;
+                    } else {
+                        liveReplayBoards = [deepCopyBoard(snapBoard)];
+                        liveReplayMarkers = [snapMarkers.map(m => ({ ...m }))];
+                        liveReplayStepPlayers = [0];
+                        liveViewStep = 0;
+                    }
+                } else {
+                    applyLiveViewBoard();
+                }
+                updateLiveReplayPanelUI();
+                updateTurn();
+            } else {
+                slider.max = replayTotalSteps;
+                setReplayStep(tryPlayBaseStep);
+            }
             updateReplayUI();
         }
         function tryPlayMove(row, col) {

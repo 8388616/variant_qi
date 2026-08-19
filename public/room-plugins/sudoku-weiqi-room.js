@@ -792,7 +792,7 @@ window.RoomPlugins['sudoku-weiqi'] = {
                 const { x, y } = cellCenter(padding, cellSize, r, c);
                 ctx.beginPath();
                 ctx.arc(x, y, cellSize * 0.28, 0, 2 * Math.PI);
-                ctx.fillStyle = '#deb887';
+                ctx.fillStyle = '#fdcc90';
                 ctx.fill();
                 ctx.font = `bold ${cellSize * 0.55}px "Segoe UI",sans-serif`;
                 ctx.textAlign = 'center';

@@ -2,7 +2,7 @@ window.RoomPlugins = window.RoomPlugins || {};
 window.RoomPlugins["hexagon-xiangqi"] = {
     shell: {
         title: "六角象棋",
-        rulesHtml: "基本规则同象棋，采用六角棋盘。<br /><br /><strong>帥/將</strong>：走一段边，但不能出十三宮，且不能和对方的將/帥照面。<br /><strong>俥/車</strong>：沿竖向走任意格(可以跨六角形)，或沿斜向走任意段边，路径上不能有其它棋子，。<br /><strong>傌/馬</strong>：走三段边，第一段终点不能有棋子。<br /><strong>炮/砲</strong>：走法同俥/車，但需隔一子吃子。<br /><strong>相/象</strong>：走四段边，其中第一段和第三段的方向必须相同，第二段终点不能有棋子，且不能过河。<br /><strong>仕/士</strong>：走两段边，但不能出十三宮。<br /><strong>兵/卒</strong>: 走一段边，过河前只能向前，过河后可斜向后。<br /><br />",
+        rulesHtml: "基本规则类似象棋，采用六角棋盘。<br /><br /><strong>帥/將</strong>：走一段边，但不能出十三宮，且不能和对方的將/帥照面。<br /><strong>俥/車</strong>：沿竖向走任意格(可以跨六角形)，或沿斜向走任意段边，路径上不能有其它棋子，。<br /><strong>傌/馬</strong>：走三段边，第一段终点不能有棋子。<br /><strong>炮/砲</strong>：走法同俥/車，但需隔一子吃子。<br /><strong>相/象</strong>：走四段边，其中第一段和第三段的方向必须相同，第二段终点不能有棋子，且不能过河。<br /><strong>仕/士</strong>：走两段边，但不能出十三宮。<br /><strong>兵/卒</strong>: 走一段边，过河前只能向前，过河后可斜向后。<br /><br />",
         defaultKomiText: "红先",
         boardSizeMin: 5,
         boardSizeMax: 5,
@@ -586,9 +586,11 @@ return {
         const BOARD_SIZE = 5;
 
         const canvas = document.getElementById('goBoard');
+        const dpr = window.devicePixelRatio || 1;
+        canvas.width = CANVAS_SIZE * dpr;
+        canvas.height = CANVAS_SIZE * dpr;
         const ctx2d = canvas.getContext('2d');
-        canvas.width = CANVAS_SIZE;
-        canvas.height = CANVAS_SIZE;
+        ctx2d.setTransform(dpr, 0, 0, dpr, 0, 0);
 
         const turnDisplay = document.getElementById('turnDisplay');
         const colorStatus = document.getElementById('colorStatus');
@@ -748,7 +750,7 @@ return {
             }
         }
 
-        function drawRoundedHexagon(vertices, radius) {
+        function drawRoundedHexagon(vertices, radius, skipStroke) {
             if (vertices.length !== 6) return;
             const startPoints = [];
             const endPoints = [];
@@ -776,7 +778,7 @@ return {
             ctx2d.lineTo(startPoints[0].x, startPoints[0].y);
             ctx2d.closePath();
             ctx2d.fill();
-            ctx2d.stroke();
+            if (!skipStroke) ctx2d.stroke();
         }
 
         function drawRiverLabels() {
@@ -812,15 +814,13 @@ return {
                 x: FRAME_CENTER + OUTER_HEX_RADIUS * Math.cos(angle),
                 y: FRAME_CENTER + OUTER_HEX_RADIUS * Math.sin(angle)
             }));
-            ctx2d.shadowColor = 'rgba(94,68,38,0.14)';
-            ctx2d.shadowBlur = 14;
-            ctx2d.shadowOffsetY = 6;
-            ctx2d.fillStyle = '#fdcc90';
-            ctx2d.strokeStyle = 'rgba(108,76,46,0.35)';
-            ctx2d.lineWidth = 1;
-            drawRoundedHexagon(outerVerts, FRAME_CORNER_RADIUS);
+            // 木质外框与 weiqi 统一：无阴影、背景 #fdcc90、边线 #3a281c 0.5px
             ctx2d.shadowBlur = 0;
             ctx2d.shadowOffsetY = 0;
+            ctx2d.fillStyle = '#fdcc90';
+            ctx2d.strokeStyle = '#3a281c';
+            ctx2d.lineWidth = 0.5;
+            drawRoundedHexagon(outerVerts, FRAME_CORNER_RADIUS, false);
 
 
             ctx2d.lineWidth = 1.5;

@@ -327,6 +327,23 @@ const scoreTitle = document.getElementById('scoreTitle');
                 const nums = computeStoneNumbers();
                 d.moveNumbersOnStones(ctx, nums, ps.board, ps.BOARD_SIZE, ps.PADDING, cellSize);
             }
+            // 编辑模式悬停预览走公共逻辑（非编辑模式的落子/易位预览由下方自定义块绘制）
+            if (ps.editModeEnabled) {
+                d.hoverPreviewStone(ctx, ps.hoverRow, ps.hoverCol, ps.board, ps.PADDING, cellSize, {
+                    tryPlayMode: ps.tryPlayMode,
+                    tryPlayCurrentPlayer: ps.tryPlayCurrentPlayer,
+                    gameOver: ps.gameOver,
+                    isMyTurn: ps.isMyTurn,
+                    mySlot: ps.mySlot,
+                    isHoverValid: ps.isHoverValid,
+                    hoverCapture: !!ps.hoverCapture,
+                    pageState: ps,
+                    editModeEnabled: true,
+                    editTool: ps.editTool,
+                    holeDisplayStyle: ps.holeDisplayStyle,
+                    boardSize: ps.BOARD_SIZE
+                });
+            }
             if (ps.lastMovePlayerColor !== null) {
                 const strokeColor = ps.lastMovePlayerColor === 1 ? '#ff9900' : '#0099ff';
                 for (const { row, col, frameOnly } of ps.moveHighlightMarkers) {
@@ -496,11 +513,14 @@ const scoreTitle = document.getElementById('scoreTitle');
             if (!ps.replayMode) {
                 const prevTotal = Math.max(0, ps.liveReplayBoards.length - 1);
                 const wasAtEnd = ps.liveFollowLatest || ps.liveViewStep >= prevTotal;
+                // 与公共逻辑一致：已有着手时不得把当前盘面当开局重放——
+                // 否则被提掉的子所在空位会重新落子，产生"幽灵提子"（被提子仍参与后续提子判断）
+                const hasMoves = !!(state.moveCoords && state.moveCoords.length);
                 rebuildLiveReplayCore(
                     state.moveCoords || [],
                     (typeof QiWeiqiSquarePageRuntime !== 'undefined' && QiWeiqiSquarePageRuntime.pickRichestBoard)
-                        ? QiWeiqiSquarePageRuntime.pickRichestBoard(ps.liveOpeningBoard, state.initialBoard, state.board)
-                        : (ps.liveOpeningBoard || state.initialBoard || state.board)
+                        ? QiWeiqiSquarePageRuntime.pickRichestBoard(ps.liveOpeningBoard, state.initialBoard, hasMoves ? null : state.board)
+                        : (ps.liveOpeningBoard || state.initialBoard || (hasMoves ? null : state.board))
                 );
                 const newTotal = Math.max(0, ps.liveReplayBoards.length - 1);
                 if (newTotal === 0) {
@@ -648,56 +668,12 @@ const scoreTitle = document.getElementById('scoreTitle');
             else drawBoardImpl();
         }
 
-        function enterTryPlayImpl() {
-            page.clearMobileMovePreview();
-            ps.tryPlayMode = true;
-            ps.tryPlayBaseStep = ps.replayStep;
-            ps.tryPlayBoards = [C().deepCopyBoard(ps.board)];
-            ps.tryPlayMarkers = [ps.lastMoveMarkers.map(m => ({ ...m }))];
+        /** 试下进入/退出框架走公共 QiWeiqiSquarePageRuntime 逻辑；这里只补易位专属状态 */
+        function initTryPlayExtraState() {
             ps.tryPlayHighlights = [ps.moveHighlightMarkers.map(m => ({ ...m }))];
             ps.tryPlayMovePlayerColors = [ps.lastMovePlayerColor];
             ps.tryPlayPlyCount = 0;
             ps.tryPlaySelectedPiece = null;
-            const _fromLive = !ps.replayMode;
-                const _RT = typeof QiWeiqiSquarePageRuntime !== 'undefined' ? QiWeiqiSquarePageRuntime : null;
-                ps.tryPlayCurrentPlayer = _RT && _RT.resolveTryPlaySideToMove
-                    ? _RT.resolveTryPlaySideToMove({
-                        fromLive: _fromLive,
-                        replayStep: ps.replayStep,
-                        replayStepPlayers: ps.replayStepPlayers,
-                        liveViewStep: ps.liveViewStep,
-                        liveReplayStepPlayers: ps.liveReplayStepPlayers,
-                        liveReplayBoardsLength: (ps.liveReplayBoards && ps.liveReplayBoards.length) || 0,
-                        currentPlayer: ps.currentPlayer
-                    })
-                    : (ps.replayStep > 0 ? (3 - ps.replayStepPlayers[ps.replayStep]) : ((ps.currentPlayer === 1 || ps.currentPlayer === 2) ? ps.currentPlayer : 1));
-                ps.tryPlayBasePlayer = ps.tryPlayCurrentPlayer;
-            ps.tryPlayStep = 0;
-            ps.tryPlayTotalSteps = 0;
-            const slider = document.getElementById('replaySlider');
-            slider.min = 0;
-            slider.max = 0;
-            slider.value = 0;
-            updateTryPlayDisplayImpl();
-            page.updateReplayUI();
-        }
-
-        function exitTryPlayImpl() {
-            page.clearMobileMovePreview();
-            ps.tryPlayMode = false;
-            ps.tryPlayBoards = [];
-            ps.tryPlayMarkers = [];
-            ps.tryPlayHighlights = [];
-            ps.tryPlayMovePlayerColors = [];
-            ps.tryPlayStep = 0;
-            ps.tryPlayTotalSteps = 0;
-            ps.tryPlayPlyCount = 0;
-            ps.tryPlaySelectedPiece = null;
-            const slider = document.getElementById('replaySlider');
-            slider.min = 0;
-            slider.max = ps.replayTotalSteps;
-            page.setReplayStep(ps.tryPlayBaseStep);
-            page.updateReplayUI();
         }
 
         function tryPlayCanSwap() {
@@ -816,8 +792,15 @@ const scoreTitle = document.getElementById('scoreTitle');
             enterReplayMode: enterReplayModeImpl,
             exitReplayMode: exitReplayModeImpl,
             setReplayStep: setReplayStepImpl,
-            enterTryPlay: enterTryPlayImpl,
-            exitTryPlay: exitTryPlayImpl,
+            // 试下框架（进入/退出/从直播挂载 replayMode 脚手架）走公共逻辑，
+            // 易位只通过钩子补专属状态（易位高亮/易位次数/选中子）
+            onEnterTryPlay: initTryPlayExtraState,
+            onExitTryPlay: () => {
+                ps.tryPlayHighlights = [];
+                ps.tryPlayMovePlayerColors = [];
+                ps.tryPlayPlyCount = 0;
+                ps.tryPlaySelectedPiece = null;
+            },
             setTryPlayStep: setTryPlayStepImpl,
             updateTryPlayDisplay: updateTryPlayDisplayImpl
         });

@@ -504,6 +504,9 @@ return {
 class JanggiRoom extends QiTwoPlayerRoomBase {
     constructor(room) {
         super(room);
+        this.editBoardAllowedValues = ['', 'rk', 'ra', 're', 'rn', 'rr', 'rc', 'rp', 'bk', 'ba', 'be', 'bn', 'br', 'bc', 'bp'];
+        this.boardRows = R.BOARD_H;
+        this.boardCols = R.BOARD_W;
         this.resetToEmpty();
     }
 
@@ -853,7 +856,25 @@ class JanggiRoom extends QiTwoPlayerRoomBase {
         return { ok: true, gaveCheck, captured: !!captured };
     }
 
+    /** 行棋方无楚/漢：直接判负（编辑盘面可能出现；吃王后下一回合也由此触发） */
+    _resolveTurnStartLoss() {
+        if (this.gameOver) return false;
+        const side = this.sideToMove;
+        if (R.findKing(this.board, side) == null) {
+            const winnerSlot = R.slotFromSide(R.oppositeSide(side));
+            this._endGame(winnerSlot, side === 'red' ? '红方无楚蓝胜' : '蓝方无漢红胜');
+            return true;
+        }
+        return false;
+    }
+
+    /** 开局（时间协商完成/双方入座即开始）时判定：编辑盘面某方无楚/漢则直接判负 */
+    onMatchStarted() {
+        this._resolveTurnStartLoss();
+    }
+
     _resolveAfterMove() {
+        if (this._resolveTurnStartLoss()) return;
         const side = this.sideToMove;
         const inCheck = R.isInCheck(this.board, side);
         const canMove = R.hasLegalMove(this.board, side);

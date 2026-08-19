@@ -213,6 +213,7 @@ window.RoomPlugins["hexagon-weiqi"] = {
         let slots = { black: false, white: false };
         let matchStarted = false;
         let matchStartedOnce = false;
+        let matchTime = null;
         let reconnectTimer = null;
 
         let replayMode = false;
@@ -234,6 +235,8 @@ window.RoomPlugins["hexagon-weiqi"] = {
         let tryPlayCurrentPlayer = 1;
         let tryPlayStep = 0;
         let tryPlayTotalSteps = 0;
+        let tryPlayFromLive = false;
+        let tryPlayFromLiveStep = null;
 
         let liveReplayBoards = [];
         let liveReplayMarkers = [];
@@ -254,7 +257,11 @@ window.RoomPlugins["hexagon-weiqi"] = {
 
         // DOM
         const canvas = document.getElementById('goBoard');
+        const dpr = window.devicePixelRatio || 1;
+        canvas.width = 600 * dpr;
+        canvas.height = 600 * dpr;
         const ctx = canvas.getContext('2d');
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
         const turnDisplay = document.getElementById('turnDisplay');
         const colorStatus = document.getElementById('colorStatus');
 const scoreTitle = document.getElementById('scoreTitle');
@@ -536,7 +543,7 @@ const scoreTitle = document.getElementById('scoreTitle');
         }
 
         // ======================== 绘制函数 ========================
-        function drawRoundedHexagon(ctx, vertices, radius) {
+        function drawRoundedHexagon(ctx, vertices, radius, skipStroke) {
             if (vertices.length !== 6) return;
             const startPoints = [];
             const endPoints = [];
@@ -564,7 +571,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             ctx.lineTo(startPoints[0].x, startPoints[0].y);
             ctx.closePath();
             ctx.fill();
-            ctx.stroke();
+            if (!skipStroke) ctx.stroke();
         }
 
         function drawEstimateOverlay(liveBoard, territory) {
@@ -593,15 +600,13 @@ const scoreTitle = document.getElementById('scoreTitle');
                 x: FRAME_CENTER + OUTER_HEX_RADIUS * Math.cos(angle),
                 y: FRAME_CENTER + OUTER_HEX_RADIUS * Math.sin(angle)
             }));
-            ctx.shadowColor = 'rgba(0,0,0,0.5)';
-            ctx.shadowBlur = 15;
-            ctx.shadowOffsetY = 5;
-            ctx.fillStyle = '#edbc80';
-            ctx.strokeStyle = '#6b4a2e';
-            ctx.lineWidth = 1;
-            drawRoundedHexagon(ctx, outerVerts, FRAME_CORNER_RADIUS);
+            // 木质外框与 weiqi 统一：无阴影、背景 #fdcc90、边线 #3a281c 0.5px
             ctx.shadowBlur = 0;
             ctx.shadowOffsetY = 0;
+            ctx.fillStyle = '#fdcc90';
+            ctx.strokeStyle = '#3a281c';
+            ctx.lineWidth = 0.5;
+            drawRoundedHexagon(ctx, outerVerts, FRAME_CORNER_RADIUS, false);
             ctx.lineWidth = 1.5;
             ctx.strokeStyle = '#3a281c';
             ctx.lineJoin = 'miter';
@@ -699,7 +704,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                 const markBgR = cellSize * 0.3;
                 ctx.beginPath();
                 ctx.arc(x, y, markBgR, 0, 2 * Math.PI);
-                ctx.fillStyle = '#edbc80';
+                ctx.fillStyle = '#fdcc90';
                 ctx.fill();
                 const fontPx = cellSize * (ch === '🚩' ? 0.6 : 0.66);
                 ctx.font = `bold ${fontPx}px "Segoe UI", "Apple Color Emoji", "Segoe UI Emoji", sans-serif`;
@@ -708,12 +713,14 @@ const scoreTitle = document.getElementById('scoreTitle');
                 ctx.fillStyle = '#3a281c';
                 ctx.fillText(ch, x, y + 1);
             }
-            const editing = !!(typeof _editPs !== 'undefined' && _editPs && _editPs.editModeEnabled);
+            const editCb = document.getElementById('editModeCheckbox');
+            const editSel = document.getElementById('editToolSelect');
+            const editing = !!(editCb && editCb.checked);
             const canHover = editing || tryPlayMode || (!gameOver && isMyTurn);
             if ((isMouseDevice || mobileTwoStepPlacing()) && canHover && isHoverValid && hoverVertex >= 0 && (editing || board[hoverVertex] === 0)) {
                 let hoverColor = null;
                 if (editing) {
-                    const t = _editPs.editTool;
+                    const t = (editSel && editSel.value) || 'empty';
                     if (t === 'white') hoverColor = '#fff';
                     else if (t === 'black') hoverColor = '#222';
                     else if (t !== 'empty') hoverColor = '#666';
@@ -977,6 +984,20 @@ const scoreTitle = document.getElementById('scoreTitle');
                 : (replayStep > 0 ? (3 - replayStepPlayers[replayStep]) : ((currentPlayer === 1 || currentPlayer === 2) ? currentPlayer : 1));
             tryPlayBasePlayer = _startPlayer;
             tryPlayCurrentPlayer = _startPlayer;
+            // 与公共 enterTryPlay 一致：从直播局面进入试下时挂 replayMode 脚手架。
+            // 点击/绘制均以 replayMode && tryPlayMode 判断，缺了它试下点击无反应
+            if (_fromLive) {
+                tryPlayFromLive = true;
+                tryPlayFromLiveStep = liveViewStep || 0;
+                replayMode = true;
+                replayBoards = [deepCopyBoard(board)];
+                replayMarkers = [(lastMoveMarkers || []).map(m => ({ ...m }))];
+                replayStepPlayers = [tryPlayCurrentPlayer === 1 ? 2 : 1];
+                replayStep = 0;
+                replayTotalSteps = 0;
+            } else {
+                tryPlayFromLive = false;
+            }
             tryPlayStep = 0;
             tryPlayTotalSteps = 0;
 
@@ -990,7 +1011,16 @@ const scoreTitle = document.getElementById('scoreTitle');
 
         function exitTryPlay() {
             clearMobileMovePreview();
+            // 与公共 exitTryPlay 一致：从直播进入试下的要退回直播局面，而不是走打谱 setReplayStep
+            const fromLive = !!tryPlayFromLive;
+            const savedLiveStep = tryPlayFromLiveStep != null ? tryPlayFromLiveStep : liveViewStep;
+            const snapBoard = fromLive && tryPlayBoards.length > 0 ? deepCopyBoard(tryPlayBoards[0]) : null;
+            const snapMarkers = fromLive && tryPlayMarkers.length > 0 && tryPlayMarkers[0]
+                ? tryPlayMarkers[0].map(m => ({ ...m }))
+                : [];
             tryPlayMode = false;
+            tryPlayFromLive = false;
+            tryPlayFromLiveStep = null;
             tryPlayBoards = [];
             tryPlayMarkers = [];
             tryPlayStep = 0;
@@ -998,8 +1028,37 @@ const scoreTitle = document.getElementById('scoreTitle');
 
             const slider = document.getElementById('replaySlider');
             slider.min = 0;
-            slider.max = replayTotalSteps;
-            setReplayStep(tryPlayBaseStep);
+            if (fromLive) {
+                replayMode = false;
+                replayBoards = [];
+                replayMarkers = [];
+                replayStepPlayers = [];
+                replayStep = 0;
+                replayTotalSteps = 0;
+                if (snapBoard) {
+                    board = snapBoard;
+                    lastMoveMarkers = snapMarkers;
+                    if (liveReplayBoards.length > 0) {
+                        const step = Math.min(Math.max(0, savedLiveStep), liveReplayBoards.length - 1);
+                        liveReplayBoards[step] = deepCopyBoard(snapBoard);
+                        if (!liveReplayMarkers[step]) liveReplayMarkers[step] = [];
+                        liveReplayMarkers[step] = snapMarkers.map(m => ({ ...m }));
+                        liveViewStep = step;
+                    } else {
+                        liveReplayBoards = [deepCopyBoard(snapBoard)];
+                        liveReplayMarkers = [snapMarkers.map(m => ({ ...m }))];
+                        liveReplayStepPlayers = [0];
+                        liveViewStep = 0;
+                    }
+                } else {
+                    applyLiveViewBoard();
+                }
+                updateLiveReplayPanelUI();
+                updateTurn();
+            } else {
+                slider.max = replayTotalSteps;
+                setReplayStep(tryPlayBaseStep);
+            }
             updateReplayUI();
         }
 
@@ -1337,7 +1396,33 @@ komiInfo,
             return true;
         }
 
+        /** 木质外框六边形顶点（与 drawBoard 中 outerVerts 一致），用于棋盘内点击判定 */
+        function outerFrameVerts() {
+            return [0, 60, 120, 180, 240, 300].map(deg => {
+                const a = deg * Math.PI / 180;
+                return {
+                    x: FRAME_CENTER + OUTER_HEX_RADIUS * Math.cos(a),
+                    y: FRAME_CENTER + OUTER_HEX_RADIUS * Math.sin(a)
+                };
+            });
+        }
+
+        /** 点在多边形内判定（ray casting，顶点按 {x,y} 数组） */
+        function pointInPolygon(px, py, verts) {
+            let inside = false;
+            for (let i = 0, j = verts.length - 1; i < verts.length; j = i++) {
+                const xi = verts[i].x, yi = verts[i].y;
+                const xj = verts[j].x, yj = verts[j].y;
+                if (((yi > py) !== (yj > py)) && (px < (xj - xi) * (py - yi) / (yj - yi) + xi)) {
+                    inside = !inside;
+                }
+            }
+            return inside;
+        }
+
         function getNearestVertex(x, y) {
+            // 点在六边形棋盘之外时无效：避免正方形画布内的外部点击吸附到邻近顶点
+            if (!pointInPolygon(x, y, outerFrameVerts())) return -1;
             let minDist = Infinity, best = -1;
             for (let v = 0; v < V; v++) {
                 const { x: vx, y: vy } = transformed[v];

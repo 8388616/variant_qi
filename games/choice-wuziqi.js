@@ -1,4 +1,4 @@
-﻿const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWuziqiRules, qiBoardSeatOverlay } = require('../common');
+const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWuziqiRules, qiBoardSeatOverlay } = require('../common');
 class ChoiceWuziqiRoom extends QiTwoPlayerRoomBase {
     constructor(room) {
         super(room);

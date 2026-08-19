@@ -118,7 +118,7 @@ class RusWeiqiRoom extends QiTwoPlayerRoomBase {
         this.slotJoinedAt[slot] = Date.now();
         this._maybeBeginTimeNegotiation();
         // selectColor 在 afterColorAssigned 之前已 sendState，该快照尚无 tcNego。
-        // 再广播一次 gameState，使所有客户端通过 matchTime.negotiation 打开限时对话框（与 ukrainian-weiqi 在 requestComputerOpponent 中的做法一致）。
+        // 再广播一次 gameState，使所有客户端通过 matchTime.negotiation 打开限时对话框。
         if (this.room.getPlayerBySlot('black') && this.room.getPlayerBySlot('white')) {
             this.broadcast({ type: 'gameState', ...this.getState() });
         }

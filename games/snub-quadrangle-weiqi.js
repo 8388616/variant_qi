@@ -5,6 +5,15 @@ function komiForLanes(lanes) {
 }
 
 class SnubQuadrangleWeiqiRoom extends QiTwoPlayerRoomBase {
+    /** GTP 路数 = 网格边长 = 3×lanes−2（与 katagos/snub-quadrangle-weiqi 引擎的 boardsize 协议一致） */
+    get boardSize() {
+        return 3 * this.boardLanes - 2;
+    }
+    set boardSize(v) {
+        const lanes = Math.round((Number(v) + 2) / 3);
+        if (Number.isFinite(lanes) && lanes >= 2 && lanes <= 8) this.setBoardSize(lanes);
+    }
+
     constructor(room, initialLanes = 7) {
         super(room);
         this.boardLanes = initialLanes;
@@ -232,13 +241,20 @@ class SnubQuadrangleWeiqiRoom extends QiTwoPlayerRoomBase {
         this.gridW = w;
         this.gridH = h;
         this.board = Array(w).fill().map(() => Array(h).fill(-1));
-        if (this.openingBoard === undefined) this.openingBoard = (typeof this.copyBoard === 'function' ? this.copyBoard(this.board) : (Array.isArray(this.board[0]) ? this.board.map(r => r.slice()) : this.board.slice()));
+        let validCount = 0;
         for (let r = 0; r < w; r++) {
             for (let c = 0; c < h; c++) {
-                if (SnubQuadrangleWeiqiRoom.isValidVertex(r, c, w, h))
+                if (SnubQuadrangleWeiqiRoom.isValidVertex(r, c, w, h)) {
                     this.board[r][c] = 0;
+                    validCount++;
+                }
             }
         }
+        // 实际有效格点数（客户端默认对局时间按此计算）
+        this.vertexCount = validCount;
+        // 开局盘必须在有效格置 0 之后拷贝，否则 openingBoard 全 -1，
+        // 客户端以其为直播重放起点，整盘都是 -1，任何落子都被判非法（首局无法落子）
+        if (this.openingBoard === undefined) this.openingBoard = (typeof this.copyBoard === 'function' ? this.copyBoard(this.board) : (Array.isArray(this.board[0]) ? this.board.map(r => r.slice()) : this.board.slice()));
     }
 
     static gridDims(lanes) {
@@ -361,6 +377,7 @@ class SnubQuadrangleWeiqiRoom extends QiTwoPlayerRoomBase {
     getState() {
         return {
             boardLanes: this.boardLanes,
+            vertexCount: this.vertexCount,
             gridWidth: this.gridW,
             gridHeight: this.gridH,
             komi: komiForLanes(this.boardLanes),

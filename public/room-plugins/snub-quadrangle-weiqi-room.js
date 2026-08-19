@@ -142,7 +142,11 @@ const Snub = {
 
         // DOM
         const canvas = document.getElementById('goBoard');
+        const dpr = window.devicePixelRatio || 1;
+        canvas.width = 600 * dpr;
+        canvas.height = 600 * dpr;
         const ctx = canvas.getContext('2d');
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
         const turnDisplay = document.getElementById('turnDisplay');
         const colorStatus = document.getElementById('colorStatus');
 const scoreTitle = document.getElementById('scoreTitle');
@@ -497,10 +501,55 @@ const scoreTitle = document.getElementById('scoreTitle');
             return { pos, edgePath };
         }
 
+        /** 应用棋盘路数与尺寸：更新布局、棋盘与贴目。 */
+        function updateKomiInfo() {
+            const el = document.getElementById('komiInfo');
+            if (el) el.textContent = '黑贴白' + KOMI + '点';
+        }
+
+        function applyBoardDimensions(lanes, w, h) {
+            BOARD_LANES = lanes;
+            KOMI = komiForLanes(lanes);
+            GRID_W = w;
+            GRID_H = h;
+            board = initGridBoard();
+            rebuildLayout();
+            updateKomiInfo();
+        }
+
+        let coordLabelPos = null;
+        function computeCoordLabelPos() {
+            const gw = GRID_W, gh = GRID_H;
+            const colX = [], rowY = [];
+            for (let c = 0; c < gh; c++) {
+                let topX = Infinity, topY = Infinity;
+                for (let r = 0; r < gw; r++) {
+                    if (!Snub.isValidVertex(r, c, gw, gh)) continue;
+                    const pt = vertexPos.get(`${r},${c}`);
+                    if (!pt) continue;
+                    if (pt.y < topY) { topY = pt.y; topX = pt.x; }
+                }
+                colX.push(isFinite(topX) ? topX : null);
+            }
+            for (let r = 0; r < gw; r++) {
+                let leftX = Infinity, leftY = Infinity;
+                for (let c = 0; c < gh; c++) {
+                    if (!Snub.isValidVertex(r, c, gw, gh)) continue;
+                    const pt = vertexPos.get(`${r},${c}`);
+                    if (!pt) continue;
+                    if (pt.x < leftX) { leftX = pt.x; leftY = pt.y; }
+                }
+                rowY.push(isFinite(leftY) ? leftY : null);
+            }
+            return { colX, rowY };
+        }
+
         function rebuildLayout() {
             const built = buildVertexLayout(BOARD_LANES);
             vertexPos = built.pos;
             boardEdgePath = built.edgePath;
+            coordLabelPos = computeCoordLabelPos();
+            rebuildGridLayer();
         }
 
         function scheduleHoverDraw() {
@@ -516,6 +565,84 @@ const scoreTitle = document.getElementById('scoreTitle');
             return vertexPos.get(`${row},${col}`) || { x: 0, y: 0 };
         }
 
+        /** 坐标标签：行号 1..H 在左侧（同一竖直线），列字母在上方（同一水平线），与 VariantQi 一致。 */
+        function drawCoordsTo(tctx) {
+            if (!coordLabelPos) return;
+            const gw = GRID_W, gh = GRID_H;
+            tctx.font = `bold ${Math.max(9, Math.round(170 / gw))}px Arial`;
+            tctx.fillStyle = '#3a281c';
+            tctx.textAlign = 'center';
+            tctx.textBaseline = 'middle';
+            const pad = 60 - 5 * BOARD_LANES;
+            const labelX = 0.5 * pad;   // 行号统一 x
+            const labelY = 0.6 * pad;   // 列字母统一 y
+            for (let c = 0; c < gh; c++) {
+                const topX = coordLabelPos.colX[c];
+                if (topX == null) continue;
+                let letter = String.fromCharCode(65 + (gw - 1 - c));
+                if (gw - 1 - c >= 26) letter = String.fromCharCode(64 + Math.floor((gw - 1 - c) / 26)) + String.fromCharCode(65 + (gw - 1 - c) % 26);
+                tctx.fillText(letter, topX, labelY);
+            }
+            for (let r = 0; r < gw; r++) {
+                const leftY = coordLabelPos.rowY[r];
+                if (leftY == null) continue;
+                tctx.fillText((r + 1).toString(), labelX, leftY);
+            }
+        }
+
+        /** 棋子离屏 sprite 缓存：阴影 + 渐变只绘制一次，重绘时直接 drawImage（大幅提速）。 */
+        let stoneSpriteCache = Object.create(null);
+        function getStoneSprite(color, r) {
+            const key = color + '_' + r.toFixed(2);
+            if (stoneSpriteCache[key]) return stoneSpriteCache[key];
+            const size = Math.ceil(r * 2 + 10);
+            const c = document.createElement('canvas');
+            c.width = c.height = size;
+            const g = c.getContext('2d');
+            const cx = size / 2, cy = size / 2;
+            g.shadowBlur = 6;
+            g.shadowColor = 'rgba(0,0,0,0.5)';
+            g.shadowOffsetY = 2;
+            const grad = g.createRadialGradient(cx - 3, cy - 3, r * 0.2, cx, cy, r * 1.2);
+            if (color === 1) {
+                grad.addColorStop(0, '#444');
+                grad.addColorStop(0.6, '#222');
+                grad.addColorStop(1, '#111');
+            } else {
+                grad.addColorStop(0, '#fff');
+                grad.addColorStop(0.5, '#eee');
+                grad.addColorStop(1, '#aaa');
+            }
+            g.beginPath();
+            g.arc(cx, cy, r, 0, 2 * Math.PI);
+            g.fillStyle = grad;
+            g.fill();
+            g.shadowBlur = 0;
+            g.shadowOffsetY = 0;
+            g.beginPath();
+            g.arc(cx - 3, cy - 3, r * 0.15, 0, 2 * Math.PI);
+            g.fillStyle = color === 1 ? '#444' : '#fff';
+            g.fill();
+            stoneSpriteCache[key] = c;
+            return c;
+        }
+
+        /** 格线 + 坐标静态层：布局不变时合成一次，重绘直接 drawImage（大幅提速）。 */
+        let gridLayerCanvas = null;
+        function rebuildGridLayer() {
+            const dpr = window.devicePixelRatio || 1;
+            const c = document.createElement('canvas');
+            c.width = 600 * dpr;
+            c.height = 600 * dpr;
+            const g = c.getContext('2d');
+            g.setTransform(dpr, 0, 0, dpr, 0, 0);
+            g.lineWidth = 1.5;
+            g.strokeStyle = '#3a281c';
+            if (boardEdgePath) g.stroke(boardEdgePath);
+            drawCoordsTo(g);
+            gridLayerCanvas = c;
+        }
+
         function drawBoard() {
             if (!vertexPos || vertexPos.size === 0) rebuildLayout();
             ctx.clearRect(0, 0, 600, 600);
@@ -523,8 +650,11 @@ const scoreTitle = document.getElementById('scoreTitle');
             const gw = GRID_W, gh = GRID_H;
             ctx.lineWidth = 1.5;
             ctx.strokeStyle = '#3a281c';
-            if (boardEdgePath) {
+            if (gridLayerCanvas) {
+                ctx.drawImage(gridLayerCanvas, 0, 0, 600, 600);
+            } else if (boardEdgePath) {
                 ctx.stroke(boardEdgePath);
+                drawCoordsTo(ctx);
             }
 
             const markLenDefault = stoneR * 0.8;
@@ -542,30 +672,14 @@ const scoreTitle = document.getElementById('scoreTitle');
                 }
             }
 
+            const spriteCache = getStoneSprite;
             for (let r = 0; r < gw; r++) {
                 for (let c = 0; c < gh; c++) {
                     const val = board[r][c];
                     if (val !== 1 && val !== 2) continue;
                     const { x, y } = pixelAt(r, c);
-                    ctx.save();
-                    ctx.shadowBlur = 5;
-                    ctx.shadowColor = 'rgba(0,0,0,0.45)';
-                    ctx.shadowOffsetY = 2;
-                    const grad = ctx.createRadialGradient(x - 2, y - 2, stoneR * 0.2, x, y, stoneR * 1.15);
-                    if (val === 1) {
-                        grad.addColorStop(0, '#444');
-                        grad.addColorStop(0.6, '#222');
-                        grad.addColorStop(1, '#111');
-                    } else {
-                        grad.addColorStop(0, '#fff');
-                        grad.addColorStop(0.5, '#eee');
-                        grad.addColorStop(1, '#aaa');
-                    }
-                    ctx.beginPath();
-                    ctx.arc(x, y, stoneR, 0, 2 * Math.PI);
-                    ctx.fillStyle = grad;
-                    ctx.fill();
-                    ctx.restore();
+                    const sp = spriteCache(val, stoneR);
+                    ctx.drawImage(sp, x - sp.width / 2, y - sp.height / 2);
                     if (!showMoveNumbers) {
                         ctx.beginPath();
                         ctx.arc(x - 2, y - 2, stoneR * 0.18, 0, 2 * Math.PI);
@@ -596,7 +710,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                 const markBgR = stoneR * 0.56;
                 ctx.beginPath();
                 ctx.arc(x, y, markBgR, 0, 2 * Math.PI);
-                ctx.fillStyle = '#deb887';
+                ctx.fillStyle = '#fdcc90';
                 ctx.fill();
                 const fontPx = stoneR * (ch === '🚩' ? 1.2 : 1.32);
                 ctx.font = `bold ${fontPx}px "Segoe UI", "Apple Color Emoji", "Segoe UI Emoji", sans-serif`;
@@ -622,12 +736,14 @@ const scoreTitle = document.getElementById('scoreTitle');
                     }
                 }
             }
-            const editing = !!(typeof _editPs !== 'undefined' && _editPs && _editPs.editModeEnabled);
+            const editCb = document.getElementById('editModeCheckbox');
+            const editSel = document.getElementById('editToolSelect');
+            const editing = !!(editCb && editCb.checked);
             const canHover = editing || tryPlayMode || (!gameOver && isMyTurn);
             if (canHover && isHoverValid && hoverRow >= 0 && hoverCol >= 0 && (editing || board[hoverRow][hoverCol] === 0)) {
                 let hoverColor = null;
                 if (editing) {
-                    const t = _editPs.editTool;
+                    const t = (editSel && editSel.value) || 'empty';
                     if (t === 'white') hoverColor = '#fff';
                     else if (t === 'black') hoverColor = '#222';
                     else if (t !== 'empty') hoverColor = '#666';
@@ -1211,6 +1327,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             roomId,
             gameType,
             pageState: {
+                get board() { return board; },
                 get mySlot() { return mySlot; },
                 set mySlot(v) { mySlot = v; },
                 get slots() { return slots; },

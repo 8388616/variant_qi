@@ -4,11 +4,15 @@ const express_rate_limit = require("express-rate-limit");
 const fs = require('fs');
 const http = require('http');
 const path = require('path');
+const zlib = require('zlib');
 const ws = require('ws');
+const { isKatagoAvailable } = require('./katago-gtp');
+const { attachToRoom: attachKatagoOpponent } = require('./qi-katago-opponent');
 
 const Express = express();
 Express.set("trust proxy", "127.0.0.1");
 const PORT = 3100;
+const PUBLIC_ROOT = path.resolve(__dirname, 'public');
 
 Express.use(express.json());
 const ExpressRateLimit = express_rate_limit({
@@ -55,15 +59,6 @@ let chatMessages = loadChatMessages();
 /** 有 room-plugins/{id}-room.js 则走统一房间页（按文件探测，无需改白名单/重启） */
 function usesRoomShell(gameId) {
     return fs.existsSync(path.join(__dirname, 'public', 'room-plugins', `${gameId}-room.js`));
-}
-
-function findGameAiScriptPath(gameId) {
-    const fileName = `${gameId}-ai.js`;
-    const flat = path.join(__dirname, 'games', fileName);
-    if (fs.existsSync(flat)) return flat;
-    const publicAi = path.join(__dirname, 'public', fileName);
-    if (fs.existsSync(publicAi)) return publicAi;
-    return null;
 }
 
 /** 房间逻辑：games/{id}.js（部署约定） */
@@ -328,15 +323,17 @@ Express.post('/qi/create', (request, response) => {
             delete rooms[game][roomId];
             return response.json({ success: false, error: '游戏模块不存在' });
         }
+        // 每次创建房间都重新 require：文件更新立即生效（不做 mtime 缓存）
         try {
             delete require.cache[require.resolve(gameModulePath)];
         }
-        catch (error) {
-        }
+        catch (error) { /* ignore */ }
 
         try {
             const gameModule = require(gameModulePath);
             gameModule.initRoom(room);
+            // 公共人机：有 katagos/{gameId}/{katago,model.bin.gz,gtp.cfg} 则挂载
+            try { attachKatagoOpponent(room); } catch (e) { console.error('挂载 KataGo 人机失败', e); }
         }
         catch (error) {
             console.error(`加载游戏模块 ${game} 失败:`, error);
@@ -390,64 +387,127 @@ Express.get('/qi/rooms', (request, response) => {
     }
 });
 
-function sendPublicOrRoot(response, fileName) {
-    const inPublic = path.join(__dirname, 'public', fileName);
-    if (fs.existsSync(inPublic)) return response.sendFile(inPublic);
-    const inRoot = path.join(__dirname, fileName);
-    if (fs.existsSync(inRoot)) return response.sendFile(inRoot);
-    return response.status(404).send('Not found');
+/** 仅允许发送 public/ 内文件（realpath 校验，禁止穿越到 katagos 等目录） */
+function resolveUnderPublic(relPath) {
+    if (typeof relPath !== 'string' || !relPath) return null;
+    if (path.isAbsolute(relPath)) return null;
+    if (relPath.includes('\0')) return null;
+    const abs = path.resolve(PUBLIC_ROOT, relPath);
+    if (abs !== PUBLIC_ROOT && !abs.startsWith(PUBLIC_ROOT + path.sep)) return null;
+    try {
+        if (!fs.existsSync(abs)) return null;
+        const real = fs.realpathSync(abs);
+        if (real !== PUBLIC_ROOT && !real.startsWith(PUBLIC_ROOT + path.sep)) return null;
+        return real;
+    } catch (_) {
+        return null;
+    }
 }
 
-Express.get("/qi", (request, response) => sendPublicOrRoot(response, "qi.html"));
-Express.get("/qi/qi.css", (request, response) => sendPublicOrRoot(response, "qi.css"));
-Express.get("/qi/qi.js", (request, response) => sendPublicOrRoot(response, "qi.js"));
-function sendCachedPublic(response, absPath, maxAgeSec) {
-    response.setHeader('Cache-Control', 'public, max-age=' + maxAgeSec);
-    return response.sendFile(absPath);
+/** 已压缩格式（woff2/woff/ttf/图片等）不再二次 gzip */
+const GZIP_SKIP_EXT = new Set(['.woff2', '.woff', '.ttf', '.png', '.jpg', '.jpeg', '.gif', '.webp', '.ico', '.svg']);
+
+const GZIP_MIME = {
+    '.js': 'application/javascript; charset=utf-8',
+    '.css': 'text/css; charset=utf-8',
+    '.html': 'text/html; charset=utf-8',
+    '.csv': 'text/csv; charset=utf-8',
+    '.json': 'application/json; charset=utf-8'
+};
+
+/** 压缩结果不缓存：每次请求现读现压，保证文件更新后立即生效（gzipSync 仅几十毫秒，可接受） */
+function getGzipped(realPath) {
+    return zlib.gzipSync(fs.readFileSync(realPath));
 }
+
+/** public/ 下文件 gzip 发送（relPath 仍走 resolveUnderPublic 白名单校验；HTML 也压缩，不影响"每次拿最新"） */
+function sendPublicFile(response, relPath) {
+    const abs = resolveUnderPublic(relPath);
+    if (!abs) return response.status(404).send('Not found');
+    const ext = path.extname(abs).toLowerCase();
+    if (GZIP_SKIP_EXT.has(ext)) return response.sendFile(abs);
+    let buf;
+    try {
+        buf = getGzipped(abs);
+    } catch (_) {
+        return response.status(404).send('Not found');
+    }
+    response.setHeader('Content-Type', GZIP_MIME[ext] || 'application/octet-stream');
+    response.setHeader('Content-Encoding', 'gzip');
+    return response.send(buf);
+}
+
+/** 静态文件发送：不做任何浏览器缓存（不设 Cache-Control），保证更新立即生效。
+ * 仅保留 gzip 压缩减少 1Mbps 带宽下的传输量；每次请求现读现压。 */
+function sendCachedPublic(response, absPath) {
+    let real;
+    try {
+        real = fs.realpathSync(absPath);
+    } catch (_) {
+        return response.status(404).send('Not found');
+    }
+    if (real !== PUBLIC_ROOT && !real.startsWith(PUBLIC_ROOT + path.sep)) {
+        return response.status(404).send('Not found');
+    }
+    const ext = path.extname(real).toLowerCase();
+    if (GZIP_SKIP_EXT.has(ext)) {
+        return response.sendFile(real);
+    }
+    let buf;
+    try {
+        buf = getGzipped(real);
+    } catch (_) {
+        return response.status(404).send('Not found');
+    }
+    response.setHeader('Content-Type', GZIP_MIME[ext] || 'application/octet-stream');
+    response.setHeader('Content-Encoding', 'gzip');
+    return response.send(buf);
+}
+
+/** 仅返回是否可用，不暴露 katagos 路径或文件内容 */
+Express.get('/qi/katago-available', (request, response) => {
+    try {
+        const game = request.query.game;
+        if (!game || !/^[a-zA-Z0-9_-]+$/.test(String(game))) {
+            return response.json({ available: false });
+        }
+        return response.json({ available: isKatagoAvailable(String(game)) });
+    } catch (error) {
+        console.error(error);
+        return response.json({ available: false });
+    }
+});
+
+Express.get("/qi", (request, response) => sendPublicFile(response, "qi.html"));
+Express.get("/qi/qi.css", (request, response) => sendPublicFile(response, "qi.css"));
+Express.get("/qi/qi.js", (request, response) => sendPublicFile(response, "qi.js"));
 
 Express.get("/qi/room.css", (request, response) =>
-    sendCachedPublic(response, path.join(__dirname, "public", "room.css"), 3600));
+    sendCachedPublic(response, path.join(PUBLIC_ROOT, "room.css")));
 Express.get("/qi/room.js", (request, response) =>
-    sendCachedPublic(response, path.join(__dirname, "public", "room.js"), 3600));
+    sendCachedPublic(response, path.join(PUBLIC_ROOT, "room.js")));
 Express.get("/qi/chat-messages.csv", (request, response) => {
     chatMessages = loadChatMessages();
+    response.type('text/csv; charset=utf-8');
     if (!fs.existsSync(CHAT_MESSAGES_PATH)) {
-        response.type('text/csv; charset=utf-8');
         return response.send('# id,content\n');
     }
-    response.type('text/csv; charset=utf-8');
-    response.setHeader('Cache-Control', 'public, max-age=300');
-    response.sendFile(CHAT_MESSAGES_PATH);
+    // 聊天文案白名单：只回内存解析结果，不把任意路径文件交给客户端
+    let body = '# id,content\n';
+    try {
+        body = fs.readFileSync(CHAT_MESSAGES_PATH, 'utf8');
+    } catch (_) { /* keep header */ }
+    return response.send(body);
 });
 Express.get("/qi/room-plugins/:plugin", (request, response) => {
     const plugin = request.params.plugin;
     if (!/^[a-zA-Z0-9_-]+-room\.js$/.test(plugin)) return response.status(400).send('Invalid plugin');
-    const abs = path.join(__dirname, "public", "room-plugins", plugin);
-    if (!fs.existsSync(abs)) return response.status(404).send('Plugin not found');
-    return sendCachedPublic(response, abs, 3600);
+    return sendCachedPublic(response, path.join(PUBLIC_ROOT, "room-plugins", plugin));
 });
-function findXiangqiRulesPath() {
-    const candidates = [
-        path.join(__dirname, 'games', 'xiangqi-rules.js'),
-        path.join(__dirname, '象棋', 'xiangqi-rules.js'),
-        path.join(__dirname, 'public', 'xiangqi-rules.js')
-    ];
-    for (const p of candidates) {
-        if (fs.existsSync(p)) return p;
-    }
-    return null;
-}
-
-Express.get("/qi/xiangqi-rules.js", (request, response) => {
-    const abs = findXiangqiRulesPath();
-    if (!abs) return response.status(404).send('Not found');
-    return response.sendFile(abs);
-});
+Express.get("/qi/xiangqi-rules.js", (request, response) =>
+    sendCachedPublic(response, path.join(PUBLIC_ROOT, 'xiangqi-rules.js')));
 // 字体必须在 /qi/:game/:roomId 之前注册，否则 /qi/fonts/... 会被当成房间页返回 HTML
-Express.use("/qi/fonts", express.static(path.join(__dirname, "public", "fonts"), {
-    maxAge: "365d",
-    immutable: true,
+Express.use("/qi/fonts", express.static(path.join(PUBLIC_ROOT, "fonts"), {
     fallthrough: false,
     setHeaders(res, filePath) {
         if (filePath.endsWith(".css")) res.type("text/css; charset=utf-8");
@@ -456,35 +516,22 @@ Express.use("/qi/fonts", express.static(path.join(__dirname, "public", "fonts"),
         else if (filePath.endsWith(".ttf")) res.type("font/ttf");
     }
 }));
-Express.get('/qi/:leaf', (request, response, next) => {
-    const leaf = request.params.leaf;
-    const m = typeof leaf === 'string' && leaf.match(/^([a-zA-Z0-9_-]+)-ai\.js$/);
-    if (!m) return next();
-    const gameId = m[1];
-    const abs = findGameAiScriptPath(gameId);
-    if (!abs) return response.status(404).type('text/plain').send('AI script not found');
-    response.sendFile(abs);
-});
-Express.get("/qi/qrcode.min.js", (request, response) => sendPublicOrRoot(response, "qrcode.min.js"));
+Express.get("/qi/qrcode.min.js", (request, response) => sendPublicFile(response, "qrcode.min.js"));
 
 Express.get('/qi/:game/:roomId', (request, response) => {
     try {
         const game = request.params.game;
-        if (game === 'fonts' || game === 'room-plugins') {
+        if (game === 'fonts' || game === 'room-plugins' || game === 'katago-available') {
             return response.status(404).type('text/plain').send('Not found');
         }
         if (!/^[a-zA-Z0-9_-]+$/.test(game)) return response.status(400).send('Invalid game');
         if (!findGameModulePath(game)) return response.status(404).send('Game not found');
 
         if (usesRoomShell(game)) {
-            const roomHtml = path.join(__dirname, 'public', 'room.html');
-            if (fs.existsSync(roomHtml)) return response.sendFile(roomHtml);
+            return sendPublicFile(response, 'room.html');
         }
 
-        const htmlPublic = path.join(__dirname, 'public', `${game}.html`);
-        if (fs.existsSync(htmlPublic)) return response.sendFile(htmlPublic);
-
-        return response.status(404).send('Game not found');
+        return sendPublicFile(response, `${game}.html`);
     }
     catch (error) {
         console.error(error);

@@ -11,10 +11,28 @@ window.RoomPlugins["xiangqi"] = {
         "recordDownloadPrefix": "象棋",
         "standardWeiqiMatchTime": true,
         "features": {
-            "editBoard": false,
+            "editBoard": true,
             "xiangqi": true,
             "hideBoardSize": true
-        }
+        },
+        // 顺序：车马炮象士兵将
+        "editTools": [
+            { "value": "empty", "label": "空", "cellValue": "" },
+            { "value": "rr", "label": "俥", "cellValue": "rr" },
+            { "value": "rn", "label": "傌", "cellValue": "rn" },
+            { "value": "rc", "label": "炮", "cellValue": "rc" },
+            { "value": "re", "label": "相", "cellValue": "re" },
+            { "value": "ra", "label": "仕", "cellValue": "ra" },
+            { "value": "rp", "label": "兵", "cellValue": "rp" },
+            { "value": "rk", "label": "帥", "cellValue": "rk" },
+            { "value": "br", "label": "車", "cellValue": "br" },
+            { "value": "bn", "label": "馬", "cellValue": "bn" },
+            { "value": "bc", "label": "砲", "cellValue": "bc" },
+            { "value": "be", "label": "象", "cellValue": "be" },
+            { "value": "ba", "label": "士", "cellValue": "ba" },
+            { "value": "bp", "label": "卒", "cellValue": "bp" },
+            { "value": "bk", "label": "將", "cellValue": "bk" }
+        ]
     },
     mount: function (ctx) {
         var gameType = ctx.gameType;
@@ -56,6 +74,7 @@ const canvas = document.getElementById('goBoard');
             currentPlayer: 1,
             mySlot: null,
             gameOver: false,
+            gameStarted: false,
             winner: null,
             lastFrom: null,
             lastTo: null,
@@ -725,7 +744,12 @@ const canvas = document.getElementById('goBoard');
             colorStatus,
             scoreTitle,
             turnDisplay,
-            syncState,
+            syncState: (state) => {
+                // 开局状态随同步更新，刷新编辑区可用性
+                if (state) ps.gameStarted = (state.numberOfHands || 1) > 1 || !!state.matchStarted;
+                syncState(state);
+                if (editApi) editApi.updateEditModeUI();
+            },
             updateBoardGeometry: () => {},
             initBoardArray: () => R.createInitialBoard(),
             exitReplayMode,
@@ -809,6 +833,24 @@ const canvas = document.getElementById('goBoard');
         document.getElementById('helpBtn').onclick = () => { document.getElementById('rulesModal').style.display = 'flex'; };
         document.getElementById('closeRulesBtn').onclick = () => { document.getElementById('rulesModal').style.display = 'none'; };
         document.getElementById('backToLobbyBtn').onclick = () => { location.href = '/qi'; };
+
+        // 编辑模式：安装公共编辑 UI（点击放置棋子，关闭编辑时提交服务器）
+        let editApi = null;
+        if (typeof QiWeiqiSquarePageRuntime !== 'undefined' && QiWeiqiSquarePageRuntime.installBoardEditUI) {
+            editApi = QiWeiqiSquarePageRuntime.installBoardEditUI({
+                ps,
+                canvas,
+                mode: 'grid2d',
+                editTools: config.editTools,
+                pickAtClient(clientX, clientY) {
+                    return getRowColFromClient(clientX, clientY);
+                },
+                drawBoard,
+                getBoard: () => ps.board,
+                setBoard: (b) => { ps.board = b; },
+                emptyBoard: () => R.emptyBoard()
+            });
+        }
 
         // 导入/导出、新局/悔棋/认输/和棋由 createWeiqiMessageBindings 绑定
         updateTurn();

@@ -2,10 +2,10 @@ window.RoomPlugins = window.RoomPlugins || {};
 window.RoomPlugins["cairo-pentagon-weiqi"] = {
     shell: {
         "title": "开罗五角围棋",
-        "rulesHtml": "基本规则同标准围棋。<br /><br />采用开罗五角棋盘。<br />",
+        "rulesHtml": "基本规则同围棋。<br /><br />采用开罗五角棋盘。<br />",
         "defaultKomiText": "黑贴白3.25点",
         "boardSizeMin": 3,
-        "boardSizeMax": 13,
+        "boardSizeMax": 10,
         "defaultBoardSize": 7,
         "minLib": 1,
         "recordDownloadPrefix": "开罗五角围棋",
@@ -30,283 +30,76 @@ window.RoomPlugins["cairo-pentagon-weiqi"] = {
 
 
         (function () {
-// ======================== 棋盘生成（与后端一致：路数 n，(n−1)² 主格 + (n−2)² 半格嵌入；保留全部列，并在第 2 / 倒数第 2 列外侧补翼点） ========================
-        const CANVAS_SIZE = 600;
-        const FRAME_CENTER = CANVAS_SIZE / 2;
-        /** 棋盘内容缩放：顶点集拟合半径；格线再缩到目前的 95% */
-        const OUTER_HEX_RADIUS = 430;
-
-        let BOARD_SIZE = 7;
-
-        let V;
-        let transformed;
-        let neighbors;
-        let edgePairs;
-        /** 与扭棱四角围棋相同：全部格线（含外轮廓）合并为一条 Path2D，一次 stroke */
+// ======================== 配置 ========================
+        let BOARD_LANES = 7;
+        let GRID_W = 4 * BOARD_LANES - 5;   // 行数
+        let GRID_H = 4 * BOARD_LANES - 3;   // 列数
+        function komiForLanes(lanes) {
+            return 3.25;
+        }
+        let KOMI = komiForLanes(BOARD_LANES);
+        let vertexPos = new Map();
         let boardEdgePath = null;
-        let clickThreshold;
-        let cellSize;
-        let centerX;
-        let centerY;
+        let rowLines = [];
+        let colLines = [];
+        let hoverDrawPending = false;
 
-        const SQRT3 = Math.sqrt(3);
-        const PENT_T = SQRT3 - 1;
-        const PENT_STACK_H = 2;
-        const PENT_TEMPLATE = {
-            A: [0, 1.3660254037844388],
-            B: [0.8660254037844386, 0.8660254037844386],
-            C: [0.3660254037844386, 0],
-            D: [-0.3660254037844386, 0],
-            E: [-0.8660254037844386, 0.8660254037844386]
+const Cairo = {
+            gridDims(lanes) { return { w: 4 * lanes - 5, h: 4 * lanes - 3 }; },  // w=行數 h=列數
+            isValidVertex(row, col, gridW, gridH) {
+                if (row < 0 || col < 0 || row >= gridW || col >= gridH) return false;
+                // 0-based：合法格 = (row 偶) || (col 奇)，即 1-based 奇数行全列、偶数行仅偶数列
+                if ((row & 1) === 1 && (col & 1) === 0) return false;
+                return true;
+            },
+            getNeighbors(row, col, gridW, gridH) {
+                const arr = [];
+                if ((col & 1) === 1) arr.push([row - 1, col], [row + 1, col]);
+                if ((row & 1) === 0) arr.push([row, col - 1], [row, col + 1]);
+                const rm = row & 3, cm = col & 3;
+                if (rm === 1) {
+                    if (cm === 1) arr.push([row, col + 2]);
+                    else if (cm === 3) arr.push([row, col - 2]);
+                } else if (rm === 3) {
+                    if (cm === 3) arr.push([row, col + 2]);
+                    else if (cm === 1) arr.push([row, col - 2]);
+                }
+                if (cm === 0) {
+                    if (rm === 0) arr.push([row + 2, col]);
+                    else if (rm === 2) arr.push([row - 2, col]);
+                } else if (cm === 2) {
+                    if (rm === 2) arr.push([row + 2, col]);
+                    else if (rm === 0) arr.push([row - 2, col]);
+                }
+                const out = [];
+                for (const [a, b] of arr) {
+                    if (Cairo.isValidVertex(a, b, gridW, gridH)) out.push([a, b]);
+                }
+                return out;
+            }
         };
 
-        function alignPentagon(pent, mapC, mapD, flipY) {
-            const pts = {};
-            for (const k of Object.keys(pent)) {
-                let p = [...pent[k]];
-                if (flipY) p[1] = -p[1];
-                pts[k] = p;
-            }
-            const Cs = pts.C, Ds = pts.D;
-            const a1 = Math.atan2(Ds[1] - Cs[1], Ds[0] - Cs[0]);
-            const a2 = Math.atan2(mapD[1] - mapC[1], mapD[0] - mapC[0]);
-            const ang = a2 - a1;
-            const c = Math.cos(ang), s = Math.sin(ang);
-            function rot(p) { return [c * p[0] - s * p[1], s * p[0] + c * p[1]]; }
-            const Cs2 = rot(Cs);
-            const tx = mapC[0] - Cs2[0], ty = mapC[1] - Cs2[1];
-            const out = {};
-            for (const k of Object.keys(pts)) {
-                const p = rot(pts[k]);
-                out[k] = [p[0] + tx, p[1] + ty];
-            }
-            return out;
+        function initGridBoard() {
+            const w = GRID_W, h = GRID_H;
+            const b = Array(w).fill().map(() => Array(h).fill(-1));
+            for (let r = 0; r < w; r++)
+                for (let c = 0; c < h; c++)
+                    if (Cairo.isValidVertex(r, c, w, h)) b[r][c] = 0;
+            return b;
         }
 
-        function oneCompound(ox, oy) {
-            const P4 = alignPentagon(PENT_TEMPLATE, [PENT_T / 2 + ox, oy - PENT_T], [-PENT_T / 2 + ox, oy - PENT_T], false);
-            const P1 = alignPentagon(PENT_TEMPLATE, [PENT_T / 2 + ox, PENT_STACK_H + oy + PENT_T], [-PENT_T / 2 + ox, PENT_STACK_H + oy + PENT_T], true);
-            const P2 = alignPentagon(PENT_TEMPLATE, P4.A, P1.A, false);
-            const P3 = alignPentagon(PENT_TEMPLATE, P1.A, P4.A, false);
-            return [P1, P2, P3, P4];
-        }
-
-        function vertexKey(x, y) {
-            return `${Math.round(x * 1e6) / 1e6},${Math.round(y * 1e6) / 1e6}`;
-        }
-
-        function generateCairoPentBoard(n) {
-            const ux = 2 * SQRT3, uy = 0, vx = 0, vy = 2 * SQRT3;
-            const positions = [];
-            for (let i = 0; i <= n - 2; i++)
-                for (let j = 0; j <= n - 2; j++)
-                    positions.push([i, j]);
-            for (let i = 0; i <= n - 3; i++)
-                for (let j = 0; j <= n - 3; j++)
-                    positions.push([i + 0.5, j + 0.5]);
-
-            const vertexMap = new Map();
-            const vertices = [];
-            const edgeSet = new Set();
-
-            function addVertex(x, y) {
-                const k = vertexKey(x, y);
-                if (!vertexMap.has(k)) {
-                    vertexMap.set(k, vertices.length);
-                    vertices.push({ x, y });
-                }
-                return vertexMap.get(k);
-            }
-
-            function addEdge(a, b) {
-                if (a === b) return;
-                edgeSet.add(a < b ? `${a},${b}` : `${b},${a}`);
-            }
-
-            for (const [px, py] of positions) {
-                const ox = px * ux + py * vx;
-                const oy = px * uy + py * vy;
-                for (const P of oneCompound(ox, oy)) {
-                    const order = ['A', 'B', 'C', 'D', 'E'];
-                    const ids = order.map(k => addVertex(P[k][0], P[k][1]));
-                    for (let i = 0; i < 5; i++)
-                        addEdge(ids[i], ids[(i + 1) % 5]);
-                }
-            }
-
-            for (let i = 0; i < vertices.length; i++) {
-                const { x, y } = vertices[i];
-                vertices[i] = { x: -y, y: x };
-            }
-
-            // 保留最左/最右列；翼点加在第 2 / 倒数第 2 列外侧（与曾删列后补翼的位置一致）
-            {
-                let longLen = 0;
-                for (const e of edgeSet) {
-                    const [a, b] = e.split(',').map(Number);
-                    const d = Math.hypot(vertices[a].x - vertices[b].x, vertices[a].y - vertices[b].y);
-                    if (d > longLen) longLen = d;
-                }
-                if (longLen > 0) {
-                    const xRounded = vertices.map(v => Math.round(v.x * 1e6) / 1e6);
-                    const uniqueXs = [...new Set(xRounded)].sort((a, b) => a - b);
-                    if (uniqueXs.length >= 3) {
-                        const xWingLeft = uniqueXs[1];
-                        const xWingRight = uniqueXs[uniqueXs.length - 2];
-                        function columnSorted(xr) {
-                            return vertices
-                                .map((v, i) => ({ i, y: v.y, xr: Math.round(v.x * 1e6) / 1e6 }))
-                                .filter(v => v.xr === xr)
-                                .sort((a, b) => a.y - b.y);
-                        }
-                        function addWings(col, side) {
-                            for (let p = 1; p + 1 < col.length; p += 2) {
-                                const ia = col[p].i;
-                                const ib = col[p + 1].i;
-                                const ya = vertices[ia].y;
-                                const yb = vertices[ib].y;
-                                const yMid = (ya + yb) / 2;
-                                const halfDy = (yb - ya) / 2;
-                                const dx2 = longLen * longLen - halfDy * halfDy;
-                                if (!(dx2 > 0)) continue;
-                                const dx = Math.sqrt(dx2);
-                                const nx = vertices[ia].x + side * dx;
-                                const id = vertices.length;
-                                vertices.push({ x: nx, y: yMid });
-                                edgeSet.add(id < ia ? `${id},${ia}` : `${ia},${id}`);
-                                edgeSet.add(id < ib ? `${id},${ib}` : `${ib},${id}`);
-                            }
-                        }
-                        addWings(columnSorted(xWingLeft), -1);
-                        addWings(columnSorted(xWingRight), 1);
-                    }
-                }
-            }
-
-            // 按 (x, y) 重编号
-            {
-                const order = vertices.map((_, i) => i).sort((a, b) => {
-                    const xa = Math.round(vertices[a].x * 1e6);
-                    const xb = Math.round(vertices[b].x * 1e6);
-                    if (xa !== xb) return xa - xb;
-                    return Math.round(vertices[a].y * 1e6) - Math.round(vertices[b].y * 1e6);
-                });
-                const oldToNew = new Array(vertices.length);
-                const next = order.map((old, ni) => {
-                    oldToNew[old] = ni;
-                    return vertices[old];
-                });
-                vertices.length = 0;
-                for (const v of next) vertices.push(v);
-                const remapped = new Set();
-                for (const e of edgeSet) {
-                    const [a, b] = e.split(',').map(Number);
-                    const na = oldToNew[a], nb = oldToNew[b];
-                    remapped.add(na < nb ? `${na},${nb}` : `${nb},${na}`);
-                }
-                edgeSet.clear();
-                for (const e of remapped) edgeSet.add(e);
-            }
-
-            const vc = vertices.length;
-            const pairs = [];
-            for (const e of edgeSet) {
-                const [a, b] = e.split(',').map(Number);
-                pairs.push([a, b]);
-            }
-
-            const PADDING = Math.max(32, 160 - 16 * n);
-            const R_inner = OUTER_HEX_RADIUS - PADDING;
-
-            let cx = 0, cy = 0;
-            for (const v of vertices) { cx += v.x; cy += v.y; }
-            cx /= vc;
-            cy /= vc;
-            let maxDist = 0;
-            for (const v of vertices) {
-                const d = Math.hypot(v.x - cx, v.y - cy);
-                if (d > maxDist) maxDist = d;
-            }
-            // 外框不变，格线缩小为目前的 95%
-            const scale = maxDist > 0 ? (R_inner / maxDist) * 0.95 : 1;
-
-            const transformedPts = vertices.map(v => ({
-                x: FRAME_CENTER + (v.x - cx) * scale,
-                y: FRAME_CENTER + (v.y - cy) * scale
-            }));
-
-            let totalDist = 0;
-            let edgeCount = 0;
-            for (const [a, b] of pairs) {
-                const ddx = transformedPts[a].x - transformedPts[b].x;
-                const ddy = transformedPts[a].y - transformedPts[b].y;
-                totalDist += Math.sqrt(ddx * ddx + ddy * ddy);
-                edgeCount++;
-            }
-            const cs = edgeCount > 0 ? totalDist / edgeCount : 12;
-            const ct = cs * 0.4;
-
-            const neighborSets = Array.from({ length: vc }, () => new Set());
-            for (const [a, b] of pairs) {
-                neighborSets[a].add(b);
-                neighborSets[b].add(a);
-            }
-            const neighborList = neighborSets.map(set => Array.from(set));
-
-            return {
-                vertexCount: vc,
-                transformed: transformedPts,
-                neighborList,
-                edgePairs: pairs,
-                clickThreshold: ct,
-                cellSize: cs,
-                centerX: FRAME_CENTER,
-                centerY: FRAME_CENTER
-            };
-        }
-
-        function rebuildBoardEdgePath() {
-            if (!edgePairs || !transformed || V === 0) {
-                boardEdgePath = null;
-                return;
-            }
-            const path = new Path2D();
-            for (const [a, b] of edgePairs) {
-                const pa = transformed[a], pb = transformed[b];
-                path.moveTo(pa.x, pa.y);
-                path.lineTo(pb.x, pb.y);
-            }
-            boardEdgePath = path;
-        }
-
-        function applyCairoGeometry(data) {
-            V = data.vertexCount;
-            transformed = data.transformed;
-            neighbors = data.neighborList;
-            edgePairs = data.edgePairs;
-            clickThreshold = data.clickThreshold;
-            cellSize = data.cellSize;
-            centerX = data.centerX;
-            centerY = data.centerY;
-            rebuildBoardEdgePath();
-        }
-
-        applyCairoGeometry(generateCairoPentBoard(BOARD_SIZE));
-
-// ======================== 房间参数 ========================
-
-// ======================== 游戏状态 ========================
-        let board = Array(V).fill(0);
+        // 全局状态
+        let board = initGridBoard();
         let numberOfHands = 1;
         let currentPlayer = 1;
-        let mySlot = null;               // 'black' or 'white'
+        let mySlot = null;
         let gameOver = false;
         let winner = null;
         let lastMoveMarkers = [];
         let showEstimateActive = false;
         let cachedLiveBoard = null;
         let cachedTerritory = null;
-        let waitingScoreConfirm = false;
+        let waitingScoreConfirm = false; // 数点确认等待中
         let iRejected = false;
 
         let ws;
@@ -327,16 +120,17 @@ window.RoomPlugins["cairo-pentagon-weiqi"] = {
 
         let showMoveNumbers = false;
         let moveLog = [];
-        let moveCoordsFull = [];
 
         let tryPlayMode = false;
         let tryPlayBaseStep = 0;
-        let tryPlayBasePlayer = 1;
         let tryPlayBoards = [];
         let tryPlayMarkers = [];
         let tryPlayCurrentPlayer = 1;
+        let tryPlayBasePlayer = 1;
         let tryPlayStep = 0;
         let tryPlayTotalSteps = 0;
+        let tryPlayFromLive = false;
+        let tryPlayFromLiveStep = null;
 
         let liveReplayBoards = [];
         let liveReplayMarkers = [];
@@ -344,8 +138,10 @@ window.RoomPlugins["cairo-pentagon-weiqi"] = {
         let liveViewStep = 0;
         let liveFollowLatest = true;
 
-        /** 本地标记：键为顶点索引字符串 "0".."V-1" */
+        /** 本地棋盘标记（仅本机显示）坐标键 "r,c" → 标记字符 */
         let userBoardMarks = Object.create(null);
+        if (typeof QiWeiqiSquarePageRuntime !== 'undefined' && QiWeiqiSquarePageRuntime.bindActiveUserBoardMarks) QiWeiqiSquarePageRuntime.bindActiveUserBoardMarks(userBoardMarks);
+
         const BOARD_MARK_CHAR_LIST = (() => {
             const a = [];
             a.push('?', '!');
@@ -356,13 +152,16 @@ window.RoomPlugins["cairo-pentagon-weiqi"] = {
 
         // DOM
         const canvas = document.getElementById('goBoard');
+        const dpr = window.devicePixelRatio || 1;
+        canvas.width = 600 * dpr;
+        canvas.height = 600 * dpr;
         const ctx = canvas.getContext('2d');
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
         const turnDisplay = document.getElementById('turnDisplay');
         const colorStatus = document.getElementById('colorStatus');
 const scoreTitle = document.getElementById('scoreTitle');
         const scoreBoard = document.getElementById('scoreBoard');
         const leadInfo = document.getElementById('leadInfo');
-        const komiInfo = document.getElementById('komiInfo');
         const scoreConfirmPanel = document.getElementById('scoreConfirmPanel');
         const scoreConfirmText = document.getElementById('scoreConfirmText');
         const scoreConfirmYes = document.getElementById('scoreConfirmYes');
@@ -376,234 +175,202 @@ const scoreTitle = document.getElementById('scoreTitle');
             document.getElementById('boardMarkExpandBtn')
         );
 
-        let hoverVertex = -1;
-        let isHoverValid = false;
-        const isTouchDevice = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+        let hoverRow = -1, hoverCol = -1, isHoverValid = false;
         const isMouseDevice = window.matchMedia('(hover: hover) and (pointer: fine)').matches;
 
         function mobileTwoStepPlacing() {
-            return !isMouseDevice && BOARD_SIZE > 11;
+            return !isMouseDevice && BOARD_LANES >= 5;
         }
         function clearMobileMovePreview() {
-            hoverVertex = -1;
+            hoverRow = -1;
+            hoverCol = -1;
             isHoverValid = false;
         }
 
-        // ======================== 工具函数 ========================
-        const KOMI = 3.25;
+        // ======================== 扭棱图 + 围棋规则（与标准围棋相同：无气提子，允许自杀，禁全同） ========================
+        function deepCopyBoard(src) { return src.map(row => row.slice()); }
 
-        function formatScore(num) {
-            let str = num.toFixed(2);
-            return str.replace(/\.?0+$/, '');
-        }
-
-        function isUserBoardMarkVisibleAtVertex(v) {
-            if (showEstimateActive) return false;
-            if (v < 0 || v >= V) return false;
-            if (board[v] !== 0) return false;
-            return true;
-        }
-
-        function deepCopyBoard(src) { return src.slice(); }
-
-        // 气计算
-        function hasLiberty(boardState, start, visited = null) {
-            const color = boardState[start];
-            if (color === 0) return false;
-            const queue = [start];
-            const visitedLocal = visited || new Array(V).fill(false);
-            visitedLocal[start] = true;
-            let idx = 0;
-            while (idx < queue.length) {
-                const v = queue[idx++];
-                for (let nb of neighbors[v]) {
-                    if (boardState[nb] === 0) return true;
-                    if (boardState[nb] === color && !visitedLocal[nb]) {
-                        visitedLocal[nb] = true;
-                        queue.push(nb);
+        function countGroupLiberties(bd, row, col) {
+            const color = bd[row][col];
+            if (color !== 1 && color !== 2) return 0;
+            const visited = Array(GRID_W).fill().map(() => Array(GRID_H).fill(false));
+            const queue = [[row, col]];
+            visited[row][col] = true;
+            const liberties = new Set();
+            while (queue.length) {
+                const [r, c] = queue.shift();
+                for (const [nr, nc] of Cairo.getNeighbors(r, c, GRID_W, GRID_H)) {
+                    if (bd[nr][nc] === 0) liberties.add(nr + ',' + nc);
+                    else if (bd[nr][nc] === color && !visited[nr][nc]) {
+                        visited[nr][nc] = true;
+                        queue.push([nr, nc]);
                     }
                 }
             }
-            return false;
+            return liberties.size;
         }
 
-        function removeGroup(boardState, start) {
-            const color = boardState[start];
-            if (color === 0) return;
-            const queue = [start];
-            boardState[start] = 0;
-            let idx = 0;
-            while (idx < queue.length) {
-                const v = queue[idx++];
-                for (let nb of neighbors[v]) {
-                    if (boardState[nb] === color) {
-                        boardState[nb] = 0;
-                        queue.push(nb);
+        function removeGroup(bd, row, col, color) {
+            const queue = [[row, col]];
+            bd[row][col] = 0;
+            while (queue.length) {
+                const [r, c] = queue.shift();
+                for (const [nr, nc] of Cairo.getNeighbors(r, c, GRID_W, GRID_H)) {
+                    if (nr >= 0 && nr < GRID_W && nc >= 0 && nc < GRID_H && bd[nr][nc] === color) {
+                        bd[nr][nc] = 0;
+                        queue.push([nr, nc]);
                     }
                 }
             }
         }
 
-        function tryPlaceStone(boardBefore, vertex, playerVal) {
-            if (boardBefore[vertex] !== 0) return null;
-            let newBoard = deepCopyBoard(boardBefore);
-            newBoard[vertex] = playerVal;
-
-            // 移除对方无气棋子
-            for (let v = 0; v < V; v++) {
-                if (newBoard[v] === 3 - playerVal && !hasLiberty(newBoard, v)) {
-                    removeGroup(newBoard, v);
+        function tryPlaceStone(boardBefore, row, col, playerVal) {
+            if (!Cairo.isValidVertex(row, col, GRID_W, GRID_H) || boardBefore[row][col] !== 0) return null;
+            const newBoard = deepCopyBoard(boardBefore);
+            newBoard[row][col] = playerVal;
+            const enemyColor = 3 - playerVal;
+            const checkedEnemy = new Set();
+            for (const [nr, nc] of Cairo.getNeighbors(row, col, GRID_W, GRID_H)) {
+                if (newBoard[nr][nc] === enemyColor) {
+                    const key = `${nr},${nc}`;
+                    if (!checkedEnemy.has(key)) {
+                        checkedEnemy.add(key);
+                        if (countGroupLiberties(newBoard, nr, nc) < 1)
+                            removeGroup(newBoard, nr, nc, enemyColor);
+                    }
                 }
             }
-
-            // 允许自杀：己方无气则提掉己方块
-            if (!hasLiberty(newBoard, vertex)) removeGroup(newBoard, vertex);
+            if (countGroupLiberties(newBoard, row, col) < 1)
+                removeGroup(newBoard, row, col, playerVal);
             return newBoard;
         }
 
-        // 形势判断函数（复用原代码中的）
-        function isLibertySurroundedByOpponent(boardState, libertyVertex, opponentColor) {
-            for (let nb of neighbors[libertyVertex]) {
-                if (boardState[nb] === opponentColor) return true;
-            }
-            return false;
-        }
-
+        // ======================== 形势判断========================
         function removeDeadAndDying(srcBoard) {
-            let newBoard = deepCopyBoard(srcBoard);
+            let boardCopy = deepCopyBoard(srcBoard);
             let changed = true;
             while (changed) {
                 changed = false;
-                let visited = new Array(V).fill(false);
-                for (let v = 0; v < V; v++) {
-                    if (newBoard[v] !== 0 && !visited[v]) {
-                        let color = newBoard[v];
-                        let queue = [v];
-                        visited[v] = true;
-                        let stones = [v];
-                        let liberties = new Set();
-                        let idx = 0;
-                        while (idx < queue.length) {
-                            let cur = queue[idx++];
-                            for (let nb of neighbors[cur]) {
-                                if (newBoard[nb] === 0) liberties.add(nb);
-                                else if (newBoard[nb] === color && !visited[nb]) {
-                                    visited[nb] = true;
-                                    queue.push(nb);
-                                    stones.push(nb);
+                const visited = Array(GRID_W).fill().map(() => Array(GRID_H).fill(false));
+                for (let r = 0; r < GRID_W; r++) {
+                    for (let c = 0; c < GRID_H; c++) {
+                        if (!Cairo.isValidVertex(r, c, GRID_W, GRID_H)) continue;
+                        const val = boardCopy[r][c];
+                        if ((val === 1 || val === 2) && !visited[r][c]) {
+                            const color = val;
+                            const queue = [[r, c]];
+                            visited[r][c] = true;
+                            const stones = [[r, c]];
+                            const liberties = new Set();
+                            let idx = 0;
+                            while (idx < queue.length) {
+                                const [rr, cc] = queue[idx++];
+                                for (const [nr, nc] of Cairo.getNeighbors(rr, cc, GRID_W, GRID_H)) {
+                                    if (boardCopy[nr][nc] === 0) liberties.add(nr + ',' + nc);
+                                    else if (boardCopy[nr][nc] === color && !visited[nr][nc]) {
+                                        visited[nr][nc] = true;
+                                        queue.push([nr, nc]);
+                                        stones.push([nr, nc]);
+                                    }
                                 }
                             }
-                        }
-                        if (liberties.size === 0) {
-                            for (let s of stones) newBoard[s] = 0;
-                            changed = true;
-                            continue;
-                        }
-                        if (liberties.size <= 2) {
-                            let allControlled = true;
-                            for (let lib of liberties) {
-                                if (!isLibertySurroundedByOpponent(newBoard, lib, 3 - color)) {
-                                    allControlled = false;
-                                    break;
-                                }
-                            }
-                            if (allControlled) {
-                                for (let s of stones) newBoard[s] = 0;
+                            if (liberties.size === 0) {
+                                for (let [rr, cc] of stones) boardCopy[rr][cc] = 0;
                                 changed = true;
+                                continue;
                             }
                         }
                     }
                 }
             }
-            return newBoard;
+            return boardCopy;
         }
 
-        function multiSourceBFS(liveBoard, color) {
-            let dist = new Array(V).fill(Infinity);
-            let queue = [];
-            for (let v = 0; v < V; v++) {
-                if (liveBoard[v] === color) {
-                    dist[v] = 0;
-                    queue.push(v);
-                }
-            }
-            let head = 0;
-            while (head < queue.length) {
-                let cur = queue[head++];
-                for (let nb of neighbors[cur]) {
-                    if (dist[nb] > dist[cur] + 1) {
-                        dist[nb] = dist[cur] + 1;
-                        queue.push(nb);
+        function assignTerritoryWithRange(liveBoard) {
+            const territory = Array(GRID_W).fill().map(() => Array(GRID_H).fill(0));
+            for (let r = 0; r < GRID_W; r++) {
+                for (let c = 0; c < GRID_H; c++) {
+                    if (!Cairo.isValidVertex(r, c, GRID_W, GRID_H) || liveBoard[r][c] !== 0) continue;
+                    const maxDist = (r <= 1 || r >= GRID_W - 2 || c <= 1 || c >= GRID_H - 2) ? 5 : 4;
+                    let blackMin = Infinity, whiteMin = Infinity;
+                    const dist = Array(GRID_W).fill().map(() => Array(GRID_H).fill(Infinity));
+                    dist[r][c] = 0;
+                    const queue = [[r, c]];
+                    let front = 0;
+                    while (front < queue.length) {
+                        const [cr, cc] = queue[front++];
+                        const d = dist[cr][cc];
+                        if (d > maxDist) continue;
+                        if (liveBoard[cr][cc] === 1 && d < blackMin) blackMin = d;
+                        if (liveBoard[cr][cc] === 2 && d < whiteMin) whiteMin = d;
+                        for (const [nr, nc] of Cairo.getNeighbors(cr, cc, GRID_W, GRID_H)) {
+                            if (liveBoard[nr][nc] !== -1 && dist[nr][nc] === Infinity) {
+                                dist[nr][nc] = d + 1;
+                                queue.push([nr, nc]);
+                            }
+                        }
                     }
+                    if (blackMin <= maxDist && whiteMin <= maxDist) {
+                        if (blackMin < whiteMin) territory[r][c] = 1;
+                        else if (whiteMin < blackMin) territory[r][c] = 2;
+                        else territory[r][c] = 3;
+                    } else if (blackMin <= maxDist) territory[r][c] = 1;
+                    else if (whiteMin <= maxDist) territory[r][c] = 2;
+                    else territory[r][c] = 3;
                 }
-            }
-            return dist;
-        }
-
-        function assignTerritory(liveBoard) {
-            let territory = new Array(V).fill(0);
-            let blackCount = 0, whiteCount = 0;
-            for (let v = 0; v < V; v++) {
-                if (liveBoard[v] === 1) blackCount++;
-                else if (liveBoard[v] === 2) whiteCount++;
-            }
-            if (blackCount === 0 && whiteCount === 0) return territory;
-            if (blackCount === 0) {
-                for (let v = 0; v < V; v++) if (liveBoard[v] === 0) territory[v] = 2;
-                return territory;
-            }
-            if (whiteCount === 0) {
-                for (let v = 0; v < V; v++) if (liveBoard[v] === 0) territory[v] = 1;
-                return territory;
-            }
-            let distBlack = multiSourceBFS(liveBoard, 1);
-            let distWhite = multiSourceBFS(liveBoard, 2);
-            for (let v = 0; v < V; v++) {
-                if (liveBoard[v] !== 0) continue;
-                if (distBlack[v] < distWhite[v]) territory[v] = 1;
-                else if (distWhite[v] < distBlack[v]) territory[v] = 2;
-                else territory[v] = 3;
             }
             return territory;
         }
 
         function computeScore(liveBoard, territory) {
-            let blackStones = 0, whiteStones = 0;
-            let blackTerritory = 0, whiteTerritory = 0, publicTerritory = 0;
-            for (let v = 0; v < V; v++) {
-                if (liveBoard[v] === 1) blackStones++;
-                else if (liveBoard[v] === 2) whiteStones++;
-                else {
-                    if (territory[v] === 1) blackTerritory++;
-                    else if (territory[v] === 2) whiteTerritory++;
-                    else if (territory[v] === 3) publicTerritory++;
+            let blackStones = 0, whiteStones = 0, blackTerritory = 0, whiteTerritory = 0, publicTerritory = 0;
+            for (let r = 0; r < GRID_W; r++) {
+                for (let c = 0; c < GRID_H; c++) {
+                    if (!Cairo.isValidVertex(r, c, GRID_W, GRID_H)) continue;
+                    if (liveBoard[r][c] === 1) blackStones++;
+                    else if (liveBoard[r][c] === 2) whiteStones++;
+                    else if (liveBoard[r][c] === 0) {
+                        if (territory[r][c] === 1) blackTerritory++;
+                        else if (territory[r][c] === 2) whiteTerritory++;
+                        else if (territory[r][c] === 3) publicTerritory++;
+                    }
                 }
             }
-            let blackTotal = blackStones + blackTerritory + publicTerritory / 2;
-            let whiteTotal = whiteStones + whiteTerritory + publicTerritory / 2;
+            const blackTotal = blackStones + blackTerritory + publicTerritory / 2;
+            const whiteTotal = whiteStones + whiteTerritory + publicTerritory / 2;
             return { blackTotal, whiteTotal };
         }
 
         function computeScoreFromBoard(srcBoard) {
-            let liveBoard = removeDeadAndDying(srcBoard);
-            let territory = assignTerritory(liveBoard);
+            const liveBoard = removeDeadAndDying(srcBoard);
+            const territory = assignTerritoryWithRange(liveBoard);
             return computeScore(liveBoard, territory);
         }
 
+        // 计算当前形势领先（黑方）
         function computeLead() {
-            let { blackTotal, whiteTotal } = computeScoreFromBoard(board);
+            const { blackTotal, whiteTotal } = computeScoreFromBoard(board);
             return blackTotal - whiteTotal - 2 * KOMI;
         }
 
+        /** 本地标记：仅空点显示；形势判断开启时整盘隐藏（数据仍保留，关闭后恢复） */
+        function isUserBoardMarkVisibleAt(r, c) {
+            if (showEstimateActive) return false;
+            if (!Cairo.isValidVertex(r, c, GRID_W, GRID_H)) return false;
+            if (board[r][c] !== 0) return false;
+            return true;
+        }
+
+        // ======================== 绘制 ========================
         function computeStoneNumbers() {
-            const nums = new Array(V).fill(0);
-            if (tryPlayMode) {
+            const nums = Array(GRID_W).fill().map(() => Array(GRID_H).fill(0));
+            if (replayMode && tryPlayMode) {
                 for (let i = 1; i <= tryPlayStep; i++) {
                     const markers = tryPlayMarkers[i];
                     if (markers && markers.length > 0) {
                         const m = markers[0];
-                        if (m.vertex !== undefined && board[m.vertex] !== 0)
-                            nums[m.vertex] = i;
+                        if (m.row < GRID_W && m.col < GRID_H && board[m.row][m.col] !== 0)
+                            nums[m.row][m.col] = i;
                     }
                 }
             } else if (replayMode) {
@@ -611,8 +378,8 @@ const scoreTitle = document.getElementById('scoreTitle');
                     const markers = replayMarkers[i];
                     if (markers && markers.length > 0) {
                         const m = markers[0];
-                        if (m.vertex !== undefined && board[m.vertex] !== 0)
-                            nums[m.vertex] = i;
+                        if (m.row < GRID_W && m.col < GRID_H && board[m.row][m.col] !== 0)
+                            nums[m.row][m.col] = i;
                     }
                 }
             } else if (liveReplayBoards.length && liveViewStep < liveReplayBoards.length - 1) {
@@ -620,198 +387,341 @@ const scoreTitle = document.getElementById('scoreTitle');
                     const markers = liveReplayMarkers[i];
                     if (markers && markers.length > 0) {
                         const m = markers[0];
-                        if (m.vertex !== undefined && board[m.vertex] !== 0)
-                            nums[m.vertex] = i;
+                        if (m.row < GRID_W && m.col < GRID_H && board[m.row][m.col] !== 0)
+                            nums[m.row][m.col] = i;
                     }
                 }
             } else {
                 for (let i = 0; i < moveLog.length; i++) {
                     const m = moveLog[i];
-                    if (m && m.vertex !== undefined && board[m.vertex] !== 0)
-                        nums[m.vertex] = i + 1;
+                    if (m && m.row < GRID_W && m.col < GRID_H && board[m.row][m.col] !== 0)
+                        nums[m.row][m.col] = i + 1;
                 }
             }
             return nums;
         }
 
-        // ======================== 绘制函数 ========================
-        function drawEstimateOverlay(liveBoard, territory) {
-            const markSize = cellSize * 0.2;
-            for (let v = 0; v < V; v++) {
-                if (board[v] !== 0 && liveBoard[v] === 0) {
-                    let { x, y } = transformed[v];
-                    ctx.fillStyle = board[v] === 1 ? '#ffffff' : '#222222';
-                    ctx.fillRect(x - markSize, y - markSize, markSize * 2, markSize * 2);
+        /** 与 VariantQi CairoPentagonBoardGeometry 一致的 wiggle 几何：
+         *  行距/列距 = √3/2，行内高差/列内水平偏移 = 0.5（0-based (r,c)）。 */
+        function vertexUnitPos(row, col) {
+            const dx = Math.sqrt(3) / 2, dy = Math.sqrt(3) / 2, WG = 0.5;
+            let y = row * dy;
+            if ((row & 1) === 0) {
+                const rm = row & 3, cm = col & 3;
+                if (rm === 0) { if (cm === 2) y -= WG; else if (cm === 0) y += WG; }
+                else if (rm === 2) { if (cm === 0) y -= WG; else if (cm === 2) y += WG; }
+            }
+            let x = col * dx;
+            if ((col & 1) === 1) {
+                const rm = row & 3, cm = col & 3;
+                if (cm === 1) { if (rm === 3) x -= WG; else if (rm === 1) x += WG; }
+                else if (cm === 3) { if (rm === 3) x += WG; else if (rm === 1) x -= WG; }
+            }
+            return { x, y };
+        }
+
+        function buildVertexLayout(lanes) {
+            const gw = 4 * lanes - 5;   // 行数
+            const gh = 4 * lanes - 3;   // 列数
+            const raw = [];
+            for (let r = 0; r < gw; r++) {
+                for (let c = 0; c < gh; c++) {
+                    if (!Cairo.isValidVertex(r, c, gw, gh)) continue;
+                    const u = vertexUnitPos(r, c);
+                    raw.push({ r, c, x: u.x, y: u.y });
                 }
             }
-            for (let v = 0; v < V; v++) {
-                if (board[v] !== 0) continue;
-                let owner = territory[v];
-                if (owner === 0 || owner === 3) continue;
-                ctx.fillStyle = owner === 1 ? '#222' : '#f0f0f0';
-                let { x, y } = transformed[v];
-                ctx.fillRect(x - markSize, y - markSize, markSize * 2, markSize * 2);
+            let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+            for (const v of raw) {
+                minX = Math.min(minX, v.x); minY = Math.min(minY, v.y);
+                maxX = Math.max(maxX, v.x); maxY = Math.max(maxY, v.y);
+            }
+            const pad = 60 - 5 * BOARD_LANES;
+            const scale = Math.min((600 - 2 * pad) / (maxX - minX || 1), (600 - 2 * pad) / (maxY - minY || 1));
+            // 水平/垂直均居中：内容未占满画布时，两侧留白相等（否则格线会整体偏上/偏左）
+            const contentW = (maxX - minX) * scale;
+            const contentH = (maxY - minY) * scale;
+            const offsetX = pad + (600 - 2 * pad - contentW) / 2;
+            const offsetY = pad + (600 - 2 * pad - contentH) / 2;
+            const pos = new Map();
+            for (const v of raw) {
+                pos.set(`${v.r},${v.c}`, { x: offsetX + (v.x - minX) * scale, y: offsetY + (v.y - minY) * scale });
+            }
+            // 均匀基准线（坐标标签用）：行号沿行距均匀分布，列字母沿列距均匀分布（与格线同基准）
+            const rowLines = [];
+            for (let r1 = 1; r1 <= gw; r1++)
+                rowLines.push(offsetY + ((r1 - 1) * (Math.sqrt(3) / 2) - minY) * scale);
+            const colLines = [];
+            for (let c1 = 1; c1 <= gh; c1++)
+                colLines.push(offsetX + ((c1 - 1) * (Math.sqrt(3) / 2) - minX) * scale);
+            const edgePath = new Path2D();
+            const edgeSeen = new Set();
+            for (let r = 0; r < gw; r++) {
+                for (let c = 0; c < gh; c++) {
+                    if (!Cairo.isValidVertex(r, c, gw, gh)) continue;
+                    const p0 = pos.get(`${r},${c}`);
+                    for (const [nr, nc] of Cairo.getNeighbors(r, c, gw, gh)) {
+                        const k = r < nr || (r === nr && c < nc) ? `${r},${c}|${nr},${nc}` : `${nr},${nc}|${r},${c}`;
+                        if (edgeSeen.has(k)) continue;
+                        edgeSeen.add(k);
+                        const p1 = pos.get(`${nr},${nc}`);
+                        edgePath.moveTo(p0.x, p0.y);
+                        edgePath.lineTo(p1.x, p1.y);
+                    }
+                }
+            }
+            return { pos, edgePath, rowLines, colLines };
+        }
+
+        /** 应用棋盘路数与尺寸：更新布局、棋盘与贴目。 */
+        function updateKomiInfo() {
+            const el = document.getElementById('komiInfo');
+            if (el) el.textContent = '黑贴白' + KOMI + '点';
+        }
+
+        function applyBoardDimensions(lanes, w, h) {
+            BOARD_LANES = lanes;
+            KOMI = komiForLanes(lanes);
+            GRID_W = w;
+            GRID_H = h;
+            board = initGridBoard();
+            rebuildLayout();
+            updateKomiInfo();
+        }
+
+        function rebuildLayout() {
+            const built = buildVertexLayout(BOARD_LANES);
+            vertexPos = built.pos;
+            boardEdgePath = built.edgePath;
+            rowLines = built.rowLines;
+            colLines = built.colLines;
+            rebuildGridLayer();
+        }
+
+        function scheduleHoverDraw() {
+            if (hoverDrawPending) return;
+            hoverDrawPending = true;
+            requestAnimationFrame(() => {
+                hoverDrawPending = false;
+                drawBoard();
+            });
+        }
+
+        function pixelAt(row, col) {
+            return vertexPos.get(`${row},${col}`) || { x: 0, y: 0 };
+        }
+
+        /** 坐标标签：行号 1..H 在左侧（沿均匀行线），列字母 A.. 在上方（沿均匀列线）；样式与其它棋类一致。 */
+        function drawCoordsTo(tctx) {
+            if (rowLines.length === 0 || colLines.length === 0) return;
+            const pad = 60 - 5 * BOARD_LANES;
+            tctx.font = `bold ${Math.max(9, Math.round(170 / GRID_W))}px Arial`;
+            tctx.fillStyle = '#3a281c';
+            tctx.textAlign = 'center';
+            tctx.textBaseline = 'middle';
+            for (let c = 0; c < GRID_H; c++) {
+                let letter = String.fromCharCode(65 + c);
+                if (c >= 26) letter = String.fromCharCode(64 + Math.floor(c / 26)) + String.fromCharCode(65 + c % 26);
+                // 列字母（顶部坐标）到木质外框顶部（canvas 上边缘）的距离 = 0.6*pad → 0.9*pad（1.5 倍）
+                tctx.fillText(letter, colLines[c], 0.9 * pad);
+            }
+            for (let r = 0; r < GRID_W; r++) {
+                tctx.fillText((r + 1).toString(), 0.5 * pad, rowLines[r]);
             }
         }
 
+        /** 棋子离屏 sprite 缓存：阴影 + 渐变只绘制一次，重绘时直接 drawImage（大幅提速）。 */
+        let stoneSpriteCache = Object.create(null);
+        function getStoneSprite(color, r) {
+            const key = color + '_' + r.toFixed(2);
+            if (stoneSpriteCache[key]) return stoneSpriteCache[key];
+            const size = Math.ceil(r * 2 + 10);
+            const c = document.createElement('canvas');
+            c.width = c.height = size;
+            const g = c.getContext('2d');
+            const cx = size / 2, cy = size / 2;
+            g.shadowBlur = 6;
+            g.shadowColor = 'rgba(0,0,0,0.5)';
+            g.shadowOffsetY = 2;
+            const grad = g.createRadialGradient(cx - 3, cy - 3, r * 0.2, cx, cy, r * 1.2);
+            if (color === 1) {
+                grad.addColorStop(0, '#444');
+                grad.addColorStop(0.6, '#222');
+                grad.addColorStop(1, '#111');
+            } else {
+                grad.addColorStop(0, '#fff');
+                grad.addColorStop(0.5, '#eee');
+                grad.addColorStop(1, '#aaa');
+            }
+            g.beginPath();
+            g.arc(cx, cy, r, 0, 2 * Math.PI);
+            g.fillStyle = grad;
+            g.fill();
+            g.shadowBlur = 0;
+            g.shadowOffsetY = 0;
+            g.beginPath();
+            g.arc(cx - 3, cy - 3, r * 0.15, 0, 2 * Math.PI);
+            g.fillStyle = color === 1 ? '#444' : '#fff';
+            g.fill();
+            stoneSpriteCache[key] = c;
+            return c;
+        }
+
+        /** 格线 + 坐标静态层：布局不变时合成一次，重绘直接 drawImage（大幅提速）。 */
+        let gridLayerCanvas = null;
+        function rebuildGridLayer() {
+            const dpr = window.devicePixelRatio || 1;
+            const c = document.createElement('canvas');
+            c.width = 600 * dpr;
+            c.height = 600 * dpr;
+            const g = c.getContext('2d');
+            g.setTransform(dpr, 0, 0, dpr, 0, 0);
+            g.lineWidth = 1.5;
+            g.strokeStyle = '#3a281c';
+            if (boardEdgePath) g.stroke(boardEdgePath);
+            drawCoordsTo(g);
+            gridLayerCanvas = c;
+        }
+
         function drawBoard() {
-            ctx.clearRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
+            if (!vertexPos || vertexPos.size === 0) rebuildLayout();
+            ctx.clearRect(0, 0, 600, 600);
+            const stoneR = 60 / (BOARD_LANES - 1) + 1.19;
+            const gw = GRID_W, gh = GRID_H;
             ctx.lineWidth = 1.5;
             ctx.strokeStyle = '#3a281c';
-            ctx.lineJoin = 'miter';
-            if (boardEdgePath)
+            if (gridLayerCanvas) {
+                ctx.drawImage(gridLayerCanvas, 0, 0, 600, 600);
+            } else if (boardEdgePath) {
                 ctx.stroke(boardEdgePath);
-            const markSize = cellSize * 0.3;
-            const stoneRadius = cellSize * 0.37;
+                drawCoordsTo(ctx);
+            }
+
+            const markLenDefault = stoneR * 0.8;
             const lowerLastMoveMarker = showMoveNumbers || showEstimateActive;
             if (lowerLastMoveMarker) {
-                for (let { vertex, color } of lastMoveMarkers) {
-                    if (vertex === undefined) continue;
-                    const { x, y } = transformed[vertex];
+                for (let { row, col, color } of lastMoveMarkers) {
+                    const { x, y } = pixelAt(row, col);
                     ctx.beginPath();
-                    ctx.moveTo(x + stoneRadius, y + stoneRadius);
-                    ctx.lineTo(x, y + stoneRadius);
-                    ctx.lineTo(x + stoneRadius, y);
+                    ctx.moveTo(x + stoneR, y + stoneR);
+                    ctx.lineTo(x, y + stoneR);
+                    ctx.lineTo(x + stoneR, y);
                     ctx.closePath();
                     ctx.fillStyle = color === 1 ? '#fff' : '#222';
                     ctx.fill();
                 }
             }
 
-            for (let v = 0; v < V; v++) {
-                if (board[v] === 0) continue;
-                const radius = stoneRadius;
-                const { x, y } = transformed[v];
-                ctx.shadowBlur = 6;
-                ctx.shadowColor = 'rgba(0,0,0,0.5)';
-                ctx.shadowOffsetY = 2;
-                const gradient = ctx.createRadialGradient(x - 3, y - 3, radius * 0.2, x, y, radius * 1.2);
-                if (board[v] === 1) {
-                    gradient.addColorStop(0, '#444');
-                    gradient.addColorStop(0.6, '#222');
-                    gradient.addColorStop(1, '#111');
-                } else {
-                    gradient.addColorStop(0, '#fff');
-                    gradient.addColorStop(0.5, '#eee');
-                    gradient.addColorStop(1, '#aaa');
-                }
-                ctx.beginPath();
-                ctx.arc(x, y, radius, 0, 2 * Math.PI);
-                ctx.fillStyle = gradient;
-                ctx.fill();
-                ctx.shadowBlur = 0;
-                ctx.shadowOffsetY = 0;
-                if (!showMoveNumbers) {
-                    ctx.beginPath();
-                    ctx.arc(x - 3, y - 3, radius * 0.15, 0, 2 * Math.PI);
-                    ctx.fillStyle = board[v] === 1 ? '#444' : '#fff';
-                    ctx.fill();
-                }
-            }
-            if (showMoveNumbers) {
-                const nums = computeStoneNumbers();
-                ctx.textAlign = 'center';
-                ctx.textBaseline = 'middle';
-                for (let v = 0; v < V; v++) {
-                    if (nums[v] > 0 && board[v] !== 0) {
-                        const { x, y } = transformed[v];
-                        const numStr = nums[v].toString();
-                        const fontSize = Math.max(8, Math.floor(cellSize * (numStr.length >= 3 ? 0.28 : 0.36)));
-                        ctx.font = `bold ${fontSize}px Arial`;
-                        ctx.fillStyle = board[v] === 1 ? '#fff' : '#000';
-                        ctx.fillText(numStr, x, y + 1);
+            for (let r = 0; r < gw; r++) {
+                for (let c = 0; c < gh; c++) {
+                    const val = board[r][c];
+                    if (val !== 1 && val !== 2) continue;
+                    const { x, y } = pixelAt(r, c);
+                    const sp = getStoneSprite(val, stoneR);
+                    ctx.drawImage(sp, x - sp.width / 2, y - sp.height / 2);
+                    if (!showMoveNumbers) {
+                        ctx.beginPath();
+                        ctx.arc(x - 2, y - 2, stoneR * 0.18, 0, 2 * Math.PI);
+                        ctx.fillStyle = val === 1 ? '#444' : '#fff';
+                        ctx.fill();
                     }
                 }
             }
             if (!lowerLastMoveMarker) {
-                for (let { vertex, color } of lastMoveMarkers) {
-                    if (vertex === undefined) continue;
-                    const { x, y } = transformed[vertex];
+                const markLen = markLenDefault;
+                for (let { row, col, color } of lastMoveMarkers) {
+                    const { x, y } = pixelAt(row, col);
                     ctx.beginPath();
                     ctx.moveTo(x, y);
-                    ctx.lineTo(x + markSize, y);
-                    ctx.lineTo(x, y + markSize);
+                    ctx.lineTo(x + markLen, y);
+                    ctx.lineTo(x, y + markLen);
                     ctx.closePath();
                     ctx.fillStyle = color === 1 ? '#fff' : '#222';
                     ctx.fill();
                 }
             }
             for (const key of Object.keys(userBoardMarks)) {
-                const v = parseInt(key, 10);
-                if (Number.isNaN(v) || !isUserBoardMarkVisibleAtVertex(v)) continue;
+                const [r, c] = key.split(',').map(Number);
+                if (!Cairo.isValidVertex(r, c, gw, gh)) continue;
+                if (!isUserBoardMarkVisibleAt(r, c)) continue;
                 const ch = userBoardMarks[key];
-                const { x, y } = transformed[v];
-                const markBgR = cellSize * 0.3;
+                const { x, y } = pixelAt(r, c);
+                const markBgR = stoneR * 0.56;
                 ctx.beginPath();
                 ctx.arc(x, y, markBgR, 0, 2 * Math.PI);
-                ctx.fillStyle = '#deb887';
+                ctx.fillStyle = '#fdcc90';
                 ctx.fill();
-                const fontPx = cellSize * (ch === '🚩' ? 0.6 : 0.66);
+                const fontPx = stoneR * (ch === '🚩' ? 1.2 : 1.32);
                 ctx.font = `bold ${fontPx}px "Segoe UI", "Apple Color Emoji", "Segoe UI Emoji", sans-serif`;
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
                 ctx.fillStyle = '#3a281c';
                 ctx.fillText(ch, x, y + 1);
             }
-            const editing = !!(typeof _editPs !== 'undefined' && _editPs && _editPs.editModeEnabled);
+            if (showMoveNumbers) {
+                const nums = computeStoneNumbers();
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                for (let r = 0; r < gw; r++) {
+                    for (let c = 0; c < gh; c++) {
+                        if (nums[r][c] > 0 && board[r][c] !== 0) {
+                            const { x, y } = pixelAt(r, c);
+                            const numStr = nums[r][c].toString();
+                            const fontSize = Math.max(8, Math.floor(stoneR * (numStr.length >= 3 ? 0.85 : 1.05)));
+                            ctx.font = `bold ${fontSize}px Arial`;
+                            ctx.fillStyle = board[r][c] === 1 ? '#fff' : '#000';
+                            ctx.fillText(numStr, x, y + 1);
+                        }
+                    }
+                }
+            }
+            const editCb = document.getElementById('editModeCheckbox');
+            const editSel = document.getElementById('editToolSelect');
+            const editing = !!(editCb && editCb.checked);
             const canHover = editing || tryPlayMode || (!gameOver && isMyTurn);
-            if ((isMouseDevice || mobileTwoStepPlacing()) && canHover && isHoverValid && hoverVertex >= 0 && (editing || board[hoverVertex] === 0)) {
+            if (canHover && isHoverValid && hoverRow >= 0 && hoverCol >= 0 && (editing || board[hoverRow][hoverCol] === 0)) {
                 let hoverColor = null;
                 if (editing) {
-                    const t = _editPs.editTool;
+                    const t = (editSel && editSel.value) || 'empty';
                     if (t === 'white') hoverColor = '#fff';
                     else if (t === 'black') hoverColor = '#222';
                     else if (t !== 'empty') hoverColor = '#666';
                 } else if (tryPlayMode) hoverColor = tryPlayCurrentPlayer === 1 ? '#222' : '#fff';
                 else hoverColor = mySlot === 'black' ? '#222' : '#fff';
                 if (hoverColor) {
-                    const { x, y } = transformed[hoverVertex];
+                    const { x, y } = pixelAt(hoverRow, hoverCol);
                     ctx.globalAlpha = 0.45;
                     ctx.beginPath();
-                    ctx.arc(x, y, cellSize * 0.42, 0, 2 * Math.PI);
+                    ctx.arc(x, y, stoneR, 0, 2 * Math.PI);
                     ctx.fillStyle = hoverColor;
                     ctx.fill();
                     ctx.globalAlpha = 1.0;
                 }
             }
             if (showEstimateActive && cachedLiveBoard && cachedTerritory) {
-                drawEstimateOverlay(cachedLiveBoard, cachedTerritory);
+                const dotRadius = 0.4 * stoneR;
+                for (let r = 0; r < gw; r++) {
+                    for (let c = 0; c < gh; c++) {
+                        if (!Cairo.isValidVertex(r, c, gw, gh)) continue;
+                        const { x, y } = pixelAt(r, c);
+                        if (board[r][c] !== 0 && cachedLiveBoard[r][c] === 0) {
+                            ctx.fillStyle = board[r][c] === 1 ? '#fff' : '#222';
+                            ctx.fillRect(x - dotRadius, y - dotRadius, dotRadius * 2, dotRadius * 2);
+                        } else if (board[r][c] === 0 && cachedTerritory[r][c] === 1) {
+                            ctx.fillStyle = '#222';
+                            ctx.fillRect(x - dotRadius, y - dotRadius, dotRadius * 2, dotRadius * 2);
+                        } else if (board[r][c] === 0 && cachedTerritory[r][c] === 2) {
+                            ctx.fillStyle = '#f0f0f0';
+                            ctx.fillRect(x - dotRadius, y - dotRadius, dotRadius * 2, dotRadius * 2);
+                        }
+                    }
+                }
             }
         }
 
-        function drawBoardWithOverlay() {
-            drawBoard();
-        }
-
-        function showEstimate()
-        {
-            if (!showEstimateActive) { clearEstimate(); return; }
-            cachedLiveBoard = removeDeadAndDying(board);
-            cachedTerritory = assignTerritory(cachedLiveBoard);
-            let { blackTotal, whiteTotal } = computeScore(cachedLiveBoard, cachedTerritory);
-            let lead = blackTotal - whiteTotal - 2 * KOMI;
-            scoreTitle.innerText = '形势判断';
-            scoreBoard.innerText = `黑: ${formatScore(blackTotal)} | 白: ${formatScore(whiteTotal)}`;
-            leadInfo.innerText = `黑${lead >= 0 ? '+' : ''}${formatScore(lead)}点`;
-            drawBoardWithOverlay();
-        }
-
-        function clearEstimate()
-        {
-            cachedLiveBoard = null;
-            cachedTerritory = null;
-            scoreTitle.innerText = '　';
-            scoreBoard.innerText = '　';
-            leadInfo.innerText = '　';
-            drawBoardWithOverlay();
-        }
-
-        function updateTurn()
-        {
+        function updateTurn() {
             if (replayMode) {
-                isMyTurn = false;
-                if (showEstimateActive) showEstimate();
-                else drawBoardWithOverlay();
+                drawBoard();
                 return;
             }
             const liveTotal = liveReplayBoards.length > 0 ? liveReplayBoards.length - 1 : 0;
@@ -824,8 +734,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                     turnDisplay.innerText = `${emoji} 第${liveViewStep}手`;
                 }
                 isMyTurn = false;
-                if (showEstimateActive) showEstimate();
-                else drawBoardWithOverlay();
+                drawBoard();
                 return;
             }
             if (gameOver) {
@@ -835,37 +744,26 @@ const scoreTitle = document.getElementById('scoreTitle');
                 else if (winner === 'draw') scoreTitle.innerText = '和棋';
                 else scoreTitle.innerText = '　';
                 isMyTurn = false;
-                drawBoardWithOverlay();
-                return;
-            }
-            if (tryPlayMode) {
-                if (showEstimateActive) showEstimate();
-                else drawBoardWithOverlay();
+                drawBoard();
                 return;
             }
             if (matchStartedOnce === undefined) matchStartedOnce = false;
             if (matchStarted) matchStartedOnce = true;
             const bothSelected = !!(slots && slots.black && slots.white);
-            const hasStoneOnBoard = board.some(v => v !== 0);
+            const hasStoneOnBoard = board.some((row, r) => row.some((v, c) => Cairo.isValidVertex(r, c, GRID_W, GRID_H) && (v === 1 || v === 2)));
             const matchReady = !!(matchStarted || matchStartedOnce);
             if (bothSelected && matchReady) matchStartedOnce = true;
             if (numberOfHands > 1 || hasStoneOnBoard) matchStartedOnce = true;
             if (!matchStarted) {
                 turnDisplay.innerText = QiWeiqiSquarePageRuntime.waitingSeatTurnText(slots, mySlot);
                 isMyTurn = false;
-                if (showEstimateActive) showEstimate();
-                else drawBoardWithOverlay();
+                drawBoard();
                 return;
             }
             const total = liveReplayBoards.length > 0 ? liveReplayBoards.length - 1 : 0;
             if (liveReplayBoards.length === 0) {
-                const n = moveCoordsFull.length;
-                if (n === 0) {
-                    turnDisplay.innerText = '初始局面';
-                } else {
-                    const lastPl = moveCoordsFull[n - 1].player === 'black' ? 1 : 2;
-                    turnDisplay.innerText = `${lastPl === 1 ? '⚫' : '⚪'} 第${n}手`;
-                }
+                const emptyBoard = !board.some(row => row.some(v => v === 1 || v === 2));
+                turnDisplay.innerText = emptyBoard ? '初始局面' : `${currentPlayer === 1 ? '⚫' : '⚪'} 第${numberOfHands}手`;
             } else if (total === 0) {
                 turnDisplay.innerText = '初始局面';
             } else {
@@ -874,8 +772,44 @@ const scoreTitle = document.getElementById('scoreTitle');
             }
             isMyTurn = !!(matchStarted && (mySlot !== null)
                 && ((mySlot === 'black' && currentPlayer === 1) || (mySlot === 'white' && currentPlayer === 2)));
-            if (showEstimateActive) showEstimate();
-            else drawBoardWithOverlay();
+            drawBoard();
+        }
+
+        function showEstimate()
+        {
+            if (!showEstimateActive) { clearEstimate(); return; }
+            const r = QiSquareWeiqiCanvas.computeWeiqiEstimateCaches(
+                board, removeDeadAndDying, assignTerritoryWithRange, computeScore, KOMI
+            );
+            cachedLiveBoard = r.cachedLiveBoard;
+            cachedTerritory = r.cachedTerritory;
+            QiSquareWeiqiCanvas.fillWeiqiEstimatePanel(scoreTitle, scoreBoard, leadInfo, r.blackTotal, r.whiteTotal, r.lead);
+            drawBoard();
+        }
+
+        function clearEstimate()
+        {
+            cachedLiveBoard = null;
+            cachedTerritory = null;
+            QiSquareWeiqiCanvas.clearWeiqiEstimatePanel(scoreTitle, scoreBoard, leadInfo);
+            drawBoard();
+        }
+
+        function downloadRecord(data) {
+            const now = new Date();
+            const pad = n => n.toString().padStart(2, '0');
+            const dateStr = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+            const lanes = data.boardLanes != null ? data.boardLanes : data.boardSize;
+            const filename = `开罗五角围棋_${lanes}路_${dateStr}.json`;
+            const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
         }
 
         function showScoreConfirm(lead) {
@@ -887,37 +821,29 @@ const scoreTitle = document.getElementById('scoreTitle');
             scoreConfirmPanel.style.display = 'none';
         }
 
-        function downloadRecord(data) {
-            QiSquareWeiqiCanvas.downloadWeiqiJsonRecord(data, recordDownloadPrefix);
-        }
-
+        // ======================== 打谱模式 ========================
         function enterReplayMode(data) {
+            clearMobileMovePreview();
+            const lanes = data.boardLanes != null ? data.boardLanes : BOARD_LANES;
+            // 棋谱格式：gridWidth=列数、gridHeight=行数；内部 GRID_W=行数、GRID_H=列数
+            applyBoardDimensions(lanes, data.gridHeight, data.gridWidth);
+
             replayBoards = [];
             replayMarkers = [];
             replayStepPlayers = [0];
 
-            let curBoard = Array(V).fill(0);
-            if (data.initialPosition) {
-                if (Array.isArray(data.initialPosition)) {
-                    for (const s of data.initialPosition) {
-                        if (typeof s !== 'string' || s.length < 2) continue;
-                        const p = s[0];
-                        if (p !== 'B' && p !== 'W') continue;
-                        const vi = parseInt(s.slice(1), 10);
-                        if (!Number.isInteger(vi) || vi < 0 || vi >= V) continue;
-                        curBoard[vi] = p === 'B' ? 1 : 2;
-                    }
-                } else if (Array.isArray(data.initialPosition.black)) {
-                    for (const pos of data.initialPosition.black) {
-                        const vi = typeof pos === 'number' ? pos : pos[0];
-                        if (vi >= 0 && vi < V) curBoard[vi] = 1;
-                    }
-                }
-                if (Array.isArray(data.initialPosition.white)) {
-                    for (const pos of data.initialPosition.white) {
-                        const vi = typeof pos === 'number' ? pos : pos[0];
-                        if (vi >= 0 && vi < V) curBoard[vi] = 2;
-                    }
+            let curBoard = initGridBoard();
+            if (Array.isArray(data.initialPosition)) {
+                for (const s of data.initialPosition) {
+                    if (typeof s !== 'string' || s.length < 4) continue;
+                    const p = s[0];
+                    if (p !== 'B' && p !== 'W') continue;
+                    const comma = s.indexOf(',');
+                    if (comma <= 1) continue;
+                    const r = parseInt(s.slice(1, comma), 10);
+                    const c = parseInt(s.slice(comma + 1), 10);
+                    if (!Number.isInteger(r) || !Number.isInteger(c) || !isValidCoord(r, c)) continue;
+                    curBoard[r][c] = p === 'B' ? 1 : 2;
                 }
             }
             replayBoards.push(deepCopyBoard(curBoard));
@@ -927,10 +853,10 @@ const scoreTitle = document.getElementById('scoreTitle');
                 const playerVal = move.player === 'black' ? 1 : 2;
                 replayStepPlayers.push(playerVal);
                 if (move.type === 'move') {
-                    const newBoard = tryPlaceStone(curBoard, move.vertex, playerVal);
+                    const newBoard = tryPlaceStone(curBoard, move.row, move.col, playerVal);
                     if (newBoard) curBoard = newBoard;
                     replayBoards.push(deepCopyBoard(curBoard));
-                    replayMarkers.push([{ vertex: move.vertex, color: playerVal }]);
+                    replayMarkers.push([{ row: move.row, col: move.col, color: playerVal }]);
                 } else if (move.type === 'pass') {
                     replayBoards.push(deepCopyBoard(curBoard));
                     replayMarkers.push([]);
@@ -982,7 +908,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             isMyTurn = false;
 
             if (showEstimateActive) showEstimate();
-            else drawBoardWithOverlay();
+            else drawBoard();
         }
 
         function updateReplayUI() {
@@ -997,31 +923,47 @@ const scoreTitle = document.getElementById('scoreTitle');
             replayPanel.style.display = '';
             tryPlayBtn.style.display = showMatchButtons ? 'none' : '';
             tryPlayBtn.innerText = tryPlayMode ? '试下结束' : '试下';
-            updateRecordButtons();
         }
 
+        // ======================== 试下模式 ========================
         function enterTryPlay() {
             clearMobileMovePreview();
-            tryPlayMode = true;
-            tryPlayBaseStep = replayStep;
-            tryPlayBoards = [deepCopyBoard(board)];
-            tryPlayMarkers = [lastMoveMarkers.map(m => ({ ...m }))];
-
-            const _fromLive = !replayMode;
-            const _RT = typeof QiWeiqiSquarePageRuntime !== 'undefined' ? QiWeiqiSquarePageRuntime : null;
-            const _startPlayer = _RT && _RT.resolveTryPlaySideToMove
-                ? _RT.resolveTryPlaySideToMove({
-                    fromLive: _fromLive,
+            const fromLive = !replayMode;
+            const RT = typeof QiWeiqiSquarePageRuntime !== 'undefined' ? QiWeiqiSquarePageRuntime : null;
+            const startPlayer = RT && RT.resolveTryPlaySideToMove
+                ? RT.resolveTryPlaySideToMove({
+                    fromLive,
                     replayStep,
                     replayStepPlayers,
+                    replayBoardsLength: (replayBoards && replayBoards.length) || 0,
                     liveViewStep,
                     liveReplayStepPlayers,
                     liveReplayBoardsLength: (liveReplayBoards && liveReplayBoards.length) || 0,
                     currentPlayer
                 })
-                : (replayStep > 0 ? (3 - replayStepPlayers[replayStep]) : ((currentPlayer === 1 || currentPlayer === 2) ? currentPlayer : 1));
-            tryPlayBasePlayer = _startPlayer;
-            tryPlayCurrentPlayer = _startPlayer;
+                : (fromLive
+                    ? ((liveViewStep > 0 && liveReplayStepPlayers[liveViewStep])
+                        ? (3 - liveReplayStepPlayers[liveViewStep])
+                        : ((currentPlayer === 1 || currentPlayer === 2) ? currentPlayer : 1))
+                    : (replayStep > 0 ? (3 - replayStepPlayers[replayStep]) : 1));
+            if (fromLive) {
+                tryPlayFromLive = true;
+                tryPlayFromLiveStep = liveViewStep || 0;
+                replayMode = true;
+                replayBoards = [deepCopyBoard(board)];
+                replayMarkers = [(lastMoveMarkers || []).map(m => ({ ...m }))];
+                replayStepPlayers = [startPlayer === 1 ? 2 : 1];
+                replayStep = 0;
+                replayTotalSteps = 0;
+            } else {
+                tryPlayFromLive = false;
+            }
+            tryPlayMode = true;
+            tryPlayBaseStep = replayStep;
+            tryPlayBasePlayer = startPlayer;
+            tryPlayBoards = [deepCopyBoard(board)];
+            tryPlayMarkers = [(lastMoveMarkers || []).map(m => ({ ...m }))];
+            tryPlayCurrentPlayer = startPlayer;
             tryPlayStep = 0;
             tryPlayTotalSteps = 0;
 
@@ -1031,11 +973,21 @@ const scoreTitle = document.getElementById('scoreTitle');
             slider.value = 0;
             updateTryPlayDisplay();
             updateReplayUI();
+            drawBoard();
         }
 
         function exitTryPlay() {
             clearMobileMovePreview();
+            const fromLive = !!tryPlayFromLive;
+            const savedLiveStep = tryPlayFromLiveStep != null ? tryPlayFromLiveStep : liveViewStep;
+            const snapBoard = fromLive && tryPlayBoards.length > 0 ? deepCopyBoard(tryPlayBoards[0]) : null;
+            const snapMarkers = fromLive && tryPlayMarkers.length > 0 && tryPlayMarkers[0]
+                ? tryPlayMarkers[0].map(m => ({ ...m }))
+                : [];
             tryPlayMode = false;
+            tryPlayFromLive = false;
+            tryPlayFromLiveStep = null;
+            tryPlayBasePlayer = 1;
             tryPlayBoards = [];
             tryPlayMarkers = [];
             tryPlayStep = 0;
@@ -1043,15 +995,46 @@ const scoreTitle = document.getElementById('scoreTitle');
 
             const slider = document.getElementById('replaySlider');
             slider.min = 0;
-            slider.max = replayTotalSteps;
-            setReplayStep(tryPlayBaseStep);
+            if (fromLive) {
+                replayMode = false;
+                replayBoards = [];
+                replayMarkers = [];
+                replayStepPlayers = [];
+                replayStep = 0;
+                replayTotalSteps = 0;
+                if (snapBoard) {
+                    board = snapBoard;
+                    lastMoveMarkers = snapMarkers.map(m => ({ ...m }));
+                    if (liveReplayBoards.length > 0) {
+                        const step = Math.min(Math.max(0, savedLiveStep), liveReplayBoards.length - 1);
+                        liveReplayBoards[step] = deepCopyBoard(snapBoard);
+                        if (!liveReplayMarkers[step]) liveReplayMarkers[step] = [];
+                        liveReplayMarkers[step] = snapMarkers.map(m => ({ ...m }));
+                        liveViewStep = step;
+                    } else {
+                        liveReplayBoards = [deepCopyBoard(snapBoard)];
+                        liveReplayMarkers = [snapMarkers.map(m => ({ ...m }))];
+                        liveReplayStepPlayers = [0];
+                        liveViewStep = 0;
+                    }
+                } else {
+                    applyLiveViewBoard();
+                }
+                updateLiveReplayPanelUI();
+                if (showEstimateActive) showEstimate();
+                else updateTurn();
+            } else {
+                slider.max = replayTotalSteps;
+                setReplayStep(tryPlayBaseStep);
+            }
             updateReplayUI();
         }
 
-        function tryPlayMove(vertex) {
-            if (board[vertex] !== 0) return false;
+        function tryPlayMove(row, col) {
+            if (!Cairo.isValidVertex(row, col, GRID_W, GRID_H)) return false;
+            if (board[row][col] !== 0) return false;
             const playerVal = tryPlayCurrentPlayer;
-            const newBoard = tryPlaceStone(board, vertex, playerVal);
+            const newBoard = tryPlaceStone(board, row, col, playerVal);
             if (!newBoard) return false;
 
             if (tryPlayStep < tryPlayTotalSteps) {
@@ -1060,20 +1043,20 @@ const scoreTitle = document.getElementById('scoreTitle');
             }
 
             tryPlayBoards.push(deepCopyBoard(newBoard));
-            tryPlayMarkers.push([{ vertex, color: playerVal }]);
+            tryPlayMarkers.push([{ row, col, color: playerVal }]);
             tryPlayTotalSteps = tryPlayBoards.length - 1;
             tryPlayStep = tryPlayTotalSteps;
             tryPlayCurrentPlayer = 3 - tryPlayCurrentPlayer;
 
             board = deepCopyBoard(newBoard);
-            lastMoveMarkers = [{ vertex, color: playerVal }];
+            lastMoveMarkers = [{ row, col, color: playerVal }];
 
             const slider = document.getElementById('replaySlider');
             slider.max = tryPlayTotalSteps;
             slider.value = tryPlayStep;
             updateTryPlayDisplay();
             if (showEstimateActive) showEstimate();
-            else drawBoardWithOverlay();
+            else drawBoard();
             return true;
         }
 
@@ -1093,7 +1076,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             document.getElementById('replaySlider').value = step;
             updateTryPlayDisplay();
             if (showEstimateActive) showEstimate();
-            else drawBoardWithOverlay();
+            else drawBoard();
         }
 
         function updateTryPlayDisplay() {
@@ -1109,17 +1092,17 @@ const scoreTitle = document.getElementById('scoreTitle');
             liveReplayBoards = [];
             liveReplayMarkers = [];
             liveReplayStepPlayers = [0];
-            let curBoard = (openingBoard && openingBoard.length === V) ? deepCopyBoard(openingBoard) : Array(V).fill(0);
+            let curBoard = openingBoard ? deepCopyBoard(openingBoard) : initGridBoard();
             liveReplayBoards.push(deepCopyBoard(curBoard));
             liveReplayMarkers.push([]);
             for (const move of (moveCoords || [])) {
                 const playerVal = move.player === 'black' ? 1 : 2;
                 liveReplayStepPlayers.push(playerVal);
                 if (move.type === 'move') {
-                    const newBoard = tryPlaceStone(curBoard, move.vertex, playerVal);
+                    const newBoard = tryPlaceStone(curBoard, move.row, move.col, playerVal);
                     if (newBoard) curBoard = newBoard;
                     liveReplayBoards.push(deepCopyBoard(curBoard));
-                    liveReplayMarkers.push([{ vertex: move.vertex, color: playerVal }]);
+                    liveReplayMarkers.push([{ row: move.row, col: move.col, color: playerVal }]);
                 } else if (move.type === 'pass') {
                     liveReplayBoards.push(deepCopyBoard(curBoard));
                     liveReplayMarkers.push([]);
@@ -1129,7 +1112,7 @@ const scoreTitle = document.getElementById('scoreTitle');
 
         function applyLiveViewBoard() {
             if (!liveReplayBoards.length) {
-                board = Array(V).fill(0);
+                board = initGridBoard();
                 lastMoveMarkers = [];
                 return;
             }
@@ -1163,8 +1146,6 @@ const scoreTitle = document.getElementById('scoreTitle');
             else updateTurn();
         }
 
-        let updateRecordButtons = () => {};
-
         // ======================== WebSocket ========================
 
         function connectWebSocket() {
@@ -1197,16 +1178,26 @@ const scoreTitle = document.getElementById('scoreTitle');
         function syncState(state)
         {
             clearMobileMovePreview();
-            const incomingSize = state.boardSize != null ? Number(state.boardSize) : NaN;
-            const sizeNum = Number(BOARD_SIZE);
-            const needGeometry =
-                Number.isFinite(incomingSize) &&
-                (incomingSize !== sizeNum || (state.board && state.board.length !== V));
-            if (needGeometry) {
-                BOARD_SIZE = incomingSize;
-                applyCairoGeometry(generateCairoPentBoard(BOARD_SIZE));
+            const prevMatchStarted = matchStarted;
+            if (state.boardLanes != null && state.gridWidth != null && state.gridHeight != null) {
+                // 状态/棋谱格式：gridWidth=列数(4n−3)、gridHeight=行数(4n−5)；插件内部 GRID_W=行数、GRID_H=列数
+                const rows = state.gridHeight, cols = state.gridWidth;
+                if (state.boardLanes !== BOARD_LANES || rows !== GRID_W || cols !== GRID_H)
+                    applyBoardDimensions(state.boardLanes, rows, cols);
+            } else if (state.boardSize != null) {
+                const lanes = state.boardSize;
+                const w = 4 * lanes - 5;
+                const h = 4 * lanes - 3;
+                if (lanes !== BOARD_LANES || w !== GRID_W || h !== GRID_H)
+                    applyBoardDimensions(lanes, w, h);
+            }
+            if (state.boardLanes != null) {
                 const sizeSelect = document.getElementById('boardSizeSelect');
-                if (sizeSelect) sizeSelect.value = String(BOARD_SIZE);
+                if (sizeSelect) sizeSelect.value = state.boardLanes;
+            }
+            if (state.komi != null && Number.isFinite(state.komi)) {
+                KOMI = state.komi;
+                updateKomiInfo();
             }
             numberOfHands = state.numberOfHands || 1;
             currentPlayer = state.currentPlayer;
@@ -1217,10 +1208,8 @@ const scoreTitle = document.getElementById('scoreTitle');
                 if (matchStarted) matchStartedOnce = true;
                 else if ((state.numberOfHands || 1) <= 1) matchStartedOnce = false;
             }
-            if (state.moveCoords !== undefined) {
-                moveCoordsFull = state.moveCoords || [];
-                moveLog = moveCoordsFull.map(m => m.type === 'move' ? { vertex: m.vertex } : null);
-            }
+            if (state.moveCoords)
+                moveLog = state.moveCoords.map(m => m.type === 'move' ? { row: m.row, col: m.col } : null);
             if (state.slots)
                 slots = state.slots;
             if (state.matchTime !== undefined)
@@ -1251,7 +1240,10 @@ const scoreTitle = document.getElementById('scoreTitle');
                 lastMoveMarkers = state.lastMoveMarkers || [];
             }
 
-            const hasAnyStone = board.some(v => v !== 0);
+            if (tryPlayMode && tryPlayFromLive && mySlot && matchStarted && !prevMatchStarted)
+                exitTryPlay();
+
+            const hasAnyStone = board.some((row, r) => row.some((v, c) => Cairo.isValidVertex(r, c, GRID_W, GRID_H) && (v === 1 || v === 2)));
             const hasPlayer = slots.black || slots.white;
             const sizeSelect = document.getElementById('boardSizeSelect');
             if (!hasAnyStone && !hasPlayer && !gameOver && mySlot === null)
@@ -1259,23 +1251,25 @@ const scoreTitle = document.getElementById('scoreTitle');
             else
                 sizeSelect.style.display = 'none';
 
-            if (showEstimateActive) {
+            if (showEstimateActive)
+            {
                 cachedLiveBoard = removeDeadAndDying(board);
-                cachedTerritory = assignTerritory(cachedLiveBoard);
+                cachedTerritory = assignTerritoryWithRange(cachedLiveBoard);
+                showEstimate();
+            } else {
+                updateTurn();
             }
-            updateTurn();
             updateReplayUI();
         }
 
+        let updateRecordButtons = () => {};
         let updateRadioStyles = () => {};
         let handleMessage = () => {};
-        function initCairoBoardArray() {
-            return Array(V).fill(0);
-        }
         const _weiqiBindings = QiBoardRoomClient.createWeiqiMessageBindings({
             roomId,
             gameType,
             pageState: {
+                get board() { return board; },
                 get mySlot() { return mySlot; },
                 set mySlot(v) { mySlot = v; },
                 get slots() { return slots; },
@@ -1309,23 +1303,26 @@ const scoreTitle = document.getElementById('scoreTitle');
                 get showMoveNumbers() { return showMoveNumbers; },
                 set showMoveNumbers(v) { showMoveNumbers = v; }
             },
-            drawBoard: drawBoardWithOverlay,
+            drawBoard,
             exitTryPlay,
             enterTryPlay,
             setTryPlayStep,
             setReplayStep,
             setLiveViewStep,
             getWs: () => ws,
-            getBoardSize: () => BOARD_SIZE,
+            getBoardSize: () => BOARD_LANES,
             setBoardSize: (n) => {
-                BOARD_SIZE = n;
-                applyCairoGeometry(generateCairoPentBoard(BOARD_SIZE));
-                board = Array(V).fill(0);
+                const lanes = Number(n);
+                KOMI = komiForLanes(lanes);
+                updateKomiInfo();
+                applyBoardDimensions(lanes, 4 * lanes - 5, 4 * lanes - 3);
             },
             getKomi: () => KOMI,
-            setKomi: () => {},
-            // 公共 updateRecordButtons 期望二维数组，这里提供兼容视图即可复用其逻辑。
-            getBoard: () => board.map(v => [v]),
+            setKomi: (n) => { KOMI = n; updateKomiInfo(); },
+            // 公共 updateRecordButtons 需要二维棋盘，传入过滤 -1 的兼容视图。
+            getBoard: () => board.map((row, r) => row.map((v, c) => (
+                Cairo.isValidVertex(r, c, GRID_W, GRID_H) ? v : 0
+            ))),
             setBoard: (b) => { board = b; },
             getSlots: () => slots,
             setSlots: (s) => { slots = s; },
@@ -1345,10 +1342,9 @@ const scoreTitle = document.getElementById('scoreTitle');
             colorStatus,
             scoreTitle,
             turnDisplay,
-komiInfo,
-            syncState,
-            updateBoardGeometry: drawBoardWithOverlay,
-            initBoardArray: initCairoBoardArray,
+syncState,
+            updateBoardGeometry: rebuildLayout,
+            initBoardArray: () => initGridBoard(),
             exitReplayMode,
             clearEstimate,
             hideScoreConfirm,
@@ -1358,17 +1354,11 @@ komiInfo,
             enterReplayMode,
             updateTurn,
             showScoreConfirm,
+            onNewGameStarted: () => {
+                colorStatus.innerText = '未选择阵营';
+            },
             onBoardSizeChanged: (msg) => {
-                if (msg.boardSize == null) return;
-                const bs = Number(msg.boardSize);
-                if (Number.isFinite(bs) && bs !== Number(BOARD_SIZE)) {
-                    BOARD_SIZE = bs;
-                    applyCairoGeometry(generateCairoPentBoard(BOARD_SIZE));
-                    board = Array(V).fill(0);
-                }
-                const sel = document.getElementById('boardSizeSelect');
-                if (sel) sel.value = String(msg.boardSize);
-                drawBoardWithOverlay();
+                syncState(msg);
             },
             isMouseDevice,
             standardWeiqiMatchTime,
@@ -1378,31 +1368,31 @@ komiInfo,
         updateRecordButtons = _weiqiBindings.updateRecordButtons;
         updateRadioStyles = _weiqiBindings.updateRadioStyles;
 
-        function commitMove(vertex) {
+        function commitMove(row, col) {
             if (gameOver) return false;
             if (!isMyTurn) return false;
-            if (board[vertex] !== 0) return false;
-            ws.send(JSON.stringify({ type: 'move', vertex }));
+            if (!Cairo.isValidVertex(row, col, GRID_W, GRID_H)) return false;
+            if (board[row][col] !== 0) return false;
+            ws.send(JSON.stringify({ type: 'move', row, col }));
             return true;
         }
 
-        function getNearestVertex(x, y) {
-            let minDist = Infinity, best = -1;
-            for (let v = 0; v < V; v++) {
-                const { x: vx, y: vy } = transformed[v];
-                const dx = vx - x, dy = vy - y;
-                const dist = Math.sqrt(dx * dx + dy * dy);
-                if (dist < minDist) {
-                    minDist = dist;
-                    best = v;
+        function getClosestIntersection(x, y) {
+            let bestR = -1, bestC = -1, bestD = 26;
+            for (let r = 0; r < GRID_W; r++) {
+                for (let c = 0; c < GRID_H; c++) {
+                    if (!Cairo.isValidVertex(r, c, GRID_W, GRID_H)) continue;
+                    const p = pixelAt(r, c);
+                    const d = Math.hypot(x - p.x, y - p.y);
+                    if (d < bestD) { bestD = d; bestR = r; bestC = c; }
                 }
             }
-            return minDist < clickThreshold ? best : -1;
+            return { row: bestR, col: bestC };
         }
 
         function canvasCoordsFromClient(clientX, clientY) {
             const rect = canvas.getBoundingClientRect();
-            const scale = CANVAS_SIZE / rect.width;
+            const scale = 600 / rect.width;
             return {
                 x: (clientX - rect.left) * scale,
                 y: (clientY - rect.top) * scale
@@ -1411,21 +1401,21 @@ komiInfo,
 
         function getSelectedBoardMark() {
             if (!boardMarkSelect) return { clear: false, ch: '?' };
-            const val = boardMarkSelect.value;
-            if (val === '') return { clear: true, ch: '' };
-            return { clear: false, ch: val };
+            const v = boardMarkSelect.value;
+            if (v === '') return { clear: true, ch: '' };
+            return { clear: false, ch: v };
         }
 
-        function applyUserBoardMark(vertex) {
-            if (vertex < 0 || vertex >= V) return;
-            if (board[vertex] !== 0) return;
+        function applyUserBoardMark(row, col) {
+            if (!Cairo.isValidVertex(row, col, GRID_W, GRID_H)) return;
+            if (board[row][col] !== 0) return;
             const { clear, ch } = getSelectedBoardMark();
-            const key = String(vertex);
+            const key = row + ',' + col;
             const existing = userBoardMarks[key];
             if (clear) {
                 if (existing !== undefined) {
                     delete userBoardMarks[key];
-                    drawBoardWithOverlay();
+                    drawBoard();
                 }
                 return;
             }
@@ -1436,7 +1426,7 @@ komiInfo,
             } else {
                 delete userBoardMarks[key];
             }
-            drawBoardWithOverlay();
+            drawBoard();
         }
 
         let suppressCanvasClickAfterLongMark = false;
@@ -1444,8 +1434,8 @@ komiInfo,
         canvas.addEventListener('contextmenu', (e) => {
             e.preventDefault();
             const { x, y } = canvasCoordsFromClient(e.clientX, e.clientY);
-            const v = getNearestVertex(x, y);
-            applyUserBoardMark(v);
+            const { row, col } = getClosestIntersection(x, y);
+            applyUserBoardMark(row, col);
         });
 
         const LONG_MARK_MS = 500;
@@ -1461,8 +1451,8 @@ komiInfo,
                 longMarkTimer = null;
                 if (!longMarkStart) return;
                 const { x, y } = canvasCoordsFromClient(longMarkStart.x, longMarkStart.y);
-                const v = getNearestVertex(x, y);
-                applyUserBoardMark(v);
+                const { row, col } = getClosestIntersection(x, y);
+                applyUserBoardMark(row, col);
                 suppressCanvasClickAfterLongMark = true;
                 setTimeout(() => { suppressCanvasClickAfterLongMark = false; }, 450);
                 longMarkStart = null;
@@ -1490,98 +1480,102 @@ komiInfo,
         canvas.addEventListener('touchend', clearLongMarkTouch);
         canvas.addEventListener('touchcancel', clearLongMarkTouch);
 
-        // 事件绑定
         canvas.addEventListener('click', (e) => {
             if (suppressCanvasClickAfterLongMark) {
                 e.preventDefault();
                 return;
             }
             const rect = canvas.getBoundingClientRect();
-            const scale = CANVAS_SIZE / rect.width;
+            const scale = 600 / rect.width;
             const x = (e.clientX - rect.left) * scale;
             const y = (e.clientY - rect.top) * scale;
-            const v = getNearestVertex(x, y);
+            const { row, col } = getClosestIntersection(x, y);
             if (tryPlayMode) {
-                if (waitingScoreConfirm) return;
-                if (v === -1) {
+                if (row < 0 || col < 0 || !Cairo.isValidVertex(row, col, GRID_W, GRID_H)) {
                     if (mobileTwoStepPlacing()) clearMobileMovePreview();
-                    drawBoardWithOverlay();
+                    drawBoard();
                     return;
                 }
-                if (board[v] !== 0) return;
+                if (board[row][col] !== 0) return;
                 if (mobileTwoStepPlacing()) {
-                    if (hoverVertex === v && isHoverValid) {
+                    if (hoverRow === row && hoverCol === col && isHoverValid) {
                         clearMobileMovePreview();
-                        tryPlayMove(v);
+                        tryPlayMove(row, col);
                     } else {
-                        hoverVertex = v;
+                        hoverRow = row;
+                        hoverCol = col;
                         isHoverValid = true;
-                        drawBoardWithOverlay();
+                        drawBoard();
                     }
                     return;
                 }
-                tryPlayMove(v);
+                tryPlayMove(row, col);
                 return;
             }
             if (gameOver) return;
             if (!isMyTurn) return;
             if (waitingScoreConfirm) return;
-            if (v === -1) {
+            if (row < 0 || col < 0 || !Cairo.isValidVertex(row, col, GRID_W, GRID_H)) {
                 if (mobileTwoStepPlacing()) clearMobileMovePreview();
-                drawBoardWithOverlay();
+                drawBoard();
                 return;
             }
-            if (board[v] !== 0) return;
+            if (board[row][col] !== 0) return;
             if (mobileTwoStepPlacing()) {
-                if (hoverVertex === v && isHoverValid) {
+                if (hoverRow === row && hoverCol === col && isHoverValid) {
                     clearMobileMovePreview();
-                    commitMove(v);
-                    drawBoardWithOverlay();
+                    commitMove(row, col);
+                    drawBoard();
                 } else {
-                    hoverVertex = v;
+                    hoverRow = row;
+                    hoverCol = col;
                     isHoverValid = true;
-                    drawBoardWithOverlay();
+                    drawBoard();
                 }
                 return;
             }
-            commitMove(v);
+            commitMove(row, col);
         });
 
         if (isMouseDevice)
         {
-            canvas.addEventListener('mousemove', (e) =>
-            {
+            canvas.addEventListener('mousemove', (e) => {
                 if (waitingScoreConfirm) {
-                    if (isHoverValid) { isHoverValid = false; hoverVertex = -1; drawBoardWithOverlay(); }
+                    if (isHoverValid) { isHoverValid = false; hoverRow = -1; hoverCol = -1; drawBoard(); }
                     return;
                 }
                 const canHover = tryPlayMode || (!gameOver && isMyTurn);
                 if (!canHover) {
-                    if (isHoverValid) { isHoverValid = false; hoverVertex = -1; drawBoardWithOverlay(); }
+                    if (isHoverValid || hoverRow >= 0 || hoverCol >= 0) {
+                        isHoverValid = false;
+                        hoverRow = -1;
+                        hoverCol = -1;
+                        drawBoard();
+                    }
                     return;
                 }
                 const rect = canvas.getBoundingClientRect();
-                const scale = CANVAS_SIZE / rect.width;
+                const scale = 600 / rect.width;
                 const x = (e.clientX - rect.left) * scale;
                 const y = (e.clientY - rect.top) * scale;
-                const v = getNearestVertex(x, y);
-                hoverVertex = v;
-                isHoverValid = (v !== -1 && board[v] === 0);
-                drawBoardWithOverlay();
+                const { row, col } = getClosestIntersection(x, y);
+                hoverRow = row; hoverCol = col;
+                isHoverValid = (row >= 0 && col >= 0 && Cairo.isValidVertex(row, col, GRID_W, GRID_H) && board[row][col] === 0);
+                scheduleHoverDraw();
             });
             canvas.addEventListener('mouseleave', () => {
                 if (!waitingScoreConfirm) {
-                    hoverVertex = -1;
                     isHoverValid = false;
-                    drawBoardWithOverlay();
+                    hoverRow = -1; hoverCol = -1;
+                    drawBoard();
                 }
             });
         }
 
+        // 数点确认按钮事件
         if (scoreConfirmYes)
         {
-            scoreConfirmYes.onclick = () =>
-            {
+            scoreConfirmYes.onclick = () => {
                 ws.send(JSON.stringify({ type: 'scoreResponse', accept: true }));
                 hideScoreConfirm();
             };
@@ -1597,8 +1591,6 @@ komiInfo,
             };
         }
 
-        updateRecordButtons();
-
         /* board edit UI (flat vertices) */
         if (typeof QiWeiqiSquarePageRuntime !== 'undefined' && QiWeiqiSquarePageRuntime.installBoardEditUI) {
             const _editPs = {
@@ -1613,12 +1605,12 @@ komiInfo,
                 set gameStarted(v) { if (typeof gameStarted !== 'undefined') gameStarted = !!v; },
                 editModeEnabled: false,
                 editTool: 'empty',
-                get hoverRow() { return typeof hoverVertex !== 'undefined' ? hoverVertex : -1; },
-                set hoverRow(v) { if (typeof hoverVertex !== 'undefined') hoverVertex = (v == null ? -1 : v); },
-                get hoverCol() { return 0; },
-                set hoverCol(_v) {},
-                get isHoverValid() { return typeof isHoverValid !== 'undefined' ? isHoverValid : false; },
-                set isHoverValid(v) { if (typeof isHoverValid !== 'undefined') isHoverValid = !!v; },
+                get hoverRow() { return hoverRow; },
+                set hoverRow(v) { hoverRow = v == null ? -1 : v; },
+                get hoverCol() { return hoverCol; },
+                set hoverCol(v) { hoverCol = v == null ? -1 : v; },
+                get isHoverValid() { return isHoverValid; },
+                set isHoverValid(v) { isHoverValid = !!v; },
                 get ws() { return typeof ws !== 'undefined' ? ws : null; }
             };
             const _editApi = QiWeiqiSquarePageRuntime.installBoardEditUI({

@@ -747,6 +747,8 @@ class TranspositionWeiqiRoom extends QiTwoPlayerRoomBase
 
     exportRecord() {
         const emptyBoard = Array(this.boardSize).fill().map(() => Array(this.boardSize).fill(0));
+        // 开局编辑的棋子必须随棋谱导出，否则打谱从空盘回放会与真实对局错位（提子结果错乱）
+        const opening = this.openingBoard && Array.isArray(this.openingBoard) ? this.openingBoard : emptyBoard;
         return {
             format: 'muzei',
             version: 1,
@@ -755,7 +757,7 @@ class TranspositionWeiqiRoom extends QiTwoPlayerRoomBase
             boardSize: this.boardSize,
             komi: komiForSize(this.boardSize),
             players: { black: null, white: null },
-            initialPosition: encodeInitialPositionCompact(emptyBoard, this.boardSize),
+            initialPosition: encodeInitialPositionCompact(opening, this.boardSize),
             moves: this.moveCoords.map(m => {
                 const p = m.player === 'black' ? 'B' : 'W';
                 if (m.type === 'pass') return p + 'p';

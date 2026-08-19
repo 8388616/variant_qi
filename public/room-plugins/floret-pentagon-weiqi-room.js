@@ -200,6 +200,8 @@ window.RoomPlugins["floret-pentagon-weiqi"] = {
             boardEdgePath = path;
         }
 
+        let gridLayerCanvas = null;
+
         function applyFloretGeometry(data) {
             V = data.vertexCount;
             transformed = data.transformed;
@@ -210,6 +212,7 @@ window.RoomPlugins["floret-pentagon-weiqi"] = {
             centerX = data.centerX;
             centerY = data.centerY;
             rebuildBoardEdgePath();
+            rebuildGridLayer();
         }
 
         applyFloretGeometry(generateFloretPentBoard(BOARD_SIZE));
@@ -277,7 +280,11 @@ window.RoomPlugins["floret-pentagon-weiqi"] = {
 
         // DOM
         const canvas = document.getElementById('goBoard');
+        const dpr = window.devicePixelRatio || 1;
+        canvas.width = 600 * dpr;
+        canvas.height = 600 * dpr;
         const ctx = canvas.getContext('2d');
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
         const turnDisplay = document.getElementById('turnDisplay');
         const colorStatus = document.getElementById('colorStatus');
 const scoreTitle = document.getElementById('scoreTitle');
@@ -575,13 +582,69 @@ const scoreTitle = document.getElementById('scoreTitle');
             }
         }
 
+        /** 棋子离屏 sprite 缓存：阴影 + 渐变只绘制一次，重绘时直接 drawImage（大幅提速）。 */
+        let stoneSpriteCache = Object.create(null);
+        function getStoneSprite(color, r) {
+            const key = color + '_' + r.toFixed(2);
+            if (stoneSpriteCache[key]) return stoneSpriteCache[key];
+            const size = Math.ceil(r * 2 + 10);
+            const c = document.createElement('canvas');
+            c.width = c.height = size;
+            const g = c.getContext('2d');
+            const cx = size / 2, cy = size / 2;
+            g.shadowBlur = 6;
+            g.shadowColor = 'rgba(0,0,0,0.5)';
+            g.shadowOffsetY = 2;
+            const grad = g.createRadialGradient(cx - 3, cy - 3, r * 0.2, cx, cy, r * 1.2);
+            if (color === 1) {
+                grad.addColorStop(0, '#444');
+                grad.addColorStop(0.6, '#222');
+                grad.addColorStop(1, '#111');
+            } else {
+                grad.addColorStop(0, '#fff');
+                grad.addColorStop(0.5, '#eee');
+                grad.addColorStop(1, '#aaa');
+            }
+            g.beginPath();
+            g.arc(cx, cy, r, 0, 2 * Math.PI);
+            g.fillStyle = grad;
+            g.fill();
+            g.shadowBlur = 0;
+            g.shadowOffsetY = 0;
+            g.beginPath();
+            g.arc(cx - 3, cy - 3, r * 0.15, 0, 2 * Math.PI);
+            g.fillStyle = color === 1 ? '#444' : '#fff';
+            g.fill();
+            stoneSpriteCache[key] = c;
+            return c;
+        }
+
+        /** 格线静态层：布局不变时合成一次，重绘直接 drawImage（大幅提速）。 */
+        function rebuildGridLayer() {
+            const dpr = window.devicePixelRatio || 1;
+            const c = document.createElement('canvas');
+            c.width = CANVAS_SIZE * dpr;
+            c.height = CANVAS_SIZE * dpr;
+            const g = c.getContext('2d');
+            g.setTransform(dpr, 0, 0, dpr, 0, 0);
+            g.lineWidth = 1.5;
+            g.strokeStyle = '#3a281c';
+            g.lineJoin = 'miter';
+            if (boardEdgePath) g.stroke(boardEdgePath);
+            gridLayerCanvas = c;
+        }
+
         function drawBoard() {
             ctx.clearRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
-            ctx.lineWidth = 1.5;
-            ctx.strokeStyle = '#3a281c';
-            ctx.lineJoin = 'miter';
-            if (boardEdgePath)
-                ctx.stroke(boardEdgePath);
+            if (gridLayerCanvas) {
+                ctx.drawImage(gridLayerCanvas, 0, 0, CANVAS_SIZE, CANVAS_SIZE);
+            } else {
+                ctx.lineWidth = 1.5;
+                ctx.strokeStyle = '#3a281c';
+                ctx.lineJoin = 'miter';
+                if (boardEdgePath)
+                    ctx.stroke(boardEdgePath);
+            }
             const markSize = cellSize * 0.3;
             const stoneRadius = cellSize * 0.35;
             const lowerLastMoveMarker = showMoveNumbers || showEstimateActive;
@@ -603,25 +666,8 @@ const scoreTitle = document.getElementById('scoreTitle');
                 if (board[v] === 0) continue;
                 const radius = stoneRadius;
                 const { x, y } = transformed[v];
-                ctx.shadowBlur = 6;
-                ctx.shadowColor = 'rgba(0,0,0,0.5)';
-                ctx.shadowOffsetY = 2;
-                const gradient = ctx.createRadialGradient(x - 3, y - 3, radius * 0.2, x, y, radius * 1.2);
-                if (board[v] === 1) {
-                    gradient.addColorStop(0, '#444');
-                    gradient.addColorStop(0.6, '#222');
-                    gradient.addColorStop(1, '#111');
-                } else {
-                    gradient.addColorStop(0, '#fff');
-                    gradient.addColorStop(0.5, '#eee');
-                    gradient.addColorStop(1, '#aaa');
-                }
-                ctx.beginPath();
-                ctx.arc(x, y, radius, 0, 2 * Math.PI);
-                ctx.fillStyle = gradient;
-                ctx.fill();
-                ctx.shadowBlur = 0;
-                ctx.shadowOffsetY = 0;
+                const sp = getStoneSprite(board[v], radius);
+                ctx.drawImage(sp, x - sp.width / 2, y - sp.height / 2);
                 if (!showMoveNumbers) {
                     ctx.beginPath();
                     ctx.arc(x - 3, y - 3, radius * 0.15, 0, 2 * Math.PI);
@@ -665,7 +711,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                 const markBgR = cellSize * 0.3;
                 ctx.beginPath();
                 ctx.arc(x, y, markBgR, 0, 2 * Math.PI);
-                ctx.fillStyle = '#deb887';
+                ctx.fillStyle = '#fdcc90';
                 ctx.fill();
                 const fontPx = cellSize * (ch === '🚩' ? 0.6 : 0.66);
                 ctx.font = `bold ${fontPx}px "Segoe UI", "Apple Color Emoji", "Segoe UI Emoji", sans-serif`;
@@ -674,12 +720,14 @@ const scoreTitle = document.getElementById('scoreTitle');
                 ctx.fillStyle = '#3a281c';
                 ctx.fillText(ch, x, y + 1);
             }
-            const editing = !!(typeof _editPs !== 'undefined' && _editPs && _editPs.editModeEnabled);
+            const editCb = document.getElementById('editModeCheckbox');
+            const editSel = document.getElementById('editToolSelect');
+            const editing = !!(editCb && editCb.checked);
             const canHover = editing || tryPlayMode || (!gameOver && isMyTurn);
             if ((isMouseDevice || mobileTwoStepPlacing()) && canHover && isHoverValid && hoverVertex >= 0 && (editing || board[hoverVertex] === 0)) {
                 let hoverColor = null;
                 if (editing) {
-                    const t = _editPs.editTool;
+                    const t = (editSel && editSel.value) || 'empty';
                     if (t === 'white') hoverColor = '#fff';
                     else if (t === 'black') hoverColor = '#222';
                     else if (t !== 'empty') hoverColor = '#666';

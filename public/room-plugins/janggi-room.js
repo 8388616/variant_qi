@@ -11,11 +11,29 @@ window.RoomPlugins["janggi"] = {
         "recordDownloadPrefix": "朝鲜将棋",
         "standardWeiqiMatchTime": true,
         "features": {
-            "editBoard": false,
+            "editBoard": true,
             "xiangqi": true,
             "janggi": true,
             "hideBoardSize": true
-        }
+        },
+        // 顺序：楚漢士象馬車包兵卒。双方为蓝/红：蓝方（楚）棋子 #1a5fa8、红方（漢）棋子 #932c13，与棋盘一致
+        "editTools": [
+            { "value": "empty", "label": "空", "cellValue": "" },
+            { "value": "rk", "label": "楚", "cellValue": "rk", "color": "#1a5fa8" },
+            { "value": "ra", "label": "士", "cellValue": "ra", "color": "#1a5fa8" },
+            { "value": "re", "label": "象", "cellValue": "re", "color": "#1a5fa8" },
+            { "value": "rn", "label": "馬", "cellValue": "rn", "color": "#1a5fa8" },
+            { "value": "rr", "label": "車", "cellValue": "rr", "color": "#1a5fa8" },
+            { "value": "rc", "label": "包", "cellValue": "rc", "color": "#1a5fa8" },
+            { "value": "rp", "label": "兵", "cellValue": "rp", "color": "#1a5fa8" },
+            { "value": "bk", "label": "漢", "cellValue": "bk", "color": "#932c13" },
+            { "value": "ba", "label": "士", "cellValue": "ba", "color": "#932c13" },
+            { "value": "be", "label": "象", "cellValue": "be", "color": "#932c13" },
+            { "value": "bn", "label": "馬", "cellValue": "bn", "color": "#932c13" },
+            { "value": "br", "label": "車", "cellValue": "br", "color": "#932c13" },
+            { "value": "bc", "label": "包", "cellValue": "bc", "color": "#932c13" },
+            { "value": "bp", "label": "卒", "cellValue": "bp", "color": "#932c13" }
+        ]
     },
     mount: function (ctx) {
         var gameType = ctx.gameType;
@@ -1382,6 +1400,24 @@ return {
                     connectWebSocket();
                 }, 1200);
             };
+        }
+
+        // 编辑模式：安装公共编辑 UI（点击放置棋子，关闭编辑时提交服务器）
+        let editApi = null;
+        if (typeof QiWeiqiSquarePageRuntime !== 'undefined' && QiWeiqiSquarePageRuntime.installBoardEditUI) {
+            editApi = QiWeiqiSquarePageRuntime.installBoardEditUI({
+                ps,
+                canvas,
+                mode: 'grid2d',
+                editTools: config.editTools,
+                pickAtClient(clientX, clientY) {
+                    return getRowColFromClient(clientX, clientY);
+                },
+                drawBoard,
+                getBoard: () => ps.board,
+                setBoard: (b) => { ps.board = b; },
+                emptyBoard: () => R.emptyBoard()
+            });
         }
 
         connectWebSocket();

@@ -2,7 +2,7 @@ window.RoomPlugins = window.RoomPlugins || {};
 window.RoomPlugins["rhombic-chess"] = {
     shell: {
         "title": "菱国际象棋",
-        "rulesHtml": "基本规则类似国际象棋，采用菱棋盘。<strong>王</strong>：直走或斜走一格，不可易位。<br /><strong>車</strong>：直走任意格，路径上不能有其它棋子。<br /><strong>馬</strong>：直走一格后斜走一格，路径上可以有棋子。<br /><strong>象</strong>：直走一格，或斜走任意格，路径上不能有其它棋子。<br /><strong>后</strong>：直走或斜走任意格，路径上不能有其它棋子。<br /><strong>兵</strong>：直走一格或斜吃一格，走到底线2行时升变。<br /><br />",
+        "rulesHtml": "基本规则类似国际象棋，采用菱棋盘。<br /><br /><strong>♔/♚</strong>：直走或斜走一格，不可易位。<br /><strong>♖/♜</strong>：直走任意格，路径上不能有其它棋子。<br /><strong>♘/♞</strong>：直走一格后斜走一格，路径上可以有棋子。<br /><strong>♗/♝</strong>：直走一格，或斜走任意格，路径上不能有其它棋子。<br /><strong>♕/♛</strong>：直走或斜走任意格，路径上不能有其它棋子。<br /><strong>♙/♟</strong>：直走一格或斜吃一格，走到底线2行时升变。<br /><br />",
         "defaultKomiText": "白先",
         "boardSizeMin": 72,
         "boardSizeMax": 72,

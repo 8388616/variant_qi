@@ -2,7 +2,7 @@ window.RoomPlugins = window.RoomPlugins || {};
 window.RoomPlugins["hexagon-chess"] = {
     shell: {
         "title": "六角国际象棋",
-        "rulesHtml": "基本规则类似国际象棋，采用六角棋盘<br /><br />",
+        "rulesHtml": "基本规则类似国际象棋，采用六角棋盘。<br /><br />",
         "defaultKomiText": "白先",
         "boardSizeMin": 7,
         "boardSizeMax": 7,

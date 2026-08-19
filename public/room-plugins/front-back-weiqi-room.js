@@ -352,6 +352,27 @@ const scoreTitle = document.getElementById('scoreTitle');
             }
             drawHover(ctxA, boardA, minesA, 'A', hoverA);
             drawHover(ctxB, boardB, minesB, 'B', hoverB);
+            // 编辑模式悬停预览（按当前工具着色，画在有效的一层）
+            const editCb = document.getElementById('editModeCheckbox');
+            const editSel = document.getElementById('editToolSelect');
+            if ((ps.editModeEnabled || (editCb && editCb.checked)) && ps.isHoverValid && ps.hoverRow >= 0 && ps.hoverCol >= 0) {
+                const t = (editSel && editSel.value) || 'empty';
+                let hoverColor = null;
+                if (t === 'white') hoverColor = '#fff';
+                else if (t === 'black') hoverColor = '#222';
+                else if (t !== 'empty') hoverColor = '#666';
+                if (hoverColor) {
+                    const ctx = expectedBoard === 'A' ? ctxA : ctxB;
+                    const x = PADDING + ps.hoverCol * CELL_SIZE;
+                    const y = PADDING + ps.hoverRow * CELL_SIZE;
+                    ctx.globalAlpha = 0.45;
+                    ctx.beginPath();
+                    ctx.arc(x, y, CELL_SIZE * 0.44, 0, 2 * Math.PI);
+                    ctx.fillStyle = hoverColor;
+                    ctx.fill();
+                    ctx.globalAlpha = 1;
+                }
+            }
         }
 
         function removeDeadAndDyingScore(board) {
@@ -1430,7 +1451,7 @@ syncState,
                     }
                     return null;
                 },
-                drawBoard: typeof drawBoard === 'function' ? drawBoard : function () {},
+                drawBoard: typeof drawAllBoards === 'function' ? drawAllBoards : function () {},
                 getBoard() { return ps.board; },
                 setBoard(b) { ps.board = b; },
                 emptyBoard() {

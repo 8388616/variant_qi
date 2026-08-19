@@ -2,8 +2,23 @@
 
 class TriangleWeiqiRoom extends QiTwoPlayerRoomBase
 {
-    constructor(room, initialSize = 27) {
+    /** 三种棋盘形状的路数范围与默认路数 */
+    static SHAPE_CONFIG = {
+        triangle: { min: 9, max: 31, def: 27 },
+        rhombus: { min: 5, max: 21, def: 13 },
+        hexagon: { min: 3, max: 15, def: 6 }
+    };
+
+    /** 子棋类 id：棋谱中统一用 gameId=triangle-weiqi，用 subGameId 区分三种形状 */
+    static SUB_GAME_ID = {
+        triangle: 'triangle-weiqi',
+        rhombus: 'rhom-triangle-weiqi',
+        hexagon: 'hexagon-triangle-weiqi'
+    };
+
+    constructor(room, initialSize = 27, shape = 'triangle') {
         super(room);
+        this.shape = shape;          // 'triangle' | 'rhombus' | 'hexagon'
         this.boardSize = initialSize;
         this.editBoardMode = 'triangle';
         this.board = this.createEmptyBoard();
@@ -33,19 +48,36 @@ class TriangleWeiqiRoom extends QiTwoPlayerRoomBase
         this.matchStarted = false;
     }
 
-    /** 路数 = 最外圈边线上的点数 = 三角棋盘行数 */
+    shapeCfg() {
+        return TriangleWeiqiRoom.SHAPE_CONFIG[this.shape] || TriangleWeiqiRoom.SHAPE_CONFIG.triangle;
+    }
+
+    /** 行数：三角/菱形 = 路数；六角 = 2×路数-1 */
     get ROWS() {
-        return this.boardSize;
+        return this.shape === 'hexagon' ? this.boardSize * 2 - 1 : this.boardSize;
+    }
+
+    /** 行 r 的格点数：三角 r+1；菱形恒为路数；六角 N+min(r, 2N-2-r) */
+    rowLen(r) {
+        if (this.shape === 'triangle') return r + 1;
+        if (this.shape === 'rhombus') return this.boardSize;
+        const m = Math.min(r, 2 * this.boardSize - 2 - r);
+        return this.boardSize + m;
     }
 
     createEmptyBoard()
     {
-        return Array(this.boardSize).fill().map((_, r) => Array(r + 1).fill(0));
+        return Array(this.ROWS).fill().map((_, r) => Array(this.rowLen(r)).fill(0));
     }
 
     isValidCoord(r, c)
     {
-        return r >= 0 && r < this.boardSize && c >= 0 && c <= r;
+        return r >= 0 && r < this.ROWS && c >= 0 && c < this.rowLen(r);
+    }
+
+    /** 编辑校验：每行长度按形状 */
+    editBoardRowLength(r) {
+        return this.rowLen(r);
     }
 
     copyBoard(src)
@@ -56,22 +88,39 @@ class TriangleWeiqiRoom extends QiTwoPlayerRoomBase
     boardToString(board)
     {
         const parts = [];
-        for (let r = 0; r < this.boardSize; r++) {
+        for (let r = 0; r < this.ROWS; r++) {
             parts.push(board[r].join(','));
         }
         return parts.join(';');
     }
 
-    getDirs() {
-        return [[0, 1], [0, -1], [1, 0], [-1, 0], [1, 1], [-1, -1]];
-    }
-
+    /** 各形状的 6 向邻接（菱形方格斜向与三角相反） */
     _neighbors() {
         return (r, c) => {
             const out = [];
-            for (const [dr, dc] of this.getDirs()) {
-                const nr = r + dr, nc = c + dc;
+            const push = (nr, nc) => {
                 if (this.isValidCoord(nr, nc)) out.push([nr, nc]);
+            };
+            if (this.shape === 'triangle') {
+                for (const [dr, dc] of [[0, 1], [0, -1], [1, 0], [-1, 0], [1, 1], [-1, -1]]) {
+                    push(r + dr, c + dc);
+                }
+            } else if (this.shape === 'rhombus') {
+                for (const [dr, dc] of [[0, 1], [0, -1], [1, 0], [-1, 0], [1, -1], [-1, 1]]) {
+                    push(r + dr, c + dc);
+                }
+            } else {
+                // 六角：居中布局，相邻行偏移在中间行翻转
+                push(r, c - 1);
+                push(r, c + 1);
+                if (r > 0) {
+                    if (this.rowLen(r - 1) > this.rowLen(r)) { push(r - 1, c); push(r - 1, c + 1); }
+                    else { push(r - 1, c - 1); push(r - 1, c); }
+                }
+                if (r < this.ROWS - 1) {
+                    if (this.rowLen(r + 1) > this.rowLen(r)) { push(r + 1, c); push(r + 1, c + 1); }
+                    else { push(r + 1, c - 1); push(r + 1, c); }
+                }
             }
             return out;
         };
@@ -107,22 +156,43 @@ class TriangleWeiqiRoom extends QiTwoPlayerRoomBase
         );
     }
 
+    /** 网格最短距离（BFS，适用于三种形状） */
     gridDistance(r1, c1, r2, c2) {
-        return Math.abs(r1 - r2) + Math.min(Math.abs(c1 - c2), Math.abs((r1 - c1) - (r2 - c2)));
+        if (r1 === r2 && c1 === c2) return 0;
+        const nb = this._neighbors();
+        const visited = new Set();
+        let frontier = [[r1, c1]];
+        visited.add(r1 + ',' + c1);
+        let dist = 0;
+        while (frontier.length) {
+            dist++;
+            const next = [];
+            for (const [fr, fc] of frontier) {
+                for (const [nr, nc] of nb(fr, fc)) {
+                    const key = nr + ',' + nc;
+                    if (visited.has(key)) continue;
+                    if (nr === r2 && nc === c2) return dist;
+                    visited.add(key);
+                    next.push([nr, nc]);
+                }
+            }
+            frontier = next;
+        }
+        return Infinity;
     }
 
     computeLead() {
         const liveBoard = this.removeDeadGroups(this.board);
         const blackStones = [], whiteStones = [];
-        for (let r = 0; r < this.boardSize; r++) {
-            for (let c = 0; c <= r; c++) {
+        for (let r = 0; r < this.ROWS; r++) {
+            for (let c = 0; c < this.rowLen(r); c++) {
                 if (liveBoard[r][c] === 1) blackStones.push([r, c]);
                 else if (liveBoard[r][c] === 2) whiteStones.push([r, c]);
             }
         }
         let blackTerritory = 0, whiteTerritory = 0, publicTerritory = 0;
-        for (let r = 0; r < this.boardSize; r++) {
-            for (let c = 0; c <= r; c++) {
+        for (let r = 0; r < this.ROWS; r++) {
+            for (let c = 0; c < this.rowLen(r); c++) {
                 if (liveBoard[r][c] !== 0) continue;
                 let minBlack = Infinity, minWhite = Infinity;
                 for (const [br, bc] of blackStones) {
@@ -140,13 +210,20 @@ class TriangleWeiqiRoom extends QiTwoPlayerRoomBase
         }
         const blackTotal = blackStones.length + blackTerritory + publicTerritory / 2;
         const whiteTotal = whiteStones.length + whiteTerritory + publicTerritory / 2;
-        const KOMI = 3.25;
+        const KOMI = this._komi();
         return blackTotal - whiteTotal - 2 * KOMI;
+    }
+
+    /** 贴目（服务端数子口径）：菱形 ≤8 路 4.25，其余 3.25 */
+    _komi() {
+        if (this.shape === 'rhombus') return this.boardSize <= 8 ? 4.25 : 3.25;
+        return 3.25;
     }
 
     getState()
     {
         return {
+            shape: this.shape,
             boardSize: this.boardSize,
             board: this.board,
             numberOfHands: 1 + this.historyBoards.length,
@@ -184,7 +261,8 @@ class TriangleWeiqiRoom extends QiTwoPlayerRoomBase
 
     setBoardSize(newSize, requesterWs)
     {
-        if (!Number.isInteger(newSize) || newSize < 9 || newSize > 31) {
+        const cfg = this.shapeCfg();
+        if (!Number.isInteger(newSize) || newSize < cfg.min || newSize > cfg.max) {
             requesterWs.send(JSON.stringify({ type: 'error', message: '棋盘路数无效' }));
             return false;
         }
@@ -196,6 +274,8 @@ class TriangleWeiqiRoom extends QiTwoPlayerRoomBase
         }
         this.boardSize = newSize;
         this.board = this.createEmptyBoard();
+        // 同步 openingBoard，避免 initialBoard 与 board 尺寸不一致（改大路数时客户端会把旧尺寸盘面当新尺寸渲染）
+        this.openingBoard = this.copyBoard(this.board);
         this.currentPlayer = 1;
         this.historyBoards = [];
         this.historyBoardSet.clear();
@@ -218,6 +298,44 @@ class TriangleWeiqiRoom extends QiTwoPlayerRoomBase
         return true;
     }
 
+    /** 切换棋盘形状（仅开局前）：重置为新形状的默认路数 */
+    setShape(shape, requesterWs) {
+        if (!TriangleWeiqiRoom.SHAPE_CONFIG[shape]) {
+            requesterWs.send(JSON.stringify({ type: 'error', message: '棋盘形状无效' }));
+            return false;
+        }
+        if (shape === this.shape) return true;
+        const hasAnyStone = this.board.some((row, r) => row.some((v, c) => v !== 0));
+        const hasPlayer = this.room.getPlayerBySlot('black') || this.room.getPlayerBySlot('white');
+        if (hasAnyStone || hasPlayer) {
+            requesterWs.send(JSON.stringify({ type: 'error', message: '已有棋子或玩家，不能改变棋盘形状' }));
+            return false;
+        }
+        this.shape = shape;
+        this.boardSize = this.shapeCfg().def;
+        this.board = this.createEmptyBoard();
+        this.openingBoard = this.copyBoard(this.board);
+        this.currentPlayer = 1;
+        this.historyBoards = [];
+        this.historyBoardSet.clear();
+        this.moveHistory = [];
+        this.historyMarkers = [];
+        this.lastMoveMarkers = [];
+        this.gameOver = false;
+        this.winner = null;
+        this.passCounter = 0;
+        this.moveCoords = [];
+        this.recordResultText = null;
+        this.slotJoinedAt = { black: null, white: null };
+        this.tcNego = null;
+        this.tcSettings = null;
+        this.tcClock = null;
+        this.matchStarted = false;
+        this._stopClockTicker();
+        this.broadcast({ type: 'shapeChanged', shape, boardSize: this.boardSize, ...this.getState() });
+        return true;
+    }
+
     exportRecord() {
         const mainMinutes = (this.tcSettings && this.tcSettings.timed) ? this.tcSettings.mainMinutes : 0;
         const byoyomiSeconds = (this.tcSettings && this.tcSettings.timed) ? this.tcSettings.byoyomiSeconds : 0;
@@ -236,11 +354,13 @@ class TriangleWeiqiRoom extends QiTwoPlayerRoomBase
         // 否则与 moves 重复，导入时第一手会因“已有子”而失败。
         return {
             format: 'muzei',
-            version: 1,
+            version: 2,
             gameType: '三角围棋',
             gameId: 'triangle-weiqi',
+            subGameId: TriangleWeiqiRoom.SUB_GAME_ID[this.shape] || 'triangle-weiqi',
+            shape: this.shape,
             boardSize: this.boardSize,
-            komi: 3.25,
+            komi: this._komi(),
             players: { black: null, white: null },
             initialPosition: [],
             moves: this.moveCoords.map(m => {
@@ -541,16 +661,28 @@ class TriangleWeiqiRoom extends QiTwoPlayerRoomBase
     }
 
     importRecord(data, requesterWs) {
-        if (!data || data.gameId !== 'triangle-weiqi') {
+        // 棋谱统一用 gameId=triangle-weiqi，用 subGameId 区分形状；
+        // 兼容旧版：旧棋谱 gameId 直接是 rhom-triangle-weiqi / hexagon-triangle-weiqi（无 subGameId）
+        const oldId = data && data.gameId;
+        if (!data || (oldId !== 'triangle-weiqi' && oldId !== 'rhom-triangle-weiqi' && oldId !== 'hexagon-triangle-weiqi')) {
             requesterWs.send(JSON.stringify({ type: 'error', message: '棋谱格式不匹配（需要三角围棋棋谱）' }));
             return;
         }
-        const newSize = data.boardSize || 27;
-        if (!Number.isInteger(newSize) || newSize < 9 || newSize > 31) {
+        const subGameId = data.subGameId || oldId;
+        const shape = data.shape
+            || (subGameId === 'rhom-triangle-weiqi' ? 'rhombus' : subGameId === 'hexagon-triangle-weiqi' ? 'hexagon' : 'triangle');
+        if (!TriangleWeiqiRoom.SHAPE_CONFIG[shape]) {
+            requesterWs.send(JSON.stringify({ type: 'error', message: '棋谱中棋盘形状无效' }));
+            return;
+        }
+        const cfg = TriangleWeiqiRoom.SHAPE_CONFIG[shape];
+        const newSize = data.boardSize || cfg.def;
+        if (!Number.isInteger(newSize) || newSize < cfg.min || newSize > cfg.max) {
             requesterWs.send(JSON.stringify({ type: 'error', message: '棋谱中棋盘路数无效' }));
             return;
         }
 
+        this.shape = shape;
         this.boardSize = newSize;
         this.resetToEmpty();
 
@@ -695,6 +827,11 @@ class TriangleWeiqiRoom extends QiTwoPlayerRoomBase
             case 'setBoardSize':
                 if (!slot && !this.room.players.size)
                     this.setBoardSize(msg.size, ws);
+                break;
+
+            case 'setShape':
+                if (!slot && !this.room.players.size)
+                    this.setShape(msg.shape, ws);
                 break;
 
             case 'move':

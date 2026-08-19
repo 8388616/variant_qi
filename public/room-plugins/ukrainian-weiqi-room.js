@@ -107,9 +107,7 @@ const SHAPE_LIST = [
             hasPreview: false,
             pendingPreviewRow: -1,
             pendingPreviewCol: -1,
-            _needCompoundShapeHint: false,
-            computerSlot: null,
-            _computerMoveSchedKey: null
+            _needCompoundShapeHint: false
         };
         (function initSquareGeometry() {
             const g = QiSquareWeiqiCanvas.computePaddingAndCell(ps.BOARD_SIZE);
@@ -131,16 +129,7 @@ const BOARD_MARK_CHAR_LIST = (() => {
         const ctx = canvas.getContext('2d');
         const turnDisplay = document.getElementById('turnDisplay');
         const colorStatus = document.getElementById('colorStatus');
-const vsComputerBtn = document.getElementById('vsComputerBtn');
         const scoreTitle = document.getElementById('scoreTitle');
-
-        function updateVsComputerBtn() {
-            if (!vsComputerBtn) return;
-            const opp = ps.mySlot === 'black' ? 'white' : 'black';
-            const waitingForHuman = ps.mySlot && !ps.slots[opp];
-            const show = waitingForHuman && !ps.replayMode && !ps.gameOver && !ps.computerSlot && !ps.waitingScoreConfirm;
-            vsComputerBtn.style.display = show ? '' : 'none';
-        }
         const scoreBoard = document.getElementById('scoreBoard');
         const leadInfo = document.getElementById('leadInfo');
         const scoreConfirmPanel = document.getElementById('scoreConfirmPanel');
@@ -249,95 +238,6 @@ const vsComputerBtn = document.getElementById('vsComputerBtn');
                     removeGroup(newBoard, r, c, playerVal);
             }
             return newBoard;
-        }
-
-        function boardStringForKo(board) {
-            return board.map(row => row.join(',')).join(';');
-        }
-
-        function buildKoHistorySetFromLiveReplay() {
-            const h = new Set();
-            for (const b of ps.liveReplayBoards)
-                h.add(boardStringForKo(b));
-            return h;
-        }
-
-        /** 前端算电脑应手，通过 computerMove 提交服务器 */
-        function maybeRunFrontendComputerMove() {
-            if (typeof UkrainianWeiqiAI === 'undefined') {
-                if (!ps._warnedMissingFrontendAi) {
-                    ps._warnedMissingFrontendAi = true;
-                    console.warn('乌克兰围棋：未加载 ukrainian-weiqi-ai.js（全局 UkrainianWeiqiAI），电脑无法落子。请确认 public 下有该文件且 /qi/ukrainian-weiqi-ai.js 可访问。');
-                }
-                return;
-            }
-            if (!ps.computerSlot || ps.gameOver || ps.replayMode || ps.waitingScoreConfirm) return;
-            if (!ps.matchStarted || !ps.ws || ps.ws.readyState !== WebSocket.OPEN) return;
-            const turnSlot = ps.currentPlayer === 1 ? 'black' : 'white';
-            if (turnSlot !== ps.computerSlot) return;
-            const schedKey = `${ps.numberOfHands}_${ps.currentPlayer}_${boardStringForKo(ps.board)}`;
-            if (ps._computerMoveSchedKey === schedKey) return;
-            ps._computerMoveSchedKey = schedKey;
-
-            // setTimeout：让上一帧的棋盘绘制先完成，再跑 AI，避免长时间思考卡住首帧 paint
-            setTimeout(() => {
-                if (!ps.ws || ps.ws.readyState !== WebSocket.OPEN || ps.gameOver) return;
-                const t2 = ps.currentPlayer === 1 ? 'black' : 'white';
-                if (t2 !== ps.computerSlot) return;
-
-                const hist = buildKoHistorySetFromLiveReplay();
-                const mv = UkrainianWeiqiAI.chooseMove({
-                    board: ps.board.map(row => row.slice()),
-                    boardSize: ps.BOARD_SIZE,
-                    currentPlayer: ps.currentPlayer,
-                    normalGoPhase: !!ps.normalGoPhase,
-                    lastUsedShapeByColor: { ...ps.lastUsedShapeByColor },
-                    historySet: hist,
-                    tryPlaceShape,
-                    tryPlaceStonesAt,
-                    countGroupLiberties,
-                    komi: ps.KOMI,
-                    removeDeadAndDying: (src) => _page.removeDeadAndDying(src),
-                    assignTerritoryWithRange: (lb) => _page.assignTerritoryWithRange(lb),
-                    computeScore: (lb, terr) => R().computeScore(lb, terr, ps.BOARD_SIZE)
-                });
-                const pv = ps.computerSlot === 'black' ? 1 : 2;
-                if (mv) {
-                    if (mv.singleStone) {
-                        const nb = tryPlaceStonesAt(ps.board, [[mv.row, mv.col]], pv);
-                        if (!nb || hist.has(boardStringForKo(nb))) {
-                            ps.ws.send(JSON.stringify({ type: 'computerMove', pass: true }));
-                            return;
-                        }
-                        ps.ws.send(JSON.stringify({
-                            type: 'computerMove',
-                            singleStone: true,
-                            row: mv.row,
-                            col: mv.col
-                        }));
-                        return;
-                    }
-                    if (ps.lastUsedShapeByColor[pv] === mv.shapeIndex) {
-                        ps.ws.send(JSON.stringify({ type: 'computerMove', pass: true }));
-                        return;
-                    }
-                    const nb = tryPlaceShape(ps.board, mv.shapeIndex, mv.rotation, mv.flipped, mv.row, mv.col, pv);
-                    if (!nb || hist.has(boardStringForKo(nb))) {
-                        ps.ws.send(JSON.stringify({ type: 'computerMove', pass: true }));
-                        return;
-                    }
-                    ps.ws.send(JSON.stringify({
-                        type: 'computerMove',
-                        shapeIndex: mv.shapeIndex,
-                        rotation: mv.rotation,
-                        flipped: mv.flipped,
-                        row: mv.row,
-                        col: mv.col
-                    }));
-                } else {
-                    ps.ws.send(JSON.stringify({ type: 'computerMove', pass: true }));
-                }
-            }, 0);
         }
 
         function tryPlaceStonesAt(boardBefore, stoneCoords, playerVal) {
@@ -986,8 +886,6 @@ const vsComputerBtn = document.getElementById('vsComputerBtn');
                     });
                 }
                 if (state.slots) ps.slots = state.slots;
-                if (Object.prototype.hasOwnProperty.call(state, 'computerSlot'))
-                    ps.computerSlot = state.computerSlot;
                 if (state.matchTime !== undefined)
                     ps.matchTime = state.matchTime;
                 if (state.matchStarted !== undefined)
@@ -1050,8 +948,6 @@ const vsComputerBtn = document.getElementById('vsComputerBtn');
                 updateShapeColors();
                 if (bottomPalette) bottomPalette.classList.toggle('normal-go-locked', !!ps.normalGoPhase);
                 setBottomPaletteObserverMode(!(ps.mySlot && !ps.gameOver && !ps.replayMode));
-                updateVsComputerBtn();
-                maybeRunFrontendComputerMove();
             }
         });
         _page = page;
@@ -1101,28 +997,6 @@ const vsComputerBtn = document.getElementById('vsComputerBtn');
                 ps.hasPreview = false;
                 ps.pendingPreviewRow = -1;
                 ps.pendingPreviewCol = -1;
-                if (ps.computerSlot) {
-                    const newBoard = tryPlaceStonesAt(ps.board, [[row, col]], playerVal);
-                    if (!newBoard) return false;
-                    const koKey = boardStringForKo(newBoard);
-                    const hist = buildKoHistorySetFromLiveReplay();
-                    if (hist.has(koKey)) {
-                        qiAlert('禁全同。');
-                        return false;
-                    }
-                    ps.board = newBoard;
-                    ps.lastMoveMarkers = [{ row, col, color: playerVal }];
-                    ps.currentPlayer = 3 - ps.currentPlayer;
-                    ps.numberOfHands = (ps.numberOfHands || 1) + 1;
-                    if (ps.showEstimateActive) {
-                        ps.cachedLiveBoard = _page.removeDeadAndDying(ps.board);
-                        ps.cachedTerritory = _page.assignTerritoryWithRange(ps.cachedLiveBoard);
-                        _page.showEstimate();
-                    } else {
-                        _page.updateTurn();
-                    }
-                    drawCompoundBoard();
-                }
                 ps.ws.send(JSON.stringify({ type: 'move', singleStone: true, row, col }));
                 return true;
             }
@@ -1136,34 +1010,6 @@ const vsComputerBtn = document.getElementById('vsComputerBtn');
             ps.pendingPreviewCol = -1;
             const usedIdx = ps.currentShapeIndex;
 
-            if (ps.computerSlot) {
-                const newBoard = tryPlaceShape(ps.board, usedIdx, ps.rotation, ps.flipped, row, col, playerVal);
-                if (!newBoard) return false;
-                const koKey = boardStringForKo(newBoard);
-                const hist = buildKoHistorySetFromLiveReplay();
-                if (hist.has(koKey)) {
-                    qiAlert('禁全同。');
-                    return false;
-                }
-                const coords = generatePlacementCoords(usedIdx, ps.rotation, ps.flipped, row, col);
-                ps.board = newBoard;
-                ps.lastMoveMarkers = coords.map(([r, c]) => ({ row: r, col: c, color: playerVal }));
-                ps.lastUsedShapeByColor[playerVal] = usedIdx;
-                ps.currentPlayer = 3 - ps.currentPlayer;
-                ps.numberOfHands = (ps.numberOfHands || 1) + 1;
-                ps.currentShapeIndex = (usedIdx + 1) % SHAPE_LIST.length;
-                applyShapeIndexToButtons();
-                updateShapeAvailability();
-                if (ps.showEstimateActive) {
-                    ps.cachedLiveBoard = _page.removeDeadAndDying(ps.board);
-                    ps.cachedTerritory = _page.assignTerritoryWithRange(ps.cachedLiveBoard);
-                    _page.showEstimate();
-                } else {
-                    _page.updateTurn();
-                }
-                drawCompoundBoard();
-            }
-
             ps.ws.send(JSON.stringify({
                 type: 'move',
                 shapeIndex: usedIdx,
@@ -1173,11 +1019,9 @@ const vsComputerBtn = document.getElementById('vsComputerBtn');
                 col
             }));
 
-            if (!ps.computerSlot) {
-                ps.currentShapeIndex = (usedIdx + 1) % SHAPE_LIST.length;
-                applyShapeIndexToButtons();
-                updateShapeAvailability();
-            }
+            ps.currentShapeIndex = (usedIdx + 1) % SHAPE_LIST.length;
+            applyShapeIndexToButtons();
+            updateShapeAvailability();
             return true;
         }
 
@@ -1238,7 +1082,6 @@ syncState,
                 if (typeof page !== "undefined" && page.clearEditModeUi) page.clearEditModeUi();
                 else if (ps.clearEditModeUi) ps.clearEditModeUi();
                 ps._needCompoundShapeHint = false;
-                ps._computerMoveSchedKey = null;
                 ps.rotation = 0;
                 ps.flipped = false;
                 ps.currentShapeIndex = 0;
@@ -1251,7 +1094,6 @@ syncState,
             },
             onRoomReset() {
                 ps._needCompoundShapeHint = false;
-                ps._computerMoveSchedKey = null;
                 ps.rotation = 0;
                 ps.flipped = false;
                 ps.currentShapeIndex = 0;
@@ -1265,19 +1107,7 @@ syncState,
         });
         const handleMessage = _weiqiBindings.handleMessage;
         const updateRecordButtons = _weiqiBindings.updateRecordButtons;
-        const _origUpdateRadioStyles = _weiqiBindings.updateRadioStyles;
-        _weiqiBindings.updateRadioStyles = function () {
-            _origUpdateRadioStyles();
-            updateVsComputerBtn();
-        };
         const updateRadioStyles = _weiqiBindings.updateRadioStyles;
-
-        if (vsComputerBtn) {
-            vsComputerBtn.onclick = () => {
-                if (!ps.ws || ps.ws.readyState !== WebSocket.OPEN) return;
-                ps.ws.send(JSON.stringify({ type: 'requestComputerOpponent' }));
-            };
-        }
 
         let suppressCanvasClickAfterLongMark = false;
 
@@ -1555,7 +1385,6 @@ syncState,
             };
         }
         connectWebSocket((msg) => {
-            if (msg.type === 'error' && ps.computerSlot) ps._computerMoveSchedKey = null;
             handleMessage(msg);
         });
         })();

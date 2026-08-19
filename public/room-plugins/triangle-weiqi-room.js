@@ -2,7 +2,7 @@ window.RoomPlugins = window.RoomPlugins || {};
 window.RoomPlugins['triangle-weiqi'] = {
     shell: {
         "title": "三角围棋",
-        "rulesHtml": "基本规则同标准围棋。<br /><br />采用三角棋盘。<br />",
+        "rulesHtml": "基本规则同标准围棋。<br /><br />",
         "defaultKomiText": "黑贴白4.75点",
         "boardSizeMin": 9,
         "boardSizeMax": 31,
@@ -41,12 +41,29 @@ window.RoomPlugins['triangle-weiqi'] = {
 
         (function () {
 // ======================== 配置 ========================
-        // 路数 = 最外圈边线上的交点数 = 三角棋盘行数 ROWS
+        // 棋盘形状：三角形 / 菱形（菱三角）/ 六角形（六角三角），共享同一棋种
+        let SHAPE = 'triangle';
+        const SHAPE_CONFIG = {
+            triangle: { min: 9, max: 31, def: 27 },
+            rhombus: { min: 5, max: 21, def: 13 },
+            hexagon: { min: 3, max: 15, def: 6 }
+        };
+        function shapeCfg() { return SHAPE_CONFIG[SHAPE] || SHAPE_CONFIG.triangle; }
+        /** 行数：三角/菱形 = 路数；六角 = 2×路数-1 */
+        function rowsFor(shape, size) { return shape === 'hexagon' ? size * 2 - 1 : size; }
         let ROWS = 27;
-        const KOMI = 4.75;
-        const BASE_WIDTH = 500;        // 参考 27 路时的底边宽度（像素），用于确定固定外框
+        let KOMI = 4.75;
+        const BASE_WIDTH = 500;        // 参考 27 路时的棋盘宽度（像素），用于确定固定外框
         const CENTER_X_REF = 300;      // 画布水平中心（参考）
         const ROWS_REF = 27;
+
+        /** 行 r 格点数（按形状）：三角 r+1；菱形恒为行数；六角 (行数+1)/2+min(r, 行数-1-r) */
+        function rowLen(r) {
+            if (SHAPE === 'triangle') return r + 1;
+            if (SHAPE === 'rhombus') return ROWS;
+            const m = Math.min(r, ROWS - 1 - r);
+            return (ROWS + 1) / 2 + m;
+        }
 
         function gridCornersFromParams(rows, dx, dy, topY, centerX) {
             const rMax = rows - 1;
@@ -95,6 +112,401 @@ window.RoomPlugins['triangle-weiqi'] = {
             return { minX, maxX, minY, maxY };
         })();
 
+        // ---- 六角外框（参考 27 行） ----
+        function hexCornersFromParams(rows, dx, dy, topY, centerX) {
+            const R = (rows - 1) / 2;
+            const L = (r) => R + 1 + Math.min(r, 2 * R - r);
+            const xOf = (r, c) => centerX + (c - (L(r) - 1) / 2) * dx;
+            const yOf = (r) => topY + r * dy;
+            return [
+                { x: xOf(0, 0), y: yOf(0) },
+                { x: xOf(R, 0), y: yOf(R) },
+                { x: xOf(2 * R, 0), y: yOf(2 * R) },
+                { x: xOf(2 * R, L(2 * R) - 1), y: yOf(2 * R) },
+                { x: xOf(R, L(R) - 1), y: yOf(R) },
+                { x: xOf(0, L(0) - 1), y: yOf(0) }
+            ];
+        }
+
+        function outwardExpandHexagon(verts, margin) {
+            const cx = verts.reduce((s, p) => s + p.x, 0) / verts.length;
+            const cy = verts.reduce((s, p) => s + p.y, 0) / verts.length;
+            return verts.map((P) => {
+                const vx = P.x - cx, vy = P.y - cy;
+                const len = Math.hypot(vx, vy);
+                return { x: P.x + (vx / len) * margin, y: P.y + (vy / len) * margin };
+            });
+        }
+
+        const dxRefHex = BASE_WIDTH / (ROWS_REF - 1);
+        const dyRefHex = (Math.sqrt(3) / 2) * dxRefHex;
+        const totalHRefHex = dyRefHex * (ROWS_REF - 1);
+        const topYRefHex = (600 - totalHRefHex) / 2;
+        const refHex = hexCornersFromParams(ROWS_REF, dxRefHex, dyRefHex, topYRefHex, CENTER_X_REF);
+        const FIXED_OUTER_HEX = outwardExpandHexagon(refHex, 22);
+        const HEX_CENTROID = {
+            x: FIXED_OUTER_HEX.reduce((s, p) => s + p.x, 0) / FIXED_OUTER_HEX.length,
+            y: FIXED_OUTER_HEX.reduce((s, p) => s + p.y, 0) / FIXED_OUTER_HEX.length
+        };
+        const k27Hex = Math.hypot(refHex[0].x - HEX_CENTROID.x, refHex[0].y - HEX_CENTROID.y)
+            / Math.hypot(FIXED_OUTER_HEX[0].x - HEX_CENTROID.x, FIXED_OUTER_HEX[0].y - HEX_CENTROID.y);
+        const HEX_OUTER_BOUNDS = (() => {
+            let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+            for (const p of FIXED_OUTER_HEX) {
+                minX = Math.min(minX, p.x);
+                maxX = Math.max(maxX, p.x);
+                minY = Math.min(minY, p.y);
+                maxY = Math.max(maxY, p.y);
+            }
+            return { minX, maxX, minY, maxY };
+        })();
+
+        // ---- 菱形几何：方形格点纵向压缩 + 逆时针旋转 30°（平行四边形） ----
+        const RHOM_Y_SCALE = 0.8660254037844386;
+        const RHOM_ROT_CCW_RAD = -Math.PI / 6;
+        const RHOM_CANVAS_SIZE = 600;
+        const RHOM_FRAME_CORNER_RADIUS = 4;
+        let RHOM_PADDING = 0;
+        let RHOM_CELL = 0;
+        const RhomBoardGeom = {
+            displayScale: 1,
+            displayOffsetX: 0,
+            displayOffsetY: 0,
+            _frameOutsetDisplay: 24,
+            outerFrameBounds: { minX: 0, maxX: 600, minY: 0, maxY: 600 },
+            _fitCacheKey: '',
+            bottomY(padding, cellSize, boardSize) {
+                return padding + (boardSize - 1) * cellSize;
+            },
+            shiftUnitsForRow(row, boardSize) {
+                return 0.5 * (boardSize - 1 - row);
+            },
+            initGeometry(padding, cellSize, boardSize) {
+                RHOM_PADDING = padding;
+                RHOM_CELL = cellSize;
+                this._fitCacheKey = '';
+                this.recomputeDisplayFit(padding, cellSize, boardSize);
+            },
+            effectiveCellSize(cellSize) {
+                return cellSize * this.displayScale;
+            },
+            frameOutsetDisplay(padding, cellSize, boardSize) {
+                return cellSize * this.displayScale;
+            },
+            xyBase(row, col, padding, cellSize, boardSize) {
+                const bottomY = this.bottomY(padding, cellSize, boardSize);
+                const y = bottomY - (boardSize - 1 - row) * cellSize * RHOM_Y_SCALE;
+                const shiftU = this.shiftUnitsForRow(row, boardSize);
+                const x = padding + col * cellSize - shiftU * cellSize;
+                return { x, y };
+            },
+            rotationCenter(padding, cellSize, boardSize) {
+                const n = boardSize;
+                const corners = [[0, 0], [0, n - 1], [n - 1, 0], [n - 1, n - 1]];
+                let sx = 0, sy = 0;
+                for (const [r, c] of corners) {
+                    const p = this.xyBase(r, c, padding, cellSize, n);
+                    sx += p.x;
+                    sy += p.y;
+                }
+                return { cx: sx / 4, cy: sy / 4 };
+            },
+            rotatePointCCW(x, y, cx, cy) {
+                const rad = RHOM_ROT_CCW_RAD;
+                const dx = x - cx, dy = y - cy;
+                const c = Math.cos(rad), s = Math.sin(rad);
+                return { x: cx + dx * c - dy * s, y: cy + dx * s + dy * c };
+            },
+            unrotatePoint(x, y, cx, cy) {
+                const rad = -RHOM_ROT_CCW_RAD;
+                const dx = x - cx, dy = y - cy;
+                const c = Math.cos(rad), s = Math.sin(rad);
+                return { x: cx + dx * c - dy * s, y: cy + dx * s + dy * c };
+            },
+            xyRotated(row, col, padding, cellSize, boardSize) {
+                const base = this.xyBase(row, col, padding, cellSize, boardSize);
+                const { cx, cy } = this.rotationCenter(padding, cellSize, boardSize);
+                return this.rotatePointCCW(base.x, base.y, cx, cy);
+            },
+            xy(row, col, padding, cellSize, boardSize) {
+                const p = this.xyRotated(row, col, padding, cellSize, boardSize);
+                return this.applyDisplayTransform(p.x, p.y);
+            },
+            applyDisplayTransform(x, y) {
+                return { x: this.displayOffsetX + x * this.displayScale, y: this.displayOffsetY + y * this.displayScale };
+            },
+            invertDisplayTransform(x, y) {
+                const s = this.displayScale || 1;
+                return { x: (x - this.displayOffsetX) / s, y: (y - this.displayOffsetY) / s };
+            },
+            boardCornerVerts(padding, cellSize, boardSize) {
+                const n = boardSize;
+                return [
+                    this.xy(0, 0, padding, cellSize, n),
+                    this.xy(0, n - 1, padding, cellSize, n),
+                    this.xy(n - 1, n - 1, padding, cellSize, n),
+                    this.xy(n - 1, 0, padding, cellSize, n)
+                ];
+            },
+            ensureCcW(verts) {
+                let area = 0;
+                for (let i = 0; i < verts.length; i++) {
+                    const j = (i + 1) % verts.length;
+                    area += verts[i].x * verts[j].y - verts[j].x * verts[i].y;
+                }
+                if (area < 0) return verts.slice().reverse();
+                return verts.slice();
+            },
+            lineIntersect(p1, p2, p3, p4) {
+                const dax = p2.x - p1.x, day = p2.y - p1.y;
+                const dbx = p4.x - p3.x, dby = p4.y - p3.y;
+                const denom = dax * dby - day * dbx;
+                if (Math.abs(denom) < 1e-9) return { x: p1.x, y: p1.y };
+                const t = ((p3.x - p1.x) * dby - (p3.y - p1.y) * dbx) / denom;
+                return { x: p1.x + t * dax, y: p1.y + t * day };
+            },
+            parallelOffsetQuad(verts, dist) {
+                const n = verts.length;
+                if (n !== 4) return verts.slice();
+                const v = this.ensureCcW(verts);
+                let area = 0;
+                for (let i = 0; i < n; i++) {
+                    const j = (i + 1) % n;
+                    area += v[i].x * v[j].y - v[j].x * v[i].y;
+                }
+                const sign = area >= 0 ? 1 : -1;
+                const offsetLines = [];
+                for (let i = 0; i < n; i++) {
+                    const a = v[i], b = v[(i + 1) % n];
+                    const dx = b.x - a.x, dy = b.y - a.y;
+                    const len = Math.hypot(dx, dy) || 1;
+                    const nx = sign * (dy / len) * dist;
+                    const ny = sign * (-dx / len) * dist;
+                    offsetLines.push({ p1: { x: a.x + nx, y: a.y + ny }, p2: { x: b.x + nx, y: b.y + ny } });
+                }
+                const out = [];
+                for (let i = 0; i < n; i++) {
+                    const L0 = offsetLines[(i - 1 + n) % n];
+                    const L1 = offsetLines[i];
+                    out.push(this.lineIntersect(L0.p1, L0.p2, L1.p1, L1.p2));
+                }
+                return out;
+            },
+            recomputeDisplayFit(padding, cellSize, boardSize) {
+                const key = padding + '|' + cellSize + '|' + boardSize;
+                if (this._fitCacheKey === key) return;
+                const n = boardSize;
+                // 全部在未缩放坐标系测量：格点与外框偏移都用原始坐标（外框偏移 = cellSize），
+                // fit 后整体乘 displayScale，保证含外框也不超出画布；
+                // 勿用 boardCornerVerts/frameOutsetDisplay（它们已带旧 displayScale，会造成测量与显示单位不一致）。
+                const corners = [
+                    this.xyRotated(0, 0, padding, cellSize, n),
+                    this.xyRotated(0, n - 1, padding, cellSize, n),
+                    this.xyRotated(n - 1, n - 1, padding, cellSize, n),
+                    this.xyRotated(n - 1, 0, padding, cellSize, n)
+                ];
+                const frameRaw = this.parallelOffsetQuad(corners, cellSize);
+                let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+                const include = (p) => {
+                    minX = Math.min(minX, p.x);
+                    minY = Math.min(minY, p.y);
+                    maxX = Math.max(maxX, p.x);
+                    maxY = Math.max(maxY, p.y);
+                };
+                for (let r = 0; r < n; r++) {
+                    for (let c = 0; c < n; c++) include(this.xyRotated(r, c, padding, cellSize, n));
+                }
+                for (const p of frameRaw) include(p);
+                const canvasMargin = 16;
+                const avail = RHOM_CANVAS_SIZE - 2 * canvasMargin;
+                const w = Math.max(1e-6, maxX - minX);
+                const h = Math.max(1e-6, maxY - minY);
+                const scale = Math.min(avail / w, avail / h);
+                const cx = (minX + maxX) / 2;
+                const cy = (minY + maxY) / 2;
+                this.displayScale = scale;
+                this.displayOffsetX = RHOM_CANVAS_SIZE / 2 - scale * cx;
+                this.displayOffsetY = RHOM_CANVAS_SIZE / 2 - scale * cy;
+                this._frameOutsetDisplay = cellSize * scale;
+                this._fitCacheKey = key;
+                this.updateOuterFrameBounds(padding, cellSize, n);
+            },
+            frameOuterVerts(padding, cellSize, boardSize) {
+                const corners = this.boardCornerVerts(padding, cellSize, boardSize);
+                const outset = this._frameOutsetDisplay > 0
+                    ? this._frameOutsetDisplay
+                    : this.frameOutsetDisplay(padding, cellSize, boardSize);
+                return this.parallelOffsetQuad(corners, outset);
+            },
+            updateOuterFrameBounds(padding, cellSize, boardSize) {
+                const outer = this.frameOuterVerts(padding, cellSize, boardSize);
+                let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+                for (const v of outer) {
+                    minX = Math.min(minX, v.x);
+                    maxX = Math.max(maxX, v.x);
+                    minY = Math.min(minY, v.y);
+                    maxY = Math.max(maxY, v.y);
+                }
+                this.outerFrameBounds = { minX, maxX, minY, maxY };
+            },
+            drawRoundedPolygon(ctx, vertices, radius, skipStroke) {
+                const n = vertices.length;
+                if (n < 3) return;
+                const startPoints = [], endPoints = [];
+                for (let i = 0; i < n; i++) {
+                    const curr = vertices[i];
+                    const prev = vertices[(i - 1 + n) % n];
+                    const next = vertices[(i + 1) % n];
+                    const v1 = { x: prev.x - curr.x, y: prev.y - curr.y };
+                    const v2 = { x: next.x - curr.x, y: next.y - curr.y };
+                    const len1 = Math.hypot(v1.x, v1.y);
+                    const len2 = Math.hypot(v2.x, v2.y);
+                    const dx1 = v1.x / len1, dy1 = v1.y / len1;
+                    const dx2 = v2.x / len2, dy2 = v2.y / len2;
+                    startPoints.push({ x: curr.x + dx1 * radius, y: curr.y + dy1 * radius });
+                    endPoints.push({ x: curr.x + dx2 * radius, y: curr.y + dy2 * radius });
+                }
+                ctx.beginPath();
+                ctx.moveTo(endPoints[n - 1].x, endPoints[n - 1].y);
+                for (let i = 0; i < n; i++) {
+                    ctx.arcTo(vertices[i].x, vertices[i].y, endPoints[i].x, endPoints[i].y, radius);
+                }
+                ctx.closePath();
+                ctx.fill();
+                if (!skipStroke) ctx.stroke();
+            },
+            drawWoodenFrame(ctx, boardSize) {
+                const outer = this.frameOuterVerts(RHOM_PADDING, RHOM_CELL, boardSize);
+                ctx.save();
+                ctx.shadowBlur = 0;
+                ctx.shadowOffsetY = 0;
+                ctx.fillStyle = '#fdcc90';
+                ctx.strokeStyle = '#3a281c';
+                ctx.lineWidth = 0.5;
+                this.drawRoundedPolygon(ctx, outer, RHOM_FRAME_CORNER_RADIUS, false);
+                ctx.restore();
+            },
+            drawGrid(ctx, boardSize) {
+                const n = boardSize;
+                ctx.strokeStyle = '#3a281c';
+                ctx.lineWidth = 1.5;
+                ctx.beginPath();
+                for (let r = 0; r < n; r++) {
+                    const a = this.xy(r, 0, RHOM_PADDING, RHOM_CELL, n);
+                    const b = this.xy(r, n - 1, RHOM_PADDING, RHOM_CELL, n);
+                    ctx.moveTo(a.x, a.y);
+                    ctx.lineTo(b.x, b.y);
+                }
+                for (let c = 0; c < n; c++) {
+                    const a = this.xy(0, c, RHOM_PADDING, RHOM_CELL, n);
+                    const b = this.xy(n - 1, c, RHOM_PADDING, RHOM_CELL, n);
+                    ctx.moveTo(a.x, a.y);
+                    ctx.lineTo(b.x, b.y);
+                }
+                ctx.stroke();
+            },
+            drawAntiDiagonalLines(ctx, boardSize) {
+                const n = boardSize;
+                ctx.strokeStyle = '#3a281c';
+                ctx.lineWidth = 1.2;
+                ctx.beginPath();
+                for (let k = 0; k <= 2 * (n - 1); k++) {
+                    const c0 = Math.max(0, k - (n - 1));
+                    const c1 = Math.min(k, n - 1);
+                    const r0 = k - c0;
+                    const r1 = k - c1;
+                    const p0 = this.xy(r0, c0, RHOM_PADDING, RHOM_CELL, n);
+                    const p1 = this.xy(r1, c1, RHOM_PADDING, RHOM_CELL, n);
+                    ctx.moveTo(p0.x, p0.y);
+                    ctx.lineTo(p1.x, p1.y);
+                }
+                ctx.stroke();
+            },
+            drawStarPoints(ctx, boardSize) {
+                const pts = QiSquareWeiqiCanvas.getStarPoints(boardSize);
+                const starR = this.effectiveCellSize(RHOM_CELL) * 0.12;
+                ctx.fillStyle = '#3a281c';
+                for (const [r, c] of pts) {
+                    const p = this.xy(r, c, RHOM_PADDING, RHOM_CELL, boardSize);
+                    ctx.beginPath();
+                    ctx.arc(p.x, p.y, starR, 0, 2 * Math.PI);
+                    ctx.fill();
+                }
+            },
+            outwardNormalForEdge(p0, p1, interiorRef) {
+                const tx = p1.x - p0.x, ty = p1.y - p0.y;
+                const len = Math.hypot(tx, ty) || 1;
+                let nx = -ty / len, ny = tx / len;
+                const mx = (p0.x + p1.x) / 2, my = (p0.y + p1.y) / 2;
+                if ((interiorRef.x - mx) * nx + (interiorRef.y - my) * ny > 0) {
+                    nx = -nx;
+                    ny = -ny;
+                }
+                return { x: nx, y: ny };
+            },
+            drawCoordLabels(ctx, boardSize) {
+                const n = boardSize;
+                const mid = Math.floor((n - 1) / 2);
+                const interior = this.xy(mid, mid, RHOM_PADDING, RHOM_CELL, n);
+                const topLeft = this.xy(0, 0, RHOM_PADDING, RHOM_CELL, n);
+                const topRight = this.xy(0, n - 1, RHOM_PADDING, RHOM_CELL, n);
+                const rightBot = this.xy(n - 1, n - 1, RHOM_PADDING, RHOM_CELL, n);
+                const insideTop = this.xy(1, 0, RHOM_PADDING, RHOM_CELL, n);
+                const topN = this.outwardNormalForEdge(topLeft, topRight, insideTop);
+                const rightN = this.outwardNormalForEdge(topRight, rightBot, interior);
+                const gapHalf = (this._frameOutsetDisplay > 0 ? this._frameOutsetDisplay : this.frameOutsetDisplay(RHOM_PADDING, RHOM_CELL, n)) * 0.5;
+                const cellDisp = this.effectiveCellSize(RHOM_CELL);
+                const numExtraX = -0.2 * cellDisp;
+                const numExtraY = 0.115 * cellDisp;
+                const letExtraX = 0.2 * cellDisp;
+                const letExtraY = 0.115 * cellDisp;
+                ctx.font = 'bold ' + Math.max(9, 250 / n * this.displayScale) + 'px Arial';
+                ctx.fillStyle = '#3a281c';
+                ctx.textBaseline = 'middle';
+                ctx.textAlign = 'center';
+                for (let c = 0; c < n; c++) {
+                    const p = this.xy(0, c, RHOM_PADDING, RHOM_CELL, n);
+                    ctx.fillText(String(c + 1), p.x + topN.x * gapHalf + numExtraX, p.y + topN.y * gapHalf + numExtraY);
+                }
+                for (let r = 0; r < n; r++) {
+                    const p = this.xy(r, n - 1, RHOM_PADDING, RHOM_CELL, n);
+                    ctx.fillText(String.fromCharCode(65 + r), p.x + rightN.x * gapHalf + letExtraX, p.y + rightN.y * gapHalf + letExtraY);
+                }
+            },
+            pickIntersection(canvasX, canvasY, boardSize) {
+                const n = boardSize;
+                const outer = this.frameOuterVerts(RHOM_PADDING, RHOM_CELL, n);
+                let inside = false;
+                for (let i = 0, j = outer.length - 1; i < outer.length; j = i++) {
+                    const xi = outer[i].x, yi = outer[i].y;
+                    const xj = outer[j].x, yj = outer[j].y;
+                    if (((yi > canvasY) !== (yj > canvasY)) && (canvasX < (xj - xi) * (canvasY - yi) / (yj - yi) + xi)) {
+                        inside = !inside;
+                    }
+                }
+                if (!inside) return { row: -1, col: -1 };
+                const { cx, cy } = this.rotationCenter(RHOM_PADDING, RHOM_CELL, n);
+                const pre = this.invertDisplayTransform(canvasX, canvasY);
+                const local = this.unrotatePoint(pre.x, pre.y, cx, cy);
+                let bestR = -1, bestC = -1, bestD = Infinity;
+                const hitR = this.effectiveCellSize(RHOM_CELL) * 0.48;
+                const hitR2 = hitR * hitR;
+                for (let r = 0; r < n; r++) {
+                    for (let c = 0; c < n; c++) {
+                        const p = this.xyBase(r, c, RHOM_PADDING, RHOM_CELL, n);
+                        const d = (p.x - local.x) ** 2 + (p.y - local.y) ** 2;
+                        if (d < bestD) {
+                            bestD = d;
+                            bestR = r;
+                            bestC = c;
+                        }
+                    }
+                }
+                if (bestD > hitR2) return { row: -1, col: -1 };
+                return { row: bestR, col: bestC };
+            }
+        };
+
         function updateBoardMarkOuterPosition() {
             const el = document.getElementById('boardMarkOuter');
             if (!el) return;
@@ -106,20 +518,50 @@ window.RoomPlugins['triangle-weiqi'] = {
                 el.style.top = '';
                 return;
             }
-            const { maxX, maxY } = TRI_OUTER_BOUNDS;
+            const bounds = SHAPE === 'rhombus'
+                ? RhomBoardGeom.outerFrameBounds
+                : (SHAPE === 'hexagon' ? HEX_OUTER_BOUNDS : TRI_OUTER_BOUNDS);
+            const { maxX, maxY } = bounds;
             const gap = 6;
-            el.style.left = `calc(${(maxX / 600) * 100}% + ${gap}px)`;
-            el.style.bottom = `${((600 - maxY) / 600) * 100}%`;
+            el.style.left = 'calc(' + ((maxX / 600) * 100) + '% + ' + gap + 'px)';
+            el.style.bottom = ((600 - maxY) / 600) * 100 + '%';
             el.style.right = 'auto';
             el.style.top = 'auto';
         }
 
         let PADDING;
+        let CELL_SIZE;
         let DX, DY, TOP_Y, CENTER_X;
 
         function updateBoardGeometry() {
-            if (ROWS < 2) 
-            return;
+            if (SHAPE === 'rhombus') {
+                const g = QiSquareWeiqiCanvas.computePaddingAndCell(ROWS);
+                RhomBoardGeom.initGeometry(g.padding, g.cellSize, ROWS);
+                // 显示格距/行距（供棋子半径、悬停等共用）
+                DX = RhomBoardGeom.effectiveCellSize(g.cellSize);
+                DY = DX * RHOM_Y_SCALE;
+                return;
+            }
+            if (SHAPE === 'hexagon') {
+                if (ROWS < 3) return;
+                PADDING = 24.6 - 0.1 * ROWS;
+                let factor = k27Hex * (22 / PADDING);
+                if (factor > 1) factor = 1;
+                const G = HEX_CENTROID;
+                const innerFromOuter = (O) => ({
+                    x: G.x + factor * (O.x - G.x),
+                    y: G.y + factor * (O.y - G.y)
+                });
+                const innerVerts = FIXED_OUTER_HEX.map(innerFromOuter);
+                const R = (ROWS - 1) / 2;
+                DX = (innerVerts[5].x - innerVerts[0].x) / R;
+                DY = (innerVerts[1].y - innerVerts[0].y) / R;
+                TOP_Y = innerVerts[0].y;
+                CENTER_X = (innerVerts[0].x + innerVerts[5].x) / 2;
+                return;
+            }
+            // 三角
+            if (ROWS < 2) return;
             PADDING = 50.4 - 0.2 * ROWS;
             let factor = k27 * (45 / PADDING);
             if (factor > 1) factor = 1;
@@ -138,12 +580,17 @@ window.RoomPlugins['triangle-weiqi'] = {
         }
         updateBoardGeometry();
 
-function getTriangleStars(rows) {
-            if (rows < 11) 
-                return [];
-            const base = [{ r: 4, c: 2 }, { r: rows - 3, c: 2 }, { r: rows - 3, c: rows - 5 }]
-            if (rows % 2 == 1 & rows >= 15)
-            {
+        function getShapeStars() {
+            if (SHAPE === 'rhombus') return null; // 菱形用公共星位
+            if (SHAPE === 'hexagon') {
+                if (ROWS < 11) return [];
+                const R = (ROWS - 1) / 2;
+                return [{ r: R, c: R }];
+            }
+            const rows = ROWS;
+            if (rows < 11) return [];
+            const base = [{ r: 4, c: 2 }, { r: rows - 3, c: 2 }, { r: rows - 3, c: rows - 5 }];
+            if (rows % 2 === 1 && rows >= 15) {
                 base.push({ r: (1 + rows) / 2, c: 2 });
                 base.push({ r: (1 + rows) / 2, c: (rows - 3) / 2 });
                 base.push({ r: rows - 3, c: (rows - 3) / 2 });
@@ -152,8 +599,9 @@ function getTriangleStars(rows) {
         }
 
 // 全局状态
-        function initBoardArray(rows) {
-            return Array(rows).fill().map((_, r) => Array(r + 1).fill(0));
+        function initBoardArray(/* rows */) {
+            const n = Math.max(1, Math.floor(ROWS));
+            return Array(n).fill().map((_, r) => Array(rowLen(r)).fill(0));
         }
         let board = initBoardArray(ROWS);
         let numberOfHands = 1;
@@ -193,6 +641,8 @@ function getTriangleStars(rows) {
         let tryPlayCurrentPlayer = 1;
         let tryPlayStep = 0;
         let tryPlayTotalSteps = 0;
+        let tryPlayFromLive = false;
+        let tryPlayFromLiveStep = null;
 
         let liveReplayBoards = [];
         let liveReplayMarkers = [];
@@ -213,7 +663,11 @@ function getTriangleStars(rows) {
 
         // DOM
         const canvas = document.getElementById('goBoard');
+        const dpr = window.devicePixelRatio || 1;
+        canvas.width = 600 * dpr;
+        canvas.height = 600 * dpr;
         const ctx = canvas.getContext('2d');
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
         const turnDisplay = document.getElementById('turnDisplay');
         const colorStatus = document.getElementById('colorStatus');
 const scoreTitle = document.getElementById('scoreTitle');
@@ -251,7 +705,7 @@ const scoreTitle = document.getElementById('scoreTitle');
 
         // ======================== 三角网格辅助 ========================
         function isValidCoord(r, c) {
-            return r >= 0 && r < ROWS && c >= 0 && c <= r;
+            return r >= 0 && r < ROWS && c >= 0 && c < rowLen(r);
         }
 
         function isUserBoardMarkVisibleAt(r, c) {
@@ -261,19 +715,43 @@ const scoreTitle = document.getElementById('scoreTitle');
             return true;
         }
 
-        function triCoordToPixel(r, c) {
+        function coordToPixel(r, c) {
+            if (SHAPE === 'rhombus') {
+                return RhomBoardGeom.xy(r, c, RHOM_PADDING, RHOM_CELL, ROWS);
+            }
+            if (SHAPE === 'hexagon') {
+                const y = TOP_Y + r * DY;
+                const leftX = CENTER_X - ((rowLen(r) - 1) / 2) * DX;
+                return { x: leftX + c * DX, y };
+            }
             const y = TOP_Y + r * DY;
             const leftX = CENTER_X - (r * DX) / 2;
-            const x = leftX + c * DX;
-            return { x, y };
+            return { x: leftX + c * DX, y };
+        }
+
+        /** 点在多边形内判定（ray casting，顶点按 {x,y} 数组） */
+        function pointInPolygon(px, py, verts) {
+            let inside = false;
+            for (let i = 0, j = verts.length - 1; i < verts.length; j = i++) {
+                const xi = verts[i].x, yi = verts[i].y;
+                const xj = verts[j].x, yj = verts[j].y;
+                if (((yi > py) !== (yj > py)) && (px < (xj - xi) * (py - yi) / (yj - yi) + xi)) {
+                    inside = !inside;
+                }
+            }
+            return inside;
         }
 
         function getClosestIntersection(px, py) {
+            // 点在三角棋盘区域之外时返回无效（-1）：避免正方形画布内的外部点击吸附到邻近格点
+            if (!pointInPolygon(px, py, [FIXED_OUTER_A, FIXED_OUTER_B, FIXED_OUTER_C])) {
+                return { row: -1, col: -1 };
+            }
             let minDist = Infinity;
             let bestR = -1, bestC = -1;
             for (let r = 0; r < ROWS; r++) {
-                for (let c = 0; c <= r; c++) {
-                    let { x, y } = triCoordToPixel(r, c);
+                for (let c = 0; c < rowLen(r); c++) {
+                    let { x, y } = coordToPixel(r, c);
                     let dist = Math.hypot(px - x, py - y);
                     if (dist < minDist) {
                         minDist = dist;
@@ -285,18 +763,52 @@ const scoreTitle = document.getElementById('scoreTitle');
             return { row: bestR, col: bestC };
         }
 
-        // 六个方向 (三角形网格)
-        const DIRS = [
-            [0, 1],   // 右
-            [0, -1],  // 左
-            [1, 0],   // 下 (左斜向下)
-            [-1, 0],  // 上 (左斜向上)
-            [1, 1],   // 右下 (右斜向下)
-            [-1, -1]  // 左上 (右斜向上)
-        ];
+        // 六方向邻接（按形状）：三角/菱形固定方向，六角按行长推导
+        function getNeighbors(r, c) {
+            const out = [];
+            const push = (nr, nc) => { if (isValidCoord(nr, nc)) out.push([nr, nc]); };
+            if (SHAPE === 'triangle') {
+                for (const [dr, dc] of [[0, 1], [0, -1], [1, 0], [-1, 0], [1, 1], [-1, -1]]) push(r + dr, c + dc);
+                return out;
+            }
+            if (SHAPE === 'rhombus') {
+                for (const [dr, dc] of [[0, 1], [0, -1], [1, 0], [-1, 0], [1, -1], [-1, 1]]) push(r + dr, c + dc);
+                return out;
+            }
+            push(r, c - 1);
+            push(r, c + 1);
+            if (r > 0) {
+                if (rowLen(r - 1) > rowLen(r)) { push(r - 1, c); push(r - 1, c + 1); }
+                else { push(r - 1, c - 1); push(r - 1, c); }
+            }
+            if (r < ROWS - 1) {
+                if (rowLen(r + 1) > rowLen(r)) { push(r + 1, c); push(r + 1, c + 1); }
+                else { push(r + 1, c - 1); push(r + 1, c); }
+            }
+            return out;
+        }
 
         function gridDistance(r1, c1, r2, c2) {
-            return Math.abs(r1 - r2) + Math.min(Math.abs(c1 - c2), Math.abs((r1 - c1) - (r2 - c2)));
+            if (r1 === r2 && c1 === c2) return 0;
+            const visited = new Set();
+            let frontier = [[r1, c1]];
+            visited.add(r1 + ',' + c1);
+            let dist = 0;
+            while (frontier.length) {
+                dist++;
+                const next = [];
+                for (const [fr, fc] of frontier) {
+                    for (const [nr, nc] of getNeighbors(fr, fc)) {
+                        const key = nr + ',' + nc;
+                        if (visited.has(key)) continue;
+                        if (nr === r2 && nc === c2) return dist;
+                        visited.add(key);
+                        next.push([nr, nc]);
+                    }
+                }
+                frontier = next;
+            }
+            return Infinity;
         }
 
         // ======================== 围棋规则 ========================
@@ -315,9 +827,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             const liberties = new Set();
             while (queue.length) {
                 const [r, c] = queue.shift();
-                for (let [dr, dc] of DIRS) {
-                    const nr = r + dr, nc = c + dc;
-                    if (!isValidCoord(nr, nc)) continue;
+                for (const [nr, nc] of getNeighbors(r, c)) {
                     if (board[nr][nc] === 0) {
                         liberties.add(nr + ',' + nc);
                     } else if (board[nr][nc] === color && !visited[nr][nc]) {
@@ -353,9 +863,8 @@ const scoreTitle = document.getElementById('scoreTitle');
                 return null;
             let newBoard = deepCopyBoard(boardBefore);
             newBoard[row][col] = playerVal;
-            for (let [dr, dc] of DIRS) {
-                const nr = row + dr, nc = col + dc;
-                if (isValidCoord(nr, nc) && newBoard[nr][nc] === 3 - playerVal) {
+            for (const [nr, nc] of getNeighbors(row, col)) {
+                if (newBoard[nr][nc] === 3 - playerVal) {
                     if (!hasLiberty(newBoard, nr, nc))
                         removeGroup(newBoard, nr, nc, 3 - playerVal);
                 }
@@ -373,7 +882,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                 changed = false;
                 let visited = Array(ROWS).fill().map(() => []);
                 for (let r = 0; r < ROWS; r++) {
-                    for (let c = 0; c <= r; c++) {
+                    for (let c = 0; c < rowLen(r); c++) {
                         if (boardCopy[r][c] !== 0 && !visited[r][c]) {
                             let color = boardCopy[r][c];
                             let queue = [[r, c]];
@@ -383,9 +892,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                             let idx = 0;
                             while (idx < queue.length) {
                                 let [rr, cc] = queue[idx++];
-                                for (let [dr, dc] of DIRS) {
-                                    let nr = rr + dr, nc = cc + dc;
-                                    if (!isValidCoord(nr, nc)) continue;
+                                for (const [nr, nc] of getNeighbors(rr, cc)) {
                                     if (boardCopy[nr][nc] === 0) {
                                         hasLib = true;
                                     } else if (boardCopy[nr][nc] === color && !visited[nr][nc]) {
@@ -412,16 +919,18 @@ const scoreTitle = document.getElementById('scoreTitle');
             // 收集活子坐标
             let blackStones = [], whiteStones = [];
             for (let r = 0; r < ROWS; r++) {
-                for (let c = 0; c <= r; c++) {
+                for (let c = 0; c < rowLen(r); c++) {
                     if (liveBoard[r][c] === 1) blackStones.push([r, c]);
                     else if (liveBoard[r][c] === 2) whiteStones.push([r, c]);
                 }
             }
             for (let r = 0; r < ROWS; r++) {
-                for (let c = 0; c <= r; c++) {
+                for (let c = 0; c < rowLen(r); c++) {
                     if (liveBoard[r][c] !== 0) continue; // 只处理空点
-                    // 确定最大距离：边角（r<=1 或 r>=ROWS-2 或 c<=1 或 c>=r-1）为5，否则4
-                    const isEdge = (r <= 1 || r >= ROWS - 2 || c <= 1 || c >= r - 1);
+                    // 确定最大距离：边角（外圈两环）为5，否则4（按形状判断边界）
+                    const isEdge = SHAPE === 'hexagon'
+                        ? (getNeighbors(r, c).length < 6 || r <= 1 || r >= ROWS - 2 || c <= 1 || c >= rowLen(r) - 2)
+                        : (r <= 1 || r >= ROWS - 2 || c <= 1 || c >= rowLen(r) - 2);
                     const maxDist = isEdge ? 5 : 4;
                     let minBlack = Infinity, minWhite = Infinity;
                     for (let [br, bc] of blackStones) {
@@ -453,7 +962,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             let blackStones = 0, whiteStones = 0;
             let blackTerritory = 0, whiteTerritory = 0, publicTerritory = 0;
             for (let r = 0; r < ROWS; r++) {
-                for (let c = 0; c <= r; c++) {
+                for (let c = 0; c < rowLen(r); c++) {
                     if (liveBoard[r][c] === 1) blackStones++;
                     else if (liveBoard[r][c] === 2) whiteStones++;
                     else if (liveBoard[r][c] === 0) {
@@ -533,24 +1042,15 @@ const scoreTitle = document.getElementById('scoreTitle');
         function drawBoard() {
             ctx.clearRect(0, 0, 600, 600);
 
-            const outerA = FIXED_OUTER_A;
-            const outerB = FIXED_OUTER_B;
-            const outerC = FIXED_OUTER_C;
-            ctx.save();
-            ctx.shadowBlur = 20;
-            ctx.shadowColor = 'rgba(0,0,0,0.8)';
-            ctx.shadowOffsetY = 8;
-            ctx.fillStyle = '#edbc80';
-            ctx.strokeStyle = '#6b4a2e';
-            ctx.lineWidth = 1;
             const cornerRadius = 3;
-            (function drawRoundedTriangle(vertices, radius) {
-                if (vertices.length !== 3) return;
+            function drawRoundedPolygonLocal(vertices, radius, skipStroke) {
+                const n = vertices.length;
+                if (n < 3) return;
                 const startPoints = [], endPoints = [];
-                for (let i = 0; i < 3; i++) {
+                for (let i = 0; i < n; i++) {
                     const curr = vertices[i];
-                    const prev = vertices[(i - 1 + 3) % 3];
-                    const next = vertices[(i + 1) % 3];
+                    const prev = vertices[(i - 1 + n) % n];
+                    const next = vertices[(i + 1) % n];
                     const v1 = { x: prev.x - curr.x, y: prev.y - curr.y };
                     const v2 = { x: next.x - curr.x, y: next.y - curr.y };
                     const len1 = Math.hypot(v1.x, v1.y);
@@ -561,68 +1061,154 @@ const scoreTitle = document.getElementById('scoreTitle');
                     endPoints.push({ x: curr.x + dx2 * radius, y: curr.y + dy2 * radius });
                 }
                 ctx.beginPath();
-                ctx.moveTo(endPoints[2].x, endPoints[2].y);
-                for (let i = 0; i < 3; i++) {
+                ctx.moveTo(endPoints[n - 1].x, endPoints[n - 1].y);
+                for (let i = 0; i < n; i++) {
                     ctx.arcTo(vertices[i].x, vertices[i].y, endPoints[i].x, endPoints[i].y, radius);
                 }
                 ctx.closePath();
                 ctx.fill();
-                ctx.stroke();
-            })([outerA, outerB, outerC], cornerRadius);
-            ctx.restore();
-
-            // 网格线
-            ctx.lineWidth = 1.2;
-            ctx.strokeStyle = '#3a281c';
-            for (let r = 0; r < ROWS; r++) {
-                let start = triCoordToPixel(r, 0);
-                let end = triCoordToPixel(r, r);
-                ctx.beginPath();
-                ctx.moveTo(start.x, start.y);
-                ctx.lineTo(end.x, end.y);
-                ctx.stroke();
-            }
-            for (let c = 0; c < ROWS; c++) {
-                let start = triCoordToPixel(c, c);
-                let end = triCoordToPixel(ROWS - 1, c);
-                ctx.beginPath();
-                ctx.moveTo(start.x, start.y);
-                ctx.lineTo(end.x, end.y);
-                ctx.stroke();
-            }
-            for (let s = 0; s < ROWS; s++) {
-                let start = triCoordToPixel(s, 0);
-                let end = triCoordToPixel(ROWS - 1, ROWS - 1 - s);
-                ctx.beginPath();
-                ctx.moveTo(start.x, start.y);
-                ctx.lineTo(end.x, end.y);
-                ctx.stroke();
+                if (!skipStroke) ctx.stroke();
             }
 
-            // 星位
-            const stars = getTriangleStars(ROWS);
-            ctx.fillStyle = '#3a281c';
-            for (let { r, c } of stars) {
-                let { x, y } = triCoordToPixel(r, c);
-                ctx.beginPath();
-                ctx.arc(x, y, 10.1 - 0.3 * ROWS, 0, 2 * Math.PI);
-                ctx.fill();
-            }
-
-            ctx.font = `bold ${16.4 - 0.2 * ROWS}px Arial`;
-            ctx.fillStyle = '#3a281c';
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            for (let r = 0; r < ROWS; r++) {
-                let { x, y } = triCoordToPixel(r, 0);
-                x -= (17.4 - 0.2 * ROWS);
-                ctx.fillText((r + 1).toString(), x, y);
-            }
-            ctx.textAlign = 'center';
-            for (let r = 0; r < ROWS; r++) {
-                let { x, y } = triCoordToPixel(r, r);
-                x += (17.4 - 0.2 * ROWS);
-                ctx.fillText(rightEdgeLabel(r), x, y);
+            if (SHAPE === 'rhombus') {
+                RhomBoardGeom.drawWoodenFrame(ctx, ROWS);
+                RhomBoardGeom.drawGrid(ctx, ROWS);
+                RhomBoardGeom.drawAntiDiagonalLines(ctx, ROWS);
+                RhomBoardGeom.drawStarPoints(ctx, ROWS);
+                RhomBoardGeom.drawCoordLabels(ctx, ROWS);
+            } else if (SHAPE === 'hexagon') {
+                // 木质外框与 weiqi 统一：无阴影、背景 #fdcc90、边线 #3a281c 0.5px
+                ctx.save();
+                ctx.shadowBlur = 0;
+                ctx.shadowOffsetY = 0;
+                ctx.fillStyle = '#fdcc90';
+                ctx.strokeStyle = '#3a281c';
+                ctx.lineWidth = 0.5;
+                drawRoundedPolygonLocal(FIXED_OUTER_HEX, cornerRadius, false);
+                ctx.restore();
+                // 网格线：每条格边只画一次（右邻 + 下方两邻）
+                ctx.lineWidth = 1.2;
+                ctx.strokeStyle = '#3a281c';
+                for (let r = 0; r < ROWS; r++) {
+                    for (let c = 0; c < rowLen(r); c++) {
+                        const start = coordToPixel(r, c);
+                        if (c + 1 < rowLen(r)) {
+                            const end = coordToPixel(r, c + 1);
+                            ctx.beginPath();
+                            ctx.moveTo(start.x, start.y);
+                            ctx.lineTo(end.x, end.y);
+                            ctx.stroke();
+                        }
+                        for (const [nr, nc] of getNeighbors(r, c)) {
+                            if (nr > r) {
+                                const end = coordToPixel(nr, nc);
+                                ctx.beginPath();
+                                ctx.moveTo(start.x, start.y);
+                                ctx.lineTo(end.x, end.y);
+                                ctx.stroke();
+                            }
+                        }
+                    }
+                }
+                // 星位（中心）
+                const starsHex = getShapeStars();
+                ctx.fillStyle = '#3a281c';
+                for (let { r, c } of starsHex) {
+                    let { x, y } = coordToPixel(r, c);
+                    ctx.beginPath();
+                    ctx.arc(x, y, 10.1 - 0.3 * ROWS, 0, 2 * Math.PI);
+                    ctx.fill();
+                }
+                // 坐标：上边字母（右移少许）、左上数字（偏上）、左下大写希腊字母（偏下）
+                const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+                const GREEK = 'ΑΒΓΔΕΖΗΘΙΚΛΜΝΞΟΠΡΣΤΥΦΧΨΩ';
+                const labelOff = 17.4 - 0.2 * ROWS;
+                const labelDy = DY * 0.35;
+                const RH = (ROWS - 1) / 2;
+                ctx.font = `bold ${16.4 - 0.2 * ROWS}px Arial`;
+                ctx.fillStyle = '#3a281c';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                for (let c = 0; c < rowLen(0); c++) {
+                    let { x, y } = coordToPixel(0, c);
+                    x += labelOff * 0.5;
+                    y -= labelOff;
+                    ctx.fillText(LETTERS[c], x, y);
+                }
+                for (let r = 0; r <= RH; r++) {
+                    let { x, y } = coordToPixel(r, 0);
+                    x -= labelOff * 0.6;
+                    y -= labelDy;
+                    ctx.fillText(String(r + 1), x, y);
+                }
+                for (let r = RH; r < ROWS; r++) {
+                    let { x, y } = coordToPixel(r, 0);
+                    x -= labelOff * 0.6;
+                    y += labelDy;
+                    ctx.fillText(GREEK[r - RH] || String(r + 1), x, y);
+                }
+            } else {
+                // 三角：木质外框
+                ctx.save();
+                ctx.shadowBlur = 0;
+                ctx.shadowOffsetY = 0;
+                ctx.fillStyle = '#fdcc90';
+                ctx.strokeStyle = '#3a281c';
+                ctx.lineWidth = 0.5;
+                drawRoundedPolygonLocal([FIXED_OUTER_A, FIXED_OUTER_B, FIXED_OUTER_C], cornerRadius, false);
+                ctx.restore();
+                // 网格线（三方向）
+                ctx.lineWidth = 1.2;
+                ctx.strokeStyle = '#3a281c';
+                for (let r = 0; r < ROWS; r++) {
+                    let start = coordToPixel(r, 0);
+                    let end = coordToPixel(r, r);
+                    ctx.beginPath();
+                    ctx.moveTo(start.x, start.y);
+                    ctx.lineTo(end.x, end.y);
+                    ctx.stroke();
+                }
+                for (let c = 0; c < ROWS; c++) {
+                    let start = coordToPixel(c, c);
+                    let end = coordToPixel(ROWS - 1, c);
+                    ctx.beginPath();
+                    ctx.moveTo(start.x, start.y);
+                    ctx.lineTo(end.x, end.y);
+                    ctx.stroke();
+                }
+                for (let s = 0; s < ROWS; s++) {
+                    let start = coordToPixel(s, 0);
+                    let end = coordToPixel(ROWS - 1, ROWS - 1 - s);
+                    ctx.beginPath();
+                    ctx.moveTo(start.x, start.y);
+                    ctx.lineTo(end.x, end.y);
+                    ctx.stroke();
+                }
+                // 星位
+                const starsTri = getShapeStars();
+                ctx.fillStyle = '#3a281c';
+                for (let { r, c } of starsTri) {
+                    let { x, y } = coordToPixel(r, c);
+                    ctx.beginPath();
+                    ctx.arc(x, y, 10.1 - 0.3 * ROWS, 0, 2 * Math.PI);
+                    ctx.fill();
+                }
+                // 坐标：左数字右字母
+                ctx.font = `bold ${16.4 - 0.2 * ROWS}px Arial`;
+                ctx.fillStyle = '#3a281c';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                for (let r = 0; r < ROWS; r++) {
+                    let { x, y } = coordToPixel(r, 0);
+                    x -= (17.4 - 0.2 * ROWS);
+                    ctx.fillText((r + 1).toString(), x, y);
+                }
+                ctx.textAlign = 'center';
+                for (let r = 0; r < ROWS; r++) {
+                    let { x, y } = coordToPixel(r, r);
+                    x += (17.4 - 0.2 * ROWS);
+                    ctx.fillText(rightEdgeLabel(r), x, y);
+                }
             }
 
             const stoneRadius = DX * 0.42;
@@ -631,7 +1217,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             if (lowerLastMoveMarker) {
                 for (let { row, col, color } of lastMoveMarkers) {
                     if (!isValidCoord(row, col)) continue;
-                    let { x, y } = triCoordToPixel(row, col);
+                    let { x, y } = coordToPixel(row, col);
                     ctx.beginPath();
                     ctx.moveTo(x + stoneRadius, y + stoneRadius);
                     ctx.lineTo(x, y + stoneRadius);
@@ -644,12 +1230,12 @@ const scoreTitle = document.getElementById('scoreTitle');
 
             // 棋子
             for (let r = 0; r < ROWS; r++) {
-                for (let c = 0; c <= r; c++) {
+                for (let c = 0; c < rowLen(r); c++) {
                     const val = board[r][c];
                     if (val === 0) 
                         continue;
                     const radius = stoneRadius;
-                    let { x, y } = triCoordToPixel(r, c);
+                    let { x, y } = coordToPixel(r, c);
                     ctx.save();
                     ctx.shadowBlur = 6;
                     ctx.shadowColor = 'rgba(0,0,0,0.5)';
@@ -683,9 +1269,9 @@ const scoreTitle = document.getElementById('scoreTitle');
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
                 for (let r = 0; r < ROWS; r++) {
-                    for (let c = 0; c <= r; c++) {
+                    for (let c = 0; c < rowLen(r); c++) {
                         if (nums[r][c] > 0 && board[r][c] !== 0) {
-                            const { x, y } = triCoordToPixel(r, c);
+                            const { x, y } = coordToPixel(r, c);
                             const numStr = nums[r][c].toString();
                             const fontSize = Math.max(8, Math.floor(DX * (numStr.length >= 3 ? 0.28 : 0.36)));
                             ctx.font = `bold ${fontSize}px Arial`;
@@ -701,7 +1287,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                 const markSize = markSizeDefault;
                 for (let { row, col, color } of lastMoveMarkers) {
                     if (!isValidCoord(row, col)) continue;
-                    let { x, y } = triCoordToPixel(row, col);
+                    let { x, y } = coordToPixel(row, col);
                     ctx.beginPath();
                     ctx.moveTo(x, y);
                     ctx.lineTo(x + markSize, y);
@@ -716,11 +1302,11 @@ const scoreTitle = document.getElementById('scoreTitle');
                 const [r, c] = key.split(',').map(Number);
                 if (!isUserBoardMarkVisibleAt(r, c)) continue;
                 const ch = userBoardMarks[key];
-                let { x, y } = triCoordToPixel(r, c);
+                let { x, y } = coordToPixel(r, c);
                 const markBgR = DX * 0.3;
                 ctx.beginPath();
                 ctx.arc(x, y, markBgR, 0, 2 * Math.PI);
-                ctx.fillStyle = '#edbc80';
+                ctx.fillStyle = '#fdcc90';
                 ctx.fill();
                 const fontPx = DX * (ch === '🚩' ? 0.47 : 0.52);
                 ctx.font = `bold ${fontPx}px "Segoe UI", "Apple Color Emoji", "Segoe UI Emoji", sans-serif`;
@@ -745,7 +1331,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                 } else if (tryPlayMode) hoverColor = tryPlayCurrentPlayer === 1 ? '#222' : '#ddd';
                 else hoverColor = mySlot === 'black' ? '#222' : '#ddd';
                 if (hoverColor) {
-                    let { x, y } = triCoordToPixel(hoverR, hoverC);
+                    let { x, y } = coordToPixel(hoverR, hoverC);
                     ctx.globalAlpha = 0.45;
                     ctx.beginPath();
                     ctx.arc(x, y, DX * 0.35, 0, 2 * Math.PI);
@@ -759,20 +1345,20 @@ const scoreTitle = document.getElementById('scoreTitle');
             if (showEstimateActive && cachedLiveBoard && cachedTerritory) {
                 const dotRadius = 3;
                 for (let r = 0; r < ROWS; r++) {
-                    for (let c = 0; c <= r; c++) {
+                    for (let c = 0; c < rowLen(r); c++) {
                         // 死子标记（原棋盘有子，活棋盘无子）
                         if (board[r][c] !== 0 && cachedLiveBoard[r][c] === 0) {
-                            let { x, y } = triCoordToPixel(r, c);
+                            let { x, y } = coordToPixel(r, c);
                             ctx.fillStyle = board[r][c] === 1 ? '#ffffff' : '#222222';
                             ctx.fillRect(x - dotRadius, y - dotRadius, dotRadius * 2, dotRadius * 2);
                         }
                         // 领地归属点（仅当空点且归属明确且不为公共地）
                         else if (board[r][c] === 0 && cachedTerritory[r][c] === 1) {
-                            let { x, y } = triCoordToPixel(r, c);
+                            let { x, y } = coordToPixel(r, c);
                             ctx.fillStyle = '#222222';
                             ctx.fillRect(x - dotRadius, y - dotRadius, dotRadius * 2, dotRadius * 2);
                         } else if (board[r][c] === 0 && cachedTerritory[r][c] === 2) {
-                            let { x, y } = triCoordToPixel(r, c);
+                            let { x, y } = coordToPixel(r, c);
                             ctx.fillStyle = '#ffffff';
                             ctx.fillRect(x - dotRadius, y - dotRadius, dotRadius * 2, dotRadius * 2);
                         }
@@ -1016,6 +1602,20 @@ const scoreTitle = document.getElementById('scoreTitle');
                 : (replayStep > 0 ? (3 - replayStepPlayers[replayStep]) : ((currentPlayer === 1 || currentPlayer === 2) ? currentPlayer : 1));
             tryPlayBasePlayer = _startPlayer;
             tryPlayCurrentPlayer = _startPlayer;
+            // 与公共 enterTryPlay 一致：从直播局面进入试下时挂 replayMode 脚手架。
+            // 点击/绘制均以 replayMode && tryPlayMode 判断，缺了它试下点击无反应
+            if (_fromLive) {
+                tryPlayFromLive = true;
+                tryPlayFromLiveStep = liveViewStep || 0;
+                replayMode = true;
+                replayBoards = [deepCopyBoard(board)];
+                replayMarkers = [(lastMoveMarkers || []).map(m => ({ ...m }))];
+                replayStepPlayers = [tryPlayCurrentPlayer === 1 ? 2 : 1];
+                replayStep = 0;
+                replayTotalSteps = 0;
+            } else {
+                tryPlayFromLive = false;
+            }
             tryPlayStep = 0;
             tryPlayTotalSteps = 0;
 
@@ -1029,7 +1629,16 @@ const scoreTitle = document.getElementById('scoreTitle');
 
         function exitTryPlay() {
             clearMobileMovePreview();
+            // 与公共 exitTryPlay 一致：从直播进入试下的要退回直播局面，而不是走打谱 setReplayStep
+            const fromLive = !!tryPlayFromLive;
+            const savedLiveStep = tryPlayFromLiveStep != null ? tryPlayFromLiveStep : liveViewStep;
+            const snapBoard = fromLive && tryPlayBoards.length > 0 ? deepCopyBoard(tryPlayBoards[0]) : null;
+            const snapMarkers = fromLive && tryPlayMarkers.length > 0 && tryPlayMarkers[0]
+                ? tryPlayMarkers[0].map(m => ({ ...m }))
+                : [];
             tryPlayMode = false;
+            tryPlayFromLive = false;
+            tryPlayFromLiveStep = null;
             tryPlayBoards = [];
             tryPlayMarkers = [];
             tryPlayStep = 0;
@@ -1037,8 +1646,37 @@ const scoreTitle = document.getElementById('scoreTitle');
 
             const slider = document.getElementById('replaySlider');
             slider.min = 0;
-            slider.max = replayTotalSteps;
-            setReplayStep(tryPlayBaseStep);
+            if (fromLive) {
+                replayMode = false;
+                replayBoards = [];
+                replayMarkers = [];
+                replayStepPlayers = [];
+                replayStep = 0;
+                replayTotalSteps = 0;
+                if (snapBoard) {
+                    board = snapBoard;
+                    lastMoveMarkers = snapMarkers;
+                    if (liveReplayBoards.length > 0) {
+                        const step = Math.min(Math.max(0, savedLiveStep), liveReplayBoards.length - 1);
+                        liveReplayBoards[step] = deepCopyBoard(snapBoard);
+                        if (!liveReplayMarkers[step]) liveReplayMarkers[step] = [];
+                        liveReplayMarkers[step] = snapMarkers.map(m => ({ ...m }));
+                        liveViewStep = step;
+                    } else {
+                        liveReplayBoards = [deepCopyBoard(snapBoard)];
+                        liveReplayMarkers = [snapMarkers.map(m => ({ ...m }))];
+                        liveReplayStepPlayers = [0];
+                        liveViewStep = 0;
+                    }
+                } else {
+                    applyLiveViewBoard();
+                }
+                updateLiveReplayPanelUI();
+                updateTurn();
+            } else {
+                slider.max = replayTotalSteps;
+                setReplayStep(tryPlayBaseStep);
+            }
             updateReplayUI();
         }
 
@@ -1180,16 +1818,52 @@ const scoreTitle = document.getElementById('scoreTitle');
             });
         }
 
+        function rebuildSizeSelect() {
+            const sel = document.getElementById('boardSizeSelect');
+            if (!sel) return;
+            const cfg = shapeCfg();
+            sel.innerHTML = '';
+            for (let n = cfg.min; n <= cfg.max; n++) {
+                const opt = document.createElement('option');
+                opt.value = String(n);
+                opt.textContent = n + '路';
+                if (n === cfg.def) opt.selected = true;
+                sel.appendChild(opt);
+            }
+        }
+
+        /** 三种形状的客户端显示贴目（沿用合并前各自口径：菱形 3.25，三角/六角 4.75） */
+        function komiForShape(shape) {
+            return shape === 'rhombus' ? 3.25 : 4.75;
+        }
+        function refreshKomiInfo() {
+            KOMI = komiForShape(SHAPE);
+            const el = document.getElementById('komiInfo');
+            if (el) el.textContent = `黑贴白${KOMI}点`;
+        }
+        function refreshSeatOverlay() {
+            if (typeof updateSeatOverlay === 'function') updateSeatOverlay();
+        }
+
         function syncState(state)
         {
             clearMobileMovePreview();
-            if (state.boardSize && state.boardSize !== ROWS)
+            if (state.shape && state.shape !== SHAPE) {
+                SHAPE = state.shape;
+                rebuildSizeSelect();
+                const shapeSel = document.getElementById('subGameSelect');
+                if (shapeSel) shapeSel.value = SHAPE;
+                refreshKomiInfo();
+                refreshSeatOverlay();
+            }
+            if (state.boardSize && rowsFor(SHAPE, state.boardSize) !== ROWS)
             {
-                ROWS = state.boardSize;
+                ROWS = rowsFor(SHAPE, state.boardSize);
                 board = initBoardArray(ROWS);
                 updateBoardGeometry();
                 const sizeSelect = document.getElementById('boardSizeSelect');
-                if (sizeSelect) sizeSelect.value = ROWS;
+                if (sizeSelect) sizeSelect.value = state.boardSize;
+                refreshSeatOverlay();
             }
             numberOfHands = state.numberOfHands || 1;
             currentPlayer = state.currentPlayer;
@@ -1229,11 +1903,11 @@ const scoreTitle = document.getElementById('scoreTitle');
 
             const hasAnyStone = board.some(row => row.some(v => v !== 0));
             const hasPlayer = slots.black || slots.white;
+            const canChange = !hasAnyStone && !hasPlayer && !gameOver && mySlot === null;
             const sizeSelect = document.getElementById('boardSizeSelect');
-            if (!hasAnyStone && !hasPlayer && !gameOver && mySlot === null)
-                sizeSelect.style.display = 'inline-block';
-            else
-                sizeSelect.style.display = 'none';
+            if (sizeSelect) sizeSelect.style.display = canChange ? 'inline-block' : 'none';
+            const shapeSelect = document.getElementById('subGameSelect');
+            if (shapeSelect) shapeSelect.style.display = canChange ? 'inline-block' : 'none';
 
             if (showEstimateActive)
             {
@@ -1246,6 +1920,7 @@ const scoreTitle = document.getElementById('scoreTitle');
         }
 
         let updateRadioStyles = () => {};
+        let updateSeatOverlay = null;
         let handleMessage = () => {};
         const _weiqiBindings = QiBoardRoomClient.createWeiqiMessageBindings({
             roomId,
@@ -1289,10 +1964,10 @@ const scoreTitle = document.getElementById('scoreTitle');
             setReplayStep,
             setLiveViewStep,
             getWs: () => ws,
-            getBoardSize: () => ROWS,
-            setBoardSize: (n) => { ROWS = n; },
+            getBoardSize: () => (SHAPE === 'hexagon' ? (ROWS + 1) / 2 : ROWS),
+            setBoardSize: (n) => { ROWS = rowsFor(SHAPE, n); },
             getKomi: () => KOMI,
-            setKomi: () => {},
+            setKomi: (n) => { if (Number.isFinite(n)) KOMI = n; },
             getBoard: () => board,
             setBoard: (b) => { board = b; },
             getSlots: () => slots,
@@ -1328,10 +2003,20 @@ syncState,
             // 限时协商/计时逻辑由 message bindings 托管（不要放到 page runtime 参数）
             standardWeiqiMatchTime,
             boardSeatOverlay: true,
-            seatOverlayShape: 'triangle',
+            get seatOverlayShape() { return SHAPE; },
+            getSeatOverlayVertices: () => {
+                // 蒙版多边形与棋盘木质外框一致（600×600 逻辑画布坐标）
+                if (SHAPE === 'hexagon') return FIXED_OUTER_HEX;
+                if (SHAPE === 'rhombus') {
+                    const n = SHAPE === 'hexagon' ? (ROWS + 1) / 2 : ROWS;
+                    return RhomBoardGeom.frameOuterVerts(RHOM_PADDING, RHOM_CELL, n);
+                }
+                return [FIXED_OUTER_A, FIXED_OUTER_B, FIXED_OUTER_C];
+            },
+            seatOverlayCornerRadius: 3,
             onBoardSizeChanged: (msg) => {
                 if (!msg.boardSize) return;
-                const bs = msg.boardSize;
+                const bs = rowsFor(SHAPE, msg.boardSize);
                 if (bs !== ROWS) {
                     ROWS = bs;
                     board = initBoardArray(ROWS);
@@ -1340,9 +2025,23 @@ syncState,
                 const sel = document.getElementById('boardSizeSelect');
                 if (sel) sel.value = msg.boardSize;
                 drawBoardWithOverlay();
+                refreshSeatOverlay();
             }
         });
-        handleMessage = _weiqiBindings.handleMessage;
+        updateSeatOverlay = _weiqiBindings.updateSeatOverlay;
+        const _baseHandleMessage = _weiqiBindings.handleMessage;
+        handleMessage = (msg) => {
+            if (msg && msg.type === 'shapeChanged') {
+                // 形状变更广播（带完整 state）：全量同步，覆盖本地乐观切换与其他观察者
+                syncState(msg);
+                return;
+            }
+            _baseHandleMessage(msg);
+            if (msg && (msg.type === 'roomReset' || msg.type === 'newGameStarted')) {
+                // 新局：蒙版重新显示，确保形状与当前棋盘一致
+                refreshSeatOverlay();
+            }
+        };
         updateRecordButtons = _weiqiBindings.updateRecordButtons;
         updateRadioStyles = _weiqiBindings.updateRadioStyles;
 
@@ -1599,6 +2298,31 @@ syncState,
                     _editApi.updateEditModeUI();
                 };
             }
+        }
+
+        // 形状选择器：三角形/菱形/六角形（开局前与路数选择器同显）
+        rebuildSizeSelect();
+        const shapeSelect = document.getElementById('subGameSelect');
+        if (shapeSelect) {
+            shapeSelect.addEventListener('change', () => {
+                const v = shapeSelect.value;
+                if (!v || v === SHAPE) return;
+                // 本地立即切换（乐观更新）：棋盘、路数选项、贴目、蒙版马上生效；
+                // 服务器广播 shapeChanged 回来时形状已相同，不会重复重建。
+                SHAPE = v;
+                ROWS = rowsFor(SHAPE, shapeCfg().def);
+                board = initBoardArray(ROWS);
+                updateBoardGeometry();
+                rebuildSizeSelect();
+                const sel = document.getElementById('boardSizeSelect');
+                if (sel) sel.value = shapeCfg().def;
+                refreshKomiInfo();
+                if (ws && ws.readyState === 1) {
+                    ws.send(JSON.stringify({ type: 'setShape', shape: v }));
+                }
+                drawBoardWithOverlay();
+                refreshSeatOverlay();
+            });
         }
 
         connectWebSocket();

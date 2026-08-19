@@ -556,7 +556,8 @@ const scoreTitle = document.getElementById('scoreTitle');
                 gameOver: ps.gameOver,
                 isMyTurn: ps.isMyTurn,
                 mySlot: ps.mySlot,
-                isHoverValid: ps.isHoverValid,
+                isHoverValid: ps.isHoverValid
+,
                 pageState: ps,
                 editModeEnabled: !!ps.editModeEnabled,
                 editTool: ps.editTool

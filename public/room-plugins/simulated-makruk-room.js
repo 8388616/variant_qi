@@ -2,7 +2,7 @@ window.RoomPlugins = window.RoomPlugins || {};
 window.RoomPlugins["simulated-makruk"] = {
     shell: {
         "title": "模拟泰国象棋",
-        "rulesHtml": "基本规则同泰国象棋（Makruk）。<br /><br /><strong>王</strong>：直走或斜走一格。<br /><strong>車</strong>：直走任意格，路径上不能有其它棋子，。<br /><strong>馬</strong>：走日（无蹩腿）。<br /><strong>象</strong>：斜走一格，或向前直走一格。<br /><strong>士</strong>：斜走一格。<br /><strong>兵</strong>：直走一格或斜吃一格，到达己方第6行时升变为士。<br /><br />将死对方的王获胜。困毙和棋。双方均无未升变兵后64手未将死则和棋。<br /><br />",
+        "rulesHtml": "基本规则同泰国象棋（Makruk）。<br /><br /><strong>王</strong>：直走或斜走一格。<br /><strong>車</strong>：直走任意格，路径上不能有其它棋子，。<br /><strong>馬</strong>：走日（无蹩腿）。<br /><strong>象</strong>：斜走一格，或向前直走一格。<br /><strong>士</strong>：斜走一格。<br /><strong>兵</strong>：直走一格或斜吃一格，到达己方第6行时升变为士。<br /><br />将死对方的王获胜。行棋方无子可动时和棋。双方均无未升变兵后64手未将死则和棋。<br /><br />",
         "defaultKomiText": "红先",
         "boardSizeMin": 8,
         "boardSizeMax": 8,
@@ -11,11 +11,27 @@ window.RoomPlugins["simulated-makruk"] = {
         "recordDownloadPrefix": "模拟泰国象棋",
         "standardWeiqiMatchTime": true,
         "features": {
-            "editBoard": false,
+            "editBoard": true,
             "xiangqi": true,
             "simulatedMakruk": true,
             "hideBoardSize": true
-        }
+        },
+        // 顺序：王士象馬車兵（红/黑按棋子前缀着色）
+        "editTools": [
+            { "value": "empty", "label": "空", "cellValue": "" },
+            { "value": "rk", "label": "王", "cellValue": "rk" },
+            { "value": "rm", "label": "士", "cellValue": "rm" },
+            { "value": "re", "label": "象", "cellValue": "re" },
+            { "value": "rn", "label": "馬", "cellValue": "rn" },
+            { "value": "rr", "label": "車", "cellValue": "rr" },
+            { "value": "rp", "label": "兵", "cellValue": "rp" },
+            { "value": "bk", "label": "王", "cellValue": "bk" },
+            { "value": "bm", "label": "士", "cellValue": "bm" },
+            { "value": "be", "label": "象", "cellValue": "be" },
+            { "value": "bn", "label": "馬", "cellValue": "bn" },
+            { "value": "br", "label": "車", "cellValue": "br" },
+            { "value": "bp", "label": "兵", "cellValue": "bp" }
+        ]
     },
     mount: function (ctx) {
         var gameType = ctx.gameType;
@@ -992,6 +1008,24 @@ return {
                     connectWebSocket();
                 }, 1200);
             };
+        }
+
+        // 编辑模式：安装公共编辑 UI（点击放置棋子，关闭编辑时提交服务器）
+        let editApi = null;
+        if (typeof QiWeiqiSquarePageRuntime !== 'undefined' && QiWeiqiSquarePageRuntime.installBoardEditUI) {
+            editApi = QiWeiqiSquarePageRuntime.installBoardEditUI({
+                ps,
+                canvas,
+                mode: 'grid2d',
+                editTools: config.editTools,
+                pickAtClient(clientX, clientY) {
+                    return getRowColFromClient(clientX, clientY);
+                },
+                drawBoard,
+                getBoard: () => ps.board,
+                setBoard: (b) => { ps.board = b; },
+                emptyBoard: () => R.emptyBoard()
+            });
         }
 
         connectWebSocket();
