@@ -1196,6 +1196,7 @@ const qiProtocol = {
         self.lastMoveMarkers = [];
         self.broadcast({ type: 'broadcast', action: 'pass', ...self.getState() });
         if (self.passCounter >= 2) {
+            self.passCounter = 0;
             const blackPlayer = room.getPlayerBySlot('black');
             const whitePlayer = room.getPlayerBySlot('white');
             if (blackPlayer && whitePlayer) {

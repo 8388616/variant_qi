@@ -606,6 +606,7 @@ class FrontBackWeiqiRoom extends QiTwoPlayerRoomBase {
                 this.lastMoveMarkers = [];
                 this.pushSnapshot();
                 if (this.passCounter >= 4) {
+                    this.passCounter = 0;
                     this.gameOver = true;
                     this.winner = 'draw';
                     break;
@@ -780,6 +781,7 @@ class FrontBackWeiqiRoom extends QiTwoPlayerRoomBase {
                 this.broadcast({ type: 'broadcast', action: 'pass', ...this.getState() });
                 this._syncClockAfterTurnChange();
                 if (this.passCounter >= 4) {
+                    this.passCounter = 0;
                     const bp = room.getPlayerBySlot('black');
                     const wp = room.getPlayerBySlot('white');
                     if (bp && wp) this.startScoreCounting(bp, wp);

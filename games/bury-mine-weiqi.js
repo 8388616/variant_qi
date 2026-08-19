@@ -562,6 +562,7 @@ class BuryMineWeiqiRoom extends WeiqiRoom {
         this.lastMoveMarkers = [];
         this.broadcast({ type: 'broadcast', action: 'pass', ...this.getState() });
         if (this.passCounter >= 2) {
+            this.passCounter = 0;
             const blackPlayer = this.room.getPlayerBySlot('black');
             const whitePlayer = this.room.getPlayerBySlot('white');
             if (blackPlayer && whitePlayer) {

@@ -15,7 +15,7 @@ function komiForSize(boardSize) {
 
 class BilibertyWeiqiRoom extends QiTwoPlayerRoomBase
 {
-    constructor(room, initialSize = 19) {
+    constructor(room, initialSize = 9) {
         super(room);
         this.boardSize = initialSize;
         this.board = Array(this.boardSize).fill().map(() => Array(this.boardSize).fill(0));
@@ -681,7 +681,7 @@ class BilibertyWeiqiRoom extends QiTwoPlayerRoomBase
             requesterWs.send(JSON.stringify({ type: 'error', message: '棋谱格式不匹配（需要二气围棋棋谱）。' }));
             return;
         }
-        const newSize = data.boardSize || 19;
+        const newSize = data.boardSize || 9;
         if (!Number.isInteger(newSize) || newSize < 7 || newSize > 21) {
             requesterWs.send(JSON.stringify({ type: 'error', message: '棋谱中棋盘大小无效' }));
             return;

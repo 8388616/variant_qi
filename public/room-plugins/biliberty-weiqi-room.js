@@ -6,7 +6,7 @@ window.RoomPlugins['biliberty-weiqi'] = {
         "defaultKomiText": "黑贴白2.75点",
         "boardSizeMin": 7,
         "boardSizeMax": 21,
-        "defaultBoardSize": 19,
+        "defaultBoardSize": 9,
         "minLib": 2,
         "recordDownloadPrefix": "二气围棋",
         "standardWeiqiMatchTime": true,
@@ -53,8 +53,8 @@ window.RoomPlugins['biliberty-weiqi'] = {
         }
 
         const ps = {
-            BOARD_SIZE: 19,
-            KOMI: bilibertyKomiForSize(19),
+            BOARD_SIZE: 9,
+            KOMI: bilibertyKomiForSize(9),
             PADDING: 0,
             CELL_SIZE: 0,
             numberOfHands: 1,

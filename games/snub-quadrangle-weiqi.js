@@ -544,6 +544,7 @@ class SnubQuadrangleWeiqiRoom extends QiTwoPlayerRoomBase {
                 this.broadcast({ type: 'broadcast', action: 'pass', ...this.getState() });
                 this._syncClockAfterTurnChange();
                 if (this.passCounter >= 2) {
+                    this.passCounter = 0;
                     const blackPlayer = room.getPlayerBySlot('black');
                     const whitePlayer = room.getPlayerBySlot('white');
                     if (blackPlayer && whitePlayer) {

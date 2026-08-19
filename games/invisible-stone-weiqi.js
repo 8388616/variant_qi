@@ -729,6 +729,7 @@ class InvisibleStoneWeiqiRoom extends QiTwoPlayerRoomBase {
                 this.broadcastState('pass');
                 this._syncClockAfterTurnChange();
                 if (this.passCounter >= 2) {
+                    this.passCounter = 0;
                     const blackPlayer = room.getPlayerBySlot('black');
                     const whitePlayer = room.getPlayerBySlot('white');
                     if (blackPlayer && whitePlayer) {

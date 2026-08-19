@@ -406,6 +406,7 @@ function applyComputerPass(self) {
     self.lastMoveMarkers = [];
     self.broadcast({ type: 'broadcast', action: 'pass', ...self.getState() });
     if ((self.passCounter || 0) >= 2) {
+        self.passCounter = 0;   // 数点后重新计数（无论同意与否）
         startScoreVsComputer(self);
         return;
     }
@@ -692,6 +693,7 @@ function handleHumanPassVsComputer(self, ws, slot) {
     self.lastMoveMarkers = [];
     self.broadcast({ type: 'broadcast', action: 'pass', ...self.getState() });
     if ((self.passCounter || 0) >= 2) {
+        self.passCounter = 0;   // 数点后重新计数（无论同意与否）
         startScoreVsComputer(self);
         return;
     }

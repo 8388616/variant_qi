@@ -541,6 +541,7 @@ class UkrainianWeiqiRoom extends QiTwoPlayerRoomBase {
         this.lastMoveMarkers = [];
 
         if (this.passCounter >= 4) {
+            this.passCounter = 0;
             const blackPlayer = room.getPlayerBySlot('black');
             const whitePlayer = room.getPlayerBySlot('white');
             this.broadcast({ type: 'broadcast', action: 'pass', ...this.getState() });
