@@ -410,8 +410,11 @@ class KatagoGtpSession {
         // 结构洞棋盘（非方形，如开罗五角）：无效格由引擎按尺寸自动识别（C_WALL），不传 -1
         const structuralHoles = boardWidth !== boardHeight;
         // 重复 boardsize 会触发引擎重配缓冲，首着极慢；路数未变则跳过
+        // 非方形（开罗等）用 "X:Y"（定制引擎支持）；正方形保持标准 "boardsize N" 兼容普通引擎
         if (this.boardWidth !== boardWidth || this.boardHeight !== boardHeight) {
-            await this.command(`boardsize ${boardWidth}:${boardHeight}`);
+            await this.command(boardWidth === boardHeight
+                ? `boardsize ${boardWidth}`
+                : `boardsize ${boardWidth}:${boardHeight}`);
             this.boardWidth = boardWidth;
             this.boardHeight = boardHeight;
             this._nnPrimedForSize = null;
