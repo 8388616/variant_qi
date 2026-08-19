@@ -534,7 +534,7 @@ class KatagoGtpSession {
  * 全服活跃+空闲 KataGo 进程上限。
  * 每个进程会加载整模并多线程搜索，过高极易把小机器内存/CPU 打满。
  */
-const GLOBAL_PROCESS_LIMIT = 1;
+const GLOBAL_PROCESS_LIMIT = 5;
 const KATAGO_BUSY_MESSAGE = '服务器繁忙，请稍后重试。';
 /** 每个棋类最多保留的空闲热进程数（避免重复加载模型） */
 const IDLE_POOL_MAX_PER_GAME = 1;
