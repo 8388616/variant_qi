@@ -64,6 +64,11 @@ function buildKatagoSetupOpts(self, board) {
         board,
         gameId: self.room && self.room.gameType
     };
+    // 非方形棋盘（如开罗五角围棋）：定制 kataGo 支持 boardsize X:Y
+    if (self.katagoBoardWidth && self.katagoBoardHeight) {
+        opts.boardWidth = self.katagoBoardWidth;
+        opts.boardHeight = self.katagoBoardHeight;
+    }
     const remain = readRemainingTranslocationMoves(self);
     if (remain != null) opts.maxTranslocationMoves = remain;
     return opts;

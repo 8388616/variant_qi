@@ -243,6 +243,10 @@ class CairoPentagonWeiqiRoom extends QiTwoPlayerRoomBase {
         }
         // 实际有效格点数（客户端默认对局时间按此计算）
         this.vertexCount = validCount;
+        // KataGo 人机：引擎按 (cols)x(rows) 非方形开罗棋盘运行（定制 kataGo 识别开罗尺寸自动挖洞）
+        this.boardSize = cols;
+        this.katagoBoardWidth = cols;
+        this.katagoBoardHeight = rows;
         // 开局盘必须在有效格置 0 之后拷贝，否则 openingBoard 全 -1，
         // 客户端以其为直播重放起点，整盘都是 -1，任何落子都被判非法（首局无法落子）
         if (this.openingBoard === undefined) this.openingBoard = (typeof this.copyBoard === 'function' ? this.copyBoard(this.board) : (Array.isArray(this.board[0]) ? this.board.map(r => r.slice()) : this.board.slice()));

@@ -5,7 +5,28 @@ const fs = require('fs');
 const path = require('path');
 
 const KATAGOS_ROOT = path.join(__dirname, 'katagos');
-const GTP_LETTERS = 'ABCDEFGHJKLMNOPQRST';
+// 与 KataGo 一致：A-Z 跳过 I（单字母 0-24）；≥25 用双字母（AA=25），与 cpp tryParseLetterCoordinate 一致
+const GTP_LETTERS = 'ABCDEFGHJKLMNOPQRSTUVWXYZ';
+
+/** 列号 → GTP 坐标字母（单字母或双字母） */
+function gtpColLetters(col) {
+    if (col < GTP_LETTERS.length) return GTP_LETTERS[col];
+    const rest = col - GTP_LETTERS.length;
+    return GTP_LETTERS[Math.floor(rest / GTP_LETTERS.length)] + GTP_LETTERS[rest % GTP_LETTERS.length];
+}
+
+/** 字母坐标 → 列号（支持单/双字母，与 cpp (x+1)*25+x1 一致） */
+function gtpLettersToCol(s) {
+    const idx = (ch) => {
+        const i = GTP_LETTERS.indexOf(ch.toUpperCase());
+        return i < 0 ? -1 : i;
+    };
+    if (s.length === 1) return idx(s[0]);
+    const a = idx(s[0]);
+    const b = idx(s[1]);
+    if (a < 0 || b < 0) return -1;
+    return (a + 1) * GTP_LETTERS.length + b;
+}
 
 /** 与各 games/*.js 约定一致的盘面特殊格 id */
 const BOARD_CELL = {
@@ -69,24 +90,26 @@ function isKatagoAvailable(gameId) {
     }
 }
 
-function toGtpVertex(row, col, boardSize) {
+/** 非方形棋盘（如开罗五角围棋）时 boardHeight 为行数；缺省与 boardSize（宽）相同 */
+function toGtpVertex(row, col, boardSize, boardHeight) {
     if (row == null || col == null) return 'pass';
-    if (col < 0 || col >= boardSize || row < 0 || row >= boardSize) return null;
-    if (col >= GTP_LETTERS.length) return null;
-    return GTP_LETTERS[col] + String(boardSize - row);
+    const h = boardHeight || boardSize;
+    if (col < 0 || col >= boardSize || row < 0 || row >= h) return null;
+    return gtpColLetters(col) + String(h - row);
 }
 
-function fromGtpVertex(vertex, boardSize) {
+function fromGtpVertex(vertex, boardSize, boardHeight) {
     if (vertex == null) return { pass: true };
     const s = String(vertex).trim();
     if (!s || /^pass$/i.test(s) || /^resign$/i.test(s)) return { pass: true };
-    const m = s.match(/^([A-Za-z])\s*(\d+)$/);
+    const m = s.match(/^([A-Za-z]{1,2})\s*(\d+)$/);
     if (!m) return null;
-    const col = GTP_LETTERS.indexOf(m[1].toUpperCase());
+    const col = gtpLettersToCol(m[1]);
     const fromBottom = parseInt(m[2], 10);
     if (col < 0 || !Number.isFinite(fromBottom)) return null;
-    const row = boardSize - fromBottom;
-    if (row < 0 || row >= boardSize || col >= boardSize) return null;
+    const h = boardHeight || boardSize;
+    const row = h - fromBottom;
+    if (row < 0 || row >= h || col >= boardSize) return null;
     return { row, col, pass: false };
 }
 
@@ -94,14 +117,14 @@ function fromGtpVertex(vertex, boardSize) {
  * 解析 genmove / play 着法：pass、落子、或易位 `ts A1 B1`（两端无序）。
  * @returns {{ pass: true } | { pass: false, row: number, col: number } | { pass: false, swap: true, aRow: number, aCol: number, bRow: number, bCol: number } | null}
  */
-function fromGtpMove(raw, boardSize) {
+function fromGtpMove(raw, boardSize, boardHeight) {
     if (raw == null) return { pass: true };
     const s = String(raw).trim();
     if (!s || /^pass$/i.test(s) || /^resign$/i.test(s)) return { pass: true };
     const ts = s.match(/^ts\s+(\S+)\s+(\S+)$/i);
     if (ts) {
-        const a = fromGtpVertex(ts[1], boardSize);
-        const b = fromGtpVertex(ts[2], boardSize);
+        const a = fromGtpVertex(ts[1], boardSize, boardHeight);
+        const b = fromGtpVertex(ts[2], boardSize, boardHeight);
         if (!a || a.pass || !b || b.pass) return null;
         return {
             pass: false,
@@ -112,7 +135,7 @@ function fromGtpMove(raw, boardSize) {
             bCol: b.col
         };
     }
-    return fromGtpVertex(s, boardSize);
+    return fromGtpVertex(s, boardSize, boardHeight);
 }
 
 function slotToGtpColor(slot) {
@@ -131,8 +154,10 @@ class KatagoGtpSession {
         this.pending = null;
         this.dead = false;
         this.generation = 0;
-        /** @type {number|null} 尚未 GTP boardsize 时为 null */
+        /** @type {number|null} 尚未 GTP boardsize 时为 null（非方形时存宽/列数） */
         this.boardSize = null;
+        this.boardWidth = null;
+        this.boardHeight = null;
         this._nnPrimedForSize = null;
     }
 
@@ -378,13 +403,17 @@ class KatagoGtpSession {
      * @param {{ boardSize: number, komi: number, board: number[][], gameId?: string, maxTranslocationMoves?: number }} opts
      */
     async setupGame(opts) {
-        const boardSize = opts.boardSize | 0;
+        const boardWidth = (opts.boardWidth | 0) || (opts.boardSize | 0);
+        const boardHeight = (opts.boardHeight | 0) || boardWidth;
         const komi = Number(opts.komi);
         const board = opts.board;
+        // 结构洞棋盘（非方形，如开罗五角）：无效格由引擎按尺寸自动识别（C_WALL），不传 -1
+        const structuralHoles = boardWidth !== boardHeight;
         // 重复 boardsize 会触发引擎重配缓冲，首着极慢；路数未变则跳过
-        if (this.boardSize !== boardSize) {
-            await this.command(`boardsize ${boardSize}`);
-            this.boardSize = boardSize;
+        if (this.boardWidth !== boardWidth || this.boardHeight !== boardHeight) {
+            await this.command(`boardsize ${boardWidth}:${boardHeight}`);
+            this.boardWidth = boardWidth;
+            this.boardHeight = boardHeight;
             this._nnPrimedForSize = null;
         }
         await this.command('clear_board');
@@ -392,19 +421,19 @@ class KatagoGtpSession {
 
         const pairs = [];
         if (Array.isArray(board)) {
-            for (let r = 0; r < boardSize; r++) {
+            for (let r = 0; r < boardHeight; r++) {
                 const row = board[r];
                 if (!row) continue;
-                for (let c = 0; c < boardSize; c++) {
+                for (let c = 0; c < boardWidth; c++) {
                     const v = row[c];
-                    const vertex = toGtpVertex(r, c, boardSize);
+                    const vertex = toGtpVertex(r, c, boardWidth, boardHeight);
                     if (!vertex) continue;
                     if (v === BOARD_CELL.BLACK) pairs.push('B', vertex);
                     else if (v === BOARD_CELL.WHITE) pairs.push('W', vertex);
-                    else if (v === BOARD_CELL.HOLE
+                    else if (!structuralHoles && (v === BOARD_CELL.HOLE
                         || v === BOARD_CELL.BRIDGE
                         || v === BOARD_CELL.MINE
-                        || v === BOARD_CELL.NEUTRAL) {
+                        || v === BOARD_CELL.NEUTRAL)) {
                         pairs.push(String(v), vertex);
                     }
                 }
@@ -436,7 +465,9 @@ class KatagoGtpSession {
      * 避免电脑第一手 genmove 才触发。
      */
     async primeNn() {
-        const size = this.boardSize;
+        const size = this.boardWidth != null
+            ? this.boardWidth + 'x' + this.boardHeight
+            : this.boardSize;
         if (size == null) return;
         if (this._nnPrimedForSize === size) return;
         try {
@@ -453,8 +484,9 @@ class KatagoGtpSession {
             await this.command(`play ${color} pass`);
             return;
         }
-        const bs = this.boardSize | 0;
-        const vertex = toGtpVertex(row, col, bs);
+        const bs = this.boardWidth || (this.boardSize | 0);
+        const bh = this.boardHeight || bs;
+        const vertex = toGtpVertex(row, col, bs, bh);
         if (!vertex) throw new Error('无效坐标');
         await this.command(`play ${color} ${vertex}`);
     }
@@ -462,9 +494,10 @@ class KatagoGtpSession {
     /** 易位：`play B ts D4 D5`（两端顺序任意，引擎按行棋方颜色定向） */
     async playSwap(slot, fromRow, fromCol, toRow, toCol) {
         const color = slotToGtpColor(slot);
-        const bs = this.boardSize | 0;
-        const from = toGtpVertex(fromRow, fromCol, bs);
-        const to = toGtpVertex(toRow, toCol, bs);
+        const bs = this.boardWidth || (this.boardSize | 0);
+        const bh = this.boardHeight || bs;
+        const from = toGtpVertex(fromRow, fromCol, bs, bh);
+        const to = toGtpVertex(toRow, toCol, bs, bh);
         if (!from || !to) throw new Error('无效易位坐标');
         await this.command(`play ${color} ts ${from} ${to}`);
     }
@@ -472,7 +505,9 @@ class KatagoGtpSession {
     async genMove(slot) {
         const color = slotToGtpColor(slot);
         const raw = await this.command(`genmove ${color}`, { timeoutMs: GENMOVE_TIMEOUT_MS });
-        return fromGtpMove(raw, this.boardSize | 0);
+        const bs = this.boardWidth || (this.boardSize | 0);
+        const bh = this.boardHeight || bs;
+        return fromGtpMove(raw, bs, bh);
     }
 
     destroy() {
