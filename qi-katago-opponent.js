@@ -284,41 +284,13 @@ function boardToString(self, board) {
     return board.map((row) => row.join(',')).join(';');
 }
 
-function boardFingerprint(self) {
-    // 棋盘签名：有效格 (r,c):值 序列的 djb2 哈希，用于诊断对比每步棋盘
-    let h = 5381;
-    let n = 0;
-    const b = self.board;
-    if (!Array.isArray(b)) return 'n/a';
-    for (let r = 0; r < b.length; r++) {
-        if (!Array.isArray(b[r])) continue;
-        for (let c = 0; c < b[r].length; c++) {
-            if (b[r][c] === -1) continue;
-            h = ((h * 33) ^ (r * 131 + c * 17 + b[r][c])) >>> 0;
-            n++;
-        }
-    }
-    return `${h.toString(16).padStart(8, '0')}(${n})`;
-}
-
-function logBoardState(self, tag) {
-    if (!self || typeof self.moveCoords !== 'object') return;
-    try {
-        console.log(`[KataGo棋盘] ${tag} 手数=${(self.moveCoords || []).length} 签名=${boardFingerprint(self)}`);
-    } catch (_) { /* ignore */ }
-}
-
 function applyComputerMove(self, row, col) {
     if (!self.computerSlot || self.gameOver) return false;
     const moveSlot = self.computerSlot;
     if (moveSlot !== (self.currentPlayer === 1 ? 'black' : 'white')) return false;
     const playerVal = self.currentPlayer === 1 ? 1 : 2;
-    const beforeSig = boardFingerprint(self);
     const newBoard = self.tryPlaceStone(self.board, row, col, playerVal);
-    if (!newBoard) {
-        console.log(`[KataGo棋盘] 电脑落子被拒 (${row},${col}) 签名=${beforeSig}`);
-        return false;
-    }
+    if (!newBoard) return false;
     const newBoardStr = boardToString(self, newBoard);
     if (self.historyBoardSet && self.historyBoardSet.has(newBoardStr)) return false;
 
@@ -334,7 +306,6 @@ function applyComputerMove(self, row, col) {
     if ('passCounter' in self) self.passCounter = 0;
     bumpMoveCount(self);
     self.currentPlayer = 3 - self.currentPlayer;
-    console.log(`[KataGo棋盘] 电脑落子 (${row},${col}) ${beforeSig} → ${boardFingerprint(self)}`);
     self.broadcast({ type: 'broadcast', action: 'move', ...self.getState() });
     if (typeof self._syncClockAfterTurnChange === 'function') self._syncClockAfterTurnChange();
     return true;
@@ -945,10 +916,8 @@ function install(self, gameId) {
                 if (slot === this.computerSlot) return;
                 // 人类落子/易位始终立刻生效，绝不等待 KataGo 启动
                 const handsBefore = (this.moveHistory && this.moveHistory.length) || 0;
-                const beforeSig = boardFingerprint(this);
                 if (origHM) origHM(ws, msg);
                 if (!(this.moveHistory && this.moveHistory.length > handsBefore)) return;
-                logBoardState(this, `人类落子 ${beforeSig} → ${boardFingerprint(this)}`);
                 touchKatagoActivity(this);
 
                 if (this._qiKatago && !this._qiKatago.dead) {

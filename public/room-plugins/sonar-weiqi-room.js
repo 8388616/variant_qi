@@ -433,6 +433,75 @@ const scoreTitle = document.getElementById('scoreTitle');
             ps.liveReplayMarkers = liveReplayMarkers;
             ps.liveReplayStepPlayers = liveReplayStepPlayers;
             ps.liveReplayInvisibleTints = liveReplayInvisibleTints;
+            ps.liveReplayInvisibleGrid = page.deepCopyBoard(curInv);
+        }
+
+        function applyLiveReplayIncremental(replaySync) {
+            const startLen = ps.liveReplayBoards.length - 1;
+            const moves = replaySync.moves || [];
+            if (moves.length <= startLen) return true;
+            const size = ps.BOARD_SIZE;
+            const pwsh = replaySync.plainWeiqiStartHand != null ? replaySync.plainWeiqiStartHand : null;
+            let curBoard = page.deepCopyBoard(ps.liveReplayTruthBoards[ps.liveReplayTruthBoards.length - 1]);
+            let curInv = ps.liveReplayInvisibleGrid
+                ? page.deepCopyBoard(ps.liveReplayInvisibleGrid)
+                : emptyInvisibleGrid(size);
+            const slot = ps.mySlot;
+            function pushStep(lastMarkersRaw) {
+                ps.liveReplayTruthBoards.push(page.deepCopyBoard(curBoard));
+                ps.liveReplayBoards.push(page.deepCopyBoard(buildClientViewBoard(curBoard, curInv, slot)));
+                ps.liveReplayMarkers.push(filterLiveLastMoveMarkers(lastMarkersRaw, curBoard, curInv, slot).map(m => ({ ...m })));
+                ps.liveReplayInvisibleTints.push(buildClientInvisibleTintKeysList(curBoard, curInv, slot));
+            }
+            let plyIndex = startLen;
+            for (let i = startLen; i < moves.length; i++) {
+                const move = moves[i];
+                const playerVal = move.player === 'black' ? 1 : 2;
+                const enemyVal = 3 - playerVal;
+                ps.liveReplayStepPlayers.push(playerVal);
+                let lastMarkersRaw = [];
+                if (move.type === 'move') {
+                    if (move.concealed) {
+                        plyIndex++;
+                        pushStep([]);
+                        continue;
+                    }
+                    plyIndex++;
+                    const nextHand = plyIndex;
+                    const { row, col } = move;
+                    if (typeof row !== 'number' || typeof col !== 'number') {
+                        pushStep([]);
+                        continue;
+                    }
+                    if (curBoard[row][col] !== 0) {
+                        if (curBoard[row][col] === enemyVal && curInv[row][col]) {
+                            curInv[row][col] = false;
+                            lastMarkersRaw = [];
+                        }
+                    } else {
+                        const oldBoard = page.deepCopyBoard(curBoard);
+                        const newBoard = page.tryPlaceStone(curBoard, row, col, playerVal);
+                        if (newBoard) {
+                            curBoard = newBoard;
+                            const removed = removedStonesForCapture(oldBoard, curBoard, size, row, col, playerVal);
+                            for (const { row: rr, col: cc } of removed) curInv[rr][cc] = false;
+                            const wantInv = (pwsh == null || nextHand < pwsh);
+                            if (wantInv && curBoard[row][col] === playerVal) curInv[row][col] = true;
+                            revealParticipatingInvisibleForCapture(removed, curBoard, curInv);
+                            lastMarkersRaw = [{ row, col, color: playerVal }];
+                        }
+                    }
+                } else if (move.type === 'pass') {
+                    plyIndex++;
+                    if (move.reason === 'hitInvisible' && typeof move.revealRow === 'number' && typeof move.revealCol === 'number') {
+                        curInv[move.revealRow][move.revealCol] = false;
+                    }
+                    lastMarkersRaw = [];
+                } else { return false; }
+                pushStep(lastMarkersRaw);
+            }
+            ps.liveReplayInvisibleGrid = page.deepCopyBoard(curInv);
+            return true;
         }
 
         /** 与对弈时 filterLastMoveMarkers 一致：不显示落在对方隐身子上的最后一手标记 */
@@ -507,6 +576,10 @@ const scoreTitle = document.getElementById('scoreTitle');
 
             const rs = state.replaySync;
             if (rs && Array.isArray(rs.moves) && rs.moves.length === nh - 1) {
+                const syncedLen = ps.liveReplayBoards.length - 1;
+                if (syncedLen >= 0 && rs.moves.length > syncedLen && applyLiveReplayIncremental(rs)) {
+                    return;
+                }
                 rebuildLiveReplayFromReplaySync(rs);
                 return;
             }

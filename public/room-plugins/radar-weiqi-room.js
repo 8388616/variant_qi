@@ -613,6 +613,12 @@ const scoreTitle = document.getElementById('scoreTitle');
 
             const rs = state.replaySync;
             if (rs && Array.isArray(rs.moves) && rs.moves.length === nh - 1) {
+                const syncedLen = ps.liveReplayBoards.length - 1;
+                if (syncedLen >= 0 && rs.moves.length > syncedLen && applyLiveReplayIncremental(rs)) {
+                    if (Array.isArray(state.replayOpponentDistanceGrids) && state.replayOpponentDistanceGrids.length === nh)
+                        ps.liveReplayOpponentDistanceGrids = cloneOpponentDistanceGrids(state.replayOpponentDistanceGrids);
+                    return;
+                }
                 rebuildLiveReplayFromReplaySync(rs);
                 if (Array.isArray(state.replayOpponentDistanceGrids) && state.replayOpponentDistanceGrids.length === nh)
                     ps.liveReplayOpponentDistanceGrids = cloneOpponentDistanceGrids(state.replayOpponentDistanceGrids);

@@ -530,6 +530,51 @@ const BOARD_MARK_CHAR_LIST = (() => {
             ps.liveReplayLastUsedAtStep = liveReplayLastUsedAtStep;
         }
 
+        function applyLiveReplayIncremental(moveCoords) {
+            const startLen = ps.liveReplayBoards.length - 1;
+            const mcs = moveCoords || [];
+            if (mcs.length <= startLen) return true;
+            let curBoard = deepCopyBoard(ps.liveReplayBoards[ps.liveReplayBoards.length - 1]);
+            let lu = { 1: -1, 2: -1 };
+            if (ps.liveReplayLastUsedAtStep && ps.liveReplayLastUsedAtStep.length > 0) {
+                const lastLu = ps.liveReplayLastUsedAtStep[ps.liveReplayLastUsedAtStep.length - 1];
+                if (lastLu) lu = { 1: lastLu[1], 2: lastLu[2] };
+            }
+            for (let i = startLen; i < mcs.length; i++) {
+                const move = mcs[i];
+                const playerVal = move.player === 'black' ? 1 : 2;
+                ps.liveReplayStepPlayers.push(playerVal);
+                if (move.type === 'move' && move.stones) {
+                    const stoneList = move.stones.map(([r, c]) => [r, c]);
+                    const nb = tryPlaceStonesAt(curBoard, stoneList, playerVal);
+                    if (nb) curBoard = nb;
+                    let si = move.shapeIndex;
+                    if (typeof si !== 'number' || si < 0) {
+                        si = inferShapeIndexFromStones(stoneList);
+                    }
+                    lu[playerVal] = si >= 0 ? si : -1;
+                    ps.liveReplayBoards.push(deepCopyBoard(curBoard));
+                    ps.liveReplayMarkers.push(move.stones.map(([r, c]) => ({ row: r, col: c, color: playerVal })));
+                    ps.liveReplayLastUsedAtStep.push({ 1: lu[1], 2: lu[2] });
+                } else if (move.type === 'pass') {
+                    lu[playerVal] = -1;
+                    ps.liveReplayBoards.push(deepCopyBoard(curBoard));
+                    ps.liveReplayMarkers.push([]);
+                    ps.liveReplayLastUsedAtStep.push({ 1: lu[1], 2: lu[2] });
+                } else { return false; }
+            }
+            return true;
+        }
+
+        function syncLiveReplayFromState(state) {
+            const mcs = state.moveCoords || [];
+            const syncedLen = ps.liveReplayBoards.length - 1;
+            if (syncedLen >= 0 && mcs.length > syncedLen) {
+                if (applyLiveReplayIncremental(mcs)) return;
+            }
+            rebuildCompoundLive(mcs, (ps.liveOpeningBoard != null ? ps.liveOpeningBoard : state.initialBoard));
+        }
+
         function buildCompoundReplayFromData(data) {
             let curBoard = C().initBoardArray(ps.BOARD_SIZE);
             let lu = { 1: -1, 2: -1 };
@@ -903,12 +948,7 @@ const BOARD_MARK_CHAR_LIST = (() => {
                 if (!ps.replayMode) {
                     const prevTotal = Math.max(0, ps.liveReplayBoards.length - 1);
                     const wasAtEnd = ps.liveFollowLatest || ps.liveViewStep >= prevTotal;
-                    rebuildCompoundLive(
-                        state.moveCoords || [],
-                        (typeof QiWeiqiSquarePageRuntime !== 'undefined' && QiWeiqiSquarePageRuntime.pickRichestBoard)
-                            ? (ps.liveOpeningBoard != null ? ps.liveOpeningBoard : state.initialBoard)
-                            : (ps.liveOpeningBoard || state.initialBoard || state.board)
-                    );
+                    syncLiveReplayFromState(state);;
                     const newTotal = Math.max(0, ps.liveReplayBoards.length - 1);
                     if (newTotal === 0) {
                         ps.liveViewStep = 0;

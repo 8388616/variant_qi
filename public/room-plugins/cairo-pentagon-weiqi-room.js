@@ -586,7 +586,7 @@ const scoreTitle = document.getElementById('scoreTitle');
         function drawBoard() {
             if (!vertexPos || vertexPos.size === 0) rebuildLayout();
             ctx.clearRect(0, 0, 600, 600);
-            const stoneR = 60 / (BOARD_LANES - 1) + 1.19;
+            const stoneR = 54 / (BOARD_LANES - 1);
             const gw = GRID_W, gh = GRID_H;
             ctx.lineWidth = 1.5;
             ctx.strokeStyle = '#3a281c';
@@ -1108,7 +1108,40 @@ const scoreTitle = document.getElementById('scoreTitle');
                     liveReplayMarkers.push([]);
                 }
             }
+ 
+        function applyLiveReplayIncremental(moveCoords) {
+            const startLen = liveReplayBoards.length - 1;
+            const mcs = moveCoords || [];
+            if (mcs.length <= startLen) return true;
+            let curBoard = deepCopyBoard(liveReplayBoards[liveReplayBoards.length - 1]);
+            for (let i = startLen; i < mcs.length; i++) {
+                const move = mcs[i];
+
+                const playerVal = move.player === 'black' ? 1 : 2;
+                liveReplayStepPlayers.push(playerVal);
+                if (move.type === 'move') {
+                    const newBoard = tryPlaceStone(curBoard, move.row, move.col, playerVal);
+                    if (newBoard) curBoard = newBoard;
+                    liveReplayBoards.push(deepCopyBoard(curBoard));
+                    liveReplayMarkers.push([{ row: move.row, col: move.col, color: playerVal }]);
+                } else if (move.type === 'pass') {
+                    liveReplayBoards.push(deepCopyBoard(curBoard));
+                    liveReplayMarkers.push([]);
+                }
+                else { return false; }
+            }
+            return true;
         }
+
+        function syncLiveReplayFromState(state) {
+            const mcs = state.moveCoords || [];
+            const syncedLen = liveReplayBoards.length - 1;
+            if (syncedLen >= 0 && mcs.length > syncedLen) {
+                if (applyLiveReplayIncremental(mcs)) return;
+            }
+            rebuildLiveReplayFromMoveCoords(mcs, state.initialBoard);
+        }
+       }
 
         function applyLiveViewBoard() {
             if (!liveReplayBoards.length) {
@@ -1218,7 +1251,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             if (!replayMode) {
                 const prevTotal = Math.max(0, liveReplayBoards.length - 1);
                 const wasAtEnd = liveFollowLatest || liveViewStep >= prevTotal;
-                rebuildLiveReplayFromMoveCoords(state.moveCoords || [], state.initialBoard);
+                syncLiveReplayFromState(state);
                 const newTotal = Math.max(0, liveReplayBoards.length - 1);
                 if (newTotal === 0) {
                     liveViewStep = 0;

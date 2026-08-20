@@ -422,7 +422,8 @@ if (sizeSelect) {
                     liveReplayMarkers.push([]);
                 }
             }
-        }
+ 
+       }
         function applyLiveViewBoard() {
             if (!liveReplayBoards.length) {
                 board = initBoardArray(ROWS);
@@ -433,6 +434,36 @@ if (sizeSelect) {
             if (liveViewStep >= liveReplayBoards.length) liveViewStep = liveReplayBoards.length - 1;
             board = deepCopyBoard(liveReplayBoards[liveViewStep]);
             lastMoveMarkers = liveReplayMarkers[liveViewStep].map(m => ({ ...m }));
+        }
+        function applyLiveReplayIncremental(moveCoords) {
+            const startLen = liveReplayBoards.length - 1;
+            const mcs = moveCoords || [];
+            if (mcs.length <= startLen) return true;
+            let cur = deepCopyBoard(liveReplayBoards[liveReplayBoards.length - 1]);
+            for (let i = startLen; i < mcs.length; i++) {
+                const move = mcs[i];
+                const p = move.player === 'black' ? 1 : 2;
+                liveReplayStepPlayers.push(p);
+                if (move.type === 'move') {
+                    const nb = tryPlaceStone(cur, move.row, move.col, p);
+                    if (nb) cur = nb;
+                    liveReplayBoards.push(deepCopyBoard(cur));
+                    liveReplayMarkers.push([{ row: move.row, col: move.col, color: p }]);
+                } else if (move.type === 'pass') {
+                    liveReplayBoards.push(deepCopyBoard(cur));
+                    liveReplayMarkers.push([]);
+                } else { return false; }
+            }
+            return true;
+        }
+
+        function syncLiveReplayFromState(state) {
+            const mcs = state.moveCoords || [];
+            const syncedLen = liveReplayBoards.length - 1;
+            if (syncedLen >= 0 && mcs.length > syncedLen) {
+                if (applyLiveReplayIncremental(mcs)) return;
+            }
+            rebuildLiveReplayFromMoveCoords(mcs, state.initialBoard);
         }
         function updateLiveReplayPanelUI() {
             if (replayMode) return;
@@ -670,7 +701,7 @@ if (sizeSelect) {
             if (!replayMode) {
                 const prevTotal = Math.max(0, liveReplayBoards.length - 1);
                 const wasAtEnd = liveFollowLatest || liveViewStep >= prevTotal;
-                rebuildLiveReplayFromMoveCoords(state.moveCoords || [], state.initialBoard);
+                syncLiveReplayFromState(state);
                 const newTotal = Math.max(0, liveReplayBoards.length - 1);
                 if (newTotal === 0) {
                     liveViewStep = 0;

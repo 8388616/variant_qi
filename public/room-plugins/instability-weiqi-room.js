@@ -543,6 +543,51 @@ function unstableLifetimeForSize(size) {
             }
         }
 
+        function applyLiveReplayIncremental(moveCoords) {
+            const startLen = ps.liveReplayBoards.length - 1;
+            const mcs = moveCoords || [];
+            if (mcs.length <= startLen) return true;
+            let curBoard = C().deepCopyBoard(ps.liveReplayBoards[ps.liveReplayBoards.length - 1]);
+            let curUnstable = C().deepCopyBoard(ps.liveReplayUnstableInfos[ps.liveReplayUnstableInfos.length - 1]);
+            let curMc = ps.liveReplayMoveCounts[ps.liveReplayMoveCounts.length - 1] || 0;
+            for (let i = startLen; i < mcs.length; i++) {
+                const move = mcs[i];
+                const playerVal = move.player === 'black' ? 1 : 2;
+                ps.liveReplayStepPlayers.push(playerVal);
+                if (move.type === 'move') {
+                    const r = tryInstabilityPlace(curBoard, curUnstable, curMc, move.row, move.col, playerVal);
+                    if (r) {
+                        curBoard = r.board;
+                        curUnstable = r.unstableInfo;
+                        curMc = r.moveCount;
+                    }
+                    ps.liveReplayBoards.push(C().deepCopyBoard(curBoard));
+                    ps.liveReplayUnstableInfos.push(C().deepCopyBoard(curUnstable));
+                    ps.liveReplayMoveCounts.push(curMc);
+                    ps.liveReplayMarkers.push([{ row: move.row, col: move.col, color: playerVal }]);
+                } else if (move.type === 'pass') {
+                    const r = applyInstabilityPass(curBoard, curUnstable, curMc);
+                    curBoard = r.board;
+                    curUnstable = r.unstableInfo;
+                    curMc = r.moveCount;
+                    ps.liveReplayBoards.push(C().deepCopyBoard(curBoard));
+                    ps.liveReplayUnstableInfos.push(C().deepCopyBoard(curUnstable));
+                    ps.liveReplayMoveCounts.push(curMc);
+                    ps.liveReplayMarkers.push([]);
+                } else { return false; }
+            }
+            return true;
+        }
+
+        function syncLiveReplayFromState(state) {
+            const mcs = state.moveCoords || [];
+            const syncedLen = ps.liveReplayBoards.length - 1;
+            if (syncedLen >= 0 && mcs.length > syncedLen) {
+                if (applyLiveReplayIncremental(mcs)) return;
+            }
+            rebuildLiveReplayCore(mcs, (ps.liveOpeningBoard != null ? ps.liveOpeningBoard : state.initialBoard));
+        }
+
         function applyLiveViewBoardImpl() {
             if (!ps.liveReplayBoards.length) {
                 ps.board = page.initBoardArray(ps.BOARD_SIZE);
@@ -605,12 +650,7 @@ function unstableLifetimeForSize(size) {
             if (!ps.replayMode) {
                 const prevTotal = Math.max(0, ps.liveReplayBoards.length - 1);
                 const wasAtEnd = ps.liveFollowLatest || ps.liveViewStep >= prevTotal;
-                rebuildLiveReplayCore(
-                    state.moveCoords || [],
-                    (typeof QiWeiqiSquarePageRuntime !== 'undefined' && QiWeiqiSquarePageRuntime.pickRichestBoard)
-                        ? (ps.liveOpeningBoard != null ? ps.liveOpeningBoard : state.initialBoard)
-                        : (ps.liveOpeningBoard || state.initialBoard || state.board)
-                );
+                syncLiveReplayFromState(state);;
                 const newTotal = Math.max(0, ps.liveReplayBoards.length - 1);
                 if (newTotal === 0) {
                     ps.liveViewStep = 0;
