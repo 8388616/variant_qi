@@ -5713,6 +5713,7 @@
         assignTerritoryWithRangeWithHoles, 
         computeScoreWithHoles, 
         rebuildLiveReplayFromMoveCoords, 
+        applyLiveReplayIncrementalBoards, 
         buildReplayFromImportData,
         resolveTryPlaySideToMove,
         applyInitialPositionCompact,
