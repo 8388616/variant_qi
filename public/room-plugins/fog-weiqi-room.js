@@ -586,6 +586,13 @@ const scoreTitle = document.getElementById('scoreTitle');
                 return;
             }
             const size = ps.BOARD_SIZE;
+            const syncedLen = ps.liveReplayBoards.length - 1;
+            if (syncedLen >= 0 && moveCoords.length > syncedLen) {
+                if (applyLiveReplayIncremental(moveCoords)) {
+                    ps.liveReplayFullBoards = ps.liveReplayBoards.map(b => deepCopyBoard(b));
+                    return;
+                }
+            }
             ps.liveReplayBoards = [];
             ps.liveReplayMarkers = [];
             ps.liveReplayStepPlayers = [0];
@@ -606,6 +613,28 @@ const scoreTitle = document.getElementById('scoreTitle');
                 }
             }
             ps.liveReplayFullBoards = ps.liveReplayBoards.map(b => deepCopyBoard(b));
+        }
+
+        function applyLiveReplayIncremental(moveCoords) {
+            const startLen = ps.liveReplayBoards.length - 1;
+            const mcs = moveCoords || [];
+            if (mcs.length <= startLen) return true;
+            let curBoard = deepCopyBoard(ps.liveReplayBoards[ps.liveReplayBoards.length - 1]);
+            for (let i = startLen; i < mcs.length; i++) {
+                const move = mcs[i];
+                const playerVal = move.player === 'black' ? 1 : 2;
+                ps.liveReplayStepPlayers.push(playerVal);
+                if (move.type === 'move') {
+                    const newBoard = tryPlaceStoneFog(curBoard, move.row, move.col, playerVal);
+                    if (newBoard) curBoard = newBoard;
+                    ps.liveReplayBoards.push(deepCopyBoard(curBoard));
+                    ps.liveReplayMarkers.push([{ row: move.row, col: move.col, color: playerVal }]);
+                } else if (move.type === 'pass') {
+                    ps.liveReplayBoards.push(deepCopyBoard(curBoard));
+                    ps.liveReplayMarkers.push([]);
+                } else { return false; }
+            }
+            return true;
         }
 
         function updateLiveReplayPanelUIFog() {

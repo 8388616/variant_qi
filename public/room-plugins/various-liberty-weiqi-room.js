@@ -362,13 +362,57 @@ const scoreTitle = document.getElementById('scoreTitle');
         }
 
         function rebuildLiveReplayFromMoveCoords(moveCoords, openingBoard) {
-            const built = buildVlReplayStepSnapshots(moveCoords || [], ps.BOARD_SIZE, []);
+            const syncedLen = ps.liveReplayBoards.length - 1;
+            const mcs = moveCoords || [];
+            if (syncedLen >= 0 && mcs.length > syncedLen) {
+                if (applyLiveReplayIncremental(mcs)) return;
+            }
+            const built = buildVlReplayStepSnapshots(mcs, ps.BOARD_SIZE, []);
             ps.liveReplayBoards = built.boards;
             ps.liveReplayLevelBoards = built.levelBoards;
             ps.liveReplayMarkers = built.markers;
             ps.liveReplayStepPlayers = built.players;
             ps.liveReplayBlackBags = built.blackBags;
             ps.liveReplayWhiteBags = built.whiteBags;
+        }
+
+        function applyLiveReplayIncremental(moveCoords) {
+            const startLen = ps.liveReplayBoards.length - 1;
+            const mcs = (moveCoords || []).map(normalizeVlMove).filter(Boolean);
+            if (mcs.length <= startLen) return true;
+            const boardSize = ps.BOARD_SIZE;
+            let curBoard = deepCopy2d(ps.liveReplayBoards[ps.liveReplayBoards.length - 1]);
+            let curLevel = deepCopy2d(ps.liveReplayLevelBoards[ps.liveReplayLevelBoards.length - 1]);
+            let black = (ps.liveReplayBlackBags[ps.liveReplayBlackBags.length - 1] || []).slice();
+            let white = (ps.liveReplayWhiteBags[ps.liveReplayWhiteBags.length - 1] || []).slice();
+            for (let i = startLen; i < mcs.length; i++) {
+                const m = mcs[i];
+                const playerVal = m.player === 'black' ? 1 : 2;
+                ps.liveReplayStepPlayers.push(playerVal);
+                const bag = playerVal === 1 ? black : white;
+                if (m.type === 'move') {
+                    if (!removeFirstOfLevel(bag, m.level)) return false;
+                    const placed = tryPlaceStoneVariousLiberty(
+                        curBoard, curLevel, boardSize, m.row, m.col, playerVal, m.level
+                    );
+                    if (placed) {
+                        curBoard = placed.board;
+                        curLevel = placed.levelBoard;
+                    }
+                    replenishAfterPly(bag, i + 1);
+                    ps.liveReplayBoards.push(deepCopy2d(curBoard));
+                    ps.liveReplayLevelBoards.push(deepCopy2d(curLevel));
+                    ps.liveReplayMarkers.push([{ row: m.row, col: m.col, color: playerVal, level: m.level }]);
+                } else if (m.type === 'pass') {
+                    replenishAfterPly(bag, i + 1);
+                    ps.liveReplayBoards.push(deepCopy2d(curBoard));
+                    ps.liveReplayLevelBoards.push(deepCopy2d(curLevel));
+                    ps.liveReplayMarkers.push([]);
+                } else { return false; }
+                ps.liveReplayBlackBags.push(black.slice());
+                ps.liveReplayWhiteBags.push(white.slice());
+            }
+            return true;
         }
 
         /** 对局中正在浏览历史（非打谱模式、非紧跟最新） */

@@ -648,6 +648,38 @@ const scoreTitle = document.getElementById('scoreTitle');
         }
     }
 
+    function applyLiveReplayIncremental(coords) {
+        const startLen = liveReplayStonesSeq.length - 1;
+        const mcs = coords || [];
+        if (mcs.length <= startLen) return true;
+        let cur = deepCopyStones(liveReplayStonesSeq[liveReplayStonesSeq.length - 1]);
+        for (let i = startLen; i < mcs.length; i++) {
+            const m = mcs[i];
+            if (m.type === 'move') {
+                const b = makeBoardFromStones(cur);
+                b.stateHistory = [];
+                b.graphHistory = [makeGraph(b)];
+                const pv = m.player === 'black' ? 1 : 2;
+                const r = tryPlaceOnBoard(b, pv, ixToX(m.ix), iyToY(m.iy));
+                if (r.ok) cur = b.pieces.map(p => ({ ix: p.ix, iy: p.iy, color: p.color }));
+                liveReplayMarkers.push([{ ix: m.ix, iy: m.iy, color: pv }]);
+            } else if (m.type === 'pass') {
+                liveReplayMarkers.push([]);
+            } else { return false; }
+            liveReplayStonesSeq.push(deepCopyStones(cur));
+        }
+        return true;
+    }
+
+    function syncLiveReplayFromState(state) {
+        const mcs = state.moveCoords || [];
+        const syncedLen = liveReplayStonesSeq.length - 1;
+        if (syncedLen >= 0 && mcs.length > syncedLen) {
+            if (applyLiveReplayIncremental(mcs)) return;
+        }
+        rebuildLiveReplayFromMoveCoords(mcs);
+    }
+
     function setLiveViewStep(step) {
         liveViewStep = step;
         if (liveReplayStonesSeq.length) stones = deepCopyStones(liveReplayStonesSeq[step] || []);
@@ -694,7 +726,7 @@ const scoreTitle = document.getElementById('scoreTitle');
         lastMoveMarkers = (state.lastMoveMarkers || []).map(m => ({ ...m }));
         slots = state.slots || slots;
         gameStarted = (numberOfHands || 1) > 1;
-        rebuildLiveReplayFromMoveCoords(moveCoords);
+        syncLiveReplayFromState({ moveCoords });
         liveFollowLatest = true;
         territoryKey = '';
         if (!replayMode) syncStateFromServer();

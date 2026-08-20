@@ -250,6 +250,11 @@ const scoreTitle = document.getElementById('scoreTitle');
         }
 
         function familyRebuildLiveReplayFromMoveCoords(moveCoords) {
+            const syncedLen = ps.liveReplayBoards.length - 1;
+            const mcs = moveCoords || [];
+            if (syncedLen >= 0 && mcs.length > syncedLen) {
+                if (applyLiveReplayIncremental(mcs)) return;
+            }
             const ob = ps.liveOpeningBoard;
             const dc = QiSquareWeiqiCanvas.deepCopyBoard;
             let curBoard = ob ? dc(ob) : QiSquareWeiqiCanvas.initBoardArray(ps.BOARD_SIZE);
@@ -277,6 +282,34 @@ const scoreTitle = document.getElementById('scoreTitle');
             ps.liveReplayBoards = liveReplayBoards;
             ps.liveReplayMarkers = liveReplayMarkers;
             ps.liveReplayStepPlayers = liveReplayStepPlayers;
+        }
+
+        function applyLiveReplayIncremental(moveCoords) {
+            const startLen = ps.liveReplayBoards.length - 1;
+            const mcs = moveCoords || [];
+            if (mcs.length <= startLen) return true;
+            const dc = QiSquareWeiqiCanvas.deepCopyBoard;
+            let curBoard = dc(ps.liveReplayBoards[ps.liveReplayBoards.length - 1]);
+            for (let i = startLen; i < mcs.length; i++) {
+                const move = mcs[i];
+                const playerVal = move.player === 'black' ? 1 : 2;
+                ps.liveReplayStepPlayers.push(playerVal);
+                if (move.type === 'move') {
+                    const newBoard = familyTryPlaceStone(curBoard, move.row, move.col, playerVal);
+                    if (newBoard) curBoard = newBoard;
+                    ps.liveReplayBoards.push(dc(curBoard));
+                    ps.liveReplayMarkers.push([{ row: move.row, col: move.col, color: playerVal }]);
+                } else if (move.type === 'pass') {
+                    ps.liveReplayBoards.push(dc(curBoard));
+                    ps.liveReplayMarkers.push([]);
+                } else if (move.type === 'mineHit') {
+                    curBoard = dc(curBoard);
+                    if (curBoard[move.row][move.col] === MINE) curBoard[move.row][move.col] = 0;
+                    ps.liveReplayBoards.push(dc(curBoard));
+                    ps.liveReplayMarkers.push([{ row: move.row, col: move.col, color: playerVal }]);
+                } else { return false; }
+            }
+            return true;
         }
 
         function familyBuildReplayFromImportData(data) {

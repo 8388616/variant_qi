@@ -681,13 +681,106 @@ const scoreTitle = document.getElementById('scoreTitle');
         }
 
         function rebuildLiveReplayRotationWuziqi(moveCoords) {
-            const moves = rwMovesForSimulate(moveCoords);
+            const syncedLen = ps.liveReplayBoards.length - 1;
+            const mcs = moveCoords || [];
+            if (syncedLen >= 0 && mcs.length > syncedLen) {
+                if (applyLiveReplayIncremental(mcs)) return;
+            }
+            const moves = rwMovesForSimulate(mcs);
             const o = simulateRotationWuziqiLine(moves, ps.BOARD_SIZE, ps.rotationInterval || rwComputeInterval(ps.BOARD_SIZE));
             ps.liveReplayBoards = o.replayBoards;
             ps.liveReplayMarkers = o.replayMarkers;
             ps.liveReplayStepPlayers = o.replayStepPlayers;
             ps.liveReplayHandNumAts = o.replayHandNumAts;
             ps.liveReplayRotationCounts = o.replayRotationCounts;
+        }
+
+        function applyLiveReplayIncremental(moveCoords) {
+            const startLen = ps.liveReplayBoards.length - 1;
+            const mcs = rwMovesForSimulate(moveCoords);
+            if (mcs.length <= startLen) return true;
+            const boardSize = ps.BOARD_SIZE;
+            const rotationInterval = ps.rotationInterval || rwComputeInterval(boardSize);
+            let curBoard = C().deepCopyBoard(ps.liveReplayBoards[ps.liveReplayBoards.length - 1]);
+            let handNumAt = C().deepCopyBoard(ps.liveReplayHandNumAts[ps.liveReplayHandNumAts.length - 1]);
+            let rotationCount = ps.liveReplayRotationCounts[ps.liveReplayRotationCounts.length - 1] || 0;
+            let trailingPass = 0;
+            for (let i = startLen; i >= 1; i--) {
+                const mk = ps.liveReplayMarkers[i];
+                if (mk && mk.length) break;
+                trailingPass++;
+            }
+            for (let i = startLen; i < mcs.length; i++) {
+                let entry = mcs[i];
+                if (typeof entry === 'string') {
+                    const player = entry[0] === 'B' ? 'black' : 'white';
+                    if (entry.length >= 2 && entry[1] === 'p') {
+                        entry = { type: 'pass', player };
+                    } else {
+                        const coords = entry.substring(1).split(',').map(Number);
+                        entry = { type: 'move', player, row: coords[0], col: coords[1] };
+                    }
+                }
+                const playerVal = entry.player === 'black' ? 1 : 2;
+                ps.liveReplayStepPlayers.push(playerVal);
+                const completedPly = ps.liveReplayStepPlayers.length - 1;
+                if (entry.type === 'pass') {
+                    trailingPass++;
+                    let markers = [];
+                    const prevRot = rotationCount;
+                    const rot = rwMaybeRotate(curBoard, handNumAt, rotationCount, boardSize, rotationInterval, completedPly, markers);
+                    curBoard = rot.board;
+                    handNumAt = rot.handNumAt;
+                    rotationCount = rot.rotationCount;
+                    markers = rot.lastMoveMarkers;
+                    ps.liveReplayBoards.push(C().deepCopyBoard(curBoard));
+                    ps.liveReplayMarkers.push(markers.map(m => ({ ...m })));
+                    ps.liveReplayHandNumAts.push(C().deepCopyBoard(handNumAt));
+                    ps.liveReplayRotationCounts.push(rotationCount);
+                    if (rotationCount > prevRot) {
+                        const rw = rwWinnerSlotAfterRotation(curBoard, boardSize);
+                        if (rw) return false;
+                    }
+                    if (trailingPass >= 2) return false;
+                    continue;
+                }
+                trailingPass = 0;
+                const nb = C().deepCopyBoard(curBoard);
+                nb[entry.row][entry.col] = playerVal;
+                rwSyncHand(nb, handNumAt);
+                handNumAt[entry.row][entry.col] = completedPly;
+                curBoard = nb;
+                let markers = [{ row: entry.row, col: entry.col, color: playerVal }];
+                if (R().checkWuziqiFiveInRow(curBoard, entry.row, entry.col, playerVal, boardSize)) {
+                    ps.liveReplayBoards.push(C().deepCopyBoard(curBoard));
+                    ps.liveReplayMarkers.push(markers.map(m => ({ ...m })));
+                    ps.liveReplayHandNumAts.push(C().deepCopyBoard(handNumAt));
+                    ps.liveReplayRotationCounts.push(rotationCount);
+                    return true;
+                }
+                const prevRot = rotationCount;
+                const rot = rwMaybeRotate(curBoard, handNumAt, rotationCount, boardSize, rotationInterval, completedPly, markers);
+                curBoard = rot.board;
+                handNumAt = rot.handNumAt;
+                rotationCount = rot.rotationCount;
+                markers = rot.lastMoveMarkers;
+                ps.liveReplayBoards.push(C().deepCopyBoard(curBoard));
+                ps.liveReplayMarkers.push(markers.map(m => ({ ...m })));
+                ps.liveReplayHandNumAts.push(C().deepCopyBoard(handNumAt));
+                ps.liveReplayRotationCounts.push(rotationCount);
+                if (rotationCount > prevRot) {
+                    const rw = rwWinnerSlotAfterRotation(curBoard, boardSize);
+                    if (rw) return true;
+                }
+                let full = true;
+                for (let r = 0; r < boardSize && full; r++) {
+                    for (let c = 0; c < boardSize && full; c++) {
+                        if (curBoard[r][c] === 0) full = false;
+                    }
+                }
+                if (full) return true;
+            }
+            return true;
         }
 
         const page = QiWeiqiSquarePageRuntime.create(ps, domPage, {

@@ -843,6 +843,11 @@ const scoreTitle = document.getElementById('scoreTitle');
         }
 
         function rebuildLiveReplayRotation(moveCoords) {
+            const syncedLen = ps.liveReplayBoards.length - 1;
+            const mcs = moveCoords || [];
+            if (syncedLen >= 0 && mcs.length > syncedLen) {
+                if (applyLiveReplayIncrementalRotation(mcs)) return;
+            }
             const boardSize = ps.BOARD_SIZE;
             const rotationInterval = ps.rotationInterval || rwComputeInterval(boardSize);
             const tryPlaceStone = (bb, r, c, pv) =>
@@ -948,6 +953,109 @@ const scoreTitle = document.getElementById('scoreTitle');
             ps.liveReplayHandNumAts = liveReplayHandNumAts;
             ps.liveReplayRotationCounts = liveReplayRotationCounts;
             ps.liveReplayStepPlayers = liveReplayStepPlayers;
+        }
+
+        function applyLiveReplayIncrementalRotation(moveCoords) {
+            const startLen = ps.liveReplayBoards.length - 1;
+            const mcs = moveCoords || [];
+            if (mcs.length <= startLen) return true;
+            const boardSize = ps.BOARD_SIZE;
+            const rotationInterval = ps.rotationInterval || rwComputeInterval(boardSize);
+            const tryPlaceStone = (bb, r, c, pv) =>
+                R().tryPlaceStoneNLiberty(bb, r, c, pv, boardSize, C().deepCopyBoard, 1);
+            const deepCopyBoard = C().deepCopyBoard;
+            let curBoard = deepCopyBoard(ps.liveReplayBoards[ps.liveReplayBoards.length - 1]);
+            let handNumAt = deepCopyBoard(ps.liveReplayHandNumAts[ps.liveReplayHandNumAts.length - 1]);
+            let rotationCount = ps.liveReplayRotationCounts[ps.liveReplayRotationCounts.length - 1] || 0;
+            for (let i = startLen; i < mcs.length; i++) {
+                const move = mcs[i];
+
+                const playerVal = move.player === 'black' ? 1 : 2;
+                ps.liveReplayStepPlayers.push(playerVal);
+                const completedPlyCount = liveReplayStepPlayers.length - 1;
+                const rotateNow = rwWillRotateThisPly(rotationCount, rotationInterval, completedPlyCount);
+                if (move.type === 'move') {
+                    let lastMoveMarkers;
+                    if (rotateNow) {
+                        if (curBoard[move.row][move.col] === 0) {
+                            const placedOnly = deepCopyBoard(curBoard);
+                            placedOnly[move.row][move.col] = playerVal;
+                            rwSyncHand(placedOnly, handNumAt);
+                            handNumAt[move.row][move.col] = completedPlyCount;
+                            const half = boardSize / 2;
+                            curBoard = rwRotateBoardLike(placedOnly, boardSize, (r, c) => rwRotateCell(r, c, half));
+                            handNumAt = rwRotateBoardLike(handNumAt, boardSize, (r, c) => rwRotateCell(r, c, half));
+                            const [pr, pc] = rwRotateCell(move.row, move.col, half);
+                            rwApplyRotationPlyCaptures(curBoard, pr, pc, playerVal, boardSize, true);
+                            rwSyncHand(curBoard, handNumAt);
+                            rotationCount++;
+                            lastMoveMarkers = rwRotateMarkers(
+                                [{ row: move.row, col: move.col, color: playerVal }],
+                                boardSize
+                            );
+                        } else {
+                            lastMoveMarkers = [];
+                        }
+                    } else {
+                        const newBoard = tryPlaceStone(curBoard, move.row, move.col, playerVal);
+                        if (newBoard) curBoard = newBoard;
+                        rwSyncHand(curBoard, handNumAt);
+                        handNumAt[move.row][move.col] = completedPlyCount;
+                        const rot = rwMaybeRotate(
+                            curBoard,
+                            handNumAt,
+                            rotationCount,
+                            boardSize,
+                            rotationInterval,
+                            completedPlyCount,
+                            [{ row: move.row, col: move.col, color: playerVal }]
+                        );
+                        curBoard = rot.board;
+                        handNumAt = rot.handNumAt;
+                        rotationCount = rot.rotationCount;
+                        lastMoveMarkers = rot.lastMoveMarkers;
+                    }
+                    ps.liveReplayBoards.push(deepCopyBoard(curBoard));
+                    ps.liveReplayMarkers.push((lastMoveMarkers || []).map(m => ({ ...m })));
+                    ps.liveReplayHandNumAts.push(deepCopyBoard(handNumAt));
+                    ps.liveReplayRotationCounts.push(rotationCount);
+                } else if (move.type === 'pass') {
+                    let lastMoveMarkers;
+                    if (rotateNow) {
+                        const r = rwRotateQuadrantsClockwise(
+                            deepCopyBoard(curBoard),
+                            deepCopyBoard(handNumAt),
+                            boardSize
+                        );
+                        rwApplyRotationPlyCaptures(r.board, 0, 0, playerVal, boardSize, false);
+                        rwSyncHand(r.board, r.handNumAt);
+                        curBoard = r.board;
+                        handNumAt = r.handNumAt;
+                        rotationCount++;
+                        lastMoveMarkers = rwRotateMarkers([], boardSize);
+                    } else {
+                        const rot = rwMaybeRotate(
+                            deepCopyBoard(curBoard),
+                            deepCopyBoard(handNumAt),
+                            rotationCount,
+                            boardSize,
+                            rotationInterval,
+                            completedPlyCount,
+                            []
+                        );
+                        curBoard = rot.board;
+                        handNumAt = rot.handNumAt;
+                        rotationCount = rot.rotationCount;
+                        lastMoveMarkers = rot.lastMoveMarkers;
+                    }
+                    ps.liveReplayBoards.push(deepCopyBoard(curBoard));
+                    ps.liveReplayMarkers.push((lastMoveMarkers || []).map(m => ({ ...m })));
+                    ps.liveReplayHandNumAts.push(deepCopyBoard(handNumAt));
+                    ps.liveReplayRotationCounts.push(rotationCount);
+                }
+                else { return false; }
+            }
+            return true;
         }
 
         const pageHolder = { ref: null };

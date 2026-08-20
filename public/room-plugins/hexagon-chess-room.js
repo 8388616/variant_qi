@@ -1316,6 +1316,11 @@ return {
         function setTryPlayStep() {}
         function updateTryPlayDisplay() {}
         function rebuildLiveReplayFromMoveCoords(moveCoords, openingBoard) {
+            const syncedLen = ps.liveSnapshots.length - 1;
+            const mcs = moveCoords || [];
+            if (syncedLen >= 0 && mcs.length > syncedLen) {
+                if (applyLiveReplayIncremental(mcs)) return;
+            }
             ps.liveSnapshots = [];
             let board = R.createInitialBoard();
             ps.liveSnapshots.push(R.copyBoard(board));
@@ -1333,6 +1338,35 @@ return {
                 side = R.oppositeSide(side);
                 ps.liveSnapshots.push(R.copyBoard(board));
             }
+            ps.liveCastling = castling;
+            ps.liveEnPassant = enPassant;
+            ps.liveSide = side;
+        }
+
+        function applyLiveReplayIncremental(moveCoords) {
+            const startLen = ps.liveSnapshots.length - 1;
+            const mcs = moveCoords || [];
+            if (mcs.length <= startLen) return true;
+            let board = R.copyBoard(ps.liveSnapshots[ps.liveSnapshots.length - 1]);
+            let castling = ps.liveCastling != null ? ps.liveCastling : R.copyCastling(R.defaultCastling());
+            let enPassant = ps.liveEnPassant != null ? ps.liveEnPassant : null;
+            let side = ps.liveSide || 'white';
+            for (let i = startLen; i < mcs.length; i++) {
+                const m = mcs[i];
+                if (m.type !== 'move') continue;
+                const meta = { castling, enPassant };
+                if (!R.isLegalMove(board, m.fromRow, m.fromCol, m.toRow, m.toCol, side, meta, m.promote || null)) return false;
+                const applied = R.applyMoveOnBoard(board, m.fromRow, m.fromCol, m.toRow, m.toCol, meta, m.promote || null);
+                board = applied.board;
+                castling = applied.castling;
+                enPassant = applied.enPassant;
+                side = R.oppositeSide(side);
+                ps.liveSnapshots.push(R.copyBoard(board));
+            }
+            ps.liveCastling = castling;
+            ps.liveEnPassant = enPassant;
+            ps.liveSide = side;
+            return true;
         }
         function applyLiveViewBoard() {
             if (ps.liveSnapshots[ps.liveViewStep]) ps.board = R.copyBoard(ps.liveSnapshots[ps.liveViewStep]);

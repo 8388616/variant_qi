@@ -616,13 +616,61 @@ window.RoomPlugins['sudoku-weiqi'] = {
         }
 
         function rebuildLiveReplayFromMoveCoords(moveCoords) {
-            const built = buildReplaySnapshots(moveCoords || [], ps.BOARD_SIZE, null, null);
+            const syncedLen = ps.liveReplayBoards.length - 1;
+            const mcs = moveCoords || [];
+            if (syncedLen >= 0 && mcs.length > syncedLen) {
+                if (applyLiveReplayIncremental(mcs)) return;
+            }
+            const built = buildReplaySnapshots(mcs, ps.BOARD_SIZE, null, null);
             ps.liveReplayBoards = built.boards;
             ps.liveReplayDigitBoards = built.digitBoards;
             ps.liveReplayBlackBags = built.blackBags;
             ps.liveReplayWhiteBags = built.whiteBags;
             ps.liveReplayMarkers = built.markers;
             ps.liveReplayStepPlayers = built.players;
+        }
+
+        function applyLiveReplayIncremental(moveCoords) {
+            const startLen = ps.liveReplayBoards.length - 1;
+            const mcs = (moveCoords || []).map(normalizeMove).filter(Boolean);
+            if (mcs.length <= startLen) return true;
+            const boardSize = ps.BOARD_SIZE;
+            let curBoard = deepCopy2d(ps.liveReplayBoards[ps.liveReplayBoards.length - 1]);
+            let curDigits = deepCopy2d(ps.liveReplayDigitBoards[ps.liveReplayDigitBoards.length - 1]);
+            let blackBag = copyBagAvail(ps.liveReplayBlackBags[ps.liveReplayBlackBags.length - 1]);
+            let whiteBag = copyBagAvail(ps.liveReplayWhiteBags[ps.liveReplayWhiteBags.length - 1]);
+            let moveCount = startLen;
+            for (let i = startLen; i < mcs.length; i++) {
+                const move = mcs[i];
+                const playerVal = move.player === 'black' ? 1 : 2;
+                const myBag = move.player === 'black' ? blackBag : whiteBag;
+                moveCount++;
+                if (move.type === 'pass' || move.type === 'invalid') {
+                    maybeRefreshBags(blackBag, whiteBag, moveCount, boardSize);
+                    ps.liveReplayBoards.push(deepCopy2d(curBoard));
+                    ps.liveReplayDigitBoards.push(deepCopy2d(curDigits));
+                    ps.liveReplayBlackBags.push(copyBagAvail(blackBag));
+                    ps.liveReplayWhiteBags.push(copyBagAvail(whiteBag));
+                    ps.liveReplayMarkers.push([]);
+                    ps.liveReplayStepPlayers.push(playerVal);
+                    continue;
+                }
+                if (myBag[move.digit]) myBag[move.digit] = false;
+                const placed = tryPlaceSudokuStone(curBoard, curDigits, boardSize, move.row, move.col, playerVal, move.digit);
+                if (placed) {
+                    for (const d of placed.returnedDigits) myBag[d] = true;
+                    curBoard = placed.board;
+                    curDigits = placed.digitBoard;
+                }
+                maybeRefreshBags(blackBag, whiteBag, moveCount, boardSize);
+                ps.liveReplayBoards.push(deepCopy2d(curBoard));
+                ps.liveReplayDigitBoards.push(deepCopy2d(curDigits));
+                ps.liveReplayBlackBags.push(copyBagAvail(blackBag));
+                ps.liveReplayWhiteBags.push(copyBagAvail(whiteBag));
+                ps.liveReplayMarkers.push([{ row: move.row, col: move.col, color: playerVal, digit: move.digit }]);
+                ps.liveReplayStepPlayers.push(playerVal);
+            }
+            return true;
         }
 
         const page = QiWeiqiSquarePageRuntime.create(ps, domPage, {

@@ -638,7 +638,175 @@ const scoreTitle = document.getElementById('scoreTitle');
         }
 
         function rebuildLiveReplayFromMoveCoords() {
+            const syncedLen = liveReplaySnaps.length - 1;
+            if (syncedLen >= 0 && moveCoords.length > syncedLen) {
+                if (applyLiveReplayIncremental(moveCoords)) return;
+            }
             liveReplaySnaps = buildFrontBackReplaySnapshots(moveCoords, BOARD_SIZE);
+        }
+
+        function applyLiveReplayIncremental(coords) {
+            const startLen = liveReplaySnaps.length - 1;
+            const list = coords || [];
+            if (list.length <= startLen) return true;
+            const n = BOARD_SIZE;
+            const last = liveReplaySnaps[liveReplaySnaps.length - 1];
+            let boardA = deepCopyBoard(last.boardA);
+            let boardB = deepCopyBoard(last.boardB);
+            let minesA = copyMineList(last.minesA || []);
+            let minesB = copyMineList(last.minesB || []);
+            let nextMoveNumber = last.nextMoveNumber;
+            let passCounter = last.passCounter;
+            const posSet = new Set();
+            for (const sn of liveReplaySnaps) {
+                posSet.add(snapStateString(sn.boardA, sn.boardB, sn.minesA || [], sn.minesB || []));
+            }
+            function countGroupLibertiesSim(board, row, col) {
+                const color = board[row][col];
+                if (color === 0) return 0;
+                const visited = Array(n).fill().map(() => Array(n).fill(false));
+                const queue = [[row, col]];
+                visited[row][col] = true;
+                const liberties = new Set();
+                const dirs = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+                while (queue.length) {
+                    const [r, c] = queue.shift();
+                    for (const [dr, dc] of dirs) {
+                        const nr = r + dr, nc = c + dc;
+                        if (nr < 0 || nr >= n || nc < 0 || nc >= n) continue;
+                        if (board[nr][nc] === 0) liberties.add(nr + ',' + nc);
+                        else if (board[nr][nc] === color && !visited[nr][nc]) {
+                            visited[nr][nc] = true;
+                            queue.push([nr, nc]);
+                        }
+                    }
+                }
+                return liberties.size;
+            }
+            function removeGroupSim(board, row, col, color) {
+                const queue = [[row, col]];
+                board[row][col] = 0;
+                const dirs = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+                while (queue.length) {
+                    const [r, c] = queue.shift();
+                    for (const [dr, dc] of dirs) {
+                        const nr = r + dr, nc = c + dc;
+                        if (nr >= 0 && nr < n && nc >= 0 && nc < n && board[nr][nc] === color) {
+                            board[nr][nc] = 0;
+                            queue.push([nr, nc]);
+                        }
+                    }
+                }
+            }
+            function tryPlaceStoneSim(board, mines, row, col, playerVal) {
+                if (board[row][col] !== 0) return null;
+                if (isMine(mines, row, col)) return null;
+                const nb = deepCopyBoard(board);
+                nb[row][col] = playerVal;
+                const enemyColor = 3 - playerVal;
+                const dirs = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+                const checkedEnemy = new Set();
+                for (const [dr, dc] of dirs) {
+                    const nr = row + dr, nc = col + dc;
+                    if (nr >= 0 && nr < n && nc >= 0 && nc < n && nb[nr][nc] === enemyColor) {
+                        const key = nr + ',' + nc;
+                        if (!checkedEnemy.has(key)) {
+                            checkedEnemy.add(key);
+                            if (countGroupLibertiesSim(nb, nr, nc) < 1) removeGroupSim(nb, nr, nc, enemyColor);
+                        }
+                    }
+                }
+                if (countGroupLibertiesSim(nb, row, col) < 1) removeGroupSim(nb, row, col, playerVal);
+                return nb;
+            }
+            function tryClearMineSim(which, row, col) {
+                const minesPlayed = which === 'A' ? minesA : minesB;
+                if (!isMine(minesPlayed, row, col)) return null;
+                const newMinesPlayed = copyMineList(minesPlayed).filter(p => !(p.row === row && p.col === col));
+                const newMinesA = which === 'A' ? newMinesPlayed : copyMineList(minesA);
+                const newMinesB = which === 'B' ? newMinesPlayed : copyMineList(minesB);
+                const newBoardA = deepCopyBoard(boardA);
+                const newBoardB = deepCopyBoard(boardB);
+                const nextStr = snapStateString(newBoardA, newBoardB, newMinesA, newMinesB);
+                if (posSet.has(nextStr)) return null;
+                return { newBoardA, newBoardB, newMinesA, newMinesB, nextStr };
+            }
+            function tryApplyStoneSim(which, row, col, playerVal) {
+                const minesOnPlayed = which === 'A' ? minesA : minesB;
+                if (isMine(minesOnPlayed, row, col)) {
+                    const cleared = tryClearMineSim(which, row, col);
+                    if (!cleared) return null;
+                    minesA.length = 0; minesA.push(...cleared.newMinesA);
+                    minesB.length = 0; minesB.push(...cleared.newMinesB);
+                    posSet.add(cleared.nextStr);
+                    return { markers: [{ board: which, row, col, color: playerVal }] };
+                }
+                const board = which === 'A' ? boardA : boardB;
+                const newBoard = tryPlaceStoneSim(board, minesOnPlayed, row, col, playerVal);
+                if (!newBoard) return null;
+                const newMinesPlayed = copyMineList(minesOnPlayed);
+                const newMinesOther = copyMineList(which === 'A' ? minesB : minesA);
+                const boardOther = which === 'A' ? boardB : boardA;
+                if (boardOther[row][col] === 0 && !isMine(newMinesOther, row, col)) newMinesOther.push({ row, col });
+                const newBoardA = which === 'A' ? newBoard : deepCopyBoard(boardA);
+                const newBoardB = which === 'B' ? newBoard : deepCopyBoard(boardB);
+                const newMinesA = which === 'A' ? newMinesPlayed : newMinesOther;
+                const newMinesB = which === 'B' ? newMinesPlayed : newMinesOther;
+                const nextStr = snapStateString(newBoardA, newBoardB, newMinesA, newMinesB);
+                if (posSet.has(nextStr)) return null;
+                boardA = newBoardA;
+                boardB = newBoardB;
+                minesA = newMinesA;
+                minesB = newMinesB;
+                posSet.add(nextStr);
+                return { markers: [{ board: which, row, col, color: playerVal }] };
+            }
+            for (let i = startLen; i < list.length; i++) {
+                const mv = list[i];
+                const expS = expectedSlotForMoveNumber(nextMoveNumber);
+                const expB = expectedBoardForMoveNumber(nextMoveNumber);
+                if (mv.player !== expS) return false;
+                if (mv.type === 'pass') {
+                    passCounter++;
+                    nextMoveNumber++;
+                    liveReplaySnaps.push(cloneSnap({
+                        boardA: deepCopyBoard(boardA), boardB: deepCopyBoard(boardB),
+                        minesA: copyMineList(minesA), minesB: copyMineList(minesB),
+                        lastMoveMarkers: [], nextMoveNumber, passCounter
+                    }));
+                    continue;
+                }
+                if (mv.type !== 'move' && mv.type !== 'clearMine') return false;
+                if (mv.board !== expB) return false;
+                const playerVal = mv.player === 'black' ? 1 : 2;
+                if (mv.type === 'clearMine') {
+                    const cleared = tryClearMineSim(mv.board, mv.row, mv.col);
+                    if (!cleared) return false;
+                    minesA = cleared.newMinesA;
+                    minesB = cleared.newMinesB;
+                    posSet.add(cleared.nextStr);
+                    nextMoveNumber++;
+                    passCounter = 0;
+                    liveReplaySnaps.push(cloneSnap({
+                        boardA: deepCopyBoard(boardA), boardB: deepCopyBoard(boardB),
+                        minesA: copyMineList(minesA), minesB: copyMineList(minesB),
+                        lastMoveMarkers: [{ board: mv.board, row: mv.row, col: mv.col, color: playerVal }],
+                        nextMoveNumber, passCounter
+                    }));
+                    continue;
+                }
+                const applied = tryApplyStoneSim(mv.board, mv.row, mv.col, playerVal);
+                if (!applied) return false;
+                nextMoveNumber++;
+                passCounter = 0;
+                liveReplaySnaps.push(cloneSnap({
+                    boardA: deepCopyBoard(boardA), boardB: deepCopyBoard(boardB),
+                    minesA: copyMineList(minesA), minesB: copyMineList(minesB),
+                    lastMoveMarkers: applied.markers,
+                    nextMoveNumber, passCounter
+                }));
+            }
+            return true;
         }
 
         function getLiveReplayTotal() {
