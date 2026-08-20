@@ -3800,7 +3800,6 @@
             }
             const o = R().rebuildLiveReplayFromMoveCoords(
                 mcs,
-                moveCoords,
                 tryPlaceStone,
                 deepCopyBoard,
                 () => {
