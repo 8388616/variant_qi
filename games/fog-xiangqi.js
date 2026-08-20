@@ -475,7 +475,11 @@ class FogXiangqiRoom extends QiTwoPlayerRoomBase {
         }
     }
 
-    exportRecord() {
+    exportRecord(ws) {
+        const cleared = this.fogCleared();
+        const slot = this.room.getSlotByWs(ws);
+        // 对局中按请求者视野过滤：不可见的走法不下发（与 getStateForClient 一致），终局/雾清后发完整
+        const hist = cleared ? this.moveHistory : this.filterMoveHistoryForSlot(slot);
         return {
             format: 'muzei',
             version: 2,
@@ -483,7 +487,7 @@ class FogXiangqiRoom extends QiTwoPlayerRoomBase {
             gameId: 'fog-xiangqi',
             boardRows: R.BOARD_H,
             boardCols: R.BOARD_W,
-            moves: this.moveHistory.map((m) => (
+            moves: hist.map((m) => (
                 `${m.player[0].toUpperCase()}${m.fromRow},${m.fromCol}-${m.toRow},${m.toCol}`
             )),
             result: this.gameOver ? this.winner : null,

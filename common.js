@@ -618,7 +618,7 @@ const qiProtocol = {
     },
 
     exportRecord(self, ws) {
-        const raw = self.exportRecord();
+        const raw = self.exportRecord(ws);
         ws.send(JSON.stringify({ type: 'gameRecord', data: normalizeQiRecordForExport(self, raw) }));
     },
 
