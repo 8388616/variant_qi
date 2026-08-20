@@ -303,6 +303,14 @@ const scoreTitle = document.getElementById('scoreTitle');
             removeDeadAndDying: (src) => R().removeDeadAndDying(src, ps.BOARD_SIZE, (b) => QiSquareWeiqiCanvas.deepCopyBoard(b), 2),
             assignTerritoryWithRange: (live) => R().assignTerritoryWithRange(live, ps.BOARD_SIZE, { isPassable: (v) => v !== NEUTRAL }),
             rebuildLiveReplayFromMoveCoords(moveCoords) {
+                const syncedLen = ps.liveReplayBoards.length - 1;
+                const mcs = moveCoords || [];
+                if (syncedLen >= 0 && mcs.length > syncedLen) {
+                    const inc = R().applyLiveReplayIncrementalBoards(
+                        ps.liveReplayBoards, ps.liveReplayMarkers, ps.liveReplayStepPlayers,
+                        mcs, neutralTryPlaceStone, QiSquareWeiqiCanvas.deepCopyBoard);
+                    if (inc.ok) return;
+                }
                 const ob = ps.liveOpeningBoard;
                 const o = R().rebuildLiveReplayFromMoveCoords(
                     moveCoords,

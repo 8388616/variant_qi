@@ -172,6 +172,14 @@ const scoreTitle = document.getElementById('scoreTitle');
             roomPassword,
             isMouseDevice,
             rebuildLiveReplayFromMoveCoords(moveCoords) {
+                const syncedLen = ps.liveReplayBoards.length - 1;
+                const mcs = moveCoords || [];
+                if (syncedLen >= 0 && mcs.length > syncedLen) {
+                    const inc = R().applyLiveReplayIncrementalBoards(
+                        ps.liveReplayBoards, ps.liveReplayMarkers, ps.liveReplayStepPlayers,
+                        mcs, bilibertyTryPlaceStone, QiSquareWeiqiCanvas.deepCopyBoard);
+                    if (inc.ok) return;
+                }
                 const ob = ps.liveOpeningBoard;
                 const o = R().rebuildLiveReplayFromMoveCoords(
                     moveCoords,

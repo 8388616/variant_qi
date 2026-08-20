@@ -134,6 +134,38 @@ const scoreTitle = document.getElementById('scoreTitle'), scoreBoard = document.
                 }
             }
         }
+        function applyLiveReplayIncremental(mc) {
+            const startLen = ps.liveReplayBoards.length - 1;
+            const mcs = mc || [];
+            if (mcs.length <= startLen) return true;
+            let cur = dc(ps.liveReplayBoards[ps.liveReplayBoards.length - 1]);
+            let curAx = 'diag1';
+            const lastAx = ps.liveReplayMirrorAxes && ps.liveReplayMirrorAxes.length
+                ? ps.liveReplayMirrorAxes[ps.liveReplayMirrorAxes.length - 1]
+                : null;
+            if (lastAx) curAx = nextAxis(ps.liveReplayBoards.length);
+            for (let i = startLen; i < mcs.length; i++) {
+                const mv = mcs[i];
+                const pv = mv.player === 'black' ? 1 : 2;
+                ps.liveReplayStepPlayers.push(pv);
+                if (mv.type === 'move') {
+                    const ax = mv.mirrorAxis || curAx;
+                    ps.liveReplayMirrorAxes.push(ax);
+                    const nb = tryMirror(cur, mv.row, mv.col, pv, ax);
+                    if (nb) cur = nb;
+                    const mk = [{ row: mv.row, col: mv.col, color: pv }];
+                    const mp = getMP(mv.row, mv.col, ax);
+                    if (!(mp.row === mv.row && mp.col === mv.col) && cur[mp.row][mp.col] === pv) mk.push({ row: mp.row, col: mp.col, color: pv });
+                    ps.liveReplayBoards.push(dc(cur)); ps.liveReplayMarkers.push(mk);
+                    curAx = nextAxis(ps.liveReplayBoards.length);
+                } else if (mv.type === 'pass') {
+                    ps.liveReplayMirrorAxes.push(null);
+                    ps.liveReplayBoards.push(dc(cur)); ps.liveReplayMarkers.push([]);
+                    curAx = nextAxis(ps.liveReplayBoards.length);
+                } else { return false; }
+            }
+            return true;
+        }
         function applyLiveView() {
             if (!ps.liveReplayBoards.length) {
                 ps.board = page.initBoardArray(ps.BOARD_SIZE); ps.lastMoveMarkers = []; ps.mirrorAxis = 'diag1'; return;
@@ -269,7 +301,12 @@ const scoreTitle = document.getElementById('scoreTitle'), scoreBoard = document.
             if (state.slots) ps.slots = state.slots;
             if (!ps.replayMode) {
                 const prevT = Math.max(0, ps.liveReplayBoards.length - 1), wasEnd = ps.liveFollowLatest || ps.liveViewStep >= prevT;
-                rebuildLive(state.moveCoords || []);
+                const syncedLen = ps.liveReplayBoards.length - 1;
+                const mcs = state.moveCoords || [];
+                if (syncedLen >= 0 && mcs.length > syncedLen && applyLiveReplayIncremental(mcs)) {
+                } else {
+                    rebuildLive(mcs);
+                }
                 const newT = Math.max(0, ps.liveReplayBoards.length - 1);
                 if (newT === 0) { ps.liveViewStep = 0; ps.liveFollowLatest = true; }
                 else if (wasEnd) { ps.liveViewStep = newT; ps.liveFollowLatest = true; }

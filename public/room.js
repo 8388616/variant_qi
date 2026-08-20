@@ -3789,7 +3789,17 @@
                 opts.rebuildLiveReplayFromMoveCoords(moveCoords, openingBoard);
                 return;
             }
+            // 增量（仅公共路径；自定义棋类各自处理）：已同步到 startLen 手时只对新的一手本地计算提子
+            const mcs = moveCoords || [];
+            const syncedLen = ps.liveReplayBoards.length - 1;
+            if (syncedLen >= 0 && mcs.length > syncedLen) {
+                const inc = R().applyLiveReplayIncrementalBoards(
+                    ps.liveReplayBoards, ps.liveReplayMarkers, ps.liveReplayStepPlayers,
+                    mcs, tryPlaceStone, deepCopyBoard);
+                if (inc.ok) return;
+            }
             const o = R().rebuildLiveReplayFromMoveCoords(
+                mcs,
                 moveCoords,
                 tryPlaceStone,
                 deepCopyBoard,
@@ -4212,6 +4222,7 @@
             setTryPlayStep,
             updateTryPlayDisplay,
             rebuildLiveReplayFromMoveCoords: rebuildLiveReplayBoard,
+            applyLiveReplayIncrementalBoards,
             applyLiveViewBoard,
             updateLiveReplayPanelUI,
             setLiveViewStep,
@@ -5078,6 +5089,34 @@
             }
         }
         return { liveReplayBoards, liveReplayMarkers, liveReplayStepPlayers };
+    }
+
+    /**
+     * 增量版：liveReplayBoards 已同步到 startLen 手时，只对新的一手本地计算落子/提子。
+     * 遇到不认识的着法类型返回 { ok: false }，调用方回退全量重建。
+     */
+    function applyLiveReplayIncrementalBoards(liveReplayBoards, liveReplayMarkers, liveReplayStepPlayers, moveCoords, tryPlaceStone, deepCopyBoard) {
+        const startLen = liveReplayBoards.length - 1;
+        const mcs = moveCoords || [];
+        if (mcs.length <= startLen) return { ok: true };
+        let curBoard = deepCopyBoard(liveReplayBoards[liveReplayBoards.length - 1]);
+        for (let i = startLen; i < mcs.length; i++) {
+            const move = mcs[i];
+            const playerVal = move.player === 'black' ? 1 : 2;
+            liveReplayStepPlayers.push(playerVal);
+            if (move.type === 'move') {
+                const newBoard = tryPlaceStone(curBoard, move.row, move.col, playerVal);
+                if (newBoard) curBoard = newBoard;
+                liveReplayBoards.push(deepCopyBoard(curBoard));
+                liveReplayMarkers.push([{ row: move.row, col: move.col, color: playerVal }]);
+            } else if (move.type === 'pass') {
+                liveReplayBoards.push(deepCopyBoard(curBoard));
+                liveReplayMarkers.push([]);
+            } else {
+                return { ok: false };
+            }
+        }
+        return { ok: true };
     }
 
     /**

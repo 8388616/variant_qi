@@ -352,6 +352,11 @@ const scoreTitle = document.getElementById('scoreTitle');
             roomPassword,
             isMouseDevice,
             rebuildLiveReplayFromMoveCoords(moveCoords) {
+                const syncedLen = ps.liveReplayBoards.length - 1;
+                const mcs = moveCoords || [];
+                if (syncedLen >= 0 && mcs.length > syncedLen) {
+                    if (page.applyLiveReplayIncremental(mcs)) return;
+                }
                 const ob = ps.liveOpeningBoard;
                 const createEmpty = () => ob
                     ? QiSquareWeiqiCanvas.deepCopyBoard(ob)
@@ -380,6 +385,34 @@ const scoreTitle = document.getElementById('scoreTitle');
                 ps.liveReplayBoards = liveReplayBoards;
                 ps.liveReplayMarkers = liveReplayMarkers;
                 ps.liveReplayStepPlayers = liveReplayStepPlayers;
+                ps.liveReplayHistSet = histSet;
+            },
+
+            applyLiveReplayIncremental(moveCoords) {
+                const startLen = ps.liveReplayBoards.length - 1;
+                const mcs = moveCoords || [];
+                if (mcs.length <= startLen) return true;
+                let curBoard = QiSquareWeiqiCanvas.deepCopyBoard(ps.liveReplayBoards[ps.liveReplayBoards.length - 1]);
+                const histSet = ps.liveReplayHistSet || new Set([boardToString(curBoard)]);
+                for (let i = startLen; i < mcs.length; i++) {
+                    const move = mcs[i];
+                    const playerVal = move.player === 'black' ? 1 : 2;
+                    ps.liveReplayStepPlayers.push(playerVal);
+                    if (move.type === 'move') {
+                        const newBoard = greedyTryPlaceStone(curBoard, move.row, move.col, playerVal, histSet);
+                        if (newBoard) {
+                            curBoard = newBoard;
+                            histSet.add(boardToString(curBoard));
+                        }
+                        ps.liveReplayBoards.push(QiSquareWeiqiCanvas.deepCopyBoard(curBoard));
+                        ps.liveReplayMarkers.push([{ row: move.row, col: move.col, color: playerVal }]);
+                    } else if (move.type === 'pass') {
+                        ps.liveReplayBoards.push(QiSquareWeiqiCanvas.deepCopyBoard(curBoard));
+                        ps.liveReplayMarkers.push([]);
+                    } else { return false; }
+                }
+                ps.liveReplayHistSet = histSet;
+                return true;
             }
         });
         const {

@@ -710,6 +710,27 @@ const scoreTitle = document.getElementById('scoreTitle');
             }
         }
     }
+    function applyLiveReplayIncremental(coords) {
+        const startLen = liveReplayStonesSeq.length - 1;
+        const mcs = coords || [];
+        if (mcs.length <= startLen) return true;
+        const diameter = getDiameter();
+        let cur = deepCopyStones(liveReplayStonesSeq[liveReplayStonesSeq.length - 1]);
+        for (let i = startLen; i < mcs.length; i++) {
+            const m = mcs[i];
+            const pv = m.player === 'black' ? 1 : 2;
+            if (m.type === 'move') {
+                cur = applyMoveClient(cur, { ix: m.ix, iy: m.iy, color: pv }, diameter);
+                liveReplayStonesSeq.push(deepCopyStones(cur));
+                liveReplayMarkers.push([{ ix: m.ix, iy: m.iy, color: pv }]);
+            } else if (m.type === 'pass') {
+                liveReplayStonesSeq.push(deepCopyStones(cur));
+                liveReplayMarkers.push([]);
+            } else { return false; }
+        }
+        return true;
+    }
+
 
     function applyLiveViewStones() {
         if (!liveReplayStonesSeq.length) {
@@ -766,7 +787,12 @@ const scoreTitle = document.getElementById('scoreTitle');
         if (!replayMode) {
             const prevTotal = Math.max(0, liveReplayStonesSeq.length - 1);
             const wasAtEnd = liveFollowLatest || liveViewStep >= prevTotal;
-            rebuildLiveReplayFromMoveCoords(state.moveCoords || []);
+            const syncedLen = liveReplayStonesSeq.length - 1;
+            const liveMcs = state.moveCoords || [];
+            if (syncedLen >= 0 && liveMcs.length > syncedLen && applyLiveReplayIncremental(liveMcs)) {
+            } else {
+                rebuildLiveReplayFromMoveCoords(liveMcs);
+            }
             const newTotal = Math.max(0, liveReplayStonesSeq.length - 1);
             if (newTotal === 0) { liveViewStep = 0; liveFollowLatest = true; }
             else if (wasAtEnd) { liveViewStep = newTotal; liveFollowLatest = true; }

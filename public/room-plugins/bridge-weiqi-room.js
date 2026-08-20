@@ -295,6 +295,14 @@ const scoreTitle = document.getElementById('scoreTitle');
             removeDeadAndDying: (src) => bridgeRemoveDeadAndDying(src),
             assignTerritoryWithRange: (live) => assignTerritoryWithBridgeGraph(live, ps.BOARD_SIZE),
             rebuildLiveReplayFromMoveCoords(moveCoords) {
+                const syncedLen = ps.liveReplayBoards.length - 1;
+                const mcs = moveCoords || [];
+                if (syncedLen >= 0 && mcs.length > syncedLen) {
+                    const inc = R().applyLiveReplayIncrementalBoards(
+                        ps.liveReplayBoards, ps.liveReplayMarkers, ps.liveReplayStepPlayers,
+                        mcs, bridgeTryPlaceStone, QiSquareWeiqiCanvas.deepCopyBoard);
+                    if (inc.ok) return;
+                }
                 const ob = ps.liveOpeningBoard;
                 const o = R().rebuildLiveReplayFromMoveCoords(moveCoords, bridgeTryPlaceStone, QiSquareWeiqiCanvas.deepCopyBoard, () => ob ? QiSquareWeiqiCanvas.deepCopyBoard(ob) : QiSquareWeiqiCanvas.initBoardArray(ps.BOARD_SIZE));
                 ps.liveReplayBoards = o.liveReplayBoards;

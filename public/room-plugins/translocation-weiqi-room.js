@@ -458,6 +458,55 @@ const scoreTitle = document.getElementById('scoreTitle');
             }
         }
 
+        function applyLiveReplayIncremental(moveCoords) {
+            const startLen = ps.liveReplayBoards.length - 1;
+            const mcs = moveCoords || [];
+            if (mcs.length <= startLen) return true;
+            let curBoard = C().deepCopyBoard(ps.liveReplayBoards[ps.liveReplayBoards.length - 1]);
+            for (let i = startLen; i < mcs.length; i++) {
+                const move = mcs[i];
+                const playerVal = move.player === 'black' ? 1 : 2;
+                ps.liveReplayStepPlayers.push(playerVal);
+                if (move.type === 'move') {
+                    const nb = page.tryPlaceStone(curBoard, move.row, move.col, playerVal);
+                    if (nb) curBoard = nb;
+                    ps.liveReplayBoards.push(C().deepCopyBoard(curBoard));
+                    ps.liveReplayMarkers.push([{ row: move.row, col: move.col, color: playerVal }]);
+                    ps.liveReplayHighlights.push([]);
+                    ps.liveReplayMovePlayerColors.push(playerVal);
+                } else if (move.type === 'swap') {
+                    const nb = trySwapPiece(curBoard, move.fromRow, move.fromCol, move.row, move.col, playerVal);
+                    if (nb) curBoard = nb;
+                    ps.liveReplayBoards.push(C().deepCopyBoard(curBoard));
+                    let nmm = [];
+                    if (curBoard[move.row][move.col] === playerVal)
+                        nmm = [{ row: move.row, col: move.col, color: playerVal }];
+                    ps.liveReplayMarkers.push(nmm);
+                    ps.liveReplayHighlights.push([
+                        { row: move.fromRow, col: move.fromCol, frameOnly: curBoard[move.fromRow][move.fromCol] === 0 },
+                        { row: move.row, col: move.col, frameOnly: curBoard[move.row][move.col] === 0 }
+                    ]);
+                    ps.liveReplayMovePlayerColors.push(playerVal);
+                } else if (move.type === 'pass') {
+                    ps.liveReplayBoards.push(C().deepCopyBoard(curBoard));
+                    ps.liveReplayMarkers.push([]);
+                    ps.liveReplayHighlights.push([]);
+                    ps.liveReplayMovePlayerColors.push(null);
+                } else { return false; }
+            }
+            return true;
+        }
+
+        function syncLiveReplayFromState(state) {
+            const mcs = state.moveCoords || [];
+            const syncedLen = ps.liveReplayBoards.length - 1;
+            if (syncedLen >= 0 && mcs.length > syncedLen) {
+                if (applyLiveReplayIncremental(mcs)) return;
+            }
+            const hasMoves = !!(state.moveCoords && state.moveCoords.length);
+            rebuildLiveReplayCore(mcs, (ps.liveOpeningBoard != null ? ps.liveOpeningBoard : state.initialBoard));
+        }
+
         function applyLiveViewBoardImpl() {
             if (!ps.liveReplayBoards.length) {
                 ps.board = page.initBoardArray(ps.BOARD_SIZE);
@@ -516,12 +565,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                 // 与公共逻辑一致：已有着手时不得把当前盘面当开局重放——
                 // 否则被提掉的子所在空位会重新落子，产生"幽灵提子"（被提子仍参与后续提子判断）
                 const hasMoves = !!(state.moveCoords && state.moveCoords.length);
-                rebuildLiveReplayCore(
-                    state.moveCoords || [],
-                    (typeof QiWeiqiSquarePageRuntime !== 'undefined' && QiWeiqiSquarePageRuntime.pickRichestBoard)
-                        ? QiWeiqiSquarePageRuntime.pickRichestBoard(ps.liveOpeningBoard, state.initialBoard, hasMoves ? null : state.board)
-                        : (ps.liveOpeningBoard || state.initialBoard || (hasMoves ? null : state.board))
-                );
+                syncLiveReplayFromState(state);;
                 const newTotal = Math.max(0, ps.liveReplayBoards.length - 1);
                 if (newTotal === 0) {
                     ps.liveViewStep = 0;
