@@ -608,7 +608,7 @@ function unstableLifetimeForSize(size) {
                 rebuildLiveReplayCore(
                     state.moveCoords || [],
                     (typeof QiWeiqiSquarePageRuntime !== 'undefined' && QiWeiqiSquarePageRuntime.pickRichestBoard)
-                        ? QiWeiqiSquarePageRuntime.pickRichestBoard(ps.liveOpeningBoard, state.initialBoard, state.board)
+                        ? (ps.liveOpeningBoard != null ? ps.liveOpeningBoard : state.initialBoard)
                         : (ps.liveOpeningBoard || state.initialBoard || state.board)
                 );
                 const newTotal = Math.max(0, ps.liveReplayBoards.length - 1);
