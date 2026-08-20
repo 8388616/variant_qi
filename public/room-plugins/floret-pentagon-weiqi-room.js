@@ -1094,6 +1094,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                     liveReplayMarkers.push([]);
                 }
             }
+        }
  
         function applyLiveReplayIncremental(moveCoords) {
             const startLen = liveReplayBoards.length - 1;
@@ -1127,7 +1128,6 @@ const scoreTitle = document.getElementById('scoreTitle');
             }
             rebuildLiveReplayFromMoveCoords(mcs, state.initialBoard);
         }
-       }
 
         function applyLiveViewBoard() {
             if (!liveReplayBoards.length) {
