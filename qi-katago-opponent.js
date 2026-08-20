@@ -269,23 +269,6 @@ function slotOccupied(self, slot) {
     return !!(self.room.getPlayerBySlot(slot) || self.computerSlot === slot);
 }
 
-/**
- * moveHistory 条目格式自适应：围棋系存字符串（'black'），方斜四棋等存对象（{player,...}）。
- * 格式由首条历史决定，避免电脑落子/虚着写入错误格式导致 getState 转换出无坐标条目。
- */
-function pushComputerHistory(self, entry) {
-    if (!Array.isArray(self.moveHistory)) return;
-    const first = self.moveHistory[0];
-    // 对象格式（五子棋/象棋系等 moveHistory 存 {player,...}，以 wireMoveCoords 转换）：
-    // 空历史时靠 wireMoveCoords 判断，避免首条 push 字符串后 getState 转换出无坐标条目
-    const objFormat = (first && typeof first === 'object')
-        || (typeof self.wireMoveCoords === 'function' && self.moveHistory.length === 0);
-    if (objFormat)
-        self.moveHistory.push(entry);
-    else
-        self.moveHistory.push(entry.player);
-}
-
 function copyMarkers(self, markers) {
     if (typeof self.copyMarkers === 'function') return self.copyMarkers(markers);
     return (markers || []).map((m) => ({ row: m.row, col: m.col, color: m.color }));
@@ -314,7 +297,7 @@ function applyComputerMove(self, row, col) {
     if (Array.isArray(self.historyBoards)) self.historyBoards.push(copyBoard(self, newBoard));
     if (self.historyBoardSet) self.historyBoardSet.add(newBoardStr);
     if (Array.isArray(self.historyMarkers)) self.historyMarkers.push(copyMarkers(self, self.lastMoveMarkers));
-    pushComputerHistory(self, { player: moveSlot, row, col });
+    if (Array.isArray(self.moveHistory)) self.moveHistory.push(moveSlot);
     if (Array.isArray(self.moveCoords)) self.moveCoords.push({ type: 'move', player: moveSlot, row, col });
     self.board = newBoard;
     self.lastMoveMarkers = [{ row, col, color: playerVal }];
@@ -363,7 +346,7 @@ function applyComputerSwap(self, aRow, aCol, bRow, bCol) {
     if (Array.isArray(self.historyBoards)) self.historyBoards.push(copyBoard(self, newBoard));
     if (self.historyBoardSet) self.historyBoardSet.add(newBoardStr);
     if (Array.isArray(self.historyMarkers)) self.historyMarkers.push(copyMarkers(self, self.lastMoveMarkers));
-    pushComputerHistory(self, { player: moveSlot, type: 'swap', fromRow, fromCol, row: toRow, col: toCol });
+    if (Array.isArray(self.moveHistory)) self.moveHistory.push(moveSlot);
     if (Array.isArray(self.moveCoords)) {
         self.moveCoords.push({
             type: 'swap', player: moveSlot,
@@ -413,7 +396,7 @@ function applyComputerPass(self) {
     if (moveSlot !== (self.currentPlayer === 1 ? 'black' : 'white')) return;
     if (Array.isArray(self.historyBoards)) self.historyBoards.push(copyBoard(self, self.board));
     if (Array.isArray(self.historyMarkers)) self.historyMarkers.push(copyMarkers(self, self.lastMoveMarkers));
-    pushComputerHistory(self, { type: 'pass', player: moveSlot });
+    if (Array.isArray(self.moveHistory)) self.moveHistory.push(moveSlot);
     if (Array.isArray(self.moveCoords)) self.moveCoords.push({ type: 'pass', player: moveSlot });
     if ('moveHighlightMarkers' in self) self.moveHighlightMarkers = [];
     if ('movePlayerColor' in self) self.movePlayerColor = self.currentPlayer;
@@ -700,7 +683,7 @@ function handleHumanPassVsComputer(self, ws, slot) {
     // 先立刻虚着，不因引擎启动阻塞
     if (Array.isArray(self.historyBoards)) self.historyBoards.push(copyBoard(self, self.board));
     if (Array.isArray(self.historyMarkers)) self.historyMarkers.push(copyMarkers(self, self.lastMoveMarkers));
-    pushComputerHistory(self, { type: 'pass', player: slot });
+    if (Array.isArray(self.moveHistory)) self.moveHistory.push(slot);
     if (Array.isArray(self.moveCoords)) self.moveCoords.push({ type: 'pass', player: slot });
     if ('moveHighlightMarkers' in self) self.moveHighlightMarkers = [];
     if ('movePlayerColor' in self) self.movePlayerColor = self.currentPlayer;

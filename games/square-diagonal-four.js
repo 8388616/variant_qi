@@ -61,6 +61,7 @@ class SquareDiagonalFourRoom extends QiTwoPlayerRoomBase {
         this.historyBoards = [];
         this.lastMoveMarkers = [];
         this.moveHistory = [];
+        this.moveCoords = [];
         this.gameOver = false;
         this.winner = null;
         this.recordResultText = null;
@@ -246,8 +247,8 @@ class SquareDiagonalFourRoom extends QiTwoPlayerRoomBase {
 
     _trailingPassCount() {
         let n = 0;
-        for (let i = this.moveHistory.length - 1; i >= 0; i--) {
-            if (this.moveHistory[i].type === 'pass') n++;
+        for (let i = this.moveCoords.length - 1; i >= 0; i--) {
+            if (this.moveCoords[i].type === 'pass') n++;
             else break;
         }
         return n;
@@ -270,10 +271,7 @@ class SquareDiagonalFourRoom extends QiTwoPlayerRoomBase {
     }
 
     wireMoveCoords() {
-        return this.moveHistory.map(m => {
-            if (m.type === 'pass') return { type: 'pass', player: m.player };
-            return { type: 'move', player: m.player, row: m.row, col: m.col };
-        });
+        return this.moveCoords.map(m => ({ ...m }));
     }
 
     getState() {
@@ -285,11 +283,7 @@ class SquareDiagonalFourRoom extends QiTwoPlayerRoomBase {
             lastMoveMarkers: this.lastMoveMarkers,
             gameOver: this.gameOver,
             winner: this.winner,
-            moveHistory: this.moveHistory.map(m => (
-                m.type === 'pass'
-                    ? { type: 'pass', player: m.player }
-                    : { type: 'move', player: m.player, row: m.row, col: m.col }
-            )),
+            moveHistory: this.moveHistory.slice(),
             moveCoords: this.wireMoveCoords(),
             matchTime: {
                 negotiation: this.tcNego,
@@ -315,7 +309,7 @@ class SquareDiagonalFourRoom extends QiTwoPlayerRoomBase {
             gameType: '方斜四棋',
             gameId: 'square-diagonal-four',
             boardSize: this.BOARD_SIZE,
-            moves: this.moveHistory.map(m => {
+            moves: this.moveCoords.map(m => {
                 const p = m.player[0].toUpperCase();
                 return m.type === 'pass' ? `${p}p` : `${p}${m.row},${m.col}`;
             }),
@@ -336,6 +330,7 @@ class SquareDiagonalFourRoom extends QiTwoPlayerRoomBase {
         this.historyBoards = [];
         this.lastMoveMarkers = [];
         this.moveHistory = [];
+        this.moveCoords = [];
         this.gameOver = false;
         this.winner = null;
         this.recordResultText = null;
@@ -404,7 +399,8 @@ class SquareDiagonalFourRoom extends QiTwoPlayerRoomBase {
             }
             if (entry.type === 'pass') {
                 this.lastMoveMarkers = [];
-                this.moveHistory.push({ type: 'pass', player: slot });
+                this.moveHistory.push(slot);
+                this.moveCoords.push({ type: 'pass', player: slot });
                 this.historyBoards.push(this.copyBoard(this.board));
                 this.currentPlayer = this.currentPlayer === 1 ? 2 : 1;
                 if (this._trailingPassCount() >= 2) {
@@ -431,7 +427,8 @@ class SquareDiagonalFourRoom extends QiTwoPlayerRoomBase {
             const playerVal = slot === 'black' ? 1 : 2;
             this.board[row][col] = playerVal;
             this.lastMoveMarkers = [{ row, col, color: playerVal }];
-            this.moveHistory.push({ player: slot, row, col });
+            this.moveHistory.push(slot);
+            this.moveCoords.push({ type: 'move', player: slot, row, col });
             this.historyBoards.push(this.copyBoard(this.board));
 
             if (this._applyOutcome(slot, this.evaluateOutcome(row, col, playerVal))) {
@@ -463,7 +460,7 @@ class SquareDiagonalFourRoom extends QiTwoPlayerRoomBase {
             boardSize: this.BOARD_SIZE,
             replayData: {
                 boardSize: this.BOARD_SIZE,
-                moves: this.moveHistory.map(m => {
+                moves: this.moveCoords.map(m => {
                     const p = m.player[0].toUpperCase();
                     return m.type === 'pass' ? `${p}p` : `${p}${m.row},${m.col}`;
                 })
@@ -513,7 +510,8 @@ class SquareDiagonalFourRoom extends QiTwoPlayerRoomBase {
                 const playerVal = this.currentPlayer === 1 ? 1 : 2;
                 this.board[row][col] = playerVal;
                 this.lastMoveMarkers = [{ row, col, color: playerVal }];
-                this.moveHistory.push({ player: slot, row, col });
+                this.moveHistory.push(slot);
+                this.moveCoords.push({ type: 'move', player: slot, row, col });
 
                 if (this._applyOutcome(slot, this.evaluateOutcome(row, col, playerVal))) {
                     this._stopClockTicker();
@@ -542,7 +540,8 @@ class SquareDiagonalFourRoom extends QiTwoPlayerRoomBase {
                 if (!this._timeAllowsPlay(slot)) return;
                 if (!this._drainClockBeforeMove(slot)) return;
                 this.lastMoveMarkers = [];
-                this.moveHistory.push({ type: 'pass', player: slot });
+                this.moveHistory.push(slot);
+                this.moveCoords.push({ type: 'pass', player: slot });
                 this.historyBoards.push(this.copyBoard(this.board));
                 this.currentPlayer = this.currentPlayer === 1 ? 2 : 1;
                 if (this._trailingPassCount() >= 2) {
@@ -606,6 +605,7 @@ class SquareDiagonalFourRoom extends QiTwoPlayerRoomBase {
         this.historyBoards = [];
         this.lastMoveMarkers = [];
         this.moveHistory = [];
+        this.moveCoords = [];
         this.gameOver = false;
         this.winner = null;
         this.recordResultText = null;
