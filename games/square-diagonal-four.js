@@ -53,6 +53,8 @@ class SquareDiagonalFourRoom extends QiTwoPlayerRoomBase {
     constructor(room) {
         super(room);
         this.BOARD_SIZE = 13;
+        // KataGo 人机接管检查需要小写 boardSize
+        this.boardSize = 13;
         this.board = Array(this.BOARD_SIZE).fill().map(() => Array(this.BOARD_SIZE).fill(0));
         if (this.openingBoard === undefined) this.openingBoard = (typeof this.copyBoard === 'function' ? this.copyBoard(this.board) : (Array.isArray(this.board[0]) ? this.board.map(r => r.slice()) : this.board.slice()));
         this.currentPlayer = 1;
@@ -215,6 +217,27 @@ class SquareDiagonalFourRoom extends QiTwoPlayerRoomBase {
     /** @returns {'win'|'lose'|null} */
     evaluateOutcome(row, col, colorVal) {
         return evaluateSquareDiagonalFour(this.board, row, col, colorVal, this.BOARD_SIZE);
+    }
+
+    /**
+     * KataGo 人机：电脑落子应用（五子棋无提子，直接放子）。
+     * applyComputerMove 绕过 case 'move'，此处补齐终局判定（斜四自伤/方阵取胜）。
+     */
+    tryPlaceStone(boardBefore, row, col, playerVal) {
+        if (!boardBefore || !boardBefore[row] || boardBefore[row][col] !== 0) return null;
+        const nb = this.copyBoard(boardBefore);
+        nb[row][col] = playerVal;
+        const outcome = evaluateSquareDiagonalFour(nb, row, col, playerVal, this.BOARD_SIZE);
+        if (outcome === 'lose') {
+            this.gameOver = true;
+            this.winner = playerVal === 1 ? 'white' : 'black';
+            this.recordResultText = this.winner === 'black' ? '黑中盘胜' : '白中盘胜';
+        } else if (outcome === 'win') {
+            this.gameOver = true;
+            this.winner = playerVal === 1 ? 'black' : 'white';
+            this.recordResultText = this.winner === 'black' ? '黑中盘胜' : '白中盘胜';
+        }
+        return nb;
     }
 
     isBoardFull() {
