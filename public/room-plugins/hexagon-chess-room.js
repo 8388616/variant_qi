@@ -239,7 +239,13 @@ function rookLineTargets(board, r, c, color) {
     return out;
 }
 
-/** 马：车 1 步 + 象 1 步（可跳，12 位置） */
+const KNIGHT_DIRS = ['E', 'NE', 'NW', 'W', 'SW', 'SE'];
+/** 转向方向：首步方向的相邻两方向（d±60°）——远离起点；直行与三个靠近起点的方向排除 */
+function knightTurnDirs(d) {
+    const i = KNIGHT_DIRS.indexOf(d);
+    return [KNIGHT_DIRS[(i + 1) % 6], KNIGHT_DIRS[(i + 5) % 6]];
+}
+/** 马：先沿某方向走两格，再沿另一方向走一格（转向必须远离起点），沿途允许有棋子——每起点 12 位置 */
 function knightTargets(board, r, c, color) {
     const out = [];
     const seen = new Set();
@@ -252,22 +258,14 @@ function knightTargets(board, r, c, color) {
         seen.add(key);
         out.push(n);
     };
-    // 先车后象
-    for (const d of ['E', 'W', 'NE', 'NW', 'SE', 'SW']) {
-        const m1 = dirNeighbor(r, c, d);
-        if (!m1) continue;
-        for (const th of BISHOP_THETAS) {
-            const s = bishopNext(m1.row, m1.col, th);
+    for (const d of KNIGHT_DIRS) {
+        const p1 = dirNeighbor(r, c, d);
+        if (!p1) continue;
+        const p2 = dirNeighbor(p1.row, p1.col, d);
+        if (!p2) continue;
+        for (const t of knightTurnDirs(d)) {
+            const s = dirNeighbor(p2.row, p2.col, t);
             if (s) tryAdd(s);
-        }
-    }
-    // 先象后车
-    for (const th of BISHOP_THETAS) {
-        const s = bishopNext(r, c, th);
-        if (!s) continue;
-        for (const d of ['E', 'W', 'NE', 'NW', 'SE', 'SW']) {
-            const m2 = dirNeighbor(s.row, s.col, d);
-            if (m2) tryAdd(m2);
         }
     }
     return out;
@@ -1141,15 +1139,31 @@ return {
             if (!ps.ws || ps.ws.readyState !== 1) return;
             ps.ws.send(JSON.stringify({ type: 'move', fromRow, fromCol, toRow, toCol, promote: promote || null }));
         }
+        function snapshotFrom(board, side, castling, enPassant) {
+            return { board: R.copyBoard(board), side, castling: R.copyCastling(castling), enPassant };
+        }
+        function applySnapshot(snap) {
+            ps.board = snap.board;
+            ps.castling = snap.castling;
+            ps.enPassant = snap.enPassant;
+            ps.sideToMove = snap.side;
+        }
         function tryPlayMove(fromRow, fromCol, toRow, toCol, promote) {
             if (!ps.tryPlayMode || !ps.replayMode) return;
             const meta = { castling: ps.castling, enPassant: ps.enPassant };
             if (!R.isLegalMove(ps.board, fromRow, fromCol, toRow, toCol, ps.tryPlaySide, meta, promote || null)) return;
             const applied = R.applyMoveOnBoard(ps.board, fromRow, fromCol, toRow, toCol, meta, promote || null);
-            ps.board = applied.board;
-            ps.castling = applied.castling;
-            ps.enPassant = applied.enPassant;
-            ps.tryPlaySide = R.oppositeSide(ps.tryPlaySide);
+            const side = R.oppositeSide(ps.tryPlaySide);
+            if (ps.tryPlayStep < ps.tryPlayTotalSteps) {
+                ps.tryPlaySnapshots.length = ps.tryPlayStep + 1;
+            }
+            ps.tryPlaySnapshots.push(snapshotFrom(applied.board, side, applied.castling, applied.enPassant));
+            ps.tryPlayTotalSteps = ps.tryPlaySnapshots.length - 1;
+            ps.tryPlayStep = ps.tryPlayTotalSteps;
+            ps.tryPlaySide = side;
+            applySnapshot(ps.tryPlaySnapshots[ps.tryPlayStep]);
+            updateTryPlayDisplay();
+            updateReplayUI();
             drawBoard();
         }
 
@@ -1332,6 +1346,10 @@ return {
             ps.tryPlayMode = true;
             ps.tryPlaySide = ps.sideToMove;
             ps.replayMode = true;
+            ps.tryPlaySnapshots = [snapshotFrom(ps.board, ps.sideToMove, ps.castling, ps.enPassant)];
+            ps.tryPlayStep = 0;
+            ps.tryPlayTotalSteps = 0;
+            updateTryPlayDisplay();
             updateReplayUI();
             drawBoard();
         }
@@ -1346,11 +1364,26 @@ return {
                 ps.sideToMove = ps._tryPlayBackup.side;
                 ps._tryPlayBackup = null;
             }
+            ps.tryPlaySnapshots = [];
+            ps.tryPlayStep = 0;
+            ps.tryPlayTotalSteps = 0;
+            updateTryPlayDisplay();
             updateReplayUI();
             drawBoard();
         }
-        function setTryPlayStep() {}
-        function updateTryPlayDisplay() {}
+        function setTryPlayStep(step) {
+            if (!ps.tryPlayMode) return;
+            ps.tryPlayStep = Math.max(0, Math.min(ps.tryPlayTotalSteps, step));
+            if (ps.tryPlaySnapshots[ps.tryPlayStep]) applySnapshot(ps.tryPlaySnapshots[ps.tryPlayStep]);
+            updateTryPlayDisplay();
+            drawBoard();
+        }
+        function updateTryPlayDisplay() {
+            const stepDisplay = document.getElementById('replayStepDisplay');
+            if (ps.tryPlayMode && stepDisplay) {
+                stepDisplay.innerText = `试下 ${ps.tryPlayStep} / ${ps.tryPlayTotalSteps}`;
+            }
+        }
         function rebuildLiveReplayFromMoveCoords(moveCoords, openingBoard) {
             const syncedLen = ps.liveSnapshots.length - 1;
             const mcs = moveCoords || [];
