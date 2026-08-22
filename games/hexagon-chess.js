@@ -209,7 +209,13 @@ function rookLineTargets(board, r, c, color) {
     return out;
 }
 
-/** 马：车 1 步 + 象 1 步（可跳，12 位置） */
+const KNIGHT_DIRS = ['E', 'NE', 'NW', 'W', 'SW', 'SE'];
+/** 转向方向：首步方向的相邻两方向（d±60°）——远离起点；直行与三个靠近起点的方向排除 */
+function knightTurnDirs(d) {
+    const i = KNIGHT_DIRS.indexOf(d);
+    return [KNIGHT_DIRS[(i + 1) % 6], KNIGHT_DIRS[(i + 5) % 6]];
+}
+/** 马：先沿某方向走两格，再沿另一方向走一格（转向必须远离起点），沿途允许有棋子——每起点 12 位置 */
 function knightTargets(board, r, c, color) {
     const out = [];
     const seen = new Set();
@@ -222,22 +228,14 @@ function knightTargets(board, r, c, color) {
         seen.add(key);
         out.push(n);
     };
-    // 先车后象
-    for (const d of ['E', 'W', 'NE', 'NW', 'SE', 'SW']) {
-        const m1 = dirNeighbor(r, c, d);
-        if (!m1) continue;
-        for (const th of BISHOP_THETAS) {
-            const s = bishopNext(m1.row, m1.col, th);
+    for (const d of KNIGHT_DIRS) {
+        const p1 = dirNeighbor(r, c, d);
+        if (!p1) continue;
+        const p2 = dirNeighbor(p1.row, p1.col, d);
+        if (!p2) continue;
+        for (const t of knightTurnDirs(d)) {
+            const s = dirNeighbor(p2.row, p2.col, t);
             if (s) tryAdd(s);
-        }
-    }
-    // 先象后车
-    for (const th of BISHOP_THETAS) {
-        const s = bishopNext(r, c, th);
-        if (!s) continue;
-        for (const d of ['E', 'W', 'NE', 'NW', 'SE', 'SW']) {
-            const m2 = dirNeighbor(s.row, s.col, d);
-            if (m2) tryAdd(m2);
         }
     }
     return out;
