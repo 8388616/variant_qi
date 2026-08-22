@@ -671,6 +671,18 @@ const R = (function () {
             });
         }
 
+        function snapshotFrom(board, side, ep) {
+            return {
+                board: Object.fromEntries(Object.entries(board).map(([k, v]) => [k, { ...v }])),
+                side,
+                ep
+            };
+        }
+        function applySnapshot(snap) {
+            ps.board = snap.board;
+            ps.tryPlaySide = snap.side;
+            ps.lastEnPassant = snap.ep;
+        }
         function tryPlayMove(fromId, toId, promote) {
             const legals = R.allLegalMoves(ps.board, ps.tryPlaySide, ps.lastEnPassant);
             const target = legals.find((m) => m.from === fromId && m.to === toId);
@@ -679,9 +691,16 @@ const R = (function () {
             if (target.promote && !promote) promote = 'q';
             move.promote = promote || null;
             R.applyMove(ps.board, move, ps.lastEnPassant);
-            ps.tryPlaySide = R.oppositeSide(ps.tryPlaySide);
-            ps.tryPlayStep = (ps.tryPlayStep || 0) + 1;
-            ps.tryPlayTotalSteps = ps.tryPlayStep;
+            const side = R.oppositeSide(ps.tryPlaySide);
+            if (ps.tryPlayStep < ps.tryPlayTotalSteps) {
+                ps.tryPlaySnapshots.length = ps.tryPlayStep + 1;
+            }
+            ps.tryPlaySnapshots.push(snapshotFrom(ps.board, side, ps.lastEnPassant));
+            ps.tryPlayTotalSteps = ps.tryPlaySnapshots.length - 1;
+            ps.tryPlayStep = ps.tryPlayTotalSteps;
+            ps.tryPlaySide = side;
+            applySnapshot(ps.tryPlaySnapshots[ps.tryPlayStep]);
+            updateTryPlayDisplay();
             drawBoard();
             return true;
         }
@@ -695,10 +714,12 @@ const R = (function () {
             }
             ps.tryPlayMode = true;
             ps.tryPlaySide = ps.sideToMove;
+            ps.tryPlaySnapshots = [snapshotFrom(ps.board, ps.sideToMove, ps.lastEnPassant)];
             ps.tryPlayStep = 0;
             ps.tryPlayTotalSteps = 0;
             const tryPlayBtn = document.getElementById('tryPlayBtn');
             if (tryPlayBtn) tryPlayBtn.innerText = '试下结束';
+            updateTryPlayDisplay();
             drawBoard();
         }
         function exitTryPlay() {
@@ -710,9 +731,31 @@ const R = (function () {
                 ps.sideToMove = ps._tryPlayBackup.side;
                 ps._tryPlayBackup = null;
             }
+            ps.tryPlaySnapshots = [];
+            ps.tryPlayStep = 0;
+            ps.tryPlayTotalSteps = 0;
             const tryPlayBtn = document.getElementById('tryPlayBtn');
             if (tryPlayBtn) tryPlayBtn.innerText = '试下';
+            updateTryPlayDisplay();
             drawBoard();
+        }
+        function setTryPlayStep(step) {
+            if (!ps.tryPlayMode) return;
+            ps.tryPlayStep = Math.max(0, Math.min(ps.tryPlayTotalSteps, step));
+            if (ps.tryPlaySnapshots[ps.tryPlayStep]) applySnapshot(ps.tryPlaySnapshots[ps.tryPlayStep]);
+            updateTryPlayDisplay();
+            drawBoard();
+        }
+        function updateTryPlayDisplay() {
+            const stepDisplay = document.getElementById('replayStepDisplay');
+            if (ps.tryPlayMode && stepDisplay) {
+                stepDisplay.innerText = `试下 ${ps.tryPlayStep} / ${ps.tryPlayTotalSteps}`;
+            }
+            const slider = document.getElementById('replaySlider');
+            if (slider && ps.tryPlayMode) {
+                slider.max = ps.tryPlayTotalSteps;
+                slider.value = ps.tryPlayStep;
+            }
         }
         function commitMove(fromId, toId, promote) {
             if (!ps.ws || ps.ws.readyState !== 1) return;
@@ -851,6 +894,8 @@ const R = (function () {
             enterTryPlay,
             exitTryPlay,
             tryPlayMove,
+            setTryPlayStep,
+            updateTryPlayDisplay,
             getWs: () => ps.ws,
             getBoardSize: () => 72,
             setBoardSize: () => {},

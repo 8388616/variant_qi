@@ -1324,6 +1324,14 @@ return {
             drawBoard();
         }
         function updateReplayUI() {
+            const slider = document.getElementById('replaySlider');
+            const stepDisp = document.getElementById('replayStepDisplay');
+            let total = 0, cur = 0;
+            if (ps.tryPlayMode) { total = ps.tryPlayTotalSteps; cur = ps.tryPlayStep; }
+            else if (ps.replayMode) { total = ps.replayTotalSteps; cur = ps.replayStep; }
+            else { total = Math.max(0, ps.liveSnapshots.length - 1); cur = ps.liveViewStep; }
+            if (slider) { slider.max = total; slider.value = cur; }
+            if (stepDisp) stepDisp.textContent = `${cur} / ${total}`;
             const tryPlayBtn = document.getElementById('tryPlayBtn');
             if (tryPlayBtn) {
                 tryPlayBtn.innerText = ps.tryPlayMode ? '试下结束' : '试下';
