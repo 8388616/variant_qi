@@ -1311,8 +1311,34 @@ return {
         }
         function updateReplayUI() {}
         function setLiveViewStep(step) { ps.liveViewStep = step; }
-        function enterTryPlay() { ps.tryPlayMode = true; ps.tryPlaySide = ps.sideToMove; }
-        function exitTryPlay() { ps.tryPlayMode = false; ps.tryPlaySide = 'white'; }
+        function enterTryPlay() {
+            // 试下从当前局面出发：保存局面，退出时恢复；tryPlayMove 要求 replayMode
+            if (!ps.tryPlayMode) {
+                ps._tryPlayBackup = {
+                    board: R.copyBoard(ps.board),
+                    castling: ps.castling,
+                    enPassant: ps.enPassant,
+                    side: ps.sideToMove
+                };
+            }
+            ps.tryPlayMode = true;
+            ps.tryPlaySide = ps.sideToMove;
+            ps.replayMode = true;
+            drawBoard();
+        }
+        function exitTryPlay() {
+            ps.tryPlayMode = false;
+            ps.replayMode = false;
+            ps.tryPlaySide = 'white';
+            if (ps._tryPlayBackup) {
+                ps.board = ps._tryPlayBackup.board;
+                ps.castling = ps._tryPlayBackup.castling;
+                ps.enPassant = ps._tryPlayBackup.enPassant;
+                ps.sideToMove = ps._tryPlayBackup.side;
+                ps._tryPlayBackup = null;
+            }
+            drawBoard();
+        }
         function setTryPlayStep() {}
         function updateTryPlayDisplay() {}
         function rebuildLiveReplayFromMoveCoords(moveCoords, openingBoard) {

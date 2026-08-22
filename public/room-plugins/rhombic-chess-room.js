@@ -631,15 +631,16 @@ const R = (function () {
             const id = getClosestCell(x, y);
             if (id < 0) return;
 
-            if (ps.gameOver || !isMyTurnNow()) {
+            if (!ps.tryPlayMode && (ps.gameOver || !isMyTurnNow())) {
                 ps.selectedId = -1; ps.legalTargets = [];
                 drawBoard();
                 return;
             }
+            const moveSide = ps.tryPlayMode ? ps.tryPlaySide : ps.sideToMove;
             const piece = pieceAt(id);
-            if (piece && piece[0] === (ps.sideToMove === 'white' ? 'w' : 'b')) {
+            if (piece && piece[0] === (moveSide === 'white' ? 'w' : 'b')) {
                 ps.selectedId = id;
-                ps.legalTargets = R.allLegalMoves(ps.board, ps.sideToMove, ps.lastEnPassant)
+                ps.legalTargets = R.allLegalMoves(ps.board, moveSide, ps.lastEnPassant)
                     .filter((m) => m.from === id)
                     .map((m) => ({ to: m.to, needsPromote: !!m.promote }));
                 drawBoard();
@@ -650,6 +651,8 @@ const R = (function () {
                 if (t.needsPromote) {
                     ps.pendingPromote = { from: ps.selectedId, to: id };
                     showPromote(id);
+                } else if (ps.tryPlayMode) {
+                    tryPlayMove(ps.selectedId, id, null);
                 } else {
                     commitMove(ps.selectedId, id, null);
                 }
@@ -668,6 +671,45 @@ const R = (function () {
             });
         }
 
+        function tryPlayMove(fromId, toId, promote) {
+            const legals = R.allLegalMoves(ps.board, ps.tryPlaySide, ps.lastEnPassant);
+            const target = legals.find((m) => m.from === fromId && m.to === toId);
+            if (!target) return false;
+            const move = { from: fromId, to: toId };
+            if (target.promote && !promote) promote = 'q';
+            move.promote = promote || null;
+            R.applyMove(ps.board, move, ps.lastEnPassant);
+            ps.tryPlaySide = R.oppositeSide(ps.tryPlaySide);
+            ps.tryPlayStep = (ps.tryPlayStep || 0) + 1;
+            ps.tryPlayTotalSteps = ps.tryPlayStep;
+            drawBoard();
+            return true;
+        }
+        function enterTryPlay() {
+            if (!ps.tryPlayMode) {
+                ps._tryPlayBackup = {
+                    board: Object.fromEntries(Object.entries(ps.board).map(([k, v]) => [k, { ...v }])),
+                    ep: ps.lastEnPassant,
+                    side: ps.sideToMove
+                };
+            }
+            ps.tryPlayMode = true;
+            ps.tryPlaySide = ps.sideToMove;
+            ps.tryPlayStep = 0;
+            ps.tryPlayTotalSteps = 0;
+            drawBoard();
+        }
+        function exitTryPlay() {
+            ps.tryPlayMode = false;
+            ps.tryPlaySide = 'white';
+            if (ps._tryPlayBackup) {
+                ps.board = ps._tryPlayBackup.board;
+                ps.lastEnPassant = ps._tryPlayBackup.ep;
+                ps.sideToMove = ps._tryPlayBackup.side;
+                ps._tryPlayBackup = null;
+            }
+            drawBoard();
+        }
         function commitMove(fromId, toId, promote) {
             if (!ps.ws || ps.ws.readyState !== 1) return;
             const fc = R.CELLS[fromId], tc = R.CELLS[toId];
@@ -691,7 +733,11 @@ const R = (function () {
                     const { from, to } = ps.pendingPromote;
                     ps.pendingPromote = null;
                     hidePromote();
-                    commitMove(from, to, t);
+                    if (ps.tryPlayMode) {
+                        tryPlayMove(from, to, t);
+                    } else {
+                        commitMove(from, to, t);
+                    }
                     ps.selectedId = -1; ps.legalTargets = [];
                     drawBoard();
                 }
@@ -798,6 +844,9 @@ const R = (function () {
 
         const _weiqiBindings = QiBoardRoomClient.createWeiqiMessageBindings({
             pageState: ps,
+            enterTryPlay,
+            exitTryPlay,
+            tryPlayMove,
             getWs: () => ps.ws,
             getBoardSize: () => 72,
             setBoardSize: () => {},
