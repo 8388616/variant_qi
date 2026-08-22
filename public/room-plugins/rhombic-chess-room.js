@@ -697,6 +697,8 @@ const R = (function () {
             ps.tryPlaySide = ps.sideToMove;
             ps.tryPlayStep = 0;
             ps.tryPlayTotalSteps = 0;
+            const tryPlayBtn = document.getElementById('tryPlayBtn');
+            if (tryPlayBtn) tryPlayBtn.innerText = '试下结束';
             drawBoard();
         }
         function exitTryPlay() {
@@ -708,6 +710,8 @@ const R = (function () {
                 ps.sideToMove = ps._tryPlayBackup.side;
                 ps._tryPlayBackup = null;
             }
+            const tryPlayBtn = document.getElementById('tryPlayBtn');
+            if (tryPlayBtn) tryPlayBtn.innerText = '试下';
             drawBoard();
         }
         function commitMove(fromId, toId, promote) {

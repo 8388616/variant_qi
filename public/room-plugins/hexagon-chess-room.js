@@ -1309,7 +1309,15 @@ return {
             if (ps.replaySnapshots[ps.replayStep]) ps.board = R.copyBoard(ps.replaySnapshots[ps.replayStep]);
             drawBoard();
         }
-        function updateReplayUI() {}
+        function updateReplayUI() {
+            const tryPlayBtn = document.getElementById('tryPlayBtn');
+            if (tryPlayBtn) {
+                tryPlayBtn.innerText = ps.tryPlayMode ? '试下结束' : '试下';
+                const isPlayer = !!ps.mySlot;
+                const matchStarted = !!(ps.matchStarted || (ps.matchTime && ps.matchTime.settings));
+                tryPlayBtn.style.display = (isPlayer && matchStarted && !ps.replayMode) ? 'none' : '';
+            }
+        }
         function setLiveViewStep(step) { ps.liveViewStep = step; }
         function enterTryPlay() {
             // 试下从当前局面出发：保存局面，退出时恢复；tryPlayMove 要求 replayMode
@@ -1324,6 +1332,7 @@ return {
             ps.tryPlayMode = true;
             ps.tryPlaySide = ps.sideToMove;
             ps.replayMode = true;
+            updateReplayUI();
             drawBoard();
         }
         function exitTryPlay() {
@@ -1337,6 +1346,7 @@ return {
                 ps.sideToMove = ps._tryPlayBackup.side;
                 ps._tryPlayBackup = null;
             }
+            updateReplayUI();
             drawBoard();
         }
         function setTryPlayStep() {}
