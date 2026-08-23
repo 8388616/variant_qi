@@ -798,6 +798,7 @@ class UkrainianWeiqiRoom extends QiTwoPlayerRoomBase {
         const hasPlayer = this.room.getPlayerBySlot('black') || this.room.getPlayerBySlot('white');
         if (hasAnyStone || hasPlayer) return false;
         this.boardSize = newSize;
+        this.openingBoard = undefined;
         this.board = Array(this.boardSize).fill().map(() => Array(this.boardSize).fill(0));
         this.currentPlayer = 1;
         this.historyBoards = [];

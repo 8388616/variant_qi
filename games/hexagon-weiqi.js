@@ -450,6 +450,7 @@ class HexagonWeiqiRoom extends QiTwoPlayerRoomBase {
         }
         const { vertexCount, neighbors } = generateHexBoardData(newSize);
         this.boardSize = newSize;
+        this.openingBoard = undefined;
         this.vertexCount = vertexCount;
         this.neighbors = neighbors;
         this.board = Array(this.vertexCount).fill(0);

@@ -410,6 +410,7 @@ class TwistedSpaceWeiqiRoom extends QiTwoPlayerRoomBase {
         const hasPlayer = this.room.getPlayerBySlot('black') || this.room.getPlayerBySlot('white');
         if (hasAnyStone || hasPlayer) return false;
         this.boardSize = newSize;
+        this.openingBoard = undefined;
         this.resetToEmpty();
         this.broadcast({ type: 'boardSizeChanged', boardSize: this.boardSize });
         this.broadcast({ type: 'gameState', ...this.getState() });

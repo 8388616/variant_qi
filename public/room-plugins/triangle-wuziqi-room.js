@@ -672,7 +672,10 @@ const scoreTitle = document.getElementById('scoreTitle');
             liveReplayBoards = [];
             liveReplayMarkers = [];
             liveReplayStepPlayers = [0];
-            let cur = openingBoard ? deepCopyBoard(openingBoard) : initBoardArray(ROWS);
+            let cur = initBoardArray(ROWS);
+            if (openingBoard && Array.isArray(openingBoard) && Array.isArray(openingBoard[0])
+                && openingBoard.length === cur.length && openingBoard[0].length === cur[0].length)
+                cur = deepCopyBoard(openingBoard);
             liveReplayBoards.push(deepCopyBoard(cur));
             liveReplayMarkers.push([]);
             for (const m of (moveCoords || [])) {

@@ -568,10 +568,12 @@ const R = (function () {
                 const did = displayId(t.to);
                 const { x, y } = cellCenter(did);
                 if (pieceAt(t.to)) {
-                    const half = SCALE * 0.38;
+                    // 菱形框（与棋格形状/方向一致），比例与标准国际象棋一致（0.76 × 格尺寸）
+                    const verts = cellVerts(did).map((v) => ({ x: x + (v.x - x) * 0.76, y: y + (v.y - y) * 0.76 }));
                     ctx2d.strokeStyle = 'rgba(163,92,39,0.9)';
                     ctx2d.lineWidth = 4;
-                    ctx2d.strokeRect(x - half, y - half, half * 2, half * 2);
+                    tracePoly(verts);
+                    ctx2d.stroke();
                 } else {
                     const half = SCALE * 0.12;
                     ctx2d.fillStyle = 'rgba(163,92,39,0.9)';

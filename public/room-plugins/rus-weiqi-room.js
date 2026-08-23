@@ -580,9 +580,10 @@ const scoreTitle = document.getElementById('scoreTitle');
         }
 
         function rebuildCompoundLive(moveCoords, openingBoard) {
-            let curBoard = openingBoard
-                ? deepCopyBoard(openingBoard)
-                : C().initBoardArray(ps.BOARD_SIZE);
+            let curBoard = C().initBoardArray(ps.BOARD_SIZE);
+            if (openingBoard && Array.isArray(openingBoard) && Array.isArray(openingBoard[0])
+                && openingBoard.length === curBoard.length && openingBoard[0].length === curBoard[0].length)
+                curBoard = deepCopyBoard(openingBoard);
             let lu = { 1: -1, 2: -1 };
             const liveReplayLastUsedAtStep = [{ 1: -1, 2: -1 }];
             const liveReplayBoards = [deepCopyBoard(curBoard)];

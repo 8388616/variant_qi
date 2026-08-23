@@ -507,9 +507,10 @@ function unstableLifetimeForSize(size) {
             ps.liveReplayMoveCounts = [];
             ps.liveReplayMarkers = [];
             ps.liveReplayStepPlayers = [0];
-            let curBoard = openingBoard
-                ? C().deepCopyBoard(openingBoard)
-                : C().initBoardArray(size);
+            let curBoard = C().initBoardArray(size);
+            if (openingBoard && Array.isArray(openingBoard) && Array.isArray(openingBoard[0])
+                && openingBoard.length === curBoard.length && openingBoard[0].length === curBoard[0].length)
+                curBoard = C().deepCopyBoard(openingBoard);
             let curUnstable = C().initBoardArray(size);
             let curMc = 0;
             ps.liveReplayBoards.push(C().deepCopyBoard(curBoard));

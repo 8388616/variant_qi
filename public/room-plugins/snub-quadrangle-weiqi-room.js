@@ -1152,7 +1152,10 @@ const scoreTitle = document.getElementById('scoreTitle');
             liveReplayBoards = [];
             liveReplayMarkers = [];
             liveReplayStepPlayers = [0];
-            let curBoard = openingBoard ? deepCopyBoard(openingBoard) : initGridBoard();
+            let curBoard = initGridBoard();
+            if (openingBoard && Array.isArray(openingBoard) && Array.isArray(openingBoard[0])
+                && openingBoard.length === curBoard.length && openingBoard[0].length === curBoard[0].length)
+                curBoard = deepCopyBoard(openingBoard);
             liveReplayBoards.push(deepCopyBoard(curBoard));
             liveReplayMarkers.push([]);
             for (const move of (moveCoords || [])) {

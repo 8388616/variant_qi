@@ -483,6 +483,7 @@ class TranspositionWeiqiRoom extends QiTwoPlayerRoomBase
             return false;
         }
         this.boardSize = newSize;
+        this.openingBoard = undefined;
         // 设置路数后按新路数清空盘面与对局记录（不释放座位）
         this.resetToEmpty();
         this.broadcast({ type: 'boardSizeChanged', boardSize: this.boardSize });

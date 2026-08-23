@@ -957,10 +957,11 @@ return {
                 const { x, y } = cellCenter(dp.row, dp.col);
                 const occupied = !!ps.board[t.row][t.col];
                 if (occupied) {
-                    const half = CELL * 0.38;
+                    // 六角形框（与棋格形状一致），比例与标准国际象棋一致（0.76 × 格径）
+                    traceHex(x, y, HEX_OUTER * 0.76);
                     ctx2d.strokeStyle = 'rgba(163,92,39,0.9)';
                     ctx2d.lineWidth = 4;
-                    ctx2d.strokeRect(x - half, y - half, half * 2, half * 2);
+                    ctx2d.stroke();
                 } else {
                     const half = CELL * 0.12;
                     ctx2d.fillStyle = 'rgba(163,92,39,0.9)';

@@ -670,6 +670,7 @@ class ChoiceWeiqiRoom extends QiTwoPlayerRoomBase {
             return false;
         }
         this.boardSize = newSize;
+        this.openingBoard = undefined;
         this.resetGame();
         this.broadcast({ type: 'boardSizeChanged', boardSize: this.boardSize });
         return true;

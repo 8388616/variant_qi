@@ -3,7 +3,7 @@ window.RoomPlugins["cairo-pentagon-weiqi"] = {
     shell: {
         "title": "开罗五角围棋",
         "rulesHtml": "基本规则同围棋。<br /><br />采用开罗五角棋盘。<br />",
-        "defaultKomiText": "黑贴白3.25点",
+        "defaultKomiText": "黑贴白2.5点",
         "boardSizeMin": 3,
         "boardSizeMax": 10,
         "defaultBoardSize": 4,
@@ -35,7 +35,7 @@ window.RoomPlugins["cairo-pentagon-weiqi"] = {
         let GRID_W = 4 * BOARD_LANES - 5;   // 行数
         let GRID_H = 4 * BOARD_LANES - 3;   // 列数
         function komiForLanes(lanes) {
-            return 3.25;
+            return lanes === 4 ? 2.5 : 2;
         }
         let KOMI = komiForLanes(BOARD_LANES);
         let vertexPos = new Map();
@@ -487,6 +487,12 @@ const scoreTitle = document.getElementById('scoreTitle');
             board = initGridBoard();
             rebuildLayout();
             updateKomiInfo();
+            // 尺寸变化后旧尺寸的直播重放序列不可再用（增量扩展会产生行数不足的棋盘，
+            // drawBoard 按新 GRID_W 越界报 undefined）；清空后下次 syncState 全量重建
+            liveReplayBoards = [];
+            liveReplayMarkers = [];
+            liveReplayStepPlayers = [];
+            liveViewStep = 0;
         }
 
         function rebuildLayout() {
@@ -1092,7 +1098,14 @@ const scoreTitle = document.getElementById('scoreTitle');
             liveReplayBoards = [];
             liveReplayMarkers = [];
             liveReplayStepPlayers = [0];
-            let curBoard = openingBoard ? deepCopyBoard(openingBoard) : initGridBoard();
+            // 开局盘尺寸必须与当前棋盘一致：服务端路数变化若未重建开局盘（旧部署），
+            // 旧尺寸开局盘会令重放序列越界（drawBoard 按 GRID_W 循环 board[r] undefined）
+            let curBoard = initGridBoard();
+            if (openingBoard && Array.isArray(openingBoard)
+                && openingBoard.length === GRID_W
+                && openingBoard[0] && openingBoard[0].length === GRID_H) {
+                curBoard = deepCopyBoard(openingBoard);
+            }
             liveReplayBoards.push(deepCopyBoard(curBoard));
             liveReplayMarkers.push([]);
             for (const move of (moveCoords || [])) {

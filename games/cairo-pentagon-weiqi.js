@@ -1,7 +1,7 @@
 const { QiTwoPlayerRoomBase, gridGraphWeiqiRules, qiMatchTimeControl, qiProtocol, qiBoardSeatOverlay } = require('../common');
 
 function komiForLanes(lanes) {
-    return 3.25;
+    return lanes === 4 ? 2.5 : 2;
 }
 
 class CairoPentagonWeiqiRoom extends QiTwoPlayerRoomBase {
@@ -742,6 +742,9 @@ class CairoPentagonWeiqiRoom extends QiTwoPlayerRoomBase {
             return false;
         }
         this.boardLanes = newSize;
+        // 路数变化后开局盘必须按新尺寸重建，否则 getState.initialBoard 广播旧尺寸棋盘，
+        // 客户端以其为直播重放起点产生越界（drawBoard board[r] undefined）
+        this.openingBoard = undefined;
         this._allocBoard();
         this.currentPlayer = 1;
         this.gameOver = false;

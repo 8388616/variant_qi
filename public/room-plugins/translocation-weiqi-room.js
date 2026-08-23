@@ -419,9 +419,10 @@ const scoreTitle = document.getElementById('scoreTitle');
             ps.liveReplayHighlights = [];
             ps.liveReplayMovePlayerColors = [];
             ps.liveReplayStepPlayers = [0];
-            let curBoard = openingBoard
-                ? C().deepCopyBoard(openingBoard)
-                : C().initBoardArray(size);
+            let curBoard = C().initBoardArray(size);
+            if (openingBoard && Array.isArray(openingBoard) && Array.isArray(openingBoard[0])
+                && openingBoard.length === curBoard.length && openingBoard[0].length === curBoard[0].length)
+                curBoard = C().deepCopyBoard(openingBoard);
             ps.liveReplayBoards.push(C().deepCopyBoard(curBoard));
             ps.liveReplayMarkers.push([]);
             ps.liveReplayHighlights.push([]);

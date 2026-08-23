@@ -273,6 +273,7 @@ class TriangleWeiqiRoom extends QiTwoPlayerRoomBase
             return false;
         }
         this.boardSize = newSize;
+        this.openingBoard = undefined;
         this.board = this.createEmptyBoard();
         // 同步 openingBoard，避免 initialBoard 与 board 尺寸不一致（改大路数时客户端会把旧尺寸盘面当新尺寸渲染）
         this.openingBoard = this.copyBoard(this.board);

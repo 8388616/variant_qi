@@ -742,6 +742,7 @@ class SnubQuadrangleWeiqiRoom extends QiTwoPlayerRoomBase {
             return false;
         }
         this.boardLanes = newSize;
+        this.openingBoard = undefined;
         this._allocBoard();
         this.currentPlayer = 1;
         this.gameOver = false;

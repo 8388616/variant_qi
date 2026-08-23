@@ -776,6 +776,7 @@ class InstabilityWeiqiRoom extends QiTwoPlayerRoomBase
         if (hasAnyStone || hasPlayer)
             return false;
         this.boardSize = newSize;
+        this.openingBoard = undefined;
         this.resetGame();
         this.broadcast({ type: 'boardSizeChanged', boardSize: this.boardSize });
         return true;

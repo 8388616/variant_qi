@@ -3803,9 +3803,14 @@
                 tryPlaceStone,
                 deepCopyBoard,
                 () => {
-                    if (openingBoard) return deepCopyBoard(openingBoard);
-                    if (ps.liveOpeningBoard) return deepCopyBoard(ps.liveOpeningBoard);
-                    return initBoardArray(ps.BOARD_SIZE);
+                    // 起始棋盘必须与当前棋盘同尺寸：尺寸变化后旧开局盘（state.initialBoard/
+                    // liveOpeningBoard 缓存）维度不匹配，重放序列越界（drawBoard board[r] undefined）
+                    const empty = initBoardArray(ps.BOARD_SIZE);
+                    const sameDim = (b) => b && Array.isArray(b) && Array.isArray(b[0])
+                        && b.length === empty.length && b[0].length === empty[0].length;
+                    if (sameDim(openingBoard)) return deepCopyBoard(openingBoard);
+                    if (sameDim(ps.liveOpeningBoard)) return deepCopyBoard(ps.liveOpeningBoard);
+                    return empty;
                 }
             );
             ps.liveReplayBoards = o.liveReplayBoards;
@@ -3929,11 +3934,14 @@
             if (ps.editModeEnabled || ps.replayMode) return;
             const moves = (state && state.moveCoords) || [];
             if (moves.length) return;
+            // 只接受与当前棋盘同尺寸的候选开局盘（尺寸变化后旧尺寸棋盘必须丢弃）
+            const sameDim = (b) => b && Array.isArray(b) && Array.isArray(b[0])
+                && b.length === ps.board.length && b[0].length === ps.board[0].length;
             const opening = pickRichestOpening(
-                ps._editCommitSnapshot,
-                ps.liveOpeningBoard,
-                state && state.initialBoard,
-                state && state.board,
+                sameDim(ps._editCommitSnapshot) ? ps._editCommitSnapshot : null,
+                sameDim(ps.liveOpeningBoard) ? ps.liveOpeningBoard : null,
+                sameDim(state && state.initialBoard) ? state.initialBoard : null,
+                sameDim(state && state.board) ? state.board : null,
                 ps.board
             );
             if (!opening) return;
@@ -3950,11 +3958,18 @@
 
         function syncState(state) {
             if (enableEditBoard && state && !ps.editModeEnabled) {
+                // 尺寸变化时旧尺寸开局盘（initialBoard/liveOpeningBoard）不能用作 opening：
+                // 以其为起点重放会产生维度不匹配的棋盘，drawBoard 越界。按新尺寸过滤
+                const openingSize = (state.boardSize && Number.isFinite(state.boardSize))
+                    ? state.boardSize : ps.BOARD_SIZE;
+                const emptyRef = initBoardArray(openingSize);
+                const sameDim = (b) => b && Array.isArray(b) && Array.isArray(b[0])
+                    && b.length === emptyRef.length && b[0].length === emptyRef[0].length;
                 const opening = pickRichestOpening(
                     ps._editCommitSnapshot,
-                    state.initialBoard,
+                    sameDim(state.initialBoard) ? state.initialBoard : null,
                     (!(state.moveCoords && state.moveCoords.length) ? state.board : null),
-                    ps.liveOpeningBoard
+                    sameDim(ps.liveOpeningBoard) ? ps.liveOpeningBoard : null
                 );
                 if (opening) ps.liveOpeningBoard = deepCopyBoard(opening);
                 ps.gameStarted = (state.numberOfHands || 1) > 1;
@@ -4011,6 +4026,11 @@
                 ps.BOARD_SIZE = state.boardSize;
                 if (state.komi != null && Number.isFinite(state.komi)) ps.KOMI = state.komi;
                 ps.board = initBoardArray(ps.BOARD_SIZE);
+                // 尺寸变化后旧尺寸直播重放序列不可再用（增量扩展会越界），强制全量重建
+                ps.liveReplayBoards = [];
+                ps.liveReplayMarkers = [];
+                ps.liveReplayStepPlayers = [];
+                ps.liveViewStep = 0;
                 updateBoardGeometry();
                 const boardSizeSelect = document.getElementById('boardSizeSelect');
                 if (boardSizeSelect) 
@@ -4049,11 +4069,14 @@
                 const wasAtEnd = ps.liveFollowLatest || ps.liveViewStep >= prevTotal;
                 const moves = state.moveCoords || [];
                 if (!moves.length) {
+                    // 尺寸变化后旧尺寸开局盘不可用（重放序列维度不匹配会越界），只接受同尺寸候选
+                    const sameDim = (b) => b && Array.isArray(b) && Array.isArray(b[0])
+                        && b.length === ps.board.length && b[0].length === ps.board[0].length;
                     const opening = pickRichestOpening(
-                        ps._editCommitSnapshot,
-                        ps.liveOpeningBoard,
-                        state.initialBoard,
-                        state.board
+                        sameDim(ps._editCommitSnapshot) ? ps._editCommitSnapshot : null,
+                        sameDim(ps.liveOpeningBoard) ? ps.liveOpeningBoard : null,
+                        sameDim(state.initialBoard) ? state.initialBoard : null,
+                        sameDim(state.board) ? state.board : null
                     );
                     if (opening) {
                         ps.liveOpeningBoard = deepCopyBoard(opening);
@@ -5854,11 +5877,17 @@
                 ? `1px 1px 0 ${t.stroke}, -1px -1px 0 ${t.stroke}, 1px -1px 0 ${t.stroke}, -1px 1px 0 ${t.stroke}`
                 : '';
             // 倒置棋子（如古印度象棋的象与士）旋转 180° 并向上偏移对齐（与棋盘绘制比例一致：0.1×字号）
+            // 切换工具时先清除残留 transform/display，否则选过倒置棋子后正常棋子也一直倒置显示
+            span.style.display = '';
+            span.style.transform = '';
             if (t && t.upsideDown) {
                 span.style.display = 'inline-block';
                 span.style.transform = 'rotate(180deg) translateY(0.1em)';
             }
             // 叠加棋子（如国际象棋的相/亚）：同一位置上下叠加，上层=label[0]（马）靠上、下层=label[1]（车/后）靠下，各 0.9×，总高一致
+            span.style.position = '';
+            span.style.width = '';
+            span.style.height = '';
             if (t && t.stack && typeof t.label === 'string' && t.label.length >= 2) {
                 span.style.position = 'relative';
                 span.style.display = 'inline-block';
@@ -6145,9 +6174,7 @@
     function loadScript(src) {
         return new Promise((resolve, reject) => {
             const s = document.createElement('script');
-            // 插件脚本曾被强缓存；带版本参数确保部署后立刻拉到新文件
-            const bust = (src.indexOf('?') >= 0 ? '&' : '?') + 'v=' + Date.now();
-            s.src = src + bust;
+            s.src = src;
             s.onload = () => resolve();
             s.onerror = () => reject(new Error('Failed to load ' + src));
             document.head.appendChild(s);

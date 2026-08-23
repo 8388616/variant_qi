@@ -143,9 +143,10 @@ const scoreTitle = document.getElementById('scoreTitle');
         }
 
         function zlRebuildLiveReplayFromMoveCoords(moveCoords, openingBoard) {
-            let curBoard = openingBoard
-                ? QiSquareWeiqiCanvas.deepCopyBoard(openingBoard)
-                : QiSquareWeiqiCanvas.initBoardArray(ps.BOARD_SIZE);
+            let curBoard = QiSquareWeiqiCanvas.initBoardArray(ps.BOARD_SIZE);
+            if (openingBoard && Array.isArray(openingBoard) && Array.isArray(openingBoard[0])
+                && openingBoard.length === curBoard.length && openingBoard[0].length === curBoard[0].length)
+                curBoard = QiSquareWeiqiCanvas.deepCopyBoard(openingBoard);
             const liveReplayBoards = [QiSquareWeiqiCanvas.deepCopyBoard(curBoard)];
             const liveReplayMarkers = [[]];
             const liveReplayStepPlayers = [0];

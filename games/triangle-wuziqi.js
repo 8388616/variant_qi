@@ -306,6 +306,7 @@ class TriangleWuziqiRoom extends QiTwoPlayerRoomBase {
             return false;
         }
         this.BOARD_SIZE = newSize;
+        this.openingBoard = undefined;
         this.boardSize = newSize;
         this.resetToEmpty();
         this.broadcast({ type: 'boardSizeChanged', boardSize: this.BOARD_SIZE });

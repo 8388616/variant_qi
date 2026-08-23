@@ -340,6 +340,14 @@ window.RoomPlugins["continuous-weiqi"] = {
     let replayStepPlayers = [];
     let replayStep = 0;
     let replayTotalSteps = 0;
+    let tryPlayMode = false;
+    let tryPlaySeq = [];
+    let tryPlayMarkersSeq = [];
+    let tryPlayStep = 0;
+    let tryPlayTotalSteps = 0;
+    let tryPlayPlayer = 1;
+    let tryPlayBasePlayer = 1;
+    let _tryPlayBackup = null;
     let liveReplayStonesSeq = [];
     let liveReplayMarkers = [];
     let liveViewStep = 0;
@@ -539,10 +547,10 @@ const scoreTitle = document.getElementById('scoreTitle');
                 ctx.fillText(String(num), px, py);
             }
         }
-        if (!replayMode && !gameOver && isMyTurn() && isHoverValid && hoverGx >= 0) {
+        if (!replayMode && !gameOver && (tryPlayMode || isMyTurn()) && isHoverValid && hoverGx >= 0) {
             const [px, py] = gameToPx(hoverGx, hoverGy);
             ctx.globalAlpha = 0.45;
-            ctx.fillStyle = currentPlayer === 1 ? '#1a1a1a' : '#f4f1ea';
+            ctx.fillStyle = (tryPlayMode ? tryPlayPlayer : currentPlayer) === 1 ? '#1a1a1a' : '#f4f1ea';
             ctx.beginPath();
             ctx.arc(px, py, radius, 0, Math.PI * 2);
             ctx.fill();
@@ -710,7 +718,117 @@ const scoreTitle = document.getElementById('scoreTitle');
         updateTurn();
     }
 
+    function enterTryPlay() {
+        if (tryPlayMode) return;
+        _tryPlayBackup = {
+            stones: deepCopyStones(stones),
+            lastMoveMarkers: lastMoveMarkers.map(m => ({ ...m })),
+            currentPlayer
+        };
+        tryPlayMode = true;
+        tryPlaySeq = [deepCopyStones(stones)];
+        tryPlayMarkersSeq = [[]];
+        tryPlayStep = 0;
+        tryPlayTotalSteps = 0;
+        tryPlayBasePlayer = currentPlayer;
+        tryPlayPlayer = currentPlayer;
+        stones = deepCopyStones(tryPlaySeq[0]);
+        lastMoveMarkers = [];
+        const tryPlayBtn = document.getElementById('tryPlayBtn');
+        if (tryPlayBtn) tryPlayBtn.innerText = '试下结束';
+        updateTryPlayDisplay();
+        drawBoard();
+    }
+
+    function tryPlayMove(gx, gy) {
+        if (!tryPlayMode) return false;
+        if (!isLegalHover(gx, gy)) return false;
+        const b = makeBoardFromStones(stones);
+        b.stateHistory = [];
+        b.graphHistory = [makeGraph(b)];
+        const mvPlayer = tryPlayPlayer;
+        const r = tryPlaceOnBoard(b, mvPlayer, gx, gy);
+        if (!r.ok) return false;
+        const newStones = b.pieces.map(p => ({ ix: p.ix, iy: p.iy, color: p.color }));
+        if (tryPlayStep < tryPlayTotalSteps) {
+            tryPlaySeq.length = tryPlayStep + 1;
+            tryPlayMarkersSeq.length = tryPlayStep + 1;
+        }
+        tryPlaySeq.push(newStones);
+        tryPlayMarkersSeq.push([{ ix: toIx(gx), iy: toIy(gy), color: mvPlayer }]);
+        tryPlayTotalSteps = tryPlaySeq.length - 1;
+        tryPlayStep = tryPlayTotalSteps;
+        tryPlayPlayer = 3 - mvPlayer;
+        stones = deepCopyStones(newStones);
+        lastMoveMarkers = [{ ix: toIx(gx), iy: toIy(gy), color: mvPlayer }];
+        const slider = document.getElementById('replaySlider');
+        if (slider) { slider.max = tryPlayTotalSteps; slider.value = tryPlayStep; }
+        updateTryPlayDisplay();
+        drawBoard();
+        return true;
+    }
+
+    function setTryPlayStep(step) {
+        if (!tryPlayMode) return;
+        if (step < 0) step = 0;
+        if (step > tryPlayTotalSteps) step = tryPlayTotalSteps;
+        tryPlayStep = step;
+        stones = deepCopyStones(tryPlaySeq[step] || []);
+        lastMoveMarkers = (tryPlayMarkersSeq[step] || []).map(m => ({ ...m }));
+        tryPlayPlayer = (tryPlayBasePlayer === 1 || tryPlayBasePlayer === 2)
+            ? (step % 2 === 0 ? tryPlayBasePlayer : 3 - tryPlayBasePlayer)
+            : (step % 2 === 0 ? 1 : 2);
+        const slider = document.getElementById('replaySlider');
+        if (slider) slider.value = step;
+        updateTryPlayDisplay();
+        drawBoard();
+    }
+
+    function exitTryPlay() {
+        if (!tryPlayMode) return;
+        tryPlayMode = false;
+        if (_tryPlayBackup) {
+            stones = _tryPlayBackup.stones;
+            lastMoveMarkers = _tryPlayBackup.lastMoveMarkers;
+            currentPlayer = _tryPlayBackup.currentPlayer;
+            _tryPlayBackup = null;
+        }
+        tryPlaySeq = [];
+        tryPlayMarkersSeq = [];
+        tryPlayStep = 0;
+        tryPlayTotalSteps = 0;
+        const tryPlayBtn = document.getElementById('tryPlayBtn');
+        if (tryPlayBtn) tryPlayBtn.innerText = '试下';
+        const slider = document.getElementById('replaySlider');
+        if (slider) { slider.max = 0; slider.value = 0; }
+        updateTryPlayDisplay();
+        drawBoard();
+        updateTurn();
+    }
+
+    function updateTryPlayDisplay() {
+        const stepDisplay = document.getElementById('replayStepDisplay');
+        if (tryPlayMode && stepDisplay) {
+            stepDisplay.innerText = `试下 ${tryPlayStep} / ${tryPlayTotalSteps}`;
+        }
+        const slider = document.getElementById('replaySlider');
+        if (slider && tryPlayMode) {
+            slider.max = tryPlayTotalSteps;
+            slider.value = tryPlayStep;
+        }
+    }
+
     function syncState(state) {
+        if (tryPlayMode) {
+            // 试下期间不覆盖本地局面，仅同步必要元数据
+            if (state.boardLength) {
+                boardLength = state.boardLength;
+                boardLengthSelect.value = String(boardLength);
+                updateGeometry();
+            }
+            if (state.slots) slots = state.slots;
+            return;
+        }
         if (state.boardLength) {
             boardLength = state.boardLength;
             boardLengthSelect.value = String(boardLength);
@@ -809,9 +927,12 @@ const scoreTitle = document.getElementById('scoreTitle');
             get iRejected() { return iRejected; }, set iRejected(v) { iRejected = !!v; },
             get slots() { return slots; }, set slots(v) { slots = v || { black: false, white: false }; },
             get ws() { return ws; }, set ws(v) { ws = v; },
-            get replayMode() { return replayMode; }, set replayMode(v) { replayMode = !!v; }
+            get replayMode() { return replayMode; }, set replayMode(v) { replayMode = !!v; },
+            get tryPlayMode() { return tryPlayMode; }, set tryPlayMode(v) { tryPlayMode = !!v; },
+            get tryPlayStep() { return tryPlayStep; }, set tryPlayStep(v) { tryPlayStep = v; },
+            get tryPlayTotalSteps() { return tryPlayTotalSteps; }, set tryPlayTotalSteps(v) { tryPlayTotalSteps = v; }
         },
-        drawBoard, exitTryPlay: () => {}, enterTryPlay: () => {}, setTryPlayStep: () => {},
+        drawBoard, exitTryPlay, enterTryPlay, setTryPlayStep, updateTryPlayDisplay,
         setReplayStep, setLiveViewStep,
         getWs: () => ws,
         getBoardSize: () => boardLength,
@@ -891,6 +1012,11 @@ const scoreTitle = document.getElementById('scoreTitle');
     }
 
     function commitMoveFromCanvas(px, py) {
+        if (tryPlayMode) {
+            const [gx, gy] = pxToGame(px, py);
+            tryPlayMove(gx, gy);
+            return;
+        }
         if (replayMode || !isMyTurn() || gameOver || waitingScoreConfirm) return;
         const [gx, gy] = pxToGame(px, py);
         if (!isLegalHover(gx, gy)) return;

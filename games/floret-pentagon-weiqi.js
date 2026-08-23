@@ -508,6 +508,7 @@ class FloretPentagonWeiqiRoom extends QiTwoPlayerRoomBase {
         }
         const { vertexCount, neighbors } = generateFloretPentBoardData(newSize);
         this.boardSize = newSize;
+        this.openingBoard = undefined;
         this.vertexCount = vertexCount;
         this.neighbors = neighbors;
         this.board = Array(this.vertexCount).fill(0);
