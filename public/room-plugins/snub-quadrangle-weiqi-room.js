@@ -6,7 +6,7 @@ window.RoomPlugins["snub-quadrangle-weiqi"] = {
         "defaultKomiText": "黑贴白2点",
         "boardSizeMin": 3,
         "boardSizeMax": 8,
-        "defaultBoardSize": 7,
+        "defaultBoardSize": 4,
         "minLib": 1,
         "recordDownloadPrefix": "扭棱四角围棋",
         "standardWeiqiMatchTime": true,
@@ -31,7 +31,7 @@ window.RoomPlugins["snub-quadrangle-weiqi"] = {
 
         (function () {
 // ======================== 配置 ========================
-        let BOARD_LANES = 7;
+        let BOARD_LANES = 4;
         let GRID_W = 3 * BOARD_LANES - 2;
         let GRID_H = 3 * BOARD_LANES - 2;
         function komiForLanes(lanes) {
@@ -586,7 +586,8 @@ const scoreTitle = document.getElementById('scoreTitle');
             for (let r = 0; r < gw; r++) {
                 const leftY = coordLabelPos.rowY[r];
                 if (leftY == null) continue;
-                tctx.fillText((r + 1).toString(), labelX, leftY);
+                // 行号从上到下递减（底部 1）：boardSize 不存在于本作用域，用网格行数 gw
+                tctx.fillText((gw - r).toString(), labelX, leftY);
             }
         }
 

@@ -1,14 +1,14 @@
 window.RoomPlugins = window.RoomPlugins || {};
-window.RoomPlugins['biliberty-weiqi'] = {
+window.RoomPlugins['short-liberty-weiqi'] = {
     shell: {
-        "title": "二气围棋",
-        "rulesHtml": "基本规则同围棋。<br /><br />每片棋都必须有两口气或以上才能留在棋盘上，否则就要被提掉。<br />",
+        "title": "短气围棋",
+        "rulesHtml": "基本规则同围棋，但是每块气必须有n口气或以上才能留在棋盘上，否则就要被提掉。<br /><br /><strong>二气</strong>：n=2。<br /><strong>三气</strong>：n=3。<br /><strong>四气</strong>：n=4。<br />",
         "defaultKomiText": "黑贴白2.75点",
         "boardSizeMin": 7,
         "boardSizeMax": 21,
         "defaultBoardSize": 9,
         "minLib": 2,
-        "recordDownloadPrefix": "二气围棋",
+        "recordDownloadPrefix": "短气围棋",
         "standardWeiqiMatchTime": true,
         "features": {
             "zoomScroll": false,
@@ -35,13 +35,18 @@ window.RoomPlugins['biliberty-weiqi'] = {
         var roomId = ctx.roomId;
         var roomPassword = ctx.roomPassword || null;
         var config = ctx.config || {};
-        var recordDownloadPrefix = config.recordDownloadPrefix != null ? config.recordDownloadPrefix : "二气围棋";
-        var minLib = config.minLib != null ? config.minLib : 2;
+        var recordDownloadPrefix = config.recordDownloadPrefix != null ? config.recordDownloadPrefix : "短气围棋";
         var standardWeiqiMatchTime = config.standardWeiqiMatchTime != null ? config.standardWeiqiMatchTime : true;
 
         (function () {
 // ======================== 配置 ========================
-        function bilibertyKomiForSize(boardSize) {
+        // 子棋类：bi 二气 / tri 三气 / quad 四气（subGameId 沿用旧棋类 id）
+        let LIBERTY = 'bi';
+        const SUB_GAME_ID = { bi: 'biliberty-weiqi', tri: 'triliberty-weiqi', quad: 'quadriliberty-weiqi' };
+        const MIN_LIB = { bi: 2, tri: 3, quad: 4 };
+
+        /** 二气围棋贴目（按路数） */
+        function komiForSizeBi(boardSize) {
             if (boardSize === 3) return 4.5;
             if (boardSize === 4) return 0.0;
             if (boardSize === 5) return 12.5;
@@ -52,9 +57,39 @@ window.RoomPlugins['biliberty-weiqi'] = {
             return 2.75;
         }
 
+        /** 三气围棋贴目（按路数）；其余奇数路数默认 2.75 */
+        function komiForSizeTri(boardSize) {
+            switch (boardSize) {
+                case 3:
+                    return 4.5;
+                case 4:
+                case 6:
+                    return 0.0;
+                case 5:
+                case 7:
+                case 9:
+                case 11:
+                    return 2.5;
+                case 8:
+                case 10:
+                    return 2.0;
+                default:
+                    if (boardSize % 2 == 0)
+                        return 2.25;
+                    return 2.75;
+            }
+        }
+
+        /** 客户端显示贴目（与后端 _komi 一致）：二气/三气按尺寸查表（各自不同），四气固定 3.25 */
+        function komiForLiberty(liberty, boardSize) {
+            if (liberty === 'tri') return komiForSizeTri(boardSize);
+            if (liberty === 'quad') return 3.25;
+            return komiForSizeBi(boardSize);
+        }
+
         const ps = {
             BOARD_SIZE: 9,
-            KOMI: bilibertyKomiForSize(9),
+            KOMI: komiForLiberty('bi', 9),
             PADDING: 0,
             CELL_SIZE: 0,
             numberOfHands: 1,
@@ -141,10 +176,18 @@ const scoreTitle = document.getElementById('scoreTitle');
         const isMouseDevice = window.matchMedia('(hover: hover) and (pointer: fine)').matches;
         const R = () => QiWeiqiSquarePageRuntime;
 
-        function bilibertyTryPlaceStone(boardBefore, row, col, playerVal) {
+        function shortLibertyTryPlaceStone(boardBefore, row, col, playerVal) {
             return R().tryPlaceStoneNLiberty(
                 boardBefore, row, col, playerVal, ps.BOARD_SIZE,
-                (b) => QiSquareWeiqiCanvas.deepCopyBoard(b), 2
+                (b) => QiSquareWeiqiCanvas.deepCopyBoard(b), MIN_LIB[LIBERTY]
+            );
+        }
+
+        /** 死棋判定（数点预览/估目）：随子棋类动态取 minLib，避免 create 时闭包固定值在切换后失配 */
+        function shortLibertyRemoveDeadAndDying(srcBoard) {
+            return R().removeDeadAndDying(
+                srcBoard, ps.BOARD_SIZE,
+                (b) => QiSquareWeiqiCanvas.deepCopyBoard(b), MIN_LIB[LIBERTY]
             );
         }
 
@@ -165,8 +208,10 @@ const scoreTitle = document.getElementById('scoreTitle');
             enableEditBoard: true,
             editTools: config.editTools,
             recordDownloadPrefix,
-            minLib,
-            maxWeakLiberties: 2,
+            minLib: MIN_LIB[LIBERTY],
+            maxWeakLiberties: MIN_LIB[LIBERTY],
+            tryPlaceStone: shortLibertyTryPlaceStone,
+            removeDeadAndDying: shortLibertyRemoveDeadAndDying,
             gameType,
             roomId,
             roomPassword,
@@ -177,13 +222,13 @@ const scoreTitle = document.getElementById('scoreTitle');
                 if (syncedLen >= 0 && mcs.length > syncedLen) {
                     const inc = R().applyLiveReplayIncrementalBoards(
                         ps.liveReplayBoards, ps.liveReplayMarkers, ps.liveReplayStepPlayers,
-                        mcs, bilibertyTryPlaceStone, QiSquareWeiqiCanvas.deepCopyBoard);
+                        mcs, shortLibertyTryPlaceStone, QiSquareWeiqiCanvas.deepCopyBoard);
                     if (inc.ok) return;
                 }
                 const ob = ps.liveOpeningBoard;
                 const o = R().rebuildLiveReplayFromMoveCoords(
                     moveCoords,
-                    bilibertyTryPlaceStone,
+                    shortLibertyTryPlaceStone,
                     QiSquareWeiqiCanvas.deepCopyBoard,
                     () => ob ? QiSquareWeiqiCanvas.deepCopyBoard(ob) : QiSquareWeiqiCanvas.initBoardArray(ps.BOARD_SIZE)
                 );
@@ -229,8 +274,34 @@ const scoreTitle = document.getElementById('scoreTitle');
 
         function syncState(state) {
             ps.gameStarted = (state.numberOfHands || 1) > 1;
+            if (state.liberty && state.liberty !== LIBERTY) {
+                LIBERTY = state.liberty;
+                const sel = document.getElementById('subGameSelect');
+                if (sel) sel.value = LIBERTY;
+                refreshKomiInfo();
+            }
+            // 棋盘尺寸变化由 syncStateBase 统一处理（内部重建棋盘并更新几何/贴目显示），
+            // 切勿在此先改 ps.BOARD_SIZE——会跳过 syncStateBase 的几何更新导致换路数后棋格不变化
             syncStateBase(state);
             updateEditModeUI();
+            // 子棋类选择器显示时机与路数选择器一致（开局前可改）
+            updateSubGameSelectVisibility();
+        }
+
+        function updateSubGameSelectVisibility() {
+            const sel = document.getElementById('subGameSelect');
+            if (!sel) return;
+            const hasAnyStone = ps.board.some(row => row.some(v => v !== 0));
+            const hasPlayer = ps.slots.black || ps.slots.white;
+            // 有子棋类：始终显示；开局（有子/有人入座/对局结束）后锁定不可改，新局时恢复可用
+            sel.style.display = 'inline-block';
+            sel.disabled = hasAnyStone || hasPlayer || ps.gameOver;
+        }
+
+        function refreshKomiInfo() {
+            ps.KOMI = komiForLiberty(LIBERTY, ps.BOARD_SIZE);
+            const el = document.getElementById('komiInfo');
+            if (el) el.textContent = `黑贴白${ps.KOMI}点`;
         }
 
         const _weiqiBindings = QiBoardRoomClient.createWeiqiMessageBindings({
@@ -247,7 +318,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             getBoardSize: () => ps.BOARD_SIZE,
             setBoardSize: (n) => {
                 ps.BOARD_SIZE = n;
-                ps.KOMI = bilibertyKomiForSize(n);
+                ps.KOMI = komiForLiberty(LIBERTY, n);
             },
             getKomi: () => ps.KOMI,
             setKomi: (n) => { ps.KOMI = n; },
@@ -291,7 +362,22 @@ syncState,
                 clearEditModeUi();
             }
         });
-        const handleMessage = _weiqiBindings.handleMessage;
+        const _baseHandleMessage = _weiqiBindings.handleMessage;
+        const updateVsComputerBtn = _weiqiBindings.updateVsComputerBtn;
+        const handleMessage = (msg) => {
+            if (msg && msg.type === 'libertyChanged') {
+                // 子棋类变更广播（带完整 state）：全量同步
+                syncState(msg);
+                // 切换二/三/四气后「与电脑对弈」可用性立即更新（服务端已按新子棋类重查引擎）
+                if (Object.prototype.hasOwnProperty.call(msg, 'katagoAvailable'))
+                    ps.katagoAvailable = !!msg.katagoAvailable;
+                if (Object.prototype.hasOwnProperty.call(msg, 'computerSlot'))
+                    ps.computerSlot = msg.computerSlot || null;
+                if (typeof updateVsComputerBtn === 'function') updateVsComputerBtn();
+                return;
+            }
+            _baseHandleMessage(msg);
+        };
         const updateRecordButtons = _weiqiBindings.updateRecordButtons;
         const updateRadioStyles = _weiqiBindings.updateRadioStyles;
 
@@ -447,6 +533,34 @@ syncState,
                 }
                 ps.waitingScoreConfirm = false;
             };
+        }
+        // 子棋类选择器：二气/三气/四气（开局前与路数选择器同显）
+        const subGameSelect = document.getElementById('subGameSelect');
+        if (subGameSelect) {
+            subGameSelect.innerHTML = '';
+            const opts = [
+                { value: 'bi', label: '二气' },
+                { value: 'tri', label: '三气' },
+                { value: 'quad', label: '四气' }
+            ];
+            for (const o of opts) {
+                const opt = document.createElement('option');
+                opt.value = o.value;
+                opt.textContent = o.label;
+                if (o.value === LIBERTY) opt.selected = true;
+                subGameSelect.appendChild(opt);
+            }
+            subGameSelect.addEventListener('change', () => {
+                const v = subGameSelect.value;
+                if (!v || v === LIBERTY) return;
+                // 本地立即切换（乐观更新）；服务器广播 libertyChanged 回来时已相同
+                LIBERTY = v;
+                refreshKomiInfo();
+                if (ps.ws && ps.ws.readyState === 1) {
+                    ps.ws.send(JSON.stringify({ type: 'setLiberty', liberty: v }));
+                }
+                drawBoard();
+            });
         }
         connectWebSocket(handleMessage);
         })();

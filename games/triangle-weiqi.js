@@ -1,4 +1,4 @@
-﻿const { QiTwoPlayerRoomBase, gridGraphWeiqiRules, qiMatchTimeControl, qiBoardSeatOverlay, qiProtocol } = require('../common');
+﻿const { QiTwoPlayerRoomBase, gridGraphWeiqiRules, qiMatchTimeControl, qiBoardSeatOverlay, qiProtocol, encodeInitialPositionCompact, encodeOpeningPositionCompact } = require('../common');
 
 class TriangleWeiqiRoom extends QiTwoPlayerRoomBase
 {
@@ -19,6 +19,7 @@ class TriangleWeiqiRoom extends QiTwoPlayerRoomBase
     constructor(room, initialSize = 27, shape = 'triangle') {
         super(room);
         this.shape = shape;          // 'triangle' | 'rhombus' | 'hexagon'
+        this.subGameId = (TriangleWeiqiRoom.SUB_GAME_ID && TriangleWeiqiRoom.SUB_GAME_ID[shape]) || 'triangle-weiqi';   // 子棋类 id（引擎检查兜底）
         this.boardSize = initialSize;
         this.editBoardMode = 'triangle';
         this.board = this.createEmptyBoard();
@@ -224,6 +225,7 @@ class TriangleWeiqiRoom extends QiTwoPlayerRoomBase
     {
         return {
             shape: this.shape,
+            subGameId: (TriangleWeiqiRoom.SUB_GAME_ID && TriangleWeiqiRoom.SUB_GAME_ID[this.shape]) || 'triangle-weiqi',
             boardSize: this.boardSize,
             board: this.board,
             numberOfHands: 1 + this.historyBoards.length,
@@ -363,7 +365,8 @@ class TriangleWeiqiRoom extends QiTwoPlayerRoomBase
             boardSize: this.boardSize,
             komi: this._komi(),
             players: { black: null, white: null },
-            initialPosition: [],
+            // 开局盘面（编辑模式的开局；默认空盘）——导出当前盘面会让导入时与 moves 重放冲突
+            initialPosition: encodeOpeningPositionCompact(this),
             moves: this.moveCoords.map(m => {
                 const p = m.player === 'black' ? 'B' : 'W';
                 return m.type === 'pass' ? p + 'p' : p + m.row + ',' + m.col;
@@ -790,7 +793,7 @@ class TriangleWeiqiRoom extends QiTwoPlayerRoomBase
             replayData: {
                 boardSize: this.boardSize,
                 // 打谱从空盘 + 全手顺即可；避免 initialPosition 与 moves 重复导致客户端回放失败
-                initialPosition: [],
+                initialPosition: encodeOpeningPositionCompact(this),
                 moves: moves.map(m => (m.type === 'pass'
                     ? { type: 'pass', player: m.player }
                     : { type: 'move', player: m.player, row: m.row, col: m.col }))
@@ -1125,6 +1128,8 @@ module.exports = {
     initRoom(room) {
         room.gameLogic = new TriangleWeiqiRoom(room);
         if (typeof qiBoardSeatOverlay !== 'undefined' && qiBoardSeatOverlay) qiBoardSeatOverlay.install(room.gameLogic);
+        qiProtocol.installStandardEditBoard(room.gameLogic);
+        qiProtocol.installStandardEditBoard(room.gameLogic);
         room.maxPlayers = 2;
     }
 };

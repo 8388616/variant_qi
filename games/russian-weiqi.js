@@ -1,4 +1,4 @@
-const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, applyInitialPositionCompact, encodeInitialPositionCompact, qiBoardSeatOverlay } = require('../common');
+const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, applyInitialPositionCompact, encodeInitialPositionCompact, qiBoardSeatOverlay, encodeOpeningPositionCompact } = require('../common');
 
 class RussianWeiqiRoom extends QiTwoPlayerRoomBase {
     constructor(room) {
@@ -831,7 +831,7 @@ class RussianWeiqiRoom extends QiTwoPlayerRoomBase {
             boardSize: this.boardSize,
             komi: 3.25,
             players: { black: null, white: null },
-            initialPosition: encodeInitialPositionCompact(this.board, this.boardSize),
+            initialPosition: encodeOpeningPositionCompact(this),
             moves: this.moveCoords.map(m => {
                 const p = m.player === 'black' ? 'B' : 'W';
                 if (m.type === 'pass') return p + 'p';
@@ -1111,6 +1111,7 @@ module.exports = {
     initRoom(room) {
         room.gameLogic = new RussianWeiqiRoom(room);
         if (typeof qiBoardSeatOverlay !== 'undefined' && qiBoardSeatOverlay) qiBoardSeatOverlay.install(room.gameLogic);
+        if (typeof qiProtocol.installStandardEditBoard === 'function') qiProtocol.installStandardEditBoard(room.gameLogic);
         room.maxPlayers = 2;
     }
 };

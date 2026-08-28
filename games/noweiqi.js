@@ -1,4 +1,4 @@
-﻿const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, applyInitialPositionCompact, encodeInitialPositionCompact, qiBoardSeatOverlay } = require('../common');
+﻿const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, applyInitialPositionCompact, encodeInitialPositionCompact, qiBoardSeatOverlay, encodeOpeningPositionCompact } = require('../common');
 class NoWeiqiRoom extends QiTwoPlayerRoomBase
 {
     constructor(room)
@@ -234,6 +234,16 @@ class NoWeiqiRoom extends QiTwoPlayerRoomBase
         this.recordResultText = lostByCaptureSlot === 'black' ? '黑提子白胜' : '白提子黑胜';
     }
 
+    setPassLossResultText(lostSlot) {
+        if (lostSlot === 'black') this.recordResultText = '黑虚着白胜';
+        else if (lostSlot === 'white') this.recordResultText = '白虚着黑胜';
+    }
+
+    /** 不围棋不允许虚着：引擎 pass 时由人机对战按「棋盘走满判和、否则判负」处理 */
+    passIsIllegal() {
+        return true;
+    }
+
     setTimeLossResultText(lostSlot) {
         if (lostSlot === 'black') this.recordResultText = '黑超时白胜';
         else if (lostSlot === 'white') this.recordResultText = '白超时黑胜';
@@ -256,7 +266,8 @@ class NoWeiqiRoom extends QiTwoPlayerRoomBase
         squareWeiqiRules.removeGroup(board, row, col, color, this.boardSize);
     }
 
-    tryPlaceStone(boardBefore, row, col, playerVal)
+    /** 落子并返回 { newBoard, capturedOpponent }（房间内部判定「先提子的一方负」用） */
+    tryPlaceStoneResult(boardBefore, row, col, playerVal)
     {
         if (boardBefore[row][col] !== 0) return null;
         const newBoard = this.copyBoard(boardBefore);
@@ -290,6 +301,13 @@ class NoWeiqiRoom extends QiTwoPlayerRoomBase
         }
         return { newBoard, capturedOpponent: false }
         ;
+    }
+
+    /** 标准落子接口：返回新盘面或 null（与其它棋类一致，供人机对战 applyComputerMove 等调用） */
+    tryPlaceStone(boardBefore, row, col, playerVal)
+    {
+        const r = this.tryPlaceStoneResult(boardBefore, row, col, playerVal);
+        return r ? r.newBoard : null;
     }
 
     isBoardFull()
@@ -365,7 +383,7 @@ class NoWeiqiRoom extends QiTwoPlayerRoomBase
                 if (this.board[row][col] !== 0) return;
 
                 const playerVal = this.currentPlayer === 1 ? 1 : 2;
-                const result = this.tryPlaceStone(this.board, row, col, playerVal);
+                const result = this.tryPlaceStoneResult(this.board, row, col, playerVal);
                 if (!result) return;
 
                 const { newBoard, capturedOpponent } = result;
@@ -578,7 +596,7 @@ class NoWeiqiRoom extends QiTwoPlayerRoomBase
             gameId: 'noweiqi',
             boardSize: this.boardSize,
             players: { black: null, white: null },
-            initialPosition: encodeInitialPositionCompact(this.board, this.boardSize),
+            initialPosition: encodeOpeningPositionCompact(this),
             moves: this.moveCoords.map(m => {
                 const p = m.player === 'black' ? 'B' : 'W';
                 return p + m.row + ',' + m.col;
@@ -662,7 +680,7 @@ class NoWeiqiRoom extends QiTwoPlayerRoomBase
                 this.broadcast({ type: 'roomReset', ...this.getState() });
                 return;
             }
-            const result = this.tryPlaceStone(this.board, row, col, playerVal);
+            const result = this.tryPlaceStoneResult(this.board, row, col, playerVal);
             if (!result) {
                 this.resetToEmpty();
                 requesterWs.send(JSON.stringify({ type: 'error', message: `棋谱回放失败：第${i + 1}手无法落子` }));
@@ -745,6 +763,7 @@ module.exports = {
     initRoom(room) {
         room.gameLogic = new NoWeiqiRoom(room);
         if (typeof qiBoardSeatOverlay !== 'undefined' && qiBoardSeatOverlay) qiBoardSeatOverlay.install(room.gameLogic);
+        if (typeof qiProtocol.installStandardEditBoard === 'function') qiProtocol.installStandardEditBoard(room.gameLogic);
         room.maxPlayers = 2;
     }
 };

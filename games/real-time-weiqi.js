@@ -1,4 +1,4 @@
-const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, applyInitialPositionCompact, encodeInitialPositionCompact, qiBoardSeatOverlay } = require('../common');
+const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, applyInitialPositionCompact, encodeInitialPositionCompact, qiBoardSeatOverlay, encodeOpeningPositionCompact } = require('../common');
 
 /**
  * 即时围棋：非回合制，双方可同时落子；同一时刻的落子按服务端收到顺序依次执行。
@@ -673,7 +673,7 @@ class RealTimeWeiqiRoom extends QiTwoPlayerRoomBase {
             boardSize: this.boardSize,
             komi: 0,
             players: { black: null, white: null },
-            initialPosition: encodeInitialPositionCompact(this.board, this.boardSize),
+            initialPosition: encodeOpeningPositionCompact(this),
             moves: this.moveCoords.map(m => {
                 const p = m.player === 'black' ? 'B' : 'W';
                 return m.type === 'pass' ? p + 'p' : p + m.row + ',' + m.col;
@@ -855,6 +855,7 @@ module.exports = {
     initRoom(room) {
         room.gameLogic = new RealTimeWeiqiRoom(room);
         if (typeof qiBoardSeatOverlay !== 'undefined' && qiBoardSeatOverlay) qiBoardSeatOverlay.install(room.gameLogic);
+        if (typeof qiProtocol.installStandardEditBoard === 'function') qiProtocol.installStandardEditBoard(room.gameLogic);
         room.maxPlayers = 2;
     }
 };

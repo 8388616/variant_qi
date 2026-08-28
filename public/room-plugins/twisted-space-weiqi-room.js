@@ -524,7 +524,7 @@ if (sizeSelect) {
                 const xRightEdge = CENTER_X + ((r + 0.5) * DX) / 2;
 
                 ctx.textAlign = 'right';
-                ctx.fillText(String(r + 1), xLeftEdge - coordPadX, y);
+                ctx.fillText(String(ROWS - r), xLeftEdge - coordPadX, y);
 
                 ctx.textAlign = 'left';
                 ctx.fillText(rightEdgeLabel(r), xRightEdge + coordPadX, y);

@@ -6,7 +6,7 @@ window.RoomPlugins['hole-weiqi'] = {
         "defaultKomiText": "黑贴白3.75点",
         "boardSizeMin": 7,
         "boardSizeMax": 31,
-        "defaultBoardSize": 19,
+        "defaultBoardSize": 9,
         "minLib": 1,
         "recordDownloadPrefix": "洞围棋",
         "standardWeiqiMatchTime": true,
@@ -46,7 +46,7 @@ window.RoomPlugins['hole-weiqi'] = {
 
         (function () {
 const ps = {
-            BOARD_SIZE: 19,
+            BOARD_SIZE: 9,
             KOMI: 3.75,
             PADDING: 0,
             CELL_SIZE: 0,

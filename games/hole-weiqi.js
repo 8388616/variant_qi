@@ -1,8 +1,8 @@
-const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, encodeInitialPositionCompact, applyInitialPositionCompact, qiBoardSeatOverlay } = require('../common');
+const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, encodeInitialPositionCompact, applyInitialPositionCompact, qiBoardSeatOverlay, encodeOpeningPositionCompact } = require('../common');
 
 class HoleWeiqiRoom extends QiTwoPlayerRoomBase
 {
-    constructor(room, initialSize = 19) {
+    constructor(room, initialSize = 9) {
         super(room);
         this.editBoardAllowedValues = [0, 1, 2, -1];
         this.afterEditBoard = function () {
@@ -601,17 +601,14 @@ class HoleWeiqiRoom extends QiTwoPlayerRoomBase
             else if (this.winner === 'black') resultText = '黑胜';
             else if (this.winner === 'white') resultText = '白胜';
         }
-        const initialPosition = moves.length === 0
-            ? encodeInitialPositionCompact(initialBoard, this.boardSize)
-            : [];
-        return {
+                return {
             format: 'muzei',
             game: '洞围棋',
             gameId: 'hole-weiqi',
             boardSize: this.boardSize,
             komi: 3.75,
             players: { black: '', white: '' },
-            initialPosition: initialPosition,
+            initialPosition: encodeOpeningPositionCompact(this),
             moves: this.moveCoords.map(m => {
                 const p = m.player === 'black' ? 'B' : 'W';
                 return m.type === 'pass' ? p + 'p' : p + m.row + ',' + m.col;

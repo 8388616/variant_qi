@@ -1,4 +1,4 @@
-const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, gridGraphWeiqiRules, qiBoardSeatOverlay } = require('../common');
+const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, gridGraphWeiqiRules, qiBoardSeatOverlay, encodeOpeningPositionCompact } = require('../common');
 
 class TwistedSpaceWeiqiRoom extends QiTwoPlayerRoomBase {
     constructor(room, initialSize = 9) {
@@ -436,7 +436,7 @@ class TwistedSpaceWeiqiRoom extends QiTwoPlayerRoomBase {
             boardSize: this.boardSize,
             komi: 4.75,
             players: { black: null, white: null },
-            initialPosition: [],
+            initialPosition: encodeOpeningPositionCompact(this),
             cellNumbers: this.cellNumbers ? this.cellNumbers.map(row => row.slice()) : null,
             moves: this.moveCoords.map(m => {
                 const p = m.player === 'black' ? 'B' : 'W';
@@ -513,7 +513,7 @@ class TwistedSpaceWeiqiRoom extends QiTwoPlayerRoomBase {
             ...this.getState(),
             replayData: {
                 boardSize: this.boardSize,
-                initialPosition: [],
+                initialPosition: encodeOpeningPositionCompact(this),
                 cellNumbers: this.cellNumbers ? this.cellNumbers.map(row => row.slice()) : null,
                 moves: moves.map(m => m.type === 'pass' ? { type: 'pass', player: m.player } : ({ type: 'move', player: m.player, row: m.row, col: m.col }))
             }
@@ -710,6 +710,7 @@ module.exports = {
     initRoom(room) {
         room.gameLogic = new TwistedSpaceWeiqiRoom(room);
         if (typeof qiBoardSeatOverlay !== 'undefined' && qiBoardSeatOverlay) qiBoardSeatOverlay.install(room.gameLogic);
+        if (typeof qiProtocol.installStandardEditBoard === 'function') qiProtocol.installStandardEditBoard(room.gameLogic);
         room.maxPlayers = 2;
     }
 };

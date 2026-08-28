@@ -1,3 +1,5 @@
 废弃/
 node_modules/
 katagos/
+public/room-plugins/dfw-room.js
+games/dfw.js

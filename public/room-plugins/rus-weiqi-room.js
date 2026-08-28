@@ -4,9 +4,9 @@ window.RoomPlugins['rus-weiqi'] = {
         "title": "罗斯围棋",
         "rulesHtml": "基本规则同围棋。<br /><br /><br />使用复合棋子，每个复合棋子由三个单棋子组成（两枚己方、一枚对方，形状中第二个点为对方）。可选的复合棋子在棋盘下方。可以旋转、翻折。<br /><br />单击右键旋转，长按右键翻折，滑动鼠标滚轮切换形状。<br /><br />同一方不可以连续两步使用相同的形状。<br /><br />当双方连续四手虚着时进入数点流程。<br /><br /><br /><font color=\"gray\"><i>复合棋子中，两枚己方的棋子代表俄罗斯和白俄罗斯。</i></font><br />",
         "defaultKomiText": "黑贴白2.25点",
-        "boardSizeMin": 19,
-        "boardSizeMax": 19,
-        "defaultBoardSize": 19,
+        "boardSizeMin": 7,
+        "boardSizeMax": 21,
+        "defaultBoardSize": 9,
         "minLib": 1,
         "recordDownloadPrefix": "罗斯围棋",
         "standardWeiqiMatchTime": true,
@@ -47,7 +47,7 @@ const SHAPE_LIST = [
         const SHAPE_STONE_OWNERS = ['self', 'opp', 'self'];
 
         var ps = {
-            BOARD_SIZE: 19,
+            BOARD_SIZE: 9,
             KOMI: 2.25,
             PADDING: 0,
             CELL_SIZE: 0,
@@ -180,6 +180,32 @@ const scoreTitle = document.getElementById('scoreTitle');
             });
         }
 
+        /** 30 个规范朝向（与引擎 canonical 集一致）：[rot, flip] */
+        const CANONICAL_ORIENTS = [
+            [[0, 0], [0, 1]],
+            [[0, 0], [0, 1], [1, 0], [1, 1], [2, 0], [2, 1], [3, 0], [3, 1]],
+            [[0, 0], [0, 1], [1, 0], [1, 1], [2, 0], [2, 1], [3, 0], [3, 1]],
+            [[0, 0], [0, 1], [1, 0], [1, 1], [2, 0], [2, 1], [3, 0], [3, 1]],
+            [[0, 0], [0, 1], [1, 0], [1, 1]]
+        ];
+
+        /** 旋转：在当前形状的合法朝向集内循环（1号 2 向、5号 4 向、其余 8 向） */
+        function nextCanonicalOrient() {
+            const list = CANONICAL_ORIENTS[ps.currentShapeIndex] || CANONICAL_ORIENTS[1];
+            const cur = [ps.rotation, ps.flipped ? 1 : 0];
+            let idx = list.findIndex(([r, f]) => r === cur[0] && f === cur[1]);
+            if (idx < 0) idx = -1;
+            idx = (idx + 1) % list.length;
+            ps.rotation = list[idx][0];
+            ps.flipped = list[idx][1] === 1;
+        }
+
+        /** 与引擎 30 朝向对齐：切换/自动切换形状后限制 rotation（shape0 仅 0、shape4 仅 0/1） */
+        function constrainRotationForShape(shapeIdx) {
+            if (shapeIdx === 0) ps.rotation = 0;
+            else if (shapeIdx === 4) ps.rotation = Math.min(ps.rotation, 1);
+        }
+
         function generatePlacementCoords(shapeIdx, rot, flip, refRow, refCol) {
             const base = SHAPE_LIST[shapeIdx];
             const transformed = transformCoords(base, rot, flip);
@@ -214,6 +240,9 @@ const scoreTitle = document.getElementById('scoreTitle');
         }
 
         function tryPlaceShape(boardBefore, shapeIdx, rot, flip, refRow, refCol, playerVal) {
+            // 与引擎对齐：只允许 30 个规范朝向（shape0 仅 rot0、shape4 仅 rot0/1；flip 均允许）
+            const CANON_ROT = [[0], [0, 1, 2, 3], [0, 1, 2, 3], [0, 1, 2, 3], [0, 1]];
+            if (!CANON_ROT[shapeIdx] || !CANON_ROT[shapeIdx].includes(rot)) return null;
             const coords = generatePlacementCoords(shapeIdx, rot, flip, refRow, refCol);
             if (!coords) return null;
             for (let [r, c] of coords) {
@@ -832,6 +861,9 @@ const scoreTitle = document.getElementById('scoreTitle');
                     document.querySelectorAll('.piece-btn').forEach(b => b.classList.remove('active'));
                     btn.classList.add('active');
                     ps.currentShapeIndex = idx;
+                    // 与引擎对齐：切换后限制 rotation（shape0 归 0、shape4 最多 1）
+                    if (idx === 0) ps.rotation = 0;
+                    else if (idx === 4) ps.rotation = Math.min(ps.rotation, 1);
                     refreshPreview();
                     drawCompoundBoard();
                 });
@@ -849,7 +881,7 @@ const scoreTitle = document.getElementById('scoreTitle');
         }
 
         document.getElementById('rotateBtn').onclick = () => {
-            ps.rotation = (ps.rotation + 1) % 4;
+            nextCanonicalOrient();
             refreshPreview();
             drawCompoundBoard();
         };
@@ -921,6 +953,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                 ps.board = deepCopyBoard(newBoard);
                 ps.lastMoveMarkers = markers;
                 ps.currentShapeIndex = (usedIdx + 1) % SHAPE_LIST.length;
+                constrainRotationForShape(ps.currentShapeIndex);
                 applyShapeIndexToButtons();
                 refreshTryPlayLastUsedShapeByColor();
                 const slider = document.getElementById('replaySlider');
@@ -1044,6 +1077,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                 if (pv !== null && oldLuMy !== newLuMy) {
                     if (newLuMy >= 0) ps.currentShapeIndex = (newLuMy + 1) % SHAPE_LIST.length;
                     else if (newLuMy === -1 && oldLuMy !== -1) ps.currentShapeIndex = 0;
+                    constrainRotationForShape(ps.currentShapeIndex);
                     applyShapeIndexToButtons();
                 }
                 if (ps._needCompoundShapeHint && pv !== null) {
@@ -1190,6 +1224,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                 col
             }));
             ps.currentShapeIndex = (usedIdx + 1) % SHAPE_LIST.length;
+            constrainRotationForShape(ps.currentShapeIndex);
             applyShapeIndexToButtons();
             updateShapeAvailability();
             return true;
@@ -1439,7 +1474,7 @@ syncState,
                     clearTimeout(pressTimer);
                     pressTimer = null;
                     if (!isLongPress && ps.isMyTurn) {
-                        ps.rotation = (ps.rotation + 1) % 4;
+                        nextCanonicalOrient();
                         refreshPreview();
                         drawCompoundBoard();
                     }

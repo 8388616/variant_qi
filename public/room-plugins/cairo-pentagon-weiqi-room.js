@@ -532,7 +532,8 @@ const scoreTitle = document.getElementById('scoreTitle');
                 tctx.fillText(letter, colLines[c], 0.9 * pad);
             }
             for (let r = 0; r < GRID_W; r++) {
-                tctx.fillText((r + 1).toString(), 0.5 * pad, rowLines[r]);
+                // 行号从上到下递减（底部 1）：boardSize 不存在于本作用域，用网格行数 GRID_W
+                tctx.fillText((GRID_W - r).toString(), 0.5 * pad, rowLines[r]);
             }
         }
 

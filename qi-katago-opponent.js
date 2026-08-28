@@ -25,13 +25,21 @@ function getMatchTimeControl() {
     }
 }
 
+/** 引擎棋类 id：有子棋类（install 时按 getState().subGameId 判定并记录）用子棋类 id，否则主棋类 id */
+function engineGameId(self) {
+    return (self && self._qiKatagoGameId) || (self && self.room && self.room.gameType) || null;
+}
+
 function supportsSquareWeiqiGtp(self) {
-    return !!(self
-        && typeof self.tryPlaceStone === 'function'
+    // 普通方格围棋：tryPlaceStone；复合棋子棋种（rus-weiqi）：tryPlaceShape/tryPlaceStonesAt
+    const common = !!(self
         && typeof self.boardSize === 'number'
         && Array.isArray(self.board)
         && typeof self.getState === 'function'
         && typeof self.broadcast === 'function');
+    if (!common) return false;
+    return !!(typeof self.tryPlaceStone === 'function'
+        || (typeof self.tryPlaceShape === 'function' && typeof self.tryPlaceStonesAt === 'function'));
 }
 
 function readKomi(self) {
@@ -62,7 +70,7 @@ function buildKatagoSetupOpts(self, board) {
         boardSize: self.boardSize,
         komi: readKomi(self),
         board,
-        gameId: self.room && self.room.gameType
+        gameId: engineGameId(self)
     };
     // 非方形棋盘（如开罗五角围棋）：定制 kataGo 支持 boardsize X:Y
     if (self.katagoBoardWidth && self.katagoBoardHeight) {
@@ -71,6 +79,27 @@ function buildKatagoSetupOpts(self, board) {
     }
     const remain = readRemainingTranslocationMoves(self);
     if (remain != null) opts.maxTranslocationMoves = remain;
+    // set_position 后引擎行棋方（presumedNextMovePla）恒为黑；当前轮到白时，
+    // 去掉最后一手再同步、重放最后一手来翻转行棋方，否则 genmove 会被引擎拒绝
+    const nextPlayer = (self.currentPlayer === 1) ? 'black' : 'white';
+    const mcs = Array.isArray(self.moveCoords) ? self.moveCoords : [];
+    const last = mcs.length ? mcs[mcs.length - 1] : null;
+    if (nextPlayer === 'white' && last && (last.player === 'black' || last.player === 'white')) {
+        if (last.type === 'move' && Number.isInteger(last.shapeIndex) && Number.isInteger(last.row) && Number.isInteger(last.col)) {
+            opts.lastMove = {
+                player: last.player,
+                row: last.row,
+                col: last.col,
+                shapeIndex: last.shapeIndex,
+                orientIdx: compoundOrientToEngine(last.shapeIndex, last.rotation, last.flipped),
+                stones: Array.isArray(last.stones) ? last.stones : null
+            };
+        } else if (last.type === 'move' && Number.isInteger(last.row) && Number.isInteger(last.col)) {
+            opts.lastMove = { player: last.player, row: last.row, col: last.col, shapeIndex: null, stones: null };
+        } else if (last.type === 'pass') {
+            opts.lastMove = { player: last.player, type: 'pass' };
+        }
+    }
     return opts;
 }
 
@@ -82,6 +111,20 @@ function bumpMoveCount(self) {
 
 function enrichState(self, state) {
     if (!state || typeof state !== 'object') return state;
+    // 子棋类统一规则：每次 getState 时按当前 subGameId 动态重检引擎 id——
+    // 磁性围棋等切换子棋类（weak/medium/strong）后自动换到对应引擎（katagos/{子棋类id}/），
+    // 无需为每个棋种单独修改
+    if (self._qiKatagoInstalled) {
+        // 与 install 一致：getState 广播 subGameId（如 weak-magnetism-weiqi）→ 实例属性 subGameId → 棋类 id
+        const sub = state.subGameId;
+        const curId = (typeof sub === 'string' && sub.trim()) ? sub.trim()
+            : (typeof self.subGameId === 'string' && self.subGameId.trim() ? self.subGameId.trim() : (self.room && self.room.gameType));
+        if (curId && curId !== self._qiKatagoGameId) {
+            self._qiKatagoGameId = curId;
+            self.katagoAvailable = isKatagoAvailable(curId);
+            stopKatago(self);   // 旧 id 的引擎会话停掉——下次按新 id 拉取
+        }
+    }
     state.katagoAvailable = !!self.katagoAvailable;
     state.computerSlot = self.computerSlot || null;
     if (!state.slots) state.slots = { black: false, white: false };
@@ -134,7 +177,7 @@ function hibernateKatago(self) {
     if (!self || !self.computerSlot || self.gameOver) return;
     const session = self._qiKatago;
     if (!session) return;
-    console.log(`[katago:${self.room && self.room.gameType}] 对局超过 ${KATAGO_HIBERNATE_MS / 60000} 分钟无落子，引擎转入空闲`);
+    console.log(`[katago:${engineGameId(self)}] 对局超过 ${KATAGO_HIBERNATE_MS / 60000} 分钟无落子，引擎转入空闲`);
     self._qiKatagoGen = (self._qiKatagoGen || 0) + 1;
     self._qiKatagoBusy = false;
     self._qiKatago = null;
@@ -179,7 +222,7 @@ function stopKatago(self) {
  * @param {import('ws').WebSocket|null} [ws] 繁忙时用于提示
  */
 function prepareKatagoEngine(self, ws) {
-    if (!self || !self.katagoAvailable || !isKatagoAvailable(self.room.gameType)) return;
+    if (!self || !self.katagoAvailable || !isKatagoAvailable(engineGameId(self))) return;
     if (self.matchStarted || self.computerSlot || self.gameOver) return;
     if (self._qiKatagoPrepared && !self._qiKatagoPrepared.dead) return;
     // 进行中的预热（含已取消、正等待归还进池）：勿再开第二条 acquire；
@@ -194,7 +237,7 @@ function prepareKatagoEngine(self, ws) {
     }
 
     const gen = (self._qiKatagoPrepareGen = (self._qiKatagoPrepareGen || 0) + 1);
-    const prepPromise = acquireKatagoSession(self.room.gameType, {
+    const prepPromise = acquireKatagoSession(engineGameId(self), {
         boardSize: self.boardSize
     }).then((session) => {
         if (gen !== self._qiKatagoPrepareGen) {
@@ -247,7 +290,7 @@ function abortVsComputerOnEngineFailure(self, ws, err) {
 }
 
 function canRequestVsComputer(self, ws) {
-    if (!self.katagoAvailable || !isKatagoAvailable(self.room.gameType)) return '该棋类暂不支持与电脑对战。';
+    if (!self.katagoAvailable || !isKatagoAvailable(engineGameId(self))) return '该棋类暂不支持与电脑对战。';
     if (self.matchStarted || self.computerSlot || self.gameOver) return '对局已开始。';
     if (Array.isArray(self.moveHistory) && self.moveHistory.length > 0) return '对局已开始。';
     if (self.tcNego) return '请先完成限时协商。';
@@ -279,6 +322,13 @@ function copyBoard(self, board) {
     return board.map((row) => row.slice());
 }
 
+/** 服务端 (rot, flip) → 引擎 rs 协议 orientIdx（shape 局部 0-7 = rot*2+flip，与引擎
+ *   orientIdxToRotFlip 一致）。引擎 canonical 集：shape0 仅 rot0、shape4 仅 rot0/1、
+ *   shape1-3 任意 rot —— 与服务端 30 朝向限制相同，局部编号即 canonical，无需全局偏移 */
+function compoundOrientToEngine(shapeIdx, rot, flip) {
+    return (rot & 3) * 2 + (flip ? 1 : 0);
+}
+
 function boardToString(self, board) {
     if (typeof self.boardToString === 'function') return self.boardToString(board);
     return board.map((row) => row.join(',')).join(';');
@@ -289,8 +339,16 @@ function applyComputerMove(self, row, col) {
     const moveSlot = self.computerSlot;
     if (moveSlot !== (self.currentPlayer === 1 ? 'black' : 'white')) return false;
     const playerVal = self.currentPlayer === 1 ? 1 : 2;
-    const newBoard = self.tryPlaceStone(self.board, row, col, playerVal);
+    // 提子判负类棋种（不围棋）：房间用 tryPlaceStoneResult 返回 { newBoard, capturedOpponent }；
+    // 其余棋类走标准 tryPlaceStone（返回盘面或 null）
+    const hasResultApi = typeof self.tryPlaceStoneResult === 'function';
+    const placed = hasResultApi
+        ? self.tryPlaceStoneResult(self.board, row, col, playerVal)
+        : self.tryPlaceStone(self.board, row, col, playerVal);
+    if (!placed) return false;
+    const newBoard = hasResultApi ? placed.newBoard : placed;
     if (!newBoard) return false;
+    const capturedOpponent = hasResultApi ? !!placed.capturedOpponent : false;
     const newBoardStr = boardToString(self, newBoard);
     if (self.historyBoardSet && self.historyBoardSet.has(newBoardStr)) return false;
 
@@ -301,6 +359,73 @@ function applyComputerMove(self, row, col) {
     if (Array.isArray(self.moveCoords)) self.moveCoords.push({ type: 'move', player: moveSlot, row, col });
     self.board = newBoard;
     self.lastMoveMarkers = [{ row, col, color: playerVal }];
+    if ('moveHighlightMarkers' in self) self.moveHighlightMarkers = [];
+    if ('movePlayerColor' in self) self.movePlayerColor = playerVal;
+    if ('passCounter' in self) self.passCounter = 0;
+    bumpMoveCount(self);
+
+    // 提子判负（不围棋）：电脑先提子 → 电脑负（与房间人类着法一致：不切换行棋方）
+    if (capturedOpponent) {
+        self.gameOver = true;
+        self.winner = moveSlot === 'black' ? 'white' : 'black';
+        if (typeof self.setCaptureLossResultText === 'function') self.setCaptureLossResultText(moveSlot);
+        self.broadcast({ type: 'broadcast', action: 'move', ...self.getState() });
+        if (typeof self._syncClockAfterTurnChange === 'function') self._syncClockAfterTurnChange();
+        return true;
+    }
+    self.currentPlayer = 3 - self.currentPlayer;
+    // 棋盘走满即终局的棋种（不围棋）：电脑落满最后一子 → 和棋（与房间人类着法一致）
+    if (typeof self.isBoardFull === 'function' && self.isBoardFull()) {
+        self.gameOver = true;
+        self.winner = 'draw';
+        if (typeof self.onDrawResolved === 'function') self.onDrawResolved();
+        self.broadcast({ type: 'broadcast', action: 'move', ...self.getState() });
+        if (typeof self._syncClockAfterTurnChange === 'function') self._syncClockAfterTurnChange();
+        return true;
+    }
+    self.broadcast({ type: 'broadcast', action: 'move', ...self.getState() });
+    if (typeof self._syncClockAfterTurnChange === 'function') self._syncClockAfterTurnChange();
+    return true;
+}
+
+/** 电脑复合棋子着法：引擎 rs 复合 → 服务端 tryPlaceShape（一次放 3 子：2 己 1 敌） */
+function applyComputerCompound(self, mv) {
+    if (!self.computerSlot || self.gameOver) return false;
+    if (typeof self.tryPlaceShape !== 'function') return false;
+    const moveSlot = self.computerSlot;
+    if (moveSlot !== (self.currentPlayer === 1 ? 'black' : 'white')) return false;
+    const playerVal = self.currentPlayer === 1 ? 1 : 2;
+    // 引擎 orient → 服务端 (rot, flip)：引擎 rot 可多圈（shape1-3 偏移 4、shape4 偏移 16）——取模 4
+    const rot = (mv.orientIdx >> 1) % 4;
+    const flipped = (mv.orientIdx & 1) === 1;
+    const newBoard = self.tryPlaceShape(self.board, mv.shapeIdx, rot, flipped, mv.anchorRow, mv.anchorCol, playerVal);
+    if (!newBoard) return false;
+    const newBoardStr = boardToString(self, newBoard);
+    if (self.historyBoardSet && self.historyBoardSet.has(newBoardStr)) return false;
+
+    const coords = (typeof self.generatePlacementCoords === 'function')
+        ? self.generatePlacementCoords(mv.shapeIdx, rot, flipped, mv.anchorRow, mv.anchorCol)
+        : null;
+    const owners = (self.SHAPE_STONE_OWNERS || ['self', 'opp', 'self']);
+    if (Array.isArray(self.historyBoards)) self.historyBoards.push(copyBoard(self, newBoard));
+    if (self.historyBoardSet) self.historyBoardSet.add(newBoardStr);
+    if (Array.isArray(self.historyMarkers)) self.historyMarkers.push(copyMarkers(self, self.lastMoveMarkers));
+    if (Array.isArray(self.moveHistory)) self.moveHistory.push(moveSlot);
+    if (Array.isArray(self.moveCoords)) self.moveCoords.push({
+        type: 'move',
+        player: moveSlot,
+        shapeIndex: mv.shapeIdx,
+        rotation: rot,
+        flipped,
+        row: mv.anchorRow,
+        col: mv.anchorCol,
+        stones: coords,
+        stoneOwners: [...owners]
+    });
+    self.board = newBoard;
+    self.lastMoveMarkers = (coords || []).map(([r, c], i) => ({
+        row: r, col: c, color: owners[i] === 'opp' ? (3 - playerVal) : playerVal
+    }));
     if ('moveHighlightMarkers' in self) self.moveHighlightMarkers = [];
     if ('movePlayerColor' in self) self.movePlayerColor = playerVal;
     if ('passCounter' in self) self.passCounter = 0;
@@ -394,6 +519,21 @@ function applyComputerPass(self) {
     if (!self.computerSlot || self.gameOver) return;
     const moveSlot = self.computerSlot;
     if (moveSlot !== (self.currentPlayer === 1 ? 'black' : 'white')) return;
+    // 不允许虚着的棋种（不围棋）：棋盘走满 → 和棋；其它情况虚着 → 电脑判负
+    if (typeof self.passIsIllegal === 'function' && self.passIsIllegal()) {
+        if (typeof self.isBoardFull === 'function' && self.isBoardFull()) {
+            self.gameOver = true;
+            self.winner = 'draw';
+            if (typeof self.onDrawResolved === 'function') self.onDrawResolved();
+        } else {
+            self.gameOver = true;
+            self.winner = moveSlot === 'black' ? 'white' : 'black';
+            if (typeof self.setPassLossResultText === 'function') self.setPassLossResultText(moveSlot);
+        }
+        self.broadcast({ type: 'broadcast', action: 'pass', ...self.getState() });
+        if (typeof self._syncClockAfterTurnChange === 'function') self._syncClockAfterTurnChange();
+        return;
+    }
     if (Array.isArray(self.historyBoards)) self.historyBoards.push(copyBoard(self, self.board));
     if (Array.isArray(self.historyMarkers)) self.historyMarkers.push(copyMarkers(self, self.lastMoveMarkers));
     if (Array.isArray(self.moveHistory)) self.moveHistory.push(moveSlot);
@@ -440,7 +580,10 @@ function maybeScheduleKatago(self) {
         self._qiKatago.genMove(self.computerSlot).then((mv) => {
             if (gen !== self._qiKatagoGen || self.gameOver || !self.computerSlot) return;
             if (mv && mv.pass) applyComputerPass(self);
-            else if (mv && mv.swap) {
+            else if (mv && mv.compound) {
+                // 复合棋子着法（rus-weiqi 等）：一次落 3 子
+                if (!applyComputerCompound(self, mv)) applyComputerPass(self);
+            } else if (mv && mv.swap) {
                 if (!applyComputerSwap(self, mv.aRow, mv.aCol, mv.bRow, mv.bCol)) {
                     applyComputerPass(self);
                 }
@@ -517,7 +660,7 @@ async function ensureKatagoEngine(self, opts) {
         const gen = self._qiKatagoGen;
 
         if (!session) {
-            session = await acquireKatagoSession(self.room.gameType, {
+            session = await acquireKatagoSession(engineGameId(self), {
                 boardSize: self.boardSize
             });
         }
@@ -598,7 +741,7 @@ function handleStartVsComputer(self, ws, msg) {
     // spawn 名额已占、进程将可用）则视为可取得，不拦截。
     const hasPreparedEngine = !!(self._qiKatagoPrepared && !self._qiKatagoPrepared.dead);
     const preparePending = !!self._qiKatagoPreparePromise;
-    if (!hasPreparedEngine && !preparePending && !canAcquireKatagoNow(self.room.gameType)) {
+    if (!hasPreparedEngine && !preparePending && !canAcquireKatagoNow(engineGameId(self))) {
         ws.send(JSON.stringify({ type: 'error', message: KATAGO_BUSY_MESSAGE }));
         return;
     }
@@ -718,6 +861,15 @@ function handleHumanPassVsComputer(self, ws, slot) {
 function install(self, gameId) {
     if (!self || self._qiKatagoInstalled) return self;
     self._qiKatagoInstalled = true;
+    // 子棋类统一解析（多层兜底）：getState().subGameId → 实例属性 subGameId → 传入 gameId
+    let resolved = null;
+    try {
+        const st = typeof self.getState === 'function' ? self.getState() : null;
+        if (st && typeof st.subGameId === 'string' && st.subGameId.trim()) resolved = st.subGameId.trim();
+    } catch (_) { /* ignore */ }
+    if (!resolved && typeof self.subGameId === 'string' && self.subGameId.trim()) resolved = self.subGameId.trim();
+    gameId = resolved || gameId;
+    self._qiKatagoGameId = gameId;   // 引擎棋类 id（子棋类优先）——引擎检查/获取/setup 统一使用
     // 棋种若已自带 computerSlot，只暴露是否有 KataGo，不接管对局
     const hadBuiltinComputer = Object.prototype.hasOwnProperty.call(self, 'computerSlot');
     self.katagoAvailable = isKatagoAvailable(gameId);
@@ -941,21 +1093,39 @@ function install(self, gameId) {
                             }).catch((e2) => console.error('KataGo 易位后重同步失败', e2));
                         });
                     } else if (last && last.type === 'move') {
-                        this._qiKatago.play(slot, last.row, last.col).then(() => {
-                            if (gen === this._qiKatagoGen) maybeScheduleKatago(this);
-                        }).catch((err) => {
-                            console.error('KataGo play 失败，全量重同步引擎局面', err);
-                            // 引擎内部局面与服务器不一致会累积错位（后续 genmove 决策基于错误局面）：
-                            // 全量 set_position 以服务器盘面重建引擎局面
-                            const session = this._qiKatago;
-                            if (!session || session.dead || gen !== this._qiKatagoGen) return;
-                            const snap = typeof this.copyBoard === 'function'
-                                ? this.copyBoard(this.board)
-                                : this.board.map((row) => row.slice());
-                            session.setupGame(buildKatagoSetupOpts(this, snap)).then(() => {
+                        if (Number.isInteger(last.shapeIndex) && Number.isInteger(last.row) && Number.isInteger(last.col)) {
+                            // 复合棋子着法（rus-weiqi）：服务端 rot/flip → 引擎规范 orient
+                            const orient = compoundOrientToEngine(last.shapeIndex, last.rotation, last.flipped);
+                            this._qiKatago.playCompound(slot, last.row, last.col, last.shapeIndex, orient).then(() => {
                                 if (gen === this._qiKatagoGen) maybeScheduleKatago(this);
-                            }).catch((e2) => console.error('KataGo 重同步失败', e2));
-                        });
+                            }).catch((err) => {
+                                console.error('KataGo playCompound 失败，全量重同步引擎局面', err);
+                                const session = this._qiKatago;
+                                if (!session || session.dead || gen !== this._qiKatagoGen) return;
+                                const snap = typeof this.copyBoard === 'function'
+                                    ? this.copyBoard(this.board)
+                                    : this.board.map((row) => row.slice());
+                                session.setupGame(buildKatagoSetupOpts(this, snap)).then(() => {
+                                    if (gen === this._qiKatagoGen) maybeScheduleKatago(this);
+                                }).catch((e2) => console.error('KataGo 复合着后重同步失败', e2));
+                            });
+                        } else {
+                            this._qiKatago.play(slot, last.row, last.col).then(() => {
+                                if (gen === this._qiKatagoGen) maybeScheduleKatago(this);
+                            }).catch((err) => {
+                                console.error('KataGo play 失败，全量重同步引擎局面', err);
+                                // 引擎内部局面与服务器不一致会累积错位（后续 genmove 决策基于错误局面）：
+                                // 全量 set_position 以服务器盘面重建引擎局面
+                                const session = this._qiKatago;
+                                if (!session || session.dead || gen !== this._qiKatagoGen) return;
+                                const snap = typeof this.copyBoard === 'function'
+                                    ? this.copyBoard(this.board)
+                                    : this.board.map((row) => row.slice());
+                                session.setupGame(buildKatagoSetupOpts(this, snap)).then(() => {
+                                    if (gen === this._qiKatagoGen) maybeScheduleKatago(this);
+                                }).catch((e2) => console.error('KataGo 重同步失败', e2));
+                            });
+                        }
                     } else {
                         maybeScheduleKatago(this);
                     }
@@ -976,7 +1146,18 @@ function install(self, gameId) {
 /** 建房后调用：始终写入 available 标记；有引擎且方格围棋则接管人机 */
 function attachToRoom(room) {
     if (!room || !room.gameLogic) return;
-    install(room.gameLogic, room.gameType);
+    // 子棋类统一规则：只要棋种在 getState 里广播 subGameId（如 weak-magnetism-weiqi、
+    // rhom-triangle-weiqi），就只检查子棋类 id（katagos/{subGameId}/），不检查棋类 id；
+    // 没有子棋类才用棋类 id——无需为每个棋种单独修改
+    let subGameId = null;
+    try {
+        const st = typeof room.gameLogic.getState === 'function' ? room.gameLogic.getState() : null;
+        // 无子棋类的棋类 getState 没有 subGameId 字段（或为 undefined/null/空串）——此时用主棋类 id；
+        // 有子棋类的棋种在 getState 广播 subGameId（如 weak-magnetism-weiqi）
+        if (st && typeof st.subGameId === 'string' && st.subGameId.trim()) subGameId = st.subGameId.trim();
+    } catch (_) { /* ignore */ }
+    const gameId = subGameId || room.gameType;
+    install(room.gameLogic, gameId);
 }
 
 module.exports = {

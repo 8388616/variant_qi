@@ -1,5 +1,5 @@
 const crypto = require('crypto');
-const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, applyInitialPositionCompact, encodeInitialPositionCompact, qiBoardSeatOverlay } = require('../common');
+const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, applyInitialPositionCompact, encodeInitialPositionCompact, qiBoardSeatOverlay, encodeOpeningPositionCompact } = require('../common');
 
 function normalizeLegacyInitialToCompact(initialPosition) {
     if (!initialPosition) return [];
@@ -706,7 +706,7 @@ class MirrorImageWeiqiRoom extends QiTwoPlayerRoomBase
             boardSize: this.boardSize,
             komi: this.boardSize <= 8 ? 5.25 : 4.25,
             players: { black: null, white: null },
-            initialPosition: [],
+            initialPosition: encodeOpeningPositionCompact(this),
             moves: this.moveCoords.map(m => {
                 const p = m.player === 'black' ? 'B' : 'W';
                 if (m.type === 'pass') return p + 'p';
@@ -915,6 +915,7 @@ module.exports = {
     initRoom(room) {
         room.gameLogic = new MirrorImageWeiqiRoom(room);
         qiBoardSeatOverlay.install(room.gameLogic);
+        if (typeof qiProtocol.installStandardEditBoard === 'function') qiProtocol.installStandardEditBoard(room.gameLogic);
         room.maxPlayers = 2;
     }
 };

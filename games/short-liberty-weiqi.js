@@ -1,13 +1,65 @@
-const crypto = require('crypto');
-const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, applyInitialPositionCompact, encodeInitialPositionCompact, qiBoardSeatOverlay } = require('../common');
+﻿const crypto = require('crypto');
 
-class TrilibertyWeiqiRoom extends QiTwoPlayerRoomBase
+const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, applyInitialPositionCompact, encodeInitialPositionCompact, qiBoardSeatOverlay, encodeOpeningPositionCompact } = require('../common');
+
+/** 短气围棋（二气/三气/四气合并为一种棋类）：子棋类 id 沿用旧棋类 id */
+const SHORT_LIBERTY_SUB_GAME_ID = {
+    bi: 'biliberty-weiqi',
+    tri: 'triliberty-weiqi',
+    quad: 'quadriliberty-weiqi'
+};
+/** 各子棋类最少气数（落子后己方棋群不足此气判负；数点判死同口径） */
+const SHORT_LIBERTY_MIN_LIB = {
+    bi: 2,
+    tri: 3,
+    quad: 4
+};
+
+/** 二气围棋贴目（按路数） */
+function komiForSizeBi(boardSize) {
+    if (boardSize === 3) return 4.5;
+    if (boardSize === 4) return 0.0;
+    if (boardSize === 5) return 12.5;
+    if (boardSize === 6) return 0.5;
+    if (boardSize === 7) return 5.5;
+    if (boardSize === 8) return 3.0;
+    if (boardSize % 2 === 0) return 3.25;
+    return 2.75;
+}
+
+/** 三气围棋贴目（按路数）；其余奇数路数默认 2.75 */
+function komiForSizeTri(boardSize) {
+    switch (boardSize) {
+        case 3:
+            return 4.5;
+        case 4:
+        case 6:
+            return 0.0;
+        case 5:
+        case 7:
+        case 9:
+        case 11:
+            return 2.5;
+        case 8:
+        case 10:
+            return 2.0;
+        default:
+            if (boardSize % 2 == 0)
+                return 2.25;
+            return 2.75;
+    }
+}
+
+class ShortLibertyWeiqiRoom extends QiTwoPlayerRoomBase
 {
-    constructor(room, initialSize = 19) {
+    constructor(room, initialSize = 9, liberty = 'bi') {
         super(room);
+        this.liberty = liberty;          // 'bi' | 'tri' | 'quad'
+        this.subGameId = SHORT_LIBERTY_SUB_GAME_ID[liberty] || 'biliberty-weiqi';   // 子棋类 id（引擎检查用）
+        this.minLib = SHORT_LIBERTY_MIN_LIB[liberty] || 2;
         this.boardSize = initialSize;
         this.board = Array(this.boardSize).fill().map(() => Array(this.boardSize).fill(0));
-        if (this.openingBoard === undefined) this.openingBoard = (typeof this.copyBoard === 'function' ? this.copyBoard(this.board) : (Array.isArray(this.board[0]) ? this.board.map(r => r.slice()) : this.board.slice()));
+        this.openingBoard = this.copyBoard(this.board);
         this.currentPlayer = 1;
         this.historyBoards = [];
         this.historyBoardSet = new Set();
@@ -242,7 +294,7 @@ class TrilibertyWeiqiRoom extends QiTwoPlayerRoomBase
 
     tryPlaceStone(boardBefore, row, col, playerVal) {
         return squareWeiqiRules.tryPlaceStoneNLiberty(
-            boardBefore, row, col, playerVal, this.boardSize, (b) => this.copyBoard(b), 3
+            boardBefore, row, col, playerVal, this.boardSize, (b) => this.copyBoard(b), this.minLib
         );
     }
 
@@ -254,7 +306,7 @@ class TrilibertyWeiqiRoom extends QiTwoPlayerRoomBase
 
     removeDeadAndDying(srcBoard) {
         return squareWeiqiRules.removeDeadAndDying(
-            srcBoard, this.boardSize, (b) => this.copyBoard(b), 3
+            srcBoard, this.boardSize, (b) => this.copyBoard(b), this.minLib
         );
     }
 
@@ -266,12 +318,19 @@ class TrilibertyWeiqiRoom extends QiTwoPlayerRoomBase
         return squareWeiqiRules.computeScore(liveBoard, territory, this.boardSize);
     }
 
+    /** 贴目（服务端数子口径）：二气/三气按尺寸查表（各自不同），四气固定 3.25 */
+    _komi() {
+        if (this.liberty === 'tri') return komiForSizeTri(this.boardSize);
+        if (this.liberty === 'quad') return 3.25;
+        return komiForSizeBi(this.boardSize);
+    }
+
     computeLead()
     {
         const liveBoard = this.removeDeadAndDying(this.board);
         const territory = this.assignTerritoryWithRange(liveBoard);
         const { blackTotal, whiteTotal } = this.computeScore(liveBoard, territory);
-        const KOMI = 3.25;
+        const KOMI = this._komi();
         return blackTotal - whiteTotal - 2 * KOMI;
     }
 
@@ -308,16 +367,58 @@ class TrilibertyWeiqiRoom extends QiTwoPlayerRoomBase
 
     getState()
     {
+        const initialBoard = this.openingBoard
+            ? this.copyBoard(this.openingBoard)
+            : this.copyBoard(this.board);
         return {
+            subGameId: SHORT_LIBERTY_SUB_GAME_ID[this.liberty] || 'biliberty-weiqi',
+            liberty: this.liberty,
+            minLib: this.minLib,
             boardSize: this.boardSize,
             board: this.board,
-            komi: 3.25,
+            initialBoard,
+            komi: this._komi(),
             numberOfHands: 1 + this.historyBoards.length,
             currentPlayer: this.currentPlayer,
             lastMoveMarkers: this.lastMoveMarkers,
             gameOver: this.gameOver,
             winner: this.winner,
             moveCoords: this.moveCoords,
+            slots: {
+                black: !!this.room.getPlayerBySlot('black'),
+                white: !!this.room.getPlayerBySlot('white')
+            },
+            matchTime: {
+                negotiation: this.tcNego,
+                settings: this.tcSettings,
+                clock: this.tcClock && this.tcClock.timed
+                    ? qiMatchTimeControl.snapshotForClient(this.tcClock)
+                    : (this.tcSettings && this.tcSettings.timed === false
+                        ? { timed: false, ruleLine: '本局不限时' }
+                        : null)
+            },
+            matchStarted: this.matchStarted
+        };
+    }
+
+    getInitialState() {
+        const initialBoard = this.openingBoard
+            ? this.copyBoard(this.openingBoard)
+            : this.copyBoard(this.board);
+        return {
+            subGameId: SHORT_LIBERTY_SUB_GAME_ID[this.liberty] || 'biliberty-weiqi',
+            liberty: this.liberty,
+            minLib: this.minLib,
+            board: this.board,
+            initialBoard,
+            boardSize: this.boardSize,
+            komi: this._komi(),
+            currentPlayer: this.currentPlayer,
+            numberOfHands: 1,
+            lastMoveMarkers: this.lastMoveMarkers,
+            gameOver: this.gameOver,
+            winner: this.winner,
+            moveCoords: [],
             slots: {
                 black: !!this.room.getPlayerBySlot('black'),
                 white: !!this.room.getPlayerBySlot('white')
@@ -366,6 +467,10 @@ class TrilibertyWeiqiRoom extends QiTwoPlayerRoomBase
 
             case 'setBoardSize':
                 qiProtocol.setBoardSizeWeiqiObserver(this, ws, msg, slot);
+                break;
+
+            case 'setLiberty':
+                this.setLiberty(msg.liberty, ws);
                 break;
 
             case 'move': {
@@ -502,7 +607,7 @@ class TrilibertyWeiqiRoom extends QiTwoPlayerRoomBase
             this.currentPlayer = 3 - this.currentPlayer;
         }
         if (this.historyBoards.length == 0)
-            this.board = Array(this.boardSize).fill().map(() => Array(this.boardSize).fill(0));
+            this.board = this.copyBoard(this.openingBoard);
         else
             this.board = this.copyBoard(this.historyBoards.at(-1));
         this.broadcast({ type: 'broadcast', action: 'undoAccept', ...this.getState() });
@@ -524,9 +629,11 @@ class TrilibertyWeiqiRoom extends QiTwoPlayerRoomBase
         this.recordResultText = null;
         this.matchStarted = false;
         this.board = Array(this.boardSize).fill().map(() => Array(this.boardSize).fill(0));
+        this.openingBoard = this.copyBoard(this.board);
         this.currentPlayer = 1;
         this.historyBoards = [];
         this.historyBoardSet.clear();
+        this.historyBoardSet.add(this.boardToString(this.board));
         this.moveHistory = [];
         this.historyMarkers = [];
         this.lastMoveMarkers = [];
@@ -547,7 +654,7 @@ class TrilibertyWeiqiRoom extends QiTwoPlayerRoomBase
     setBoardSize(newSize, requesterWs)
     {
         if (!Number.isInteger(newSize) || newSize < 7 || newSize > 21) {
-            requesterWs.send(JSON.stringify({ type: 'error', message: '棋盘大小无效。' }));
+            requesterWs.send(JSON.stringify({ type: 'error', message: '棋盘大小无效' }));
             return false;
         }
         const hasAnyStone = this.board.some(row => row.some(v => v !== 0));
@@ -562,6 +669,25 @@ class TrilibertyWeiqiRoom extends QiTwoPlayerRoomBase
         return true;
     }
 
+    /** 切换子棋类（二气/三气/四气）：开局前可改，开局后静默忽略（与 setBoardSize 一致） */
+    setLiberty(liberty, requesterWs) {
+        if (liberty !== 'bi' && liberty !== 'tri' && liberty !== 'quad') {
+            requesterWs.send(JSON.stringify({ type: 'error', message: '子棋类无效' }));
+            return false;
+        }
+        const hasAnyStone = this.board.some(row => row.some(v => v !== 0));
+        const hasPlayer = this.room.getPlayerBySlot('black') || this.room.getPlayerBySlot('white');
+        if (hasAnyStone || hasPlayer) {
+            // 开局后静默忽略（客户端此时已隐藏选择器）
+            return false;
+        }
+        this.liberty = liberty;
+        this.subGameId = SHORT_LIBERTY_SUB_GAME_ID[liberty] || 'biliberty-weiqi';
+        this.minLib = SHORT_LIBERTY_MIN_LIB[liberty] || 2;
+        this.broadcast({ type: 'libertyChanged', ...this.getState() });
+        return true;
+    }
+
     exportRecord() {
 
         let resultText = null;
@@ -573,13 +699,15 @@ class TrilibertyWeiqiRoom extends QiTwoPlayerRoomBase
         }
         return {
             format: 'muzei',
-            version: 1,
-            gameType: '三气围棋',
-            gameId: 'triliberty-weiqi',
+            version: 2,
+            gameType: '短气围棋',
+            gameId: 'short-liberty-weiqi',
+            subGameId: SHORT_LIBERTY_SUB_GAME_ID[this.liberty] || 'biliberty-weiqi',
             boardSize: this.boardSize,
-            komi: 3.25,
+            komi: this._komi(),
             players: { black: null, white: null },
-            initialPosition: encodeInitialPositionCompact(this.board, this.boardSize),
+            // 开局盘面（编辑模式的开局；默认空盘）——导出当前盘面会让导入时与 moves 重放冲突
+            initialPosition: encodeOpeningPositionCompact(this),
             moves: this.moveCoords.map(m => {
                 const p = m.player === 'black' ? 'B' : 'W';
                 return m.type === 'pass' ? p + 'p' : p + m.row + ',' + m.col;
@@ -598,9 +726,11 @@ class TrilibertyWeiqiRoom extends QiTwoPlayerRoomBase
         this.recordResultText = null;
         this.matchStarted = false;
         this.board = Array(this.boardSize).fill().map(() => Array(this.boardSize).fill(0));
+        this.openingBoard = this.copyBoard(this.board);
         this.currentPlayer = 1;
         this.historyBoards = [];
         this.historyBoardSet = new Set();
+        this.historyBoardSet.add(this.boardToString(this.board));
         this.moveHistory = [];
         this.moveCoords = [];
         this.historyMarkers = [];
@@ -627,11 +757,17 @@ class TrilibertyWeiqiRoom extends QiTwoPlayerRoomBase
     }
 
     importRecord(data, requesterWs) {
-        if (!data || data.gameId !== 'triliberty-weiqi') {
-            requesterWs.send(JSON.stringify({ type: 'error', message: '棋谱格式不匹配（需要三气围棋棋谱）' }));
+        // 棋谱统一用 gameId=short-liberty-weiqi，用 subGameId 区分二/三/四气（不兼容旧棋类 id）
+        if (!data || data.gameId !== 'short-liberty-weiqi') {
+            requesterWs.send(JSON.stringify({ type: 'error', message: '棋谱格式不匹配（需要短气围棋棋谱）。' }));
             return;
         }
-        const newSize = data.boardSize || 19;
+        const subGameId = data.subGameId;
+        const liberty = subGameId === 'triliberty-weiqi' ? 'tri' : subGameId === 'quadriliberty-weiqi' ? 'quad' : 'bi';
+        this.liberty = liberty;
+        this.subGameId = SHORT_LIBERTY_SUB_GAME_ID[liberty] || 'biliberty-weiqi';
+        this.minLib = SHORT_LIBERTY_MIN_LIB[liberty] || 2;
+        const newSize = data.boardSize || 9;
         if (!Number.isInteger(newSize) || newSize < 7 || newSize > 21) {
             requesterWs.send(JSON.stringify({ type: 'error', message: '棋谱中棋盘大小无效' }));
             return;
@@ -641,9 +777,10 @@ class TrilibertyWeiqiRoom extends QiTwoPlayerRoomBase
         this.resetToEmpty();
 
         applyInitialPositionCompact(this.board, this.boardSize, data.initialPosition);
+        this.openingBoard = this.copyBoard(this.board);
 
         const rawMoves = data.moves || [];
-        const moves = rawMoves.map(TrilibertyWeiqiRoom.parseMove);
+        const moves = rawMoves.map(ShortLibertyWeiqiRoom.parseMove);
         for (let i = 0; i < moves.length; i++) {
             const move = moves[i];
             const slot = move.player;
@@ -703,7 +840,7 @@ class TrilibertyWeiqiRoom extends QiTwoPlayerRoomBase
             this.gameOver = true;
             const importedResultText = data.resultText != null ? String(data.resultText) : String(data.result);
             this.recordResultText = importedResultText;
-            this.winner = TrilibertyWeiqiRoom.parseResultTextToWinner(importedResultText);
+            this.winner = ShortLibertyWeiqiRoom.parseResultTextToWinner(importedResultText);
             if (!this.winner && (data.result === 'black' || data.result === 'white' || data.result === 'draw'))
                 this.winner = data.result;
         }
@@ -746,8 +883,9 @@ class TrilibertyWeiqiRoom extends QiTwoPlayerRoomBase
 
 module.exports = {
     initRoom(room) {
-        room.gameLogic = new TrilibertyWeiqiRoom(room);
+        room.gameLogic = new ShortLibertyWeiqiRoom(room);
         qiBoardSeatOverlay.install(room.gameLogic);
+        if (typeof qiProtocol.installStandardEditBoard === 'function') qiProtocol.installStandardEditBoard(room.gameLogic);
         room.maxPlayers = 2;
     }
 };

@@ -1,9 +1,9 @@
-const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, applyInitialPositionCompact, encodeInitialPositionCompact, qiBoardSeatOverlay } = require('../common');
+const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, applyInitialPositionCompact, encodeInitialPositionCompact, qiBoardSeatOverlay, encodeOpeningPositionCompact } = require('../common');
 
 class RusWeiqiRoom extends QiTwoPlayerRoomBase {
     constructor(room) {
         super(room);
-        this.boardSize = 19;
+        this.boardSize = 9;
         this.board = Array(this.boardSize).fill().map(() => Array(this.boardSize).fill(0));
         if (this.openingBoard === undefined) this.openingBoard = (typeof this.copyBoard === 'function' ? this.copyBoard(this.board) : (Array.isArray(this.board[0]) ? this.board.map(r => r.slice()) : this.board.slice()));
         this.moveCoords = [];
@@ -314,6 +314,10 @@ class RusWeiqiRoom extends QiTwoPlayerRoomBase {
     }
 
     tryPlaceShape(boardBefore, shapeIdx, rot, flip, refRow, refCol, playerVal) {
+        // 与引擎对齐：只允许 30 个规范朝向（shape0 仅 rot0、shape4 仅 rot0/1、其余 rot0-3；flip 均允许）
+        const CANON_ROT = [[0], [0, 1, 2, 3], [0, 1, 2, 3], [0, 1, 2, 3], [0, 1]];
+        if (!CANON_ROT[shapeIdx] || !CANON_ROT[shapeIdx].includes(rot)) return null;
+
         const coords = this.generatePlacementCoords(shapeIdx, rot, flip, refRow, refCol);
         if (!coords) return null;
         for (let [r, c] of coords) {
@@ -695,6 +699,11 @@ class RusWeiqiRoom extends QiTwoPlayerRoomBase {
                 this.moveCoords.push({
                     type: 'move',
                     player: slot,
+                    shapeIndex,
+                    rotation,
+                    flipped,
+                    row,
+                    col,
                     stones: stoneList,
                     stoneOwners: [...owners]
                 });
@@ -859,7 +868,8 @@ class RusWeiqiRoom extends QiTwoPlayerRoomBase {
             komi: 2.25,
             stoneEncoding: 'plusMinus',
             players: { black: null, white: null },
-            initialPosition: encodeInitialPositionCompact(this.board, this.boardSize),
+            // 开局盘面（编辑模式的开局；默认空盘）——导出当前盘面会让导入时与 moves 重放冲突
+            initialPosition: encodeOpeningPositionCompact(this),
             moves: this.moveCoords.map(m => {
                 const p = m.player === 'black' ? 'B' : 'W';
                 if (m.type === 'pass') return p + 'p';
@@ -946,7 +956,7 @@ class RusWeiqiRoom extends QiTwoPlayerRoomBase {
             requesterWs.send(JSON.stringify({ type: 'error', message: '棋谱格式不匹配（需要罗斯围棋棋谱）。' }));
             return;
         }
-        const newSize = data.boardSize || 19;
+        const newSize = data.boardSize || 9;
         if (!Number.isInteger(newSize) || newSize < 7 || newSize > 21) {
             requesterWs.send(JSON.stringify({ type: 'error', message: '棋谱中棋盘大小无效。' }));
             return;
@@ -1155,6 +1165,8 @@ module.exports = {
     initRoom(room) {
         room.gameLogic = new RusWeiqiRoom(room);
         if (typeof qiBoardSeatOverlay !== 'undefined' && qiBoardSeatOverlay) qiBoardSeatOverlay.install(room.gameLogic);
+        qiProtocol.installStandardEditBoard(room.gameLogic);
+        qiProtocol.installStandardEditBoard(room.gameLogic);
         room.maxPlayers = 2;
     }
 };

@@ -231,7 +231,7 @@ const boardSizeSelect = document.getElementById('boardSizeSelect');
                 }
                 for (let row = 0; row < ps.BOARD_SIZE; row++) {
                     const p = boardCenterOfCell(row, 0);
-                    ctx.fillText(String(row + 1), 0.5 * ps.PADDING, p.y);
+                    ctx.fillText(String(ps.BOARD_SIZE - row), 0.5 * ps.PADDING, p.y);
                 }
 
                 const stoneRadius = ps.CELL_SIZE * 0.38;

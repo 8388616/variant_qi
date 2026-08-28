@@ -504,6 +504,12 @@ Express.get("/qi/room-plugins/:plugin", (request, response) => {
     if (!/^[a-zA-Z0-9_-]+-room\.js$/.test(plugin)) return response.status(400).send('Invalid plugin');
     return sendCachedPublic(response, path.join(PUBLIC_ROOT, "room-plugins", plugin));
 });
+// 第三方库（three.js 等）——必须在 /qi/:game/:roomId 之前注册
+Express.get("/qi/vendor/:file", (request, response) => {
+    const f = request.params.file;
+    if (!/^[a-zA-Z0-9._-]+$/.test(f)) return response.status(400).send('Invalid');
+    return sendCachedPublic(response, path.join(PUBLIC_ROOT, "vendor", f));
+});
 Express.get("/qi/xiangqi-rules.js", (request, response) =>
     sendCachedPublic(response, path.join(PUBLIC_ROOT, 'xiangqi-rules.js')));
 // 字体必须在 /qi/:game/:roomId 之前注册，否则 /qi/fonts/... 会被当成房间页返回 HTML

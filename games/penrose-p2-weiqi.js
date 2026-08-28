@@ -233,7 +233,7 @@ function generatePenroseP2BoardData(n) {
     return { vertexCount: V, neighbors };
 }
 
-const { QiTwoPlayerRoomBase, qiMatchTimeControl, vertexGraphWeiqiRules, qiBoardSeatOverlay, qiProtocol } = require('../common');
+const { QiTwoPlayerRoomBase, qiMatchTimeControl, vertexGraphWeiqiRules, qiBoardSeatOverlay, qiProtocol, encodeOpeningPositionCompact } = require('../common');
 class PenroseP2WeiqiRoom extends QiTwoPlayerRoomBase {
     constructor(room, initialSize = 5) {
         super(room);
@@ -690,7 +690,7 @@ class PenroseP2WeiqiRoom extends QiTwoPlayerRoomBase {
             vertexCount: this.vertexCount,
             komi: 3.25,
             players: { black: null, white: null },
-            initialPosition: [],
+            initialPosition: encodeOpeningPositionCompact(this),
             moves: this.moveCoords.map(m => {
                 const p = m.player === 'black' ? 'B' : 'W';
                 return m.type === 'pass' ? p + 'p' : p + m.vertex;
@@ -889,7 +889,7 @@ class PenroseP2WeiqiRoom extends QiTwoPlayerRoomBase {
             replayData: {
                 boardSize: this.boardSize,
                 // 打谱从空盘 + 全手顺即可；避免 initialPosition 与 moves 重复导致客户端回放失败
-                initialPosition: [],
+                initialPosition: encodeOpeningPositionCompact(this),
                 moves: moves.map(m => (m.type === 'pass'
                     ? { type: 'pass', player: m.player }
                     : { type: 'move', player: m.player, vertex: m.vertex }))
@@ -1214,6 +1214,7 @@ module.exports = {
     initRoom(room) {
         room.gameLogic = new PenroseP2WeiqiRoom(room);
         if (typeof qiBoardSeatOverlay !== 'undefined' && qiBoardSeatOverlay) qiBoardSeatOverlay.install(room.gameLogic);
+        if (typeof qiProtocol.installStandardEditBoard === 'function') qiProtocol.installStandardEditBoard(room.gameLogic);
         room.maxPlayers = 2;
     }
 };

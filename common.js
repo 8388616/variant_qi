@@ -28,6 +28,29 @@ function encodeInitialPositionCompact(board, boardSize) {
     return out;
 }
 
+/**
+ * 导出开局盘面（编辑模式的开局；默认空盘）→ 紧凑棋谱格式。
+ * 所有支持编辑的棋类统一调用：开局编辑（openingBoard）必须随棋谱导出，
+ * 否则导入时开局丢失；也不得导出当前盘面（this.board），否则与 moves 重放冲突。
+ * 尺寸推导：boardSize → boardLanes → ROWS → board 行数；openingBoard 缺失时用空盘。
+ * @param {object} self room.gameLogic
+ * @returns {string[]} 紧凑开局编码（如 ["B3,3","H1,0"]）
+ */
+function encodeOpeningPositionCompact(self) {
+    if (!self) return [];
+    let boardSize = Number(self.boardSize);
+    if (!Number.isFinite(boardSize) || boardSize <= 0) boardSize = Number(self.boardLanes);
+    if (!Number.isFinite(boardSize) || boardSize <= 0) boardSize = Number(self.ROWS);
+    if (!Number.isFinite(boardSize) || boardSize <= 0) boardSize = (Array.isArray(self.board) ? self.board.length : 0);
+    if (!Number.isFinite(boardSize) || boardSize <= 0) return [];
+    const opening = (self.openingBoard && Array.isArray(self.openingBoard) && Array.isArray(self.openingBoard[0]))
+        ? self.openingBoard
+        : Array(boardSize).fill().map(() => Array(boardSize).fill(0));
+    // 非方形棋盘（如开罗五角）：紧凑格式只支持方形遍历——回退空
+    if (opening.length !== boardSize || (opening[0] && opening[0].length !== boardSize)) return [];
+    return encodeInitialPositionCompact(opening, boardSize);
+}
+
 function applyInitialPositionCompact(board, boardSize, initialPosition) {
     if (!initialPosition || !Array.isArray(initialPosition)) return;
     for (const s of initialPosition) {
@@ -2382,6 +2405,7 @@ module.exports = {
     copyBoard,
     boardToString,
     encodeInitialPositionCompact,
+    encodeOpeningPositionCompact,
     applyInitialPositionCompact,
     assignBlackWhiteSlot,
     resolveHostTargetColor,

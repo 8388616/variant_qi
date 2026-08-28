@@ -780,7 +780,7 @@ window.RoomPlugins['sudoku-weiqi'] = {
             }
             for (let r = 0; r < boardSize; r++) {
                 const y = padding + (r + 0.5) * cellSize;
-                ctx2.fillText(String(r + 1), padding * 0.45, y);
+                ctx2.fillText(String(boardSize - r), padding * 0.45, y);
             }
         }
 

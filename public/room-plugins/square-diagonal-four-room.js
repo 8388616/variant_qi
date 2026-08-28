@@ -2,7 +2,7 @@ window.RoomPlugins = window.RoomPlugins || {};
 window.RoomPlugins["square-diagonal-four"] = {
     shell: {
         "title": "方斜四棋",
-        "rulesHtml": "形成方四胜，形成斜四负。同时形成负。",
+        "rulesHtml": "形成方四胜，形成斜四负。同时形成负。<br /><br />规则和AI由@ProjectCF提供。",
         "defaultKomiText": "",
         "boardSizeMin": 7,
         "boardSizeMax": 27,

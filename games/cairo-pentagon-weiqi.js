@@ -1,4 +1,4 @@
-const { QiTwoPlayerRoomBase, gridGraphWeiqiRules, qiMatchTimeControl, qiProtocol, qiBoardSeatOverlay } = require('../common');
+const { QiTwoPlayerRoomBase, gridGraphWeiqiRules, qiMatchTimeControl, qiProtocol, qiBoardSeatOverlay, encodeInitialPositionCompact, encodeOpeningPositionCompact } = require('../common');
 
 function komiForLanes(lanes) {
     return lanes === 4 ? 2.5 : 2;
@@ -787,6 +787,7 @@ class CairoPentagonWeiqiRoom extends QiTwoPlayerRoomBase {
             boardSize: this.boardLanes,
             komi: komiForLanes(this.boardLanes),
             players: { black: null, white: null },
+            // 开局盘面（编辑模式的开局；默认空盘）——导出当前盘面会让导入时与 moves 重放冲突
             initialPosition: [],
             moves: this.moveCoords.map(m => {
                 const p = m.player === 'black' ? 'B' : 'W';

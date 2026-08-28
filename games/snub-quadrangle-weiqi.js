@@ -1,4 +1,4 @@
-const { QiTwoPlayerRoomBase, gridGraphWeiqiRules, qiMatchTimeControl, qiProtocol, qiBoardSeatOverlay } = require('../common');
+const { QiTwoPlayerRoomBase, gridGraphWeiqiRules, qiMatchTimeControl, qiProtocol, qiBoardSeatOverlay, encodeInitialPositionCompact, encodeOpeningPositionCompact } = require('../common');
 
 function komiForLanes(lanes) {
     return lanes === 3 ? 3 : 2;
@@ -14,7 +14,7 @@ class SnubQuadrangleWeiqiRoom extends QiTwoPlayerRoomBase {
         if (Number.isFinite(lanes) && lanes >= 2 && lanes <= 8) this.setBoardSize(lanes);
     }
 
-    constructor(room, initialLanes = 7) {
+    constructor(room, initialLanes = 4) {
         super(room);
         this.boardLanes = initialLanes;
         this.editBoardMode = 'maskedGrid';
@@ -784,7 +784,8 @@ class SnubQuadrangleWeiqiRoom extends QiTwoPlayerRoomBase {
             gridHeight: this.gridH,
             komi: komiForLanes(this.boardLanes),
             players: { black: null, white: null },
-            initialPosition: [],
+            // 开局盘面（编辑模式的开局；默认空盘）——导出当前盘面会让导入时与 moves 重放冲突
+            initialPosition: encodeOpeningPositionCompact(this),
             moves: this.moveCoords.map(m => {
                 const p = m.player === 'black' ? 'B' : 'W';
                 return m.type === 'pass' ? p + 'p' : p + m.row + ',' + m.col;
@@ -975,7 +976,7 @@ class SnubQuadrangleWeiqiRoom extends QiTwoPlayerRoomBase {
                 gridWidth: this.gridW,
                 gridHeight: this.gridH,
                 // 打谱从空盘 + 全手顺即可；避免 initialPosition 与 moves 重复导致客户端回放失败
-                initialPosition: [],
+                initialPosition: encodeOpeningPositionCompact(this),
                 moves: moves.map(m => (m.type === 'pass'
                     ? { type: 'pass', player: m.player }
                     : { type: 'move', player: m.player, row: m.row, col: m.col }))
@@ -1012,6 +1013,7 @@ module.exports = {
     initRoom(room) {
         room.gameLogic = new SnubQuadrangleWeiqiRoom(room);
         if (typeof qiBoardSeatOverlay !== 'undefined' && qiBoardSeatOverlay) qiBoardSeatOverlay.install(room.gameLogic);
+        if (typeof qiProtocol.installStandardEditBoard === 'function') qiProtocol.installStandardEditBoard(room.gameLogic);
         room.maxPlayers = 2;
     }
 };

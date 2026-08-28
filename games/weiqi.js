@@ -1,6 +1,6 @@
 const crypto = require('crypto');
 
-const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, applyInitialPositionCompact, encodeInitialPositionCompact } = require('../common');
+const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, applyInitialPositionCompact, encodeInitialPositionCompact, encodeOpeningPositionCompact } = require('../common');
 class WeiqiRoom extends QiTwoPlayerRoomBase
 {
     constructor(room, initialSize = 19) {
@@ -746,7 +746,7 @@ class WeiqiRoom extends QiTwoPlayerRoomBase
             boardSize: this.boardSize,
             komi: this.boardSize <= 8 ? 4.25 : 3.25,
             players: { black: null, white: null },
-            initialPosition: encodeInitialPositionCompact(this.board, this.boardSize),
+            initialPosition: encodeOpeningPositionCompact(this),
             moves: this.moveCoords.map(m => {
                 const p = m.player === 'black' ? 'B' : 'W';
                 return m.type === 'pass' ? p + 'p' : p + m.row + ',' + m.col;

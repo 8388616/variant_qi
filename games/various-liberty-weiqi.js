@@ -1,6 +1,6 @@
 'use strict';
 
-const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, applyInitialPositionCompact, encodeInitialPositionCompact, qiBoardSeatOverlay } = require('../common');
+const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, applyInitialPositionCompact, encodeInitialPositionCompact, qiBoardSeatOverlay, encodeOpeningPositionCompact } = require('../common');
 
 const BACKPACK_CAP = 8;
 
@@ -621,7 +621,7 @@ class VariousLibertyWeiqiRoom extends QiTwoPlayerRoomBase {
             boardSize: this.boardSize,
             komi: 3.25,
             players: { black: null, white: null },
-            initialPosition: encodeInitialPositionCompact(this.board, this.boardSize),
+            initialPosition: encodeOpeningPositionCompact(this),
             moves: this.moveCoords.map(m => encodeMoveToRecordString(m)),
             timeControl: (this.tcSettings && this.tcSettings.timed) ? `S${this.tcSettings.mainMinutes || 0},${this.tcSettings.byoyomiSeconds || 0},${this.tcSettings.maxTimeouts || 0}` : null,
             result: resultText
@@ -1047,6 +1047,7 @@ module.exports = {
     initRoom(room) {
         room.gameLogic = new VariousLibertyWeiqiRoom(room);
         if (typeof qiBoardSeatOverlay !== 'undefined' && qiBoardSeatOverlay) qiBoardSeatOverlay.install(room.gameLogic);
+        if (typeof qiProtocol.installStandardEditBoard === 'function') qiProtocol.installStandardEditBoard(room.gameLogic);
         room.maxPlayers = 2;
     }
 };

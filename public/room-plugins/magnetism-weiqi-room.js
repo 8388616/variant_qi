@@ -6,7 +6,7 @@ window.RoomPlugins['magnetism-weiqi'] = {
         "defaultKomiText": "黑贴白2.25点",
         "boardSizeMin": 7,
         "boardSizeMax": 21,
-        "defaultBoardSize": 19,
+        "defaultBoardSize": 9,
         "minLib": 1,
         "recordDownloadPrefix": "磁性围棋",
         "standardWeiqiMatchTime": true,
@@ -67,8 +67,8 @@ window.RoomPlugins['magnetism-weiqi'] = {
         }
 
         const ps = {
-            BOARD_SIZE: 19,
-            KOMI: komiForMagnetism('weak', 19),
+            BOARD_SIZE: 9,
+            KOMI: komiForMagnetism('weak', 9),
             PADDING: 0,
             CELL_SIZE: 0,
             numberOfHands: 1,
@@ -609,10 +609,8 @@ const scoreTitle = document.getElementById('scoreTitle');
                 if (sel) sel.value = MAGNETISM;
                 refreshKomiInfo();
             }
-            if (state.boardSize && state.boardSize !== ps.BOARD_SIZE) {
-                ps.BOARD_SIZE = state.boardSize;
-                refreshKomiInfo();
-            }
+            // 棋盘尺寸变化由 syncStateBase 统一处理（内部重建棋盘并更新几何/贴目显示），
+            // 切勿在此先改 ps.BOARD_SIZE——会跳过 syncStateBase 的几何更新导致换路数后棋格不变化
             syncStateBase(state);
             // 子棋类选择器显示时机与路数选择器一致（开局前可改）
             updateSubGameSelectVisibility();
@@ -623,8 +621,9 @@ const scoreTitle = document.getElementById('scoreTitle');
             if (!sel) return;
             const hasAnyStone = ps.board.some(row => row.some(v => v !== 0));
             const hasPlayer = ps.slots.black || ps.slots.white;
-            sel.style.display = (!hasAnyStone && !hasPlayer && !ps.gameOver && ps.mySlot === null)
-                ? 'inline-block' : 'none';
+            // 有子棋类：始终显示；开局（有子/有人入座/对局结束）后锁定不可改，新局时恢复可用
+            sel.style.display = 'inline-block';
+            sel.disabled = hasAnyStone || hasPlayer || ps.gameOver;
         }
 
         function refreshKomiInfo() {
@@ -695,10 +694,17 @@ syncState,
             timeControlMainByoScale: 2
         });
         const _baseHandleMessage = _weiqiBindings.handleMessage;
+        const updateVsComputerBtn = _weiqiBindings.updateVsComputerBtn;
         const handleMessage = (msg) => {
             if (msg && msg.type === 'magnetismChanged') {
                 // 子棋类变更广播（带完整 state）：全量同步
                 syncState(msg);
+                // 切换弱/中/强磁性后「与电脑对弈」可用性立即更新（服务端已按新子棋类重查引擎）
+                if (Object.prototype.hasOwnProperty.call(msg, 'katagoAvailable'))
+                    ps.katagoAvailable = !!msg.katagoAvailable;
+                if (Object.prototype.hasOwnProperty.call(msg, 'computerSlot'))
+                    ps.computerSlot = msg.computerSlot || null;
+                if (typeof updateVsComputerBtn === 'function') updateVsComputerBtn();
                 return;
             }
             _baseHandleMessage(msg);

@@ -1254,9 +1254,7 @@
             { id: 'cairo-pentagon-weiqi', name: '开罗五角围棋', randomLevel: 0, path: 'cairo-pentagon-weiqi', enabled: true, recommended: false, category: '围棋', intro: '开罗五角棋盘！' },
             { id: 'floret-pentagon-weiqi', name: '花形五角围棋', randomLevel: 0, path: 'floret-pentagon-weiqi', enabled: true, recommended: false, category: '围棋', intro: '花形五角棋盘！' },
             { id: 'penrose-p2-weiqi', name: '彭罗斯P2围棋', randomLevel: 0, path: 'penrose-p2-weiqi', enabled: false, recommended: false, category: '围棋', intro: '' },
-            { id: 'biliberty-weiqi', name: '二气围棋', randomLevel: 0, path: 'biliberty-weiqi', enabled: true, recommended: true, category: '围棋', intro: '每片棋子少一口气！' },
-            { id: 'triliberty-weiqi', name: '三气围棋', randomLevel: 0, path: 'triliberty-weiqi', enabled: true, recommended: false, category: '围棋', intro: '每片棋子少两口气！' },
-            { id: 'quadriliberty-weiqi', name: '四气围棋', randomLevel: 0, path: 'quadriliberty-weiqi', enabled: true, recommended: false, category: '围棋', intro: '每片棋子少三口气！' },
+            { id: 'short-liberty-weiqi', name: '短气围棋', randomLevel: 0, path: 'short-liberty-weiqi', enabled: true, recommended: true, category: '围棋', intro: '每组棋子少若干气！' },
             { id: 'zeroliberty-weiqi', name: '零气围棋', randomLevel: 0, path: 'zeroliberty-weiqi', enabled: true, recommended: true, category: '围棋', intro: '棋子没有气后，还需要花额外的一手棋来提子！' },
             { id: 'various-liberty-weiqi', name: '异气围棋', randomLevel: 0, path: 'various-liberty-weiqi', enabled: true, recommended: false, category: '围棋', intro: '每个棋子的气数不同！' },
             { id: 'weight-weiqi', name: '权重围棋', randomLevel: 2, path: 'weight-weiqi', enabled: true, recommended: true, category: '围棋', intro: '棋盘上每个点的价值不同！' },
@@ -1324,7 +1322,7 @@
             { id: 'super-24', name: '超级24点', randomLevel: 0, path: 'super-24', enabled: true, recommended: false, category: '其它', intro: '' },
             { id: 'versus-minesweeper', name: '对战扫雷', randomLevel: 0, path: 'versus-minesweeper', enabled: true, recommended: false, category: '其它', intro: '' },
             { id: 'speed-minesweeper', name: '竞速扫雷', randomLevel: 0, path: 'speed-minesweeper', enabled: true, recommended: false, category: '其它', intro: '' },
-            { id: 'dfw', name: 'DFW', randomLevel: 0, path: 'dfw', enabled: true, recommended: false, category: '其它', intro: '测试游戏，没有实际功能。' },
+            { id: 'dfw', name: 'DFW', randomLevel: 0, path: 'dfw', enabled: true, recommended: false, category: '其它', intro: '测试游戏，无实际功能。' },
 		];
 
         let pendingGame = null;
@@ -1497,7 +1495,7 @@
                                 <div class="room-info">
                                     <span class="room-id">${room.roomId}</span>
                                     <span class="game-badge">${room.gameName}</span>
-                                    <span class="player-count">${room.playerCount || 0}/2</span>
+                                    <span class="player-count">${room.playerCount || 0}/${room.maxPlayers || 2}</span>
                                     ${room.hasPassword ? '<span class="player-count">私密</span>' : '<span class="player-count">公开</span>'}
                                 </div>
                                 <button class="enter-btn" type="button" data-room-id="${room.roomId}" data-game-id="${room.gameId}" data-game-path="${room.gamePath}" data-has-password="${room.hasPassword}">进入房间</button>

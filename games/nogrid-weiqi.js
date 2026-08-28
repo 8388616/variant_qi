@@ -238,7 +238,7 @@ function computeTerritoryLead(stones, roadCount) {
     return { lead, blackPoints, whitePoints };
 }
 
-const { QiTwoPlayerRoomBase, qiMatchTimeControl, qiBoardSeatOverlay } = require('../common');
+const { QiTwoPlayerRoomBase, qiMatchTimeControl, qiBoardSeatOverlay, encodeOpeningPositionCompact, qiProtocol } = require('../common');
 class NogridWeiqiRoom extends QiTwoPlayerRoomBase {
     constructor(room) {
         super(room);
@@ -657,7 +657,7 @@ class NogridWeiqiRoom extends QiTwoPlayerRoomBase {
             komi: KOMI,
             coordScale: COORD_SCALE,
             players: { black: null, white: null },
-            initialPosition: [],
+            initialPosition: encodeOpeningPositionCompact(this),
             moves: this.moveCoords.map(m => {
                 const p = m.player === 'black' ? 'B' : 'W';
                 if (m.type === 'pass') return p + 'p';
@@ -1093,6 +1093,7 @@ module.exports = {
     initRoom(room) {
         room.gameLogic = new NogridWeiqiRoom(room);
         if (typeof qiBoardSeatOverlay !== 'undefined' && qiBoardSeatOverlay) qiBoardSeatOverlay.install(room.gameLogic);
+        if (typeof qiProtocol.installStandardEditBoard === 'function') qiProtocol.installStandardEditBoard(room.gameLogic);
         room.maxPlayers = 2;
     },
     COORD_SCALE,

@@ -732,6 +732,8 @@ body.qi-room .main-area {
 }
 
 body.qi-room .button-panel {
+    display: flex;
+    flex-direction: column;
     grid-column: auto;
     grid-row: auto;
     width: 100%;
@@ -1343,6 +1345,11 @@ body.qi-room.qi-room-no-zoom .weiqi-board-scrollbar {
         max-width: 100%;
     }
 
+    /* 手机：顶栏弧度与按钮面板一致（桌面为胶囊形，保持原样） */
+    body.qi-room .top-panel {
+        border-radius: var(--qi-room-radius-lg);
+    }
+
     body.qi-room .main-area {
         display: flex;
         flex-direction: column;
@@ -1356,6 +1363,8 @@ body.qi-room.qi-room-no-zoom .weiqi-board-scrollbar {
         flex-wrap: wrap;
         justify-content: center;
         order: 0;
+        gap: 8px;
+        padding: 10px 8px;
     }
 
     /* 手机：拆开左侧栏，聊天框排到棋盘区域下方；桌面仍在左侧按钮下 */
@@ -1384,8 +1393,65 @@ body.qi-room.qi-room-no-zoom .weiqi-board-scrollbar {
 
     body.qi-room .button-panel .ctrl-btn {
         width: auto;
-        min-width: 96px;
-        flex: 1 1 auto;
+        min-width: 80px;
+        /* flex-basis 0：一行内所有按钮等宽（此前 auto 会让文字长的按钮更宽） */
+        flex: 1 1 0;
+        padding: 6px 3px;
+        font-size: 0.8rem;
+    }
+
+    /* 手机：子棋类/路数下拉框与标题（gameTitleInfo）同字号同高度 */
+    body.qi-room .board-size-select {
+        font-size: 0.95rem;
+        min-height: 32px;
+        padding: 0 10px;
+    }
+
+    /* 手机：顶栏所有控件字体与按钮面板按钮一致（0.8rem） */
+    body.qi-room .top-panel .komi-info,
+    body.qi-room .top-panel .color-status,
+    body.qi-room .top-panel .board-size-select,
+    body.qi-room .top-panel .show-numbers-label,
+    body.qi-room .top-panel .side-select {
+        font-size: 0.8rem;
+    }
+    /* 标题与下拉框高度显式一致（字体变小后 min-height 同步收窄） */
+    body.qi-room .top-panel .komi-info,
+    body.qi-room .top-panel .board-size-select {
+        min-height: 30px;
+    }
+
+    /* 手机：说明/返回大厅按钮字体与上下边距缩小 */
+    body.qi-room .help-btn,
+    body.qi-room .back-to-lobby-btn {
+        min-height: 30px;
+        padding: 0 10px;
+        font-size: 0.8rem;
+    }
+
+    /* 手机：信息面板与计时面板左右并列且等宽等高、顶部对齐（信息在左）；
+       复合棋子等 has-palette 棋类已有更高特异性的纵向规则，保持原布局不受影响 */
+    body.qi-room .palette-stack-aside {
+        display: flex;
+        flex-direction: row;
+        align-items: stretch;
+        gap: 10px;
+    }
+    body.qi-room .palette-stack-aside .main-area-right {
+        flex: 6 1 0;
+        min-width: 0;
+    }
+    /* info-panel 基础有 min-height:200px 与 margin-bottom:20px，手机端归零以免比计时面板高 */
+    body.qi-room .palette-stack-aside .main-area-right .info-panel {
+        min-height: 0;
+        margin-bottom: 0;
+    }
+    body.qi-room .palette-stack-aside #goTimerPanel {
+        flex: 4 1 0;
+        width: auto;
+        max-width: none;
+        /* go-timer-panel 基础有 margin-top:12px，归零以与信息面板顶端对齐 */
+        margin-top: 0;
     }
 
     body.qi-room .board-and-info.board-and-info--palette-stack {
@@ -2194,11 +2260,6 @@ body.qi-room .qi-edit-tool-item .qi-edit-tool-glyph {
 body.qi-room .qi-edit-tool-item .qi-edit-tool-glyph.is-empty {
     font-size: 16px;
     color: var(--qi-room-ink);
-}
-
-body.qi-room .button-panel {
-    display: flex;
-    flex-direction: column;
 }
 
 body.qi-room .board-container {

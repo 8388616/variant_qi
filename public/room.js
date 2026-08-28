@@ -2415,7 +2415,7 @@
                 closeRulesBtn.onclick = () => rulesModal.style.display = 'none';
             rulesModal.onclick = (e) => { if (e.target === rulesModal) rulesModal.style.display = 'none'; };
         }
-        return { handleMessage, updateRecordButtons, updateRadioStyles, updateSeatOverlay };
+        return { handleMessage, updateRecordButtons, updateRadioStyles, updateSeatOverlay, updateVsComputerBtn };
     }
 
     const QiBoardRoomClient = {
@@ -2587,9 +2587,10 @@
                 const y = 0.6 * padding;
                 ctx.fillText(letter, x, y);
             }
-            for (let r = 0; r < boardSize; r++) 
+            for (let r = 0; r < boardSize; r++)
                 {
-                const number = (r + 1).toString();
+                // 行号从上到下从大到小（GTP 惯例：顶部 = 路数）
+                const number = (boardSize - r).toString();
                 const x = padding / 2;
                 const y = padding + r * cellSize;
                 ctx.fillText(number, x, y);

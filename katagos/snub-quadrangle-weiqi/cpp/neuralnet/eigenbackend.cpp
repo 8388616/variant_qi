@@ -1861,6 +1861,18 @@ void NeuralNet::getOutput(
   MAP2(scoreValue);
   MAP4(ownership);
   MAP3(mask);
+  // 填充 mask：棋盘有效格 = 1、NN 填充区 = 0。
+  // 此前 mask 从未被填充（cuda/opencl 后端从输入通道 0 提取，eigen 漏了），
+  // 未初始化内存使 maskSum 成为垃圾值（负值时 poolRowsValueHead 里 sqrt(负) 产生 NaN）。
+  for(int nIdx = 0; nIdx < batchSize; nIdx++) {
+    const int bx = inputBufs[nIdx]->boardXSizeForServer;
+    const int by = inputBufs[nIdx]->boardYSizeForServer;
+    for(int y = 0; y < nnYLen; y++) {
+      for(int x = 0; x < nnXLen; x++) {
+        mask(x, y, nIdx) = (x < bx && y < by) ? 1.0f : 0.0f;
+      }
+    }
+  }
   vector<float>& maskSum = buffers.maskSum;
   computeMaskSum(&mask,maskSum.data());
   vector<float>& convWorkspace = buffers.convWorkspace;

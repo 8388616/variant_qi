@@ -1,4 +1,4 @@
-const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, applyInitialPositionCompact, encodeInitialPositionCompact, qiBoardSeatOverlay } = require('../common');
+const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, applyInitialPositionCompact, encodeInitialPositionCompact, qiBoardSeatOverlay, encodeOpeningPositionCompact } = require('../common');
 /** 三种磁性围棋（弱/中/强）合并为一种棋类：磁性围棋 magnetism-weiqi。
  * 子棋类 id（subGameId）沿用旧棋类 id：weak/medium/strong-magnetism-weiqi。
  * 客户端「显示序号」按 moveCoords 与对应磁性规则重放，使序号随子移动。 */
@@ -22,9 +22,10 @@ function komiForSize(boardSize) {
 
 class MagnetismWeiqiRoom extends QiTwoPlayerRoomBase
 {
-    constructor(room, initialSize = 19, magnetism = 'weak') {
+    constructor(room, initialSize = 9, magnetism = 'weak') {
         super(room);
         this.magnetism = magnetism;          // 'weak' | 'medium' | 'strong'
+        this.subGameId = (MagnetismWeiqiRoom.SUB_GAME_ID && MagnetismWeiqiRoom.SUB_GAME_ID[magnetism]) || 'weak-magnetism-weiqi';   // 子棋类 id（引擎检查兜底）
         this.boardSize = initialSize;
         this.board = Array(this.boardSize).fill().map(() => Array(this.boardSize).fill(0));
         if (this.openingBoard === undefined) this.openingBoard = (typeof this.copyBoard === 'function' ? this.copyBoard(this.board) : (Array.isArray(this.board[0]) ? this.board.map(r => r.slice()) : this.board.slice()));
@@ -406,6 +407,7 @@ class MagnetismWeiqiRoom extends QiTwoPlayerRoomBase
     {
         return {
             magnetism: this.magnetism,
+            subGameId: (MagnetismWeiqiRoom.SUB_GAME_ID && MagnetismWeiqiRoom.SUB_GAME_ID[this.magnetism]) || 'weak-magnetism-weiqi',
             boardSize: this.boardSize,
             komi: this._komi(),
             board: this.board,
@@ -677,7 +679,8 @@ class MagnetismWeiqiRoom extends QiTwoPlayerRoomBase
             boardSize: this.boardSize,
             komi: this._komi(),
             players: { black: null, white: null },
-            initialPosition: [],
+            // 开局盘面（编辑模式的开局；默认空盘）——导出当前盘面会让导入时与 moves 重放冲突
+            initialPosition: encodeOpeningPositionCompact(this),
             moves: this.moveCoords.map(m => {
                 const p = m.player === 'black' ? 'B' : 'W';
                 return m.type === 'pass' ? p + 'p' : p + m.row + ',' + m.col;
@@ -744,7 +747,7 @@ class MagnetismWeiqiRoom extends QiTwoPlayerRoomBase
             return;
         }
         this.magnetism = magnetism;
-        const newSize = data.boardSize || 19;
+        const newSize = data.boardSize || 9;
         if (!Number.isInteger(newSize) || newSize < 7 || newSize > 21) {
             requesterWs.send(JSON.stringify({ type: 'error', message: '棋谱中棋盘大小无效。' }));
             return;
@@ -860,6 +863,7 @@ module.exports = {
     initRoom(room) {
         room.gameLogic = new MagnetismWeiqiRoom(room);
         qiBoardSeatOverlay.install(room.gameLogic);
+        qiProtocol.installStandardEditBoard(room.gameLogic);
         room.maxPlayers = 2;
     }
 };

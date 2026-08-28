@@ -260,7 +260,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                 ctx.fillText(letter, x, y);
             }
             for (let r = 0; r < boardSize; r++) {
-                const num = (r + 1).toString();
+                const num = (boardSize - r).toString();
                 const x = 0.6 * PADDING;
                 const y = PADDING + r * CELL_SIZE + CELL_SIZE / 2;
                 ctx.fillText(num, x, y);

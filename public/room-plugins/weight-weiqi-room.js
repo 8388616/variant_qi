@@ -281,7 +281,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                 ctx.fillText(letter, x, y);
             }
             for (let r = 0; r < boardSize; r++) {
-                const number = (r + 1).toString();
+                const number = (boardSize - r).toString();
                 const x = 0.5 * PADDING;
                 const y = PADDING + r * CELL_SIZE + CELL_SIZE / 2;
                 ctx.fillText(number, x, y);

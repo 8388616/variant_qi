@@ -1201,7 +1201,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                 for (let r = 0; r < ROWS; r++) {
                     let { x, y } = coordToPixel(r, 0);
                     x -= (17.4 - 0.2 * ROWS);
-                    ctx.fillText((r + 1).toString(), x, y);
+                    ctx.fillText((boardSize - r).toString(), x, y);
                 }
                 ctx.textAlign = 'center';
                 for (let r = 0; r < ROWS; r++) {
@@ -1942,8 +1942,12 @@ const scoreTitle = document.getElementById('scoreTitle');
             const canChange = !hasAnyStone && !hasPlayer && !gameOver && mySlot === null;
             const sizeSelect = document.getElementById('boardSizeSelect');
             if (sizeSelect) sizeSelect.style.display = canChange ? 'inline-block' : 'none';
+            // 子棋类选择器（形状）：始终显示；开局后锁定不可改，新局时恢复可用
             const shapeSelect = document.getElementById('subGameSelect');
-            if (shapeSelect) shapeSelect.style.display = canChange ? 'inline-block' : 'none';
+            if (shapeSelect) {
+                shapeSelect.style.display = 'inline-block';
+                shapeSelect.disabled = !canChange;
+            }
 
             if (showEstimateActive)
             {
@@ -2066,10 +2070,17 @@ syncState,
         });
         updateSeatOverlay = _weiqiBindings.updateSeatOverlay;
         const _baseHandleMessage = _weiqiBindings.handleMessage;
+        const updateVsComputerBtn = _weiqiBindings.updateVsComputerBtn;
         handleMessage = (msg) => {
             if (msg && msg.type === 'shapeChanged') {
                 // 形状变更广播（带完整 state）：全量同步，覆盖本地乐观切换与其他观察者
                 syncState(msg);
+                // 切换形状（三角形/菱形/六角形）后「与电脑对弈」可用性立即更新
+                if (Object.prototype.hasOwnProperty.call(msg, 'katagoAvailable'))
+                    ps.katagoAvailable = !!msg.katagoAvailable;
+                if (Object.prototype.hasOwnProperty.call(msg, 'computerSlot'))
+                    ps.computerSlot = msg.computerSlot || null;
+                if (typeof updateVsComputerBtn === 'function') updateVsComputerBtn();
                 return;
             }
             _baseHandleMessage(msg);

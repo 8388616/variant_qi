@@ -25,6 +25,12 @@
     <div class="top-panel">
         <div class="left-group">
             <div class="komi-info" id="gameTitleInfo">围棋</div>
+            <select id="subGameSelect" class="board-size-select" style="display: none;">
+                <option value="triangle">三角形</option>
+                <option value="rhombus">菱形</option>
+                <option value="hexagon">六角形</option>
+            </select>
+            <select id="boardSizeSelect" class="board-size-select" style="display: none;"></select>
             <div class="komi-info" id="komiInfo">黑贴白3.25点</div>
             <div class="side-select" id="sideSelect" hidden>
                 <label id="labelBlack"><input type="radio" name="color" value="black" id="radioBlack"> ⚫ 黑方</label>
@@ -36,12 +42,6 @@
                 <option value="hole">洞</option>
                 <option value="void">空</option>
             </select>
-            <select id="subGameSelect" class="board-size-select" style="display: none;">
-                <option value="triangle">三角形</option>
-                <option value="rhombus">菱形</option>
-                <option value="hexagon">六角形</option>
-            </select>
-            <select id="boardSizeSelect" class="board-size-select" style="display: none;"></select>
             <label class="show-numbers-label">
                 <input type="checkbox" id="showNumbersCheck"> 显示序号
             </label>

@@ -121,6 +121,19 @@ function fromGtpMove(raw, boardSize, boardHeight) {
     if (raw == null) return { pass: true };
     const s = String(raw).trim();
     if (!s || /^pass$/i.test(s) || /^resign$/i.test(s)) return { pass: true };
+    // 复合棋子着法（罗斯围棋等）：`rs <anchorX> <anchorY> <shapeIdx> <orientIdx>`
+    //   anchor 为 0 基坐标、y 自上而下（与普通 GTP 字母坐标的 y 翻转不同，不能走 fromGtpVertex）
+    const rs = s.match(/^rs\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)$/i);
+    if (rs) {
+        const anchorCol = parseInt(rs[1], 10);
+        const anchorRow = parseInt(rs[2], 10);
+        const shapeIdx = parseInt(rs[3], 10);
+        const orientIdx = parseInt(rs[4], 10);
+        if (Number.isFinite(anchorRow) && Number.isFinite(anchorCol) && Number.isFinite(shapeIdx) && Number.isFinite(orientIdx)) {
+            return { pass: false, compound: true, anchorRow, anchorCol, shapeIdx, orientIdx };
+        }
+        return null;
+    }
     const ts = s.match(/^ts\s+(\S+)\s+(\S+)$/i);
     if (ts) {
         const a = fromGtpVertex(ts[1], boardSize, boardHeight);
@@ -406,7 +419,21 @@ class KatagoGtpSession {
         const boardWidth = (opts.boardWidth | 0) || (opts.boardSize | 0);
         const boardHeight = (opts.boardHeight | 0) || boardWidth;
         const komi = Number(opts.komi);
-        const board = opts.board;
+        // 轮到白时（opts.lastMove）：最后一手不 set_position（set_position 后引擎行棋方恒为黑，
+        // 重放最后一手才能翻转为白），先从其子从盘面移除
+        const lastMove = opts.lastMove || null;
+        let board = opts.board;
+        if (lastMove && Array.isArray(board)) {
+            board = board.map((r) => r.slice());
+            if (Array.isArray(lastMove.stones)) {
+                for (const [r, c] of lastMove.stones) {
+                    if (board[r] && board[r][c] !== undefined) board[r][c] = 0;
+                }
+            } else if (Number.isInteger(lastMove.row) && Number.isInteger(lastMove.col)) {
+                if (board[lastMove.row] && board[lastMove.row][lastMove.col] !== undefined)
+                    board[lastMove.row][lastMove.col] = 0;
+            }
+        }
         // 结构洞棋盘（非方形，如开罗五角）：无效格由引擎按尺寸自动识别（C_WALL），不传 -1
         const structuralHoles = boardWidth !== boardHeight;
         // 重复 boardsize 会触发引擎重配缓冲，首着极慢；路数未变则跳过
@@ -461,6 +488,18 @@ class KatagoGtpSession {
                 await this.command(`kata-set-max-translocation-moves ${n}`);
             } catch (_) { /* 非易位引擎 */ }
         }
+
+        // 重放最后一手：set_position 后引擎行棋方恒为黑，只有轮到白时才需要
+        if (lastMove && (lastMove.player === 'black' || lastMove.player === 'white')) {
+            const color = slotToGtpColor(lastMove.player);
+            if (lastMove.type === 'pass') {
+                await this.command(`play ${color} pass`);
+            } else if (Number.isInteger(lastMove.shapeIndex) && Number.isInteger(lastMove.row) && Number.isInteger(lastMove.col)) {
+                await this.playCompound(color, lastMove.row, lastMove.col, lastMove.shapeIndex, lastMove.orientIdx);
+            } else if (Number.isInteger(lastMove.row) && Number.isInteger(lastMove.col)) {
+                await this.play(color, lastMove.row, lastMove.col);
+            }
+        }
     }
 
     /**
@@ -492,6 +531,12 @@ class KatagoGtpSession {
         const vertex = toGtpVertex(row, col, bs, bh);
         if (!vertex) throw new Error('无效坐标');
         await this.command(`play ${color} ${vertex}`);
+    }
+
+    /** 复合棋子着法：`play B rs <ax> <ay> <shapeIdx> <orientIdx>`（0 基、y 自上而下） */
+    async playCompound(slot, anchorRow, anchorCol, shapeIdx, orientIdx) {
+        const color = slotToGtpColor(slot);
+        await this.command(`play ${color} rs ${anchorCol} ${anchorRow} ${shapeIdx} ${orientIdx}`);
     }
 
     /** 易位：`play B ts D4 D5`（两端顺序任意，引擎按行棋方颜色定向） */
