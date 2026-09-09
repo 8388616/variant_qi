@@ -63,14 +63,15 @@ function copyBoard(src) {
 
 function createInitialBoard() {
     const b = emptyBoard();
-    // 与 games/simulated-makruk.js 一致：旋转对称 — 黑士在 D、黑将在 E；红王在 D、红士在 E
-    b[0][0] = 'br'; b[0][1] = 'bn'; b[0][2] = 'be'; b[0][3] = 'bm';
-    b[0][4] = 'bk'; b[0][5] = 'be'; b[0][6] = 'bn'; b[0][7] = 'br';
-    for (let c = 0; c < 8; c++) b[2][c] = 'bp';
+    // 与 games/simulated-makruk.js 一致：红方在下(纵坐标小的一侧)——红王在 D、红士在 E
+    for (let c = 0; c < 8; c++) b[2][c] = 'rp';
+    b[0][0] = 'rr'; b[0][1] = 'rn'; b[0][2] = 're'; b[0][3] = 'rk';
+    b[0][4] = 'rm'; b[0][5] = 're'; b[0][6] = 'rn'; b[0][7] = 'rr';
 
-    for (let c = 0; c < 8; c++) b[5][c] = 'rp';
-    b[7][0] = 'rr'; b[7][1] = 'rn'; b[7][2] = 're'; b[7][3] = 'rk';
-    b[7][4] = 'rm'; b[7][5] = 're'; b[7][6] = 'rn'; b[7][7] = 'rr';
+    // 黑在上：旋转对称 — 黑士在 D、黑将在 E
+    b[7][0] = 'br'; b[7][1] = 'bn'; b[7][2] = 'be'; b[7][3] = 'bm';
+    b[7][4] = 'bk'; b[7][5] = 'be'; b[7][6] = 'bn'; b[7][7] = 'br';
+    for (let c = 0; c < 8; c++) b[5][c] = 'bp';
     return b;
 }
 
@@ -105,8 +106,8 @@ function pathClearOrtho(board, fr, fc, tr, tc) {
 }
 
 function pawnPromotesAt(side, toRow) {
-    if (side === 'red') return toRow <= 2;
-    return toRow >= 5;
+    if (side === 'red') return toRow >= 5;
+    return toRow <= 2;
 }
 
 function attacksSquare(piece, fr, fc, tr, tc, board) {
@@ -119,7 +120,7 @@ function attacksSquare(piece, fr, fc, tr, tc, board) {
     const dR = tr - fr, dC = tc - fc;
     const aR = Math.abs(dR), aC = Math.abs(dC);
     const side = color === 'r' ? 'red' : 'black';
-    const forward = side === 'red' ? -1 : 1;
+    const forward = side === 'red' ? 1 : -1;
 
     if (type === 'k') return aR <= 1 && aC <= 1;
     if (type === 'm') return aR === 1 && aC === 1;
@@ -145,7 +146,7 @@ function isPseudoLegalMove(piece, fr, fc, tr, tc, board) {
     const dR = tr - fr, dC = tc - fc;
     const aR = Math.abs(dR), aC = Math.abs(dC);
     const side = color === 'r' ? 'red' : 'black';
-    const forward = side === 'red' ? -1 : 1;
+    const forward = side === 'red' ? 1 : -1;
 
     if (type === 'p') {
         if (dC === 0 && dR === forward && !target) return true;
@@ -392,13 +393,16 @@ return {
         }
 
         function toDisplayCoord(row, col) {
-            if (!boardFlipped()) return { row, col };
-            return { row: R.BOARD_H - 1 - row, col: R.BOARD_W - 1 - col };
+            // 红方在 row 小的一侧且显示在下:先做视角 180° 旋转,再整体 y 镜像
+            let r = row, c = col;
+            if (boardFlipped()) { r = R.BOARD_H - 1 - r; c = R.BOARD_W - 1 - c; }
+            return { row: R.BOARD_H - 1 - r, col: c };
         }
 
         function toOriginalCoord(dispRow, dispCol) {
-            if (!boardFlipped()) return { row: dispRow, col: dispCol };
-            return { row: R.BOARD_H - 1 - dispRow, col: R.BOARD_W - 1 - dispCol };
+            let r = R.BOARD_H - 1 - dispRow, c = dispCol;
+            if (boardFlipped()) { r = R.BOARD_H - 1 - r; c = R.BOARD_W - 1 - c; }
+            return { row: r, col: c };
         }
 
         function calcGeometry() {

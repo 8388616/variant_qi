@@ -528,19 +528,19 @@ const scoreTitle = document.getElementById('scoreTitle');
             const markLenDefault = cellSize * 0.352;
             const lowerLastMoveMarker = showMoveNumbers || showEstimateActive;
             if (lowerLastMoveMarker) {
-                d.lastMoveMarkersLower(ctx, lastMoveMarkers, PADDING, cellSize, stoneRadius);
+                d.lastMoveMarkersLower(ctx, lastMoveMarkers, PADDING, cellSize, stoneRadius, ps.BOARD_SIZE);
             }
             // 必须用 drawPiece：在棋子上绘制剩余寿命（stonesBlackWhite 无寿命）
             for (let r = 0; r < BOARD_SIZE; r++) {
                 for (let c = 0; c < BOARD_SIZE; c++) {
                     if (board[r][c] === 0) continue;
                     const x = PADDING + c * cellSize;
-                    const y = PADDING + r * cellSize;
+                    const y = PADDING + (BOARD_SIZE - 1 - r) * cellSize;
                     drawPiece(r, c, x, y, stoneRadius, cellSize);
                 }
             }
             if (!lowerLastMoveMarker) {
-                d.lastMoveMarkersUpper(ctx, lastMoveMarkers, PADDING, cellSize, markLenDefault);
+                d.lastMoveMarkersUpper(ctx, lastMoveMarkers, PADDING, cellSize, markLenDefault, ps.BOARD_SIZE);
             }
             d.userBoardMarks(ctx, userBoardMarks, BOARD_SIZE, PADDING, cellSize, isUserBoardMarkVisibleAt);
             if (showMoveNumbers) {

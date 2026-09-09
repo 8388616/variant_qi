@@ -806,14 +806,21 @@ const qiProtocol = {
     },
 
     /**
-     * 五子棋类：historyBoards 存落子前棋盘，悔棋时 pop 恢复。
-     * currentPlayer 为 1/2。
+     * 五子棋类悔棋（统一协议）：requestUndo → undoRequest → undoResponse → undoAccept。
+     * historyBoards 存落子前快照，悔棋时 pop 恢复；currentPlayer 可为 1/2 或 'black'/'white'。
+     * 可选钩子（不提供则按通用五子规则）：
+     *   self.undoStepsFor(slot, isMyTurn) —— 自定义悔棋步数（默认轮到自己悔 2 步、否则 1 步）
+     *   self.performUndoSteps(steps) —— 自定义恢复（需自行广播 undoAccept；默认 pop 棋盘/记录并翻转回合）
      */
     undoWuziqiHistory(self, ws, msg, slot) {
         if (!slot || self.gameOver) return;
         const room = self.room;
-        const isMyTurn = (slot === 'black' && self.currentPlayer === 1) || (slot === 'white' && self.currentPlayer === 2);
-        const steps = isMyTurn ? 2 : 1;
+        const numeric = typeof self.currentPlayer === 'number';
+        const myColor = numeric ? (slot === 'black' ? 1 : 2) : (slot === 'black' ? 'black' : 'white');
+        const isMyTurn = self.currentPlayer === myColor;
+        const steps = typeof self.undoStepsFor === 'function'
+            ? self.undoStepsFor(slot, isMyTurn)
+            : (isMyTurn ? 2 : 1);
         if (self.historyBoards.length < steps) {
             ws.send(JSON.stringify({ type: 'error', message: '无法悔棋。' }));
             return;
@@ -821,15 +828,7 @@ const qiProtocol = {
         const opponentSlot = slot === 'black' ? 'white' : 'black';
         const opponent = room.getPlayerBySlot(opponentSlot);
         if (!opponent) {
-            for (let i = 0; i < steps; i++) {
-                self.board = self.copyBoard(self.historyBoards.pop());
-                self.moveHistory.pop();
-            }
-            let newPlayer = self.currentPlayer;
-            for (let i = 0; i < steps; i++) newPlayer = newPlayer === 1 ? 2 : 1;
-            self.currentPlayer = newPlayer;
-            self.lastMoveMarkers = [];
-            self.broadcast({ type: 'broadcast', action: 'undoAccept', ...self.getState() });
+            qiProtocol.performWuziqiUndo(self, steps);
         } else {
             self.pendingUndo = { requester: ws, steps };
             opponent.send(JSON.stringify({ type: 'undoRequest' }));
@@ -840,20 +839,35 @@ const qiProtocol = {
         if (self.pendingUndo && msg.accept) {
             const steps = self.pendingUndo.steps;
             if (self.historyBoards.length >= steps) {
-                for (let i = 0; i < steps; i++) {
-                    self.board = self.copyBoard(self.historyBoards.pop());
-                    self.moveHistory.pop();
-                }
-                let newPlayer = self.currentPlayer;
-                for (let i = 0; i < steps; i++) newPlayer = newPlayer === 1 ? 2 : 1;
-                self.currentPlayer = newPlayer;
-                self.lastMoveMarkers = [];
-                self.broadcast({ type: 'broadcast', action: 'undoAccept', ...self.getState() });
+                qiProtocol.performWuziqiUndo(self, steps);
             }
         } else if (self.pendingUndo && !msg.accept) {
             self.pendingUndo.requester.send(JSON.stringify({ type: 'error', message: '对方拒绝悔棋。' }));
         }
         self.pendingUndo = null;
+    },
+
+    /**
+     * 五子棋类悔棋的实际恢复与广播。游戏自定义恢复时实现 performUndoSteps(steps)，
+     * 需自行翻转回合并广播 undoAccept；否则按通用规则恢复并广播。
+     */
+    performWuziqiUndo(self, steps) {
+        if (typeof self.performUndoSteps === 'function') {
+            self.performUndoSteps(steps);
+            return;
+        }
+        for (let i = 0; i < steps; i++) {
+            self.board = self.copyBoard(self.historyBoards.pop());
+            self.moveHistory.pop();
+            if (Array.isArray(self.moveCoords) && self.moveCoords.length > 0) self.moveCoords.pop();
+        }
+        let newPlayer = self.currentPlayer;
+        for (let i = 0; i < steps; i++) {
+            newPlayer = newPlayer === 1 ? 2 : (newPlayer === 2 ? 1 : (newPlayer === 'black' ? 'white' : 'black'));
+        }
+        self.currentPlayer = newPlayer;
+        self.lastMoveMarkers = [];
+        self.broadcast({ type: 'broadcast', action: 'undoAccept', ...self.getState() });
     },
 
     /** 仅观战者可改路数：parseInt size，调用 setBoardSize(n, ws) */

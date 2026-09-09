@@ -394,7 +394,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                 for (let c = 0; c < boardSize; c++) {
                     if (!fogMask[r][c]) continue;
                     const cx = padding + c * cellSize;
-                    const cy = padding + r * cellSize;
+                    const cy = padding + (boardSize - 1 - r) * cellSize;
                     ctx.rect(cx - half, cy - half, cellSize, cellSize);
                 }
             }
@@ -685,11 +685,11 @@ const scoreTitle = document.getElementById('scoreTitle');
                 const markLenDefault = cellSize * 0.352;
                 const lowerLastMoveMarker = ps.showMoveNumbers || ps.showEstimateActive;
                 if (lowerLastMoveMarker) {
-                    d.lastMoveMarkersLower(ctx, ps.lastMoveMarkers, ps.PADDING, cellSize, stoneRadius);
+                    d.lastMoveMarkersLower(ctx, ps.lastMoveMarkers, ps.PADDING, cellSize, stoneRadius, ps.BOARD_SIZE);
                 }
                 d.stonesBlackWhite(ctx, ps.board, ps.BOARD_SIZE, ps.PADDING, cellSize, stoneRadius, ps.showMoveNumbers);
                 if (!lowerLastMoveMarker) {
-                    d.lastMoveMarkersUpper(ctx, ps.lastMoveMarkers, ps.PADDING, cellSize, markLenDefault);
+                    d.lastMoveMarkersUpper(ctx, ps.lastMoveMarkers, ps.PADDING, cellSize, markLenDefault, ps.BOARD_SIZE);
                 }
                 if (!ps.fogCleared && ps.fogMask) {
                     drawFogLayerUnion(ctx, ps.PADDING, ps.BOARD_SIZE, cellSize, ps.fogMask);
@@ -739,7 +739,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                     ps.PADDING = g.padding;
                     ps.CELL_SIZE = g.cellSize;
                     fogOpts.drawBoard();
-                    komiInfo.innerText = `黑贴白${ps.KOMI}点`;
+                    QiWeiqiSquarePageRuntime.writeKomiInfoText(komiInfo, ps.KOMI, ps.BOARD_SIZE * ps.BOARD_SIZE);
                     const sizeSelect = document.getElementById('boardSizeSelect');
                     if (sizeSelect) sizeSelect.value = ps.BOARD_SIZE;
                 }
@@ -930,17 +930,19 @@ const scoreTitle = document.getElementById('scoreTitle');
             },
             enterTryPlay() {
                 page.clearMobileMovePreview();
+                const fromLive = !ps.replayMode;
+                ps.tryPlayFromLive = fromLive;
+                ps.tryPlayFromLiveStep = ps.liveViewStep || 0;
                 ps.tryPlayMode = true;
                 ps.tryPlayBaseStep = ps.replayStep;
                 const truth0 = ps.replayTruthBoards[ps.replayStep];
                 ps.tryPlayBoards = [deepCopyBoard(truth0)];
                 ps.tryPlayMarkers = [ps.replayMarkers[ps.replayStep].map(m => ({ ...m }))];
 
-                const _fromLive = !ps.replayMode;
                 const _RT = typeof QiWeiqiSquarePageRuntime !== 'undefined' ? QiWeiqiSquarePageRuntime : null;
                 ps.tryPlayCurrentPlayer = _RT && _RT.resolveTryPlaySideToMove
                     ? _RT.resolveTryPlaySideToMove({
-                        fromLive: _fromLive,
+                        fromLive,
                         replayStep: ps.replayStep,
                         replayStepPlayers: ps.replayStepPlayers,
                         liveViewStep: ps.liveViewStep,
@@ -950,6 +952,15 @@ const scoreTitle = document.getElementById('scoreTitle');
                     })
                     : (ps.replayStep > 0 ? (3 - ps.replayStepPlayers[ps.replayStep]) : ((ps.currentPlayer === 1 || ps.currentPlayer === 2) ? ps.currentPlayer : 1));
                 ps.tryPlayBasePlayer = ps.tryPlayCurrentPlayer;
+                if (fromLive) {
+                    // 挂 replayMode 脚手架（与公共 enterTryPlay 一致）：直播进入试下时点击/绘制按 replayMode && tryPlayMode 判断
+                    ps.replayMode = true;
+                    ps.replayBoards = [deepCopyBoard(ps.board)];
+                    ps.replayMarkers = [(ps.lastMoveMarkers || []).map(m => ({ ...m }))];
+                    ps.replayStepPlayers = [ps.tryPlayCurrentPlayer === 1 ? 2 : 1];
+                    ps.replayStep = 0;
+                    ps.replayTotalSteps = 0;
+                }
                 ps.tryPlayStep = 0;
                 ps.tryPlayTotalSteps = 0;
 
@@ -964,7 +975,16 @@ const scoreTitle = document.getElementById('scoreTitle');
             },
             exitTryPlay() {
                 page.clearMobileMovePreview();
+                // 从直播进入试下的要退回直播局面（与公共 exitTryPlay 一致），而不是走打谱 setReplayStep
+                const fromLive = !!ps.tryPlayFromLive;
+                const savedLiveStep = ps.tryPlayFromLiveStep != null ? ps.tryPlayFromLiveStep : ps.liveViewStep;
+                const snapBoard = fromLive && ps.tryPlayBoards.length > 0 ? deepCopyBoard(ps.tryPlayBoards[0]) : null;
+                const snapMarkers = fromLive && ps.tryPlayMarkers.length > 0 && ps.tryPlayMarkers[0]
+                    ? ps.tryPlayMarkers[0].map(m => ({ ...m }))
+                    : [];
                 ps.tryPlayMode = false;
+                ps.tryPlayFromLive = false;
+                if ('tryPlayFromLiveStep' in ps) ps.tryPlayFromLiveStep = null;
                 ps.tryPlayBoards = [];
                 ps.tryPlayMarkers = [];
                 ps.tryPlayStep = 0;
@@ -972,8 +992,39 @@ const scoreTitle = document.getElementById('scoreTitle');
 
                 const slider = document.getElementById('replaySlider');
                 slider.min = 0;
-                slider.max = ps.replayTotalSteps;
-                fogOpts.setReplayStep(ps.tryPlayBaseStep);
+                if (fromLive) {
+                    ps.replayMode = false;
+                    ps.replayBoards = [];
+                    ps.replayMarkers = [];
+                    ps.replayStepPlayers = [];
+                    ps.replayStep = 0;
+                    ps.replayTotalSteps = 0;
+                    if (snapBoard) {
+                        ps.board = snapBoard;
+                        ps.lastMoveMarkers = snapMarkers.map(m => ({ ...m }));
+                        if (ps.liveReplayBoards.length > 0) {
+                            const step = Math.min(Math.max(0, savedLiveStep), ps.liveReplayBoards.length - 1);
+                            ps.liveReplayBoards[step] = deepCopyBoard(snapBoard);
+                            if (!ps.liveReplayMarkers[step]) ps.liveReplayMarkers[step] = [];
+                            ps.liveReplayMarkers[step] = snapMarkers.map(m => ({ ...m }));
+                            ps.liveViewStep = step;
+                        } else {
+                            ps.liveReplayBoards = [deepCopyBoard(snapBoard)];
+                            ps.liveReplayMarkers = [snapMarkers.map(m => ({ ...m }))];
+                            ps.liveReplayStepPlayers = [0];
+                            ps.liveViewStep = 0;
+                        }
+                    } else if (typeof page.applyLiveViewBoard === 'function') {
+                        page.applyLiveViewBoard();
+                    }
+                    page.updateLiveReplayPanelUI();
+                    if (ps.showEstimateActive) page.showEstimate();
+                    else page.updateTurn();
+                    refreshUnknownFogScoreLine();
+                } else {
+                    slider.max = ps.replayTotalSteps;
+                    fogOpts.setReplayStep(ps.tryPlayBaseStep);
+                }
                 page.updateReplayUI();
             },
             tryPlayMove(row, col) {
@@ -1074,7 +1125,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             const { blackTotal, whiteTotal } = page.computeScore(ps.cachedLiveBoard, ps.cachedTerritory);
             const lead = blackTotal - whiteTotal - 2 * ps.KOMI;
             scoreTitle.innerText = '形势判断';
-            scoreBoard.innerText = `黑: ${blackTotal.toFixed(0)}　白: ${whiteTotal.toFixed(0)}`;
+            scoreBoard.innerText = `黑: ${Number(blackTotal.toFixed(2))}　白: ${Number(whiteTotal.toFixed(2))}`;
             leadInfo.innerText = `黑${lead >= 0 ? '+' : ''}${lead.toFixed(1)}点`;
             fogOpts.drawBoard();
         }

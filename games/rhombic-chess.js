@@ -143,14 +143,16 @@ const R = (function () {
         const board = {};
         // 白方（底部）
         const whiteRow = ['wr', 'wn', 'wq', 'wk', 'wn', 'wr'];
-        for (let c = 0; c < 6; c++) board[key(10, c)] = whiteRow[c];
-        board[key(9, 1)] = 'wb'; board[key(9, 2)] = 'wb';
-        for (let c = 0; c < 8; c++) board[key(8, c)] = 'wp';
+        for (let c = 0; c < 6; c++) board[key(0, c)] = whiteRow[c];
+        // 白方整营在下半区（row 小）：象 row1、兵 row2（白兵向 row 增大方向推进，row9 升变）
+        board[key(1, 1)] = 'wb'; board[key(1, 2)] = 'wb';
+        for (let c = 0; c < 8; c++) board[key(2, c)] = 'wp';
         // 黑方（顶部）
         const blackRow = ['br', 'bn', 'bq', 'bk', 'bn', 'br'];
-        for (let c = 0; c < 6; c++) board[key(0, c)] = blackRow[c];
-        board[key(1, 1)] = 'bb'; board[key(1, 2)] = 'bb';
-        for (let c = 0; c < 8; c++) board[key(2, c)] = 'bp';
+        for (let c = 0; c < 6; c++) board[key(10, c)] = blackRow[c];
+        // 黑方整营在上半区（row 大）：象 row9、兵 row8（黑兵向 row 减小方向推进，row1 升变）
+        board[key(9, 1)] = 'bb'; board[key(9, 2)] = 'bb';
+        for (let c = 0; c < 8; c++) board[key(8, c)] = 'bp';
         return board;
     }
 
@@ -195,7 +197,7 @@ const R = (function () {
             }
         }
         if (type === 'p') {
-            const fwd = side === 'white' ? -1 : 1;
+            const fwd = side === 'white' ? 1 : -1;
             const c1 = centerOf(CELLS[id]);
             const fwdNbs = EDGE_NB[id].filter(n => {
                 const n2 = centerOf(CELLS[n]);
@@ -266,8 +268,8 @@ const R = (function () {
         const k = cellKeyOfId(id);
         const pc = board[k];
         if (!pc || pieceSide(pc) !== side) return [];
-        const promoRow = side === 'white' ? 1 : 9;
-        const fwd = side === 'white' ? -1 : 1;
+        const promoRow = side === 'white' ? 9 : 1;
+        const fwd = side === 'white' ? 1 : -1;
         const raw = pseudoMoves(board, id, side, ep);
         const legal = [];
         for (const t of raw) {
@@ -360,7 +362,7 @@ class RhombicChessRoom extends QiTwoPlayerRoomBase {
 
     _pendingPawnPromotion() {
         const pawn = this.sideToMove === 'white' ? 'wp' : 'bp';
-        const row = this.sideToMove === 'white' ? 1 : 9;
+        const row = this.sideToMove === 'white' ? 9 : 1;
         for (const c of this.boardCells) {
             if (c.row === row && this.board[R.key(c.row, c.col)] === pawn) {
                 return { row: c.row, col: c.col };

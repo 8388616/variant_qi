@@ -230,20 +230,29 @@ const scoreTitle = document.getElementById('scoreTitle'), scoreBoard = document.
             ctx.shadowOffsetY = 1;
             ctx.setLineDash([]);
             ctx.beginPath();
+            // 统一显示变换（与 stones/hover 一致）：数据行 0 显示在底边，
+            // 四个轴都先取"数据坐标下的两个端点"再经 show() 落到像素，避免按画布直觉另写一套
+            const show = (r, c) => ({ x: P + c * z, y: P + (last - r) * z });
+            let pa = null, pb = null;
             if (axis === 'horizontal') {
-                const midY = P + (last / 2) * z;
-                ctx.moveTo(P, midY); ctx.lineTo(edge, midY);
+                // 镜像规则 r ↔ last-r：中轴为数据行 last/2
+                const mid = last / 2;
+                pa = show(mid, 0); pb = show(mid, last);
             } else if (axis === 'vertical') {
-                const midX = P + (last / 2) * z;
-                ctx.moveTo(midX, P); ctx.lineTo(midX, edge);
+                // 镜像规则 c ↔ last-c：中轴为数据列 last/2
+                const mid = last / 2;
+                pa = show(0, mid); pb = show(last, mid);
             } else if (axis === 'diag1') {
-                ctx.moveTo(P, P); ctx.lineTo(edge, edge);
+                // 主对角线 r=c：数据 (0,0)（显示左下）↔ (last,last)（显示右上）
+                pa = show(0, 0); pb = show(last, last);
             } else if (axis === 'diag2') {
-                ctx.moveTo(edge, P); ctx.lineTo(P, edge);
+                // 反对角线 r+c=last：数据 (0,last)（显示左上）↔ (last,0)（显示右下）
+                pa = show(0, last); pb = show(last, 0);
             } else {
                 ctx.restore();
                 return;
             }
+            ctx.moveTo(pa.x, pa.y); ctx.lineTo(pb.x, pb.y);
             ctx.stroke();
             ctx.shadowBlur = 0;
             ctx.shadowOffsetY = 0;
@@ -255,9 +264,9 @@ const scoreTitle = document.getElementById('scoreTitle'), scoreBoard = document.
             d.coordLabels(ctx, ps.BOARD_SIZE, ps.PADDING, z);
             drawMirrorAxisLine();
             const sr = z * 0.44, ml = z * 0.352;
-            if (low) d.lastMoveMarkersLower(ctx, ps.lastMoveMarkers, ps.PADDING, z, sr);
+            if (low) d.lastMoveMarkersLower(ctx, ps.lastMoveMarkers, ps.PADDING, z, sr, ps.BOARD_SIZE);
             d.stonesBlackWhite(ctx, ps.board, ps.BOARD_SIZE, ps.PADDING, z, sr, ps.showMoveNumbers);
-            if (!low) d.lastMoveMarkersUpper(ctx, ps.lastMoveMarkers, ps.PADDING, z, ml);
+            if (!low) d.lastMoveMarkersUpper(ctx, ps.lastMoveMarkers, ps.PADDING, z, ml, ps.BOARD_SIZE);
             d.userBoardMarks(ctx, ps.userBoardMarks, ps.BOARD_SIZE, ps.PADDING, z, (r, c) =>
                 !ps.showEstimateActive && r >= 0 && r < ps.BOARD_SIZE && c >= 0 && c < ps.BOARD_SIZE && ps.board[r][c] === 0);
             if (ps.showMoveNumbers) d.moveNumbersOnStones(ctx, numsMirror(), ps.board, ps.BOARD_SIZE, ps.PADDING, z);
@@ -386,14 +395,16 @@ const scoreTitle = document.getElementById('scoreTitle'), scoreBoard = document.
                 if (ps.showEstimateActive) page.showEstimate(); else drawBoardMirror();
             },
             enterTryPlay() {
-                page.clearMobileMovePreview(); ps.tryPlayMode = true; ps.tryPlayBaseStep = ps.replayStep;
+                page.clearMobileMovePreview(); const fromLive = !ps.replayMode;
+                ps.tryPlayFromLive = fromLive; ps.tryPlayFromLiveStep = ps.liveViewStep || 0;
+                ps.tryPlayMode = true; ps.tryPlayBaseStep = ps.replayStep;
                 ps.tryPlayBoards = [dc(ps.board)]; ps.tryPlayMarkers = [ps.lastMoveMarkers.map(m => ({ ...m }))];
                 ps.tryPlayMirrorAxis = ps.mirrorAxis; ps.tryPlayStepAxes = [ps.replayMirrorAxes[ps.replayStep]];
                 {
                     const RT = typeof QiWeiqiSquarePageRuntime !== 'undefined' ? QiWeiqiSquarePageRuntime : null;
                     ps.tryPlayCurrentPlayer = RT && RT.resolveTryPlaySideToMove
                         ? RT.resolveTryPlaySideToMove({
-                            fromLive: !ps.replayMode,
+                            fromLive,
                             replayStep: ps.replayStep,
                             replayStepPlayers: ps.replayStepPlayers,
                             liveViewStep: ps.liveViewStep,
@@ -404,15 +415,60 @@ const scoreTitle = document.getElementById('scoreTitle'), scoreBoard = document.
                         : (ps.replayStep === 0 ? 1 : (ps.replayStepPlayers[ps.replayStep] === 1 ? 2 : 1));
                     ps.tryPlayBasePlayer = ps.tryPlayCurrentPlayer;
                 }
+                if (fromLive) {
+                    // 挂 replayMode 脚手架（与公共 enterTryPlay 一致）：直播进入试下时点击/绘制按 replayMode && tryPlayMode 判断
+                    ps.replayMode = true;
+                    ps.replayBoards = [dc(ps.board)];
+                    ps.replayMarkers = [(ps.lastMoveMarkers || []).map(m => ({ ...m }))];
+                    ps.replayStepPlayers = [ps.tryPlayCurrentPlayer === 1 ? 2 : 1];
+                    ps.replayStep = 0; ps.replayTotalSteps = 0;
+                }
                 ps.tryPlayStep = 0; ps.tryPlayTotalSteps = 0;
                 const sl = document.getElementById('replaySlider'); sl.min = 0; sl.max = 0; sl.value = 0;
                 page.updateTryPlayDisplay(); page.updateReplayUI();
             },
             exitTryPlay() {
-                page.clearMobileMovePreview(); ps.tryPlayMode = false; ps.tryPlayBoards = []; ps.tryPlayMarkers = []; ps.tryPlayStepAxes = [];
+                page.clearMobileMovePreview();
+                // 从直播进入试下的要退回直播局面（与公共 exitTryPlay 一致），而不是走打谱 setReplayStep
+                const fromLive = !!ps.tryPlayFromLive;
+                const savedLiveStep = ps.tryPlayFromLiveStep != null ? ps.tryPlayFromLiveStep : ps.liveViewStep;
+                const snapBoard = fromLive && ps.tryPlayBoards.length > 0 ? dc(ps.tryPlayBoards[0]) : null;
+                const snapMarkers = fromLive && ps.tryPlayMarkers.length > 0 && ps.tryPlayMarkers[0]
+                    ? ps.tryPlayMarkers[0].map(m => ({ ...m }))
+                    : [];
+                ps.tryPlayMode = false; ps.tryPlayBoards = []; ps.tryPlayMarkers = []; ps.tryPlayStepAxes = [];
+                ps.tryPlayFromLive = false;
+                if ('tryPlayFromLiveStep' in ps) ps.tryPlayFromLiveStep = null;
                 ps.tryPlayStep = 0; ps.tryPlayTotalSteps = 0;
-                const sl = document.getElementById('replaySlider'); sl.min = 0; sl.max = ps.replayTotalSteps;
-                page.setReplayStep(ps.tryPlayBaseStep); page.updateReplayUI();
+                const sl = document.getElementById('replaySlider'); sl.min = 0;
+                if (fromLive) {
+                    ps.replayMode = false; ps.replayBoards = []; ps.replayMarkers = []; ps.replayStepPlayers = [];
+                    ps.replayStep = 0; ps.replayTotalSteps = 0;
+                    if (snapBoard) {
+                        ps.board = snapBoard;
+                        ps.lastMoveMarkers = snapMarkers.map(m => ({ ...m }));
+                        if (ps.liveReplayBoards.length > 0) {
+                            const step = Math.min(Math.max(0, savedLiveStep), ps.liveReplayBoards.length - 1);
+                            ps.liveReplayBoards[step] = dc(snapBoard);
+                            if (!ps.liveReplayMarkers[step]) ps.liveReplayMarkers[step] = [];
+                            ps.liveReplayMarkers[step] = snapMarkers.map(m => ({ ...m }));
+                            ps.liveViewStep = step;
+                        } else {
+                            ps.liveReplayBoards = [dc(snapBoard)];
+                            ps.liveReplayMarkers = [snapMarkers.map(m => ({ ...m }))];
+                            ps.liveReplayStepPlayers = [0];
+                            ps.liveViewStep = 0;
+                        }
+                    } else if (typeof page.applyLiveViewBoard === 'function') {
+                        page.applyLiveViewBoard();
+                    }
+                    page.updateLiveReplayPanelUI();
+                    if (ps.showEstimateActive) page.showEstimate(); else page.updateTurn();
+                } else {
+                    sl.max = ps.replayTotalSteps;
+                    page.setReplayStep(ps.tryPlayBaseStep);
+                }
+                page.updateReplayUI();
             },
             tryPlayMove(row, col) {
                 if (ps.board[row][col] !== 0) return false;
@@ -466,7 +522,7 @@ const scoreTitle = document.getElementById('scoreTitle'), scoreBoard = document.
         const _weiqiBindings = QiBoardRoomClient.createWeiqiMessageBindings({
             roomId, gameType, pageState: ps, drawBoard, exitTryPlay, enterTryPlay, setTryPlayStep, setReplayStep, setLiveViewStep,
             getWs: () => ps.ws, getBoardSize: () => ps.BOARD_SIZE, setBoardSize: (n) => { ps.BOARD_SIZE = n; },
-            getKomi: () => ps.KOMI, setKomi: (n) => { ps.KOMI = n; if (komiInfo) komiInfo.innerText = `黑贴白${ps.KOMI}点`; },
+            getKomi: () => ps.KOMI, setKomi: (n) => { ps.KOMI = n; if (komiInfo) QiWeiqiSquarePageRuntime.writeKomiInfoText(komiInfo, ps.KOMI, ps.BOARD_SIZE * ps.BOARD_SIZE); },
             getBoard: () => ps.board, setBoard: (b) => { ps.board = b; }, getSlots: () => ps.slots, setSlots: (s) => { ps.slots = s; },
             getMySlot: () => ps.mySlot, setMySlot: (s) => { ps.mySlot = s; }, getGameOver: () => ps.gameOver, setGameOver: (v) => { ps.gameOver = v; },
             getWinner: () => ps.winner, setWinner: (w) => { ps.winner = w; }, getReplayMode: () => ps.replayMode,

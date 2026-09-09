@@ -260,9 +260,9 @@ const scoreTitle = document.getElementById('scoreTitle');
             const stoneRadius = cellSize * 0.44;
             const markLenDefault = cellSize * 0.352;
             const lowerLastMoveMarker = ps.showMoveNumbers || ps.showEstimateActive;
-            if (lowerLastMoveMarker) d.lastMoveMarkersLower(ctx, ps.lastMoveMarkers, ps.PADDING, cellSize, stoneRadius);
+            if (lowerLastMoveMarker) d.lastMoveMarkersLower(ctx, ps.lastMoveMarkers, ps.PADDING, cellSize, stoneRadius, ps.BOARD_SIZE);
             d.stonesBlackWhite(ctx, ps.board, ps.BOARD_SIZE, ps.PADDING, cellSize, stoneRadius, ps.showMoveNumbers);
-            if (!lowerLastMoveMarker) d.lastMoveMarkersUpper(ctx, ps.lastMoveMarkers, ps.PADDING, cellSize, markLenDefault);
+            if (!lowerLastMoveMarker) d.lastMoveMarkersUpper(ctx, ps.lastMoveMarkers, ps.PADDING, cellSize, markLenDefault, ps.BOARD_SIZE);
             function isUserBoardMarkVisibleAt(br, bc) {
                 if (ps.showEstimateActive) return false;
                 if (!inBounds(br, bc)) return false;
@@ -291,6 +291,8 @@ const scoreTitle = document.getElementById('scoreTitle');
             enableEditBoard: true,
             editTools: config.editTools,
             recordDownloadPrefix, minLib, maxWeakLiberties: 2, gameType, roomId, roomPassword, isMouseDevice,
+            // 桥围棋总点数 = N² − 桥数；每盘桥数恰为 floor(0.083N²)（服务端 BRIDGE_COUNT）
+            totalPoints: (p) => p.BOARD_SIZE * p.BOARD_SIZE - Math.floor(0.083 * p.BOARD_SIZE * p.BOARD_SIZE),
             tryPlaceStone: bridgeTryPlaceStone, drawBoard: bridgeDrawBoard,
             removeDeadAndDying: (src) => bridgeRemoveDeadAndDying(src),
             assignTerritoryWithRange: (live) => assignTerritoryWithBridgeGraph(live, ps.BOARD_SIZE),
@@ -336,6 +338,8 @@ const scoreTitle = document.getElementById('scoreTitle');
             roomId, gameType, pageState: ps, drawBoard, exitTryPlay, enterTryPlay, setTryPlayStep, setReplayStep, setLiveViewStep,
             getWs: () => ps.ws, getBoardSize: () => ps.BOARD_SIZE, setBoardSize: (n) => { ps.BOARD_SIZE = n; },
             getKomi: () => ps.KOMI, setKomi: (n) => { ps.KOMI = n; },
+            // 物理总点数 = N² − 桥数（限时默认值等用；现数逻辑会把 -2 桥格计入）
+            getTotalPoints: () => ps.BOARD_SIZE * ps.BOARD_SIZE - Math.floor(0.083 * ps.BOARD_SIZE * ps.BOARD_SIZE),
             getBoard: () => ps.board.map(row => row.map(c => (c === BRIDGE ? 0 : c))), setBoard: (b) => { ps.board = b; },
             getSlots: () => ps.slots, setSlots: (s) => { ps.slots = s; }, getMySlot: () => ps.mySlot, setMySlot: (s) => { ps.mySlot = s; },
             getGameOver: () => ps.gameOver, setGameOver: (v) => { ps.gameOver = v; }, getWinner: () => ps.winner, setWinner: (w) => { ps.winner = w; },

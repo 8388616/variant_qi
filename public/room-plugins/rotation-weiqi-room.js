@@ -696,11 +696,11 @@ const scoreTitle = document.getElementById('scoreTitle');
                 const markLenDefault = cellSize * 0.352;
                 const lowerLastMoveMarker = ps.showMoveNumbers || ps.showEstimateActive;
                 if (lowerLastMoveMarker) {
-                    d.lastMoveMarkersLower(domPage.ctx, ps.lastMoveMarkers, ps.PADDING, cellSize, stoneRadius);
+                    d.lastMoveMarkersLower(domPage.ctx, ps.lastMoveMarkers, ps.PADDING, cellSize, stoneRadius, ps.BOARD_SIZE);
                 }
                 d.stonesBlackWhite(domPage.ctx, ps.board, ps.BOARD_SIZE, ps.PADDING, cellSize, stoneRadius, ps.showMoveNumbers);
                 if (!lowerLastMoveMarker) {
-                    d.lastMoveMarkersUpper(domPage.ctx, ps.lastMoveMarkers, ps.PADDING, cellSize, markLenDefault);
+                    d.lastMoveMarkersUpper(domPage.ctx, ps.lastMoveMarkers, ps.PADDING, cellSize, markLenDefault, ps.BOARD_SIZE);
                 }
                 d.userBoardMarks(domPage.ctx, ps.userBoardMarks, ps.BOARD_SIZE, ps.PADDING, cellSize, isUserBoardMarkVisibleAt(ps));
                 if (ps.showMoveNumbers && ps.handNumAt && ps.handNumAt.length === ps.BOARD_SIZE && ps.handNumAt[0].length === ps.BOARD_SIZE) {
@@ -724,7 +724,8 @@ const scoreTitle = document.getElementById('scoreTitle');
                         gameOver: ps.gameOver,
                         isMyTurn: ps.isMyTurn,
                         isHoverValid: ps.isHoverValid,
-                        hoverCapture: !!ps.hoverCapture
+                        hoverCapture: !!ps.hoverCapture,
+                        boardSize: ps.BOARD_SIZE
                     });
                 }
                 if (ps.showEstimateActive && ps.cachedLiveBoard && ps.cachedTerritory) {
@@ -1068,11 +1069,6 @@ const scoreTitle = document.getElementById('scoreTitle');
             roomId,
             roomPassword,
             isMouseDevice,
-            komiInfoText(p) {
-                const k = p.KOMI;
-                const iv = p.rotationInterval != null ? p.rotationInterval : rwComputeInterval(p.BOARD_SIZE);
-                return `黑贴白${k}点`;
-            },
             drawBoard: rotationDrawBoardImpl,
             rebuildLiveReplayFromMoveCoords: rebuildLiveReplayRotation,
             tryPlaceStone(boardBefore, row, col, playerVal) {

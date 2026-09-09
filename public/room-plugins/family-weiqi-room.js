@@ -372,22 +372,22 @@ const scoreTitle = document.getElementById('scoreTitle');
             for (let r = 0; r < ps.BOARD_SIZE; r++) {
                 for (let c = 0; c < ps.BOARD_SIZE; c++) {
                     if (ps.board[r][c] === HOLE)
-                        R().drawRedBlockHole(r, c, ctx, ps.PADDING, ps.CELL_SIZE);
+                        R().drawRedBlockHole(r, c, ctx, ps.PADDING, ps.CELL_SIZE, ps.BOARD_SIZE);
                     else if (ps.board[r][c] === BRIDGE)
                         R().drawBridge(r, c, ctx, ps.PADDING, ps.CELL_SIZE, ps.BOARD_SIZE);
                     else if (ps.board[r][c] === NEUTRAL)
-                        R().drawNeutralStone(r, c, ctx, ps.PADDING, ps.CELL_SIZE);
+                        R().drawNeutralStone(r, c, ctx, ps.PADDING, ps.CELL_SIZE, ps.BOARD_SIZE);
                     else if (ps.board[r][c] === MINE) 
-                        R().drawMine(r, c, ctx, ps.PADDING, ps.CELL_SIZE);
+                        R().drawMine(r, c, ctx, ps.PADDING, ps.CELL_SIZE, ps.BOARD_SIZE);
                 }
             }
             const stoneRadius = ps.CELL_SIZE * 0.44, markLenDefault = ps.CELL_SIZE * 0.352;
             const lowerLastMoveMarker = ps.showMoveNumbers || ps.showEstimateActive;
             if (lowerLastMoveMarker)
-                d.lastMoveMarkersLower(ctx, ps.lastMoveMarkers, ps.PADDING, ps.CELL_SIZE, stoneRadius);
+                d.lastMoveMarkersLower(ctx, ps.lastMoveMarkers, ps.PADDING, ps.CELL_SIZE, stoneRadius, ps.BOARD_SIZE);
             d.stonesBlackWhite(ctx, ps.board, ps.BOARD_SIZE, ps.PADDING, ps.CELL_SIZE, stoneRadius, ps.showMoveNumbers);
             if (!lowerLastMoveMarker)
-                d.lastMoveMarkersUpper(ctx, ps.lastMoveMarkers, ps.PADDING, ps.CELL_SIZE, markLenDefault);
+                d.lastMoveMarkersUpper(ctx, ps.lastMoveMarkers, ps.PADDING, ps.CELL_SIZE, markLenDefault, ps.BOARD_SIZE);
             function isUserBoardMarkVisibleAt(br, bc) {
                 if (ps.showEstimateActive) return false;
                 if (!inBounds(br, bc)) return false;
@@ -423,6 +423,8 @@ const scoreTitle = document.getElementById('scoreTitle');
             enableEditBoard: true,
             editTools: config.editTools,
             recordDownloadPrefix, minLib, maxWeakLiberties: 2, gameType, roomId, roomPassword, isMouseDevice,
+            // 全家福围棋不适用「黑贴白xxx点(黑yyy点和棋)」双段格式（洞/桥/中立子/雷为随机生成），保持单段
+            komiInfoText: (p) => `黑贴白${p.KOMI}点`,
             tryPlaceStone: familyTryPlaceStone, drawBoard: familyDrawBoard,
             removeDeadAndDying: (src) => familyRemoveDeadAndDying(src),
             assignTerritoryWithRange: (live) => assignTerritoryWithBridgeGraph(live, ps.BOARD_SIZE, { isPassable: (v) => v !== HOLE && v !== BRIDGE && v !== MINE && v !== NEUTRAL }),
@@ -488,6 +490,18 @@ const scoreTitle = document.getElementById('scoreTitle');
             roomId, gameType, pageState: ps, drawBoard, exitTryPlay, enterTryPlay, setTryPlayStep, setReplayStep, setLiveViewStep,
             getWs: () => ps.ws, getBoardSize: () => ps.BOARD_SIZE, setBoardSize: (n) => { ps.BOARD_SIZE = n; },
             getKomi: () => ps.KOMI, setKomi: (n) => { ps.KOMI = n; },
+            // 物理总点数 = N² − 洞数 − 桥数（全家福为逐格随机生成，按当前盘实计；限时默认值等用）
+            getTotalPoints: () => {
+                let specials = 0;
+                const bd = ps.board;
+                if (Array.isArray(bd)) {
+                    for (const row of bd) {
+                        if (!Array.isArray(row)) continue;
+                        for (const v of row) if (v === HOLE || v === BRIDGE) specials++;
+                    }
+                }
+                return ps.BOARD_SIZE * ps.BOARD_SIZE - specials;
+            },
             getBoard: () => ps.board.map(row => row.map(c => (c === HOLE || c === NEUTRAL || c === BRIDGE || c === MINE ? 0 : c))), setBoard: (b) => { ps.board = b; },
             getSlots: () => ps.slots, setSlots: (s) => { ps.slots = s; }, getMySlot: () => ps.mySlot, setMySlot: (s) => { ps.mySlot = s; },
             getGameOver: () => ps.gameOver, setGameOver: (v) => { ps.gameOver = v; }, getWinner: () => ps.winner, setWinner: (w) => { ps.winner = w; },

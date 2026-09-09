@@ -70,24 +70,26 @@ function copyBoard(src) {
 
 function createInitialBoard() {
     const b = emptyBoard();
-    b[0][0] = 'br'; b[0][1] = 'bn'; b[0][2] = 'be'; b[0][3] = 'ba';
-    b[0][5] = 'ba'; b[0][6] = 'be'; b[0][7] = 'bn'; b[0][8] = 'br';
-    b[1][4] = 'bk';
-    b[2][1] = 'bc'; b[2][7] = 'bc';
-    for (let c = 0; c < BOARD_W; c += 2) b[3][c] = 'bp';
+    // 蓝方(楚/r)在下(纵坐标小的一侧):row 0-3;红方(漢/b)在上:row 6-9
+    b[0][0] = 'rr'; b[0][1] = 'rn'; b[0][2] = 're'; b[0][3] = 'ra';
+    b[0][5] = 'ra'; b[0][6] = 're'; b[0][7] = 'rn'; b[0][8] = 'rr';
+    b[1][4] = 'rk';
+    b[2][1] = 'rc'; b[2][7] = 'rc';
+    for (let c = 0; c < BOARD_W; c += 2) b[3][c] = 'rp';
 
-    b[9][0] = 'rr'; b[9][1] = 'rn'; b[9][2] = 're'; b[9][3] = 'ra';
-    b[9][5] = 'ra'; b[9][6] = 're'; b[9][7] = 'rn'; b[9][8] = 'rr';
-    b[8][4] = 'rk';
-    b[7][1] = 'rc'; b[7][7] = 'rc';
-    for (let c = 0; c < BOARD_W; c += 2) b[6][c] = 'rp';
+    b[9][0] = 'br'; b[9][1] = 'bn'; b[9][2] = 'be'; b[9][3] = 'ba';
+    b[9][5] = 'ba'; b[9][6] = 'be'; b[9][7] = 'bn'; b[9][8] = 'br';
+    b[8][4] = 'bk';
+    b[7][1] = 'bc'; b[7][7] = 'bc';
+    for (let c = 0; c < BOARD_W; c += 2) b[6][c] = 'bp';
     return b;
 }
 
+/** 开局配置：左右翼马/象可互换的列对；蓝(楚/r)在底行(row 小、显示在下)，红(漢/b)在顶行(row 大) */
 const SETUP_WINGS = [[1, 2], [6, 7]];
 
 function setupBackRow(side) {
-    return side === 'red' ? 9 : 0;
+    return side === 'red' ? 0 : 9;
 }
 
 function isSetupHorseOrElephant(piece, side) {
@@ -134,12 +136,13 @@ function inBounds(row, col) {
 
 function inPalace(side, row, col) {
     if (col < 3 || col > 5) return false;
-    if (side === 'red') return row >= 7 && row <= 9;
-    return row >= 0 && row <= 2;
+    // 蓝方(楚)九宫在 row 0-2，红方(漢)九宫在 row 7-9
+    if (side === 'red') return row >= 0 && row <= 2;
+    return row >= 7 && row <= 9;
 }
 
 function palaceSideAt(row) {
-    return row <= 2 ? 'black' : 'red';
+    return row <= 2 ? 'red' : 'black';
 }
 
 function onSamePalaceDiagonal(r1, c1, r2, c2) {
@@ -147,7 +150,7 @@ function onSamePalaceDiagonal(r1, c1, r2, c2) {
     const s1 = palaceSideAt(r1);
     const s2 = palaceSideAt(r2);
     if (s1 !== s2) return false;
-    if (s1 === 'black') {
+    if (s1 === 'red') {
         if (r1 - c1 === -3 && r2 - c2 === -3) return true;
         if (r1 + c1 === 5 && r2 + c2 === 5) return true;
         return false;
@@ -304,7 +307,8 @@ function isPseudoLegalMove(piece, fromRow, fromCol, toRow, toCol, board) {
     }
 
     if (type === 'p') {
-        const forward = side === 'red' ? -1 : 1;
+        // 蓝方(楚)在 row 小侧、朝 row 增大方向前进；红方(漢)朝 row 减小方向前进
+        const forward = side === 'red' ? 1 : -1;
         if (dR === forward && dC === 0) return true;
         if (dR === 0 && aC === 1) return true;
         const enemyPalace = side === 'red' ? 'black' : 'red';
@@ -640,13 +644,16 @@ return {
         }
 
         function toDisplayCoord(row, col) {
-            if (!boardFlipped()) return { row, col };
-            return { row: R.BOARD_H - 1 - row, col: R.BOARD_W - 1 - col };
+            // 蓝方在 row 小的一侧且显示在下：先做视角 180° 旋转，再整体 y 镜像
+            let r = row, c = col;
+            if (boardFlipped()) { r = R.BOARD_H - 1 - r; c = R.BOARD_W - 1 - c; }
+            return { row: R.BOARD_H - 1 - r, col: c };
         }
 
         function toOriginalCoord(dispRow, dispCol) {
-            if (!boardFlipped()) return { row: dispRow, col: dispCol };
-            return { row: R.BOARD_H - 1 - dispRow, col: R.BOARD_W - 1 - dispCol };
+            let r = R.BOARD_H - 1 - dispRow, c = dispCol;
+            if (boardFlipped()) { r = R.BOARD_H - 1 - r; c = R.BOARD_W - 1 - c; }
+            return { row: r, col: c };
         }
 
         function calcGeometry() {
@@ -807,19 +814,29 @@ return {
                     const sizeScale = pieceSizeScaleAt(r, c);
                     const radius = cellSize * 0.42 * sizeScale;
                     const color = piece[0] === 'r' ? '#1a5fa8' : '#932c13';
-                    ctx2d.shadowOffsetY = radius * 0.2;
-                    ctx2d.shadowBlur = radius * 0.4;
-                    ctx2d.shadowColor = 'rgba(0,0,0,0.45)';
+                                                                                // 朝鲜将棋式：正面与侧壁阴影同为「正八角形」且顶部对齐——外圈更大、顶边齐平，
+                    // 形似八角棱柱侧壁的投影。EXTRUDE 越大侧壁越宽。
+                    const EXTRUDE = radius * 0.12;
+                    const apothem = (r) => r * Math.cos(Math.PI / 8);
+                    const outerRad = radius + EXTRUDE;
+                    // 顶边对齐：外圈圆心比正面圆心低（外圈边心距 - 正面边心距）
+                    const cyOuter = y + (apothem(outerRad) - apothem(radius));
+                    ctx2d.shadowOffsetY = radius * 0.12;
+                    ctx2d.shadowBlur = radius * 0.22;
+                    ctx2d.shadowColor = 'rgba(0,0,0,0.35)';
+                    pathOctagon(x, cyOuter, outerRad);
+                    ctx2d.fillStyle = 'rgba(200,160,104,1)';
+                    ctx2d.fill();
+                    ctx2d.shadowBlur = 0; ctx2d.shadowOffsetY = 0;
                     pathOctagon(x, y, radius);
                     ctx2d.fillStyle = '#e8d2a0';
                     ctx2d.fill();
-                    ctx2d.shadowBlur = 0; ctx2d.shadowOffsetY = 0;
-                    ctx2d.strokeStyle = '#c49c6a';
+                    ctx2d.strokeStyle = 'rgba(200,160,104,1)';
                     ctx2d.lineWidth = 1.5;
-                    pathOctagon(x, y, radius);
+                    pathOctagon(x, cyOuter, outerRad);
                     ctx2d.stroke();
                     ctx2d.fillStyle = color;
-                    ctx2d.font = `${cellSize * 0.62 * sizeScale}px XiangqiPiece`;
+                    ctx2d.font = `${cellSize * 0.60 * sizeScale}px XiangqiPiece`;
                     ctx2d.textAlign = 'center';
                     ctx2d.textBaseline = 'middle';
                     ctx2d.fillText(R.pieceLabel(piece), x, y + cellSize * 0.02 * sizeScale);

@@ -449,6 +449,27 @@ class ChoiceWuziqiRoom extends QiTwoPlayerRoomBase {
         this.broadcast(payload, requesterWs);
     }
 
+    /** 选择五子：悔棋固定悔 1 手 */
+    undoStepsFor(slot, isMyTurn) {
+        return 1;
+    }
+
+    /** 由公共悔棋协议调用：恢复 1 手并广播 */
+    performUndoSteps(steps) {
+        this.board = this.copyBoard(this.historyBoards.pop());
+        this.moveLog.pop();
+        this.lastMoveMarkers = [];
+        this.currentPlayer = (this.currentPlayer === 'black') ? 'white' : 'black';
+        this.gameOver = false;
+        this.winner = null;
+        this.generateCandidates();
+        if (this.tcClock && this.tcClock.timed) {
+            qiMatchTimeControl.setActiveSlot(this.tcClock, this.currentPlayer, Date.now());
+            this._broadcastClock();
+        }
+        this.broadcast({ type: 'broadcast', action: 'undoAccept', ...this.getState() });
+    }
+
     handleMessage(ws, msg) {
         const slot = this.room.getSlotByWs(ws);
         const room = this.room;
@@ -549,61 +570,11 @@ class ChoiceWuziqiRoom extends QiTwoPlayerRoomBase {
                 break;
 
             case 'requestUndo':
-                if (!slot) return;
-                if (this.gameOver) return;
-                const undoOpponentSlot = slot === 'black' ? 'white' : 'black';
-                const undoOpponent = room.getPlayerBySlot(undoOpponentSlot);
-                if (!undoOpponent) {
-                    if (this.historyBoards.length > 0) {
-                        this.board = this.copyBoard(this.historyBoards.pop());
-                        this.moveLog.pop();
-                        this.lastMoveMarkers = [];
-                        this.currentPlayer = (this.currentPlayer === 'black') ? 'white' : 'black';
-                        this.gameOver = false;
-                        this.winner = null;
-                        this.generateCandidates();
-                        if (this.tcClock && this.tcClock.timed) {
-                            qiMatchTimeControl.setActiveSlot(this.tcClock, this.currentPlayer, Date.now());
-                            this._broadcastClock();
-                        }
-                        this.broadcast({
-                            type: 'broadcast',
-                            action: 'undoAccept',
-                            ...this.getState()
-                        });
-                    }
-                    return;
-                }
-                this.pendingUndo = ws;
-                undoOpponent.send(JSON.stringify({ type: 'undoRequest' }));
+                qiProtocol.undoWuziqiHistory(this, ws, msg, slot);
                 break;
 
             case 'undoResponse':
-                if (this.pendingUndo) {
-                    if (msg.accept) {
-                        if (this.historyBoards.length > 0) {
-                            this.board = this.copyBoard(this.historyBoards.pop());
-                            this.moveLog.pop();
-                            this.lastMoveMarkers = [];
-                            this.currentPlayer = (this.currentPlayer === 'black') ? 'white' : 'black';
-                            this.gameOver = false;
-                            this.winner = null;
-                            this.generateCandidates();
-                            if (this.tcClock && this.tcClock.timed) {
-                                qiMatchTimeControl.setActiveSlot(this.tcClock, this.currentPlayer, Date.now());
-                                this._broadcastClock();
-                            }
-                            this.broadcast({
-                                type: 'broadcast',
-                                action: 'undoAccept',
-                                ...this.getState()
-                            });
-                        }
-                    } else {
-                        this.pendingUndo.send(JSON.stringify({ type: 'error', message: '对方拒绝了悔棋。' }));
-                    }
-                }
-                this.pendingUndo = null;
+                qiProtocol.undoResponseWuziqiHistory(this, ws, msg);
                 break;
 
             case 'resign':

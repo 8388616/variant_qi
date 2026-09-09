@@ -427,7 +427,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             for (let r = 0; r < gw; r++) {
                 for (let c = 0; c < gh; c++) {
                     if (!Cairo.isValidVertex(r, c, gw, gh)) continue;
-                    const u = vertexUnitPos(r, c);
+                    const u = vertexUnitPos(gw - 1 - r, c);   // row=0 在底部:物理位置按翻转行计算
                     raw.push({ r, c, x: u.x, y: u.y });
                 }
             }
@@ -474,9 +474,13 @@ const scoreTitle = document.getElementById('scoreTitle');
         }
 
         /** 应用棋盘路数与尺寸：更新布局、棋盘与贴目。 */
+        function totalPointsCairo() {
+            // 开罗合法顶点 = 全部格 − (奇行∩偶列)；闭式 12(L−1)²（与 isValidVertex 循环对拍一致）
+            const L = BOARD_LANES;
+            return 12 * (L - 1) * (L - 1);
+        }
         function updateKomiInfo() {
-            const el = document.getElementById('komiInfo');
-            if (el) el.textContent = '黑贴白' + KOMI + '点';
+            QiWeiqiSquarePageRuntime.writeKomiInfoText(document.getElementById('komiInfo'), KOMI, totalPointsCairo());
         }
 
         function applyBoardDimensions(lanes, w, h) {
@@ -1638,7 +1642,7 @@ syncState,
             };
         }
 
-        /* board edit UI (flat vertices) */
+        /* board edit UI（二维网格：棋盘本身是 GRID_W×GRID_H 数组，仅 Cairo.isValidVertex 的顶点可落子） */
         if (typeof QiWeiqiSquarePageRuntime !== 'undefined' && QiWeiqiSquarePageRuntime.installBoardEditUI) {
             const _editPs = {
                 get board() { return board; },
@@ -1663,24 +1667,19 @@ syncState,
             const _editApi = QiWeiqiSquarePageRuntime.installBoardEditUI({
                 ps: _editPs,
                 canvas: document.getElementById('goBoard'),
-                mode: 'flat',
+                mode: 'grid2d',
                 pickAtClient(clientX, clientY) {
-                    const canvasEl = document.getElementById('goBoard');
-                    if (!canvasEl) return null;
-                    const rect = canvasEl.getBoundingClientRect();
-                    const scale = (typeof CANVAS_SIZE !== 'undefined' ? CANVAS_SIZE : canvasEl.width) / rect.width;
-                    const x = (clientX - rect.left) * scale;
-                    const y = (clientY - rect.top) * scale;
-                    let i = -1;
-                    if (typeof getNearestVertex === 'function') i = getNearestVertex(x, y);
-                    else if (typeof pickNearestVertex === 'function') i = pickNearestVertex(x, y);
-                    return (i != null && i >= 0) ? { index: i } : null;
+                    if (typeof canvasCoordsFromClient === 'function' && typeof getClosestIntersection === 'function') {
+                        const p = canvasCoordsFromClient(clientX, clientY);
+                        return getClosestIntersection(p.x, p.y);
+                    }
+                    return null;
                 },
                 drawBoard: (typeof drawBoardWithOverlay === 'function' ? drawBoardWithOverlay
                     : (typeof drawBoard === 'function' ? drawBoard : function () {})),
                 getBoard() { return board; },
                 setBoard(b) { board = b; },
-                emptyBoard() { return Array((typeof V !== 'undefined' ? V : board.length)).fill(0); }
+                emptyBoard() { return initGridBoard(); }
             });
             if (typeof syncState === 'function') {
                 const _sync0 = syncState;

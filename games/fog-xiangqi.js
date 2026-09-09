@@ -5,7 +5,7 @@ const {
     qiBoardSeatOverlay
 } = require('../common');
 
-const R = require('./xiangqi-rules');
+const R = require('./xiangqi-rules').flipped;
 if (!R || typeof R.createInitialBoard !== 'function') {
     throw new Error('xiangqi-rules.js not found or invalid (need createInitialBoard)');
 }

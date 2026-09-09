@@ -3,7 +3,7 @@ window.RoomPlugins['greedy-weiqi'] = {
     shell: {
         "title": "贪吃围棋",
         "rulesHtml": "基本规则同围棋。<br /><br />有提子时必须提子；若有多个可提子点，则必须走提子数量最多的点；若有多个最多的点，可任选其一。<br /><br />",
-        "defaultKomiText": "黑贴白2.75点",
+        "defaultKomiText": "黑贴白1点",
         "boardSizeMin": 7,
         "boardSizeMax": 21,
         "defaultBoardSize": 19,
@@ -42,14 +42,12 @@ window.RoomPlugins['greedy-weiqi'] = {
         (function () {
 // ======================== 配置 ========================
         function greedyKomiForSize(boardSize) {
-            if (boardSize === 3) return 4.5;
-            if (boardSize === 4) return 0.0;
-            if (boardSize === 5) return 12.5;
-            if (boardSize === 6) return 0.5;
-            if (boardSize === 7) return 5.5;
-            if (boardSize === 8) return 3.0;
-            if (boardSize % 2 === 0) return 3.25;
-            return 2.75;
+			if (boardSize === 3) return 4.5;
+			if (boardSize === 5) return 12.5;
+			if (boardSize === 7) return 3.0;
+			if (boardSize === 8) return 2.0;
+			if (boardSize === 8) return 1.5;
+			return 1.0;
         }
 
         const ps = {
@@ -251,11 +249,11 @@ const scoreTitle = document.getElementById('scoreTitle');
             const markLenDefault = cellSize * 0.352;
             const lowerLastMoveMarker = ps.showMoveNumbers || ps.showEstimateActive;
             if (lowerLastMoveMarker) {
-                d.lastMoveMarkersLower(ctx, ps.lastMoveMarkers, ps.PADDING, cellSize, stoneRadius);
+                d.lastMoveMarkersLower(ctx, ps.lastMoveMarkers, ps.PADDING, cellSize, stoneRadius, ps.BOARD_SIZE);
             }
             d.stonesBlackWhite(ctx, ps.board, ps.BOARD_SIZE, ps.PADDING, cellSize, stoneRadius, ps.showMoveNumbers);
             if (!lowerLastMoveMarker) {
-                d.lastMoveMarkersUpper(ctx, ps.lastMoveMarkers, ps.PADDING, cellSize, markLenDefault);
+                d.lastMoveMarkersUpper(ctx, ps.lastMoveMarkers, ps.PADDING, cellSize, markLenDefault, ps.BOARD_SIZE);
             }
             d.userBoardMarks(ctx, ps.userBoardMarks, ps.BOARD_SIZE, ps.PADDING, cellSize, (r, c) => {
                 if (ps.showEstimateActive) return false;
@@ -294,7 +292,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                 const sh = cellSize * 0.18;
                 for (const { row, col } of ps.candidates) {
                     const x = ps.PADDING + col * cellSize;
-                    const y = ps.PADDING + row * cellSize;
+                    const y = ps.PADDING + (ps.BOARD_SIZE - 1 - row) * cellSize;
                     ctx.fillStyle = playerColor;
                     ctx.fillRect(x - sh, y - sh, sh * 2, sh * 2);
                 }
@@ -318,7 +316,8 @@ const scoreTitle = document.getElementById('scoreTitle');
                     gameOver: ps.gameOver,
                     isMyTurn: ps.isMyTurn,
                     isHoverValid: ps.isHoverValid,
-                    hoverCapture: !!ps.hoverCapture
+                    hoverCapture: !!ps.hoverCapture,
+                    boardSize: ps.BOARD_SIZE
                 });
             }
             if (ps.showEstimateActive && ps.cachedLiveBoard && ps.cachedTerritory) {
@@ -355,7 +354,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                 const syncedLen = ps.liveReplayBoards.length - 1;
                 const mcs = moveCoords || [];
                 if (syncedLen >= 0 && mcs.length > syncedLen) {
-                    if (page.applyLiveReplayIncremental(mcs)) return;
+                    if (this.applyLiveReplayIncremental(mcs)) return;
                 }
                 const ob = ps.liveOpeningBoard;
                 const createEmpty = () => ob

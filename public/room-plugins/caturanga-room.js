@@ -78,13 +78,14 @@ function defaultCastling() {
 
 function createInitialBoard() {
     const b = emptyBoard();
-    b[0][0] = 'br'; b[0][1] = 'bn'; b[0][2] = 'bb'; b[0][3] = 'bk';
-    b[0][4] = 'bf'; b[0][5] = 'bb'; b[0][6] = 'bn'; b[0][7] = 'br';
-    for (let c = 0; c < 8; c++) b[1][c] = 'bp';
+    // 白方在下(纵坐标小的一侧):row 0-1;黑方在上:row 6-7
+    b[0][0] = 'wr'; b[0][1] = 'wn'; b[0][2] = 'wb'; b[0][3] = 'wf';
+    b[0][4] = 'wk'; b[0][5] = 'wb'; b[0][6] = 'wn'; b[0][7] = 'wr';
+    for (let c = 0; c < 8; c++) b[1][c] = 'wp';
 
-    b[7][0] = 'wr'; b[7][1] = 'wn'; b[7][2] = 'wb'; b[7][3] = 'wf';
-    b[7][4] = 'wk'; b[7][5] = 'wb'; b[7][6] = 'wn'; b[7][7] = 'wr';
-    for (let c = 0; c < 8; c++) b[6][c] = 'wp';
+    b[7][0] = 'br'; b[7][1] = 'bn'; b[7][2] = 'bb'; b[7][3] = 'bk';
+    b[7][4] = 'bf'; b[7][5] = 'bb'; b[7][6] = 'bn'; b[7][7] = 'br';
+    for (let c = 0; c < 8; c++) b[6][c] = 'bp';
     return b;
 }
 
@@ -148,7 +149,7 @@ function attacksSquare(piece, fromRow, fromCol, toRow, toCol, board) {
     if (type === 'k') return aR <= 1 && aC <= 1;
     if (type === 'n') return (aR === 2 && aC === 1) || (aR === 1 && aC === 2);
     if (type === 'p') {
-        const forward = piece[0] === 'w' ? -1 : 1;
+        const forward = piece[0] === 'w' ? 1 : -1;
         return dR === forward && aC === 1;
     }
     if (type === 'r') {
@@ -230,7 +231,7 @@ function isPseudoLegalMove(piece, fromRow, fromCol, toRow, toCol, board, meta) {
     }
 
     if (type === 'p') {
-        const forward = side === 'white' ? -1 : 1;
+        const forward = side === 'white' ? 1 : -1;
         // 直走一格
         if (dC === 0 && dR === forward && !target) return true;
         // 斜吃一格
@@ -243,8 +244,8 @@ function isPseudoLegalMove(piece, fromRow, fromCol, toRow, toCol, board, meta) {
 
 function needsPromotion(piece, toRow) {
     if (!piece || piece[1] !== 'p') return false;
-    if (piece[0] === 'w') return toRow === 0;
-    return toRow === 7;
+    if (piece[0] === 'w') return toRow === 7;
+    return toRow === 0;
 }
 
 /** 己方某类棋子数量 */
@@ -298,14 +299,14 @@ function applyMoveOnBoard(board, fromRow, fromCol, toRow, toCol, meta, promote) 
     // 更新易位权
     if (piece === 'wk') { castling.whiteK = false; castling.whiteQ = false; }
     if (piece === 'bk') { castling.blackK = false; castling.blackQ = false; }
-    if (piece === 'wr' && fromRow === 7 && fromCol === 0) castling.whiteQ = false;
-    if (piece === 'wr' && fromRow === 7 && fromCol === 7) castling.whiteK = false;
-    if (piece === 'br' && fromRow === 0 && fromCol === 0) castling.blackQ = false;
-    if (piece === 'br' && fromRow === 0 && fromCol === 7) castling.blackK = false;
-    if (captured === 'wr' && toRow === 7 && toCol === 0) castling.whiteQ = false;
-    if (captured === 'wr' && toRow === 7 && toCol === 7) castling.whiteK = false;
-    if (captured === 'br' && toRow === 0 && toCol === 0) castling.blackQ = false;
-    if (captured === 'br' && toRow === 0 && toCol === 7) castling.blackK = false;
+    if (piece === 'wr' && fromRow === 0 && fromCol === 0) castling.whiteQ = false;
+    if (piece === 'wr' && fromRow === 0 && fromCol === 7) castling.whiteK = false;
+    if (piece === 'br' && fromRow === 7 && fromCol === 0) castling.blackQ = false;
+    if (piece === 'br' && fromRow === 7 && fromCol === 7) castling.blackK = false;
+    if (captured === 'wr' && toRow === 0 && toCol === 0) castling.whiteQ = false;
+    if (captured === 'wr' && toRow === 0 && toCol === 7) castling.whiteK = false;
+    if (captured === 'br' && toRow === 7 && toCol === 0) castling.blackQ = false;
+    if (captured === 'br' && toRow === 7 && toCol === 7) castling.blackK = false;
 
     return {
         board: next,
@@ -655,13 +656,16 @@ return {
         }
 
         function toDisplayCoord(row, col) {
-            if (!boardFlipped()) return { row, col };
-            return { row: R.BOARD_H - 1 - row, col: R.BOARD_W - 1 - col };
+            // 白方在 row 小的一侧且显示在下:先做视角 180° 旋转,再整体 y 镜像
+            let r = row, c = col;
+            if (boardFlipped()) { r = R.BOARD_H - 1 - r; c = R.BOARD_W - 1 - c; }
+            return { row: R.BOARD_H - 1 - r, col: c };
         }
 
         function toOriginalCoord(dispRow, dispCol) {
-            if (!boardFlipped()) return { row: dispRow, col: dispCol };
-            return { row: R.BOARD_H - 1 - dispRow, col: R.BOARD_W - 1 - dispCol };
+            let r = R.BOARD_H - 1 - dispRow, c = dispCol;
+            if (boardFlipped()) { r = R.BOARD_H - 1 - r; c = R.BOARD_W - 1 - c; }
+            return { row: r, col: c };
         }
 
         function calcGeometry() {

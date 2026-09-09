@@ -219,7 +219,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             const markLenDefault = cellSize * 0.352;
             const lowerLastMoveMarker = ps.showMoveNumbers || ps.showEstimateActive;
             if (lowerLastMoveMarker) {
-                d.lastMoveMarkersLower(ctx, ps.lastMoveMarkers, ps.PADDING, cellSize, stoneRadius);
+                d.lastMoveMarkersLower(ctx, ps.lastMoveMarkers, ps.PADDING, cellSize, stoneRadius, ps.BOARD_SIZE);
             }
             for (let r = 0; r < ps.BOARD_SIZE; r++)
              {
@@ -227,7 +227,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                 {
                     if (ps.board[r][c] !== NEUTRAL)
                         continue;
-                    R().drawNeutralStone(r, c, ctx, ps.PADDING, ps.CELL_SIZE);
+                    R().drawNeutralStone(r, c, ctx, ps.PADDING, ps.CELL_SIZE, ps.BOARD_SIZE);
                 }
             }
             d.stonesBlackWhite(ctx, ps.board, ps.BOARD_SIZE, ps.PADDING, cellSize, stoneRadius, ps.showMoveNumbers);
@@ -235,7 +235,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                 for (const { row, col, color } of ps.lastMoveMarkers) {
                     if (ps.board[row][col] === NEUTRAL) continue;
                     const x = ps.PADDING + col * cellSize;
-                    const y = ps.PADDING + row * cellSize;
+                    const y = ps.PADDING + (ps.BOARD_SIZE - 1 - row) * cellSize;
                     ctx.beginPath();
                     ctx.moveTo(x, y);
                     ctx.lineTo(x + markLenDefault, y);
@@ -298,6 +298,8 @@ const scoreTitle = document.getElementById('scoreTitle');
             roomId,
             roomPassword,
             isMouseDevice,
+            // 中立子围棋不适用「黑贴白xxx点(黑yyy点和棋)」双段格式，保持单段
+            komiInfoText: (p) => `黑贴白${p.KOMI}点`,
             tryPlaceStone: neutralTryPlaceStone,
             drawBoard: neutralDrawBoard,
             removeDeadAndDying: (src) => R().removeDeadAndDying(src, ps.BOARD_SIZE, (b) => QiSquareWeiqiCanvas.deepCopyBoard(b), 2),

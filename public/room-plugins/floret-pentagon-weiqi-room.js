@@ -153,7 +153,7 @@ window.RoomPlugins["floret-pentagon-weiqi"] = {
 
             const transformedPts = vertices.map(v => ({
                 x: FRAME_CENTER + (v.x - cx) * scale,
-                y: FRAME_CENTER + (v.y - cy) * scale
+                y: FRAME_CENTER - (v.y - cy) * scale   // 棋盘显示上下翻折(y 镜像)
             }));
 
             let totalDist = 0;
@@ -254,6 +254,8 @@ window.RoomPlugins["floret-pentagon-weiqi"] = {
         let moveCoordsFull = [];
 
         let tryPlayMode = false;
+        let tryPlayFromLive = false;
+        let tryPlayFromLiveStep = null;
         let tryPlayBaseStep = 0;
         let tryPlayBasePlayer = 1;
         let tryPlayBoards = [];
@@ -319,6 +321,20 @@ const scoreTitle = document.getElementById('scoreTitle');
 
         // ======================== 工具函数 ========================
         const KOMI = 3.25;
+
+        /** 花形五角棋盘各路数的总点数（由服务端生成器实测 n=3..13；含 √3 浮点边界无简洁闭式，写死） */
+        const FLORET_TOTAL_POINTS = {
+            3: 106, 4: 214, 5: 427, 6: 712, 7: 1069, 8: 1375,
+            9: 1858, 10: 2413, 11: 3040, 12: 3544, 13: 4297
+        };
+        function refreshFloretKomiInfo() {
+            const el = document.getElementById('komiInfo');
+            if (!el) return;
+            const t = FLORET_TOTAL_POINTS[BOARD_SIZE];
+            if (t == null) el.textContent = '黑贴白' + KOMI + '点';
+            else QiWeiqiSquarePageRuntime.writeKomiInfoText(el, KOMI, t);
+        }
+        refreshFloretKomiInfo();
 
         function formatScore(num) {
             let str = num.toFixed(2);
@@ -972,11 +988,13 @@ const scoreTitle = document.getElementById('scoreTitle');
         function enterTryPlay() {
             clearMobileMovePreview();
             tryPlayMode = true;
+            tryPlayFromLive = !replayMode;
+            tryPlayFromLiveStep = liveViewStep || 0;
             tryPlayBaseStep = replayStep;
             tryPlayBoards = [deepCopyBoard(board)];
             tryPlayMarkers = [lastMoveMarkers.map(m => ({ ...m }))];
 
-            const _fromLive = !replayMode;
+            const _fromLive = tryPlayFromLive;
             const _RT = typeof QiWeiqiSquarePageRuntime !== 'undefined' ? QiWeiqiSquarePageRuntime : null;
             const _startPlayer = _RT && _RT.resolveTryPlaySideToMove
                 ? _RT.resolveTryPlaySideToMove({
@@ -1004,7 +1022,17 @@ const scoreTitle = document.getElementById('scoreTitle');
 
         function exitTryPlay() {
             clearMobileMovePreview();
+            // 与 hexagon/triangle 的公共 exitTryPlay 一致：从直播进入试下的要退回直播局面，
+            // 而不是走打谱 setReplayStep（直播时 replayBoards 为空，旧逻辑会取 undefined 崩溃/无效）
+            const fromLive = !!tryPlayFromLive;
+            const savedLiveStep = tryPlayFromLiveStep != null ? tryPlayFromLiveStep : liveViewStep;
+            const snapBoard = fromLive && tryPlayBoards.length > 0 ? deepCopyBoard(tryPlayBoards[0]) : null;
+            const snapMarkers = fromLive && tryPlayMarkers.length > 0 && tryPlayMarkers[0]
+                ? tryPlayMarkers[0].map(m => ({ ...m }))
+                : [];
             tryPlayMode = false;
+            tryPlayFromLive = false;
+            tryPlayFromLiveStep = null;
             tryPlayBoards = [];
             tryPlayMarkers = [];
             tryPlayStep = 0;
@@ -1012,8 +1040,31 @@ const scoreTitle = document.getElementById('scoreTitle');
 
             const slider = document.getElementById('replaySlider');
             slider.min = 0;
-            slider.max = replayTotalSteps;
-            setReplayStep(tryPlayBaseStep);
+            if (fromLive) {
+                if (snapBoard) {
+                    board = snapBoard;
+                    lastMoveMarkers = snapMarkers;
+                    if (liveReplayBoards.length > 0) {
+                        const step = Math.min(Math.max(0, savedLiveStep), liveReplayBoards.length - 1);
+                        liveReplayBoards[step] = deepCopyBoard(snapBoard);
+                        if (!liveReplayMarkers[step]) liveReplayMarkers[step] = [];
+                        liveReplayMarkers[step] = snapMarkers.map(m => ({ ...m }));
+                        liveViewStep = step;
+                    } else {
+                        liveReplayBoards = [deepCopyBoard(snapBoard)];
+                        liveReplayMarkers = [snapMarkers.map(m => ({ ...m }))];
+                        liveReplayStepPlayers = [0];
+                        liveViewStep = 0;
+                    }
+                } else {
+                    applyLiveViewBoard();
+                }
+                updateLiveReplayPanelUI();
+                updateTurn();
+            } else {
+                slider.max = replayTotalSteps;
+                setReplayStep(tryPlayBaseStep);
+            }
             updateReplayUI();
         }
 
@@ -1207,6 +1258,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             if (needGeometry) {
                 BOARD_SIZE = incomingSize;
                 applyFloretGeometry(generateFloretPentBoard(BOARD_SIZE));
+                refreshFloretKomiInfo();
                 const sizeSelect = document.getElementById('boardSizeSelect');
                 if (sizeSelect) sizeSelect.value = String(BOARD_SIZE);
             }
@@ -1322,6 +1374,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             setBoardSize: (n) => {
                 BOARD_SIZE = n;
                 applyFloretGeometry(generateFloretPentBoard(BOARD_SIZE));
+                refreshFloretKomiInfo();
                 board = Array(V).fill(0);
             },
             getKomi: () => KOMI,
@@ -1366,6 +1419,7 @@ komiInfo,
                 if (Number.isFinite(bs) && bs !== Number(BOARD_SIZE)) {
                     BOARD_SIZE = bs;
                     applyFloretGeometry(generateFloretPentBoard(BOARD_SIZE));
+                    refreshFloretKomiInfo();
                     board = Array(V).fill(0);
                 }
                 const sel = document.getElementById('boardSizeSelect');

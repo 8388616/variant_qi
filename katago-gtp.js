@@ -90,7 +90,8 @@ function isKatagoAvailable(gameId) {
     }
 }
 
-/** 非方形棋盘（如开罗五角围棋）时 boardHeight 为行数；缺省与 boardSize（宽）相同 */
+/** 非方形棋盘（如开罗五角围棋）时 boardHeight 为行数；缺省与 boardSize（宽）相同。
+ *  坐标约定：row=0 为棋盘顶部（GTP 行号 = 路数，即 A19） */
 function toGtpVertex(row, col, boardSize, boardHeight) {
     if (row == null || col == null) return 'pass';
     const h = boardHeight || boardSize;
@@ -321,13 +322,17 @@ class KatagoGtpSession {
     }
 
     _handleBlock(block) {
-        if (!this.pending) return;
         const lines = block.split('\n').filter((l, i, arr) => !(i === arr.length - 1 && l === ''));
         const first = (lines[0] || '').trim();
-        // genmove 分析等可能往 stdout 打 info 块（含空行）；不能当成 GTP 应答，否则会错位
-        if (!first.startsWith('=') && !first.startsWith('?')) {
-            return;
-        }
+        // 分析命令（kata-search_analyze 等）持续输出 info 行：处于收集模式时先记录下来
+        // （须在 pending 检查之前：analyzeMoves 直接写 stdin 时无 pending）
+        // 非响应行（旧版分析命令的 info 行等）：忽略
+        if (!first.startsWith('=') && !first.startsWith('?')) return;
+        this._finishPending(first, lines);
+    }
+
+    _finishPending(first, lines) {
+        if (!this.pending) return;
         const p = this.pending;
         this.pending = null;
         this._clearEntryTimer(p);
@@ -395,6 +400,51 @@ class KatagoGtpSession {
             this.queue.push(entry);
             this._pump();
         });
+    }
+
+    /**
+     * 取模型策略网络的前 N 个落子点（AI 候选）。
+     * 用 kata-raw-nn all（gtp.cpp rawNN）：同步命令、标准 `=` 响应（与 genmove 一样
+     * 简单可靠），输出当前局面下策略网络的全部先验概率，按棋盘扫描序排列
+     * （第 i 个概率 = 第 i 个交点；y 从顶向下、x 从左向右，与服务器 board[row][col] 对应）。
+     * genmove（cfg maxVisits=1）会选先验最高的点 = 本方法返回的第 1 个点，与电脑对弈一致。
+     * @param {number} boardSize 棋盘路数
+     * @param {{ minMoves?: number }} [opts] 需要的候选数
+     * @returns {Promise<Array<{row:number, col:number}>>} 按先验概率降序的前 N 个点
+     */
+    async analyzeMoves(boardSize, opts) {
+        const need = (opts && Number.isFinite(Number(opts.minMoves)))
+            ? Math.max(1, Number(opts.minMoves) | 0)
+            : 3;
+        if (!this.proc || this.dead) throw new Error('KataGo 未运行');
+        const resp = await this.command('kata-raw-nn all');
+        const lines = String(resp).split('\n');
+        // 解析 policy 网格：`policy` 行后、`policyPass` 行前，每行一个棋盘的 x_size 个概率
+        const probs = [];
+        let inPolicy = false;
+        for (const line of lines) {
+            const t = String(line).trim();
+            if (!t) continue;
+            if (t.startsWith('policyPass')) break;
+            if (inPolicy) {
+                for (const tok of t.split(/\s+/)) {
+                    if (!tok) continue;
+                    const p = parseFloat(tok);
+                    // 被占位置输出 NAN：保留占位（记 -1，排序垫底），否则数组错位、
+                    // 之后所有坐标偏移一格，候选点看起来像随机
+                    probs.push(Number.isFinite(p) ? p : -1);
+                }
+            } else if (t === 'policy') {
+                inPolicy = true;
+            }
+        }
+        const size = boardSize | 0;
+        return probs
+            .map((p, i) => ({ p, row: Math.floor(i / size), col: i % size }))
+            .filter(v => v.row >= 0 && v.row < size && v.col >= 0 && v.col < size)
+            .sort((a, b) => b.p - a.p)
+            .slice(0, need)
+            .map(v => ({ row: v.row, col: v.col }));
     }
 
     /**

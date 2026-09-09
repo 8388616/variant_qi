@@ -538,11 +538,11 @@ const scoreTitle = document.getElementById('scoreTitle');
             const markLenDefault = cellSize * 0.352;
             const lowerLastMoveMarker = ps.showMoveNumbers;
             if (lowerLastMoveMarker) {
-                d.lastMoveMarkersLower(domPage.ctx, ps.lastMoveMarkers, ps.PADDING, cellSize, stoneRadius);
+                d.lastMoveMarkersLower(domPage.ctx, ps.lastMoveMarkers, ps.PADDING, cellSize, stoneRadius, ps.BOARD_SIZE);
             }
             d.stonesBlackWhite(domPage.ctx, ps.board, ps.BOARD_SIZE, ps.PADDING, cellSize, stoneRadius, ps.showMoveNumbers);
             if (!lowerLastMoveMarker) {
-                d.lastMoveMarkersUpper(domPage.ctx, ps.lastMoveMarkers, ps.PADDING, cellSize, markLenDefault);
+                d.lastMoveMarkersUpper(domPage.ctx, ps.lastMoveMarkers, ps.PADDING, cellSize, markLenDefault, ps.BOARD_SIZE);
             }
             d.userBoardMarks(domPage.ctx, ps.userBoardMarks, ps.BOARD_SIZE, ps.PADDING, cellSize, isUserBoardMarkVisibleAt(ps));
             if (ps.showMoveNumbers && ps.handNumAt && ps.handNumAt.length === ps.BOARD_SIZE && ps.handNumAt[0].length === ps.BOARD_SIZE) {

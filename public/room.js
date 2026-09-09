@@ -275,12 +275,21 @@
                 };
             }
             const n = Number.isFinite(boardSize) && boardSize > 0 ? boardSize : 19;
-            // 异形棋盘实际格点数与路数不是 n²。统一从客户端棋盘数组（ctx.pageState.board，各棋类都提供）
-            // 取真实总格点数：flat 数组取长度（六角/五边形），二维数组按行求和并排除无效格（-1，开罗/扭棱）。
+            // 物理总点数优先走各棋种的 ctx.getTotalPoints 接口（总点数表/闭式，桥/全家福等按各自定义）；
+            // 接口缺失时再从客户端棋盘数组（ctx.pageState.board）现数（旧口径，多数棋种与接口一致）：
+            // flat 数组取长度（六角/五边形），二维数组按行求和并排除无效格（-1，开罗/扭棱/洞）。
             // 开局前棋盘已随游戏状态同步；取不到时退回方形 n²。
             let points = n * n;
+            let viaInterface = false;
+            if (typeof ctx.getTotalPoints === 'function') {
+                const t = ctx.getTotalPoints();
+                if (typeof t === 'number' && Number.isFinite(t) && t > 0) {
+                    points = t;
+                    viaInterface = true;
+                }
+            }
             const board = ctx.pageState && ctx.pageState.board;
-            if (Array.isArray(board)) {
+            if (!viaInterface && Array.isArray(board)) {
                 if (Array.isArray(board[0])) {
                     let cnt = 0;
                     for (const row of board) {
@@ -1279,13 +1288,13 @@
         }
 
         function layoutSeatOverlayToCanvas(container, overlay) {
-            const canvas = container.querySelector('canvas.go-canvas, canvas#goBoard, canvas');
-            // 优先对齐主棋盘 canvas（跳过蒙版自身的 shape canvas）
+            // 蒙版一律对齐主棋盘 canvas（跳过蒙版自身的 shape canvas）：木色画布=棋盘外观，
+            // 与其它棋类一致。画布可能小于容器（象棋画布居中留边），因此不能用容器 inset。
             const boardCanvas = Array.from(container.querySelectorAll('canvas')).find(
                 (c) => !c.classList.contains('qi-seat-overlay-shape-canvas')
             ) || null;
             const target = boardCanvas;
-            if (!target || !ctx.seatOverlayShape) {
+            if (!target) {
                 overlay.style.left = '';
                 overlay.style.top = '';
                 overlay.style.width = '';
@@ -1862,7 +1871,7 @@
                     updateRadioStyles();
                     break;
                 case 'broadcast':
-                    if (msg.action === 'move' || msg.action === 'clearMine' || msg.action === 'guess' || msg.action === 'pass' || msg.action === 'capture' || msg.action === 'undoAccept' || msg.action === 'drawAgreed' || msg.action === 'resign'
+                    if (msg.action === 'move' || msg.action === 'clearMine' || msg.action === 'guess' || msg.action === 'pass' || msg.action === 'drop' || msg.action === 'capture' || msg.action === 'undoAccept' || msg.action === 'drawAgreed' || msg.action === 'resign'
                         || msg.action === 'invisibleReveal' || msg.action === 'endAgreed' || msg.action === 'scoreCountingStarted' || msg.action === 'mineHit' || msg.action === 'timeLoss'
                         || msg.action === 'setupSwap' || msg.action === 'setupDone'
                         || msg.action === 'buryClick' || msg.action === 'buryDone' || msg.action === 'buryDoneAll' || msg.action === 'buryPhase') {
@@ -1877,6 +1886,7 @@
                                 const winText = msg.winner === 'draw' ? '和棋' : `${slotName(msg.winner)}胜`;
                                 qiAlert(`${loser}超时，${winText}。`);
                             }
+                            else if (msg.recordResultText) qiAlert(msg.recordResultText);
                             else if (msg.winner === 'black') qiAlert(`${slotName('black')}胜。`);
                             else if (msg.winner === 'white') qiAlert(`${slotName('white')}胜。`);
                             else if (msg.winner === 'draw') qiAlert('和棋。');
@@ -2499,7 +2509,8 @@
 
     function getClosestIntersection(x, y, boardSize, padding, cellSize) {
         const col = Math.round((x - padding) / cellSize);
-        const row = Math.round((y - padding) / cellSize);
+        // 画布顶部 = 大行号(row=boardSize-1),底部 = row 0(小号在下)
+        const row = boardSize - 1 - Math.round((y - padding) / cellSize);
         if (row < 0 || row >= boardSize || col < 0 || col >= boardSize) return { row: -1, col: -1 };
         return { row, col };
     }
@@ -2528,7 +2539,7 @@
 
     function fillWeiqiEstimatePanel(scoreTitle, scoreBoard, leadInfo, blackTotal, whiteTotal, lead) {
         scoreTitle.innerText = '形势判断';
-        scoreBoard.innerText = `黑: ${blackTotal.toFixed(0)}　白: ${whiteTotal.toFixed(0)}`;
+        scoreBoard.innerText = `黑: ${Number(blackTotal.toFixed(2))}　白: ${Number(whiteTotal.toFixed(2))}`;
         leadInfo.innerText = `黑${lead >= 0 ? '+' : ''}${lead.toFixed(1)}点`;
     }
 
@@ -2568,7 +2579,7 @@
             ctx.fillStyle = '#3a281c';
             for (let [r, c] of pts) {
                 ctx.beginPath();
-                ctx.arc(padding + c * cellSize, padding + r * cellSize, cellSize * 0.12, 0, 2 * Math.PI);
+                ctx.arc(padding + c * cellSize, padding + (boardSize - 1 - r) * cellSize, cellSize * 0.12, 0, 2 * Math.PI);
                 ctx.fill();
             }
         },
@@ -2578,7 +2589,7 @@
             ctx.fillStyle = '#3a281c';
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
-            for (let c = 0; c < boardSize; c++) 
+            for (let c = 0; c < boardSize; c++)
             {
                 let letter = String.fromCharCode(65 + c);
                 if (c >= 26)
@@ -2598,10 +2609,10 @@
         },
 
         /** 显示序号或形势判断时：三角形最后落子标记（在棋子下方） */
-        lastMoveMarkersLower(ctx, lastMoveMarkers, padding, cellSize, stoneRadius) {
+        lastMoveMarkersLower(ctx, lastMoveMarkers, padding, cellSize, stoneRadius, boardSize) {
             for (let { row, col, color } of lastMoveMarkers) {
                 const x = padding + col * cellSize;
-                const y = padding + row * cellSize;
+                const y = padding + (boardSize - 1 - row) * cellSize;
                 ctx.beginPath();
                 ctx.moveTo(x + stoneRadius, y + stoneRadius);
                 ctx.lineTo(x, y + stoneRadius);
@@ -2620,7 +2631,7 @@
                     const val = board[r][c];
                     if (val !== 1 && val !== 2) continue;
                     const x = padding + c * cellSize;
-                    const y = padding + r * cellSize;
+                    const y = padding + (boardSize - 1 - r) * cellSize;
                     const radius = stoneRadius;
                     ctx.save();
                     ctx.shadowBlur = 6 * shInv;
@@ -2652,10 +2663,10 @@
         },
 
         /** 直角三角形最后落子标记（棋子之上） */
-        lastMoveMarkersUpper(ctx, lastMoveMarkers, padding, cellSize, markLen) {
+        lastMoveMarkersUpper(ctx, lastMoveMarkers, padding, cellSize, markLen, boardSize) {
             for (let { row, col, color } of lastMoveMarkers) {
                 const x = padding + col * cellSize;
-                const y = padding + row * cellSize;
+                const y = padding + (boardSize - 1 - row) * cellSize;
                 ctx.beginPath();
                 ctx.moveTo(x, y);
                 ctx.lineTo(x + markLen, y);
@@ -2673,7 +2684,7 @@
                 if (isVisibleAt && !isVisibleAt(r, c)) continue;
                 const ch = userBoardMarksMap[key];
                 const x = padding + c * cellSize;
-                const y = padding + r * cellSize;
+                const y = padding + (boardSize - 1 - r) * cellSize;
                 const markBgR = cellSize * 0.3;
                 ctx.beginPath();
                 ctx.arc(x, y, markBgR, 0, 2 * Math.PI);
@@ -2695,7 +2706,7 @@
                 for (let c = 0; c < boardSize; c++) {
                     if (nums[r][c] > 0 && board[r][c] !== 0) {
                         const sx = padding + c * cellSize;
-                        const sy = padding + r * cellSize;
+                        const sy = padding + (boardSize - 1 - r) * cellSize;
                         const numStr = nums[r][c].toString();
                         const fontSize = Math.max(9, Math.floor(cellSize * (numStr.length >= 3 ? 0.34 : 0.44)));
                         ctx.font = `bold ${fontSize}px Arial`;
@@ -2742,7 +2753,7 @@
                 // 空：无悬停预览
                 if (cellVal === 0 || tool === 'empty') return;
                 const x = padding + hoverCol * cellSize;
-                const y = padding + hoverRow * cellSize;
+                const y = padding + (boardSize - 1 - hoverRow) * cellSize;
                 ctx.save();
                 ctx.globalAlpha = 0.45;
                 if (cellVal === 1 || cellVal === 2) {
@@ -2756,11 +2767,11 @@
                     else if (holeStyle === 'hole' && RT.drawPitHole)
                         RT.drawPitHole(hoverRow, hoverCol, ctx, padding, cellSize, boardSize, () => true);
                     else if (RT.drawRedBlockHole)
-                        RT.drawRedBlockHole(hoverRow, hoverCol, ctx, padding, cellSize);
+                        RT.drawRedBlockHole(hoverRow, hoverCol, ctx, padding, cellSize, boardSize);
                 } else if (cellVal === -2 && RT && RT.drawBridge) {
                     RT.drawBridge(hoverRow, hoverCol, ctx, padding, cellSize, boardSize);
                 } else if (cellVal === -3 && RT && typeof RT.drawMine === 'function') {
-                    RT.drawMine(hoverRow, hoverCol, ctx, padding, cellSize);
+                    RT.drawMine(hoverRow, hoverCol, ctx, padding, cellSize, boardSize);
                 } else if (cellVal === -3) {
                     const r = cellSize * 0.28;
                     ctx.beginPath();
@@ -2769,7 +2780,7 @@
                     ctx.fill();
                 } else if ((cellVal === 10000 || tool === 'neutral') && RT) {
                     if (typeof RT.drawNeutralStone === 'function')
-                        RT.drawNeutralStone(hoverRow, hoverCol, ctx, padding, cellSize);
+                        RT.drawNeutralStone(hoverRow, hoverCol, ctx, padding, cellSize, boardSize);
                     else if (typeof RT.neutralDrawSmallMarker === 'function')
                         RT.neutralDrawSmallMarker(ctx, x, y, cellSize * 0.36);
                 }
@@ -2778,8 +2789,9 @@
             }
 
             ctx.globalAlpha = 0.45;
+            const bsHover = (board && board.length) || 19;
             ctx.beginPath();
-            ctx.arc(padding + hoverCol * cellSize, padding + hoverRow * cellSize, cellSize * 0.44, 0, 2 * Math.PI);
+            ctx.arc(padding + hoverCol * cellSize, padding + (bsHover - 1 - hoverRow) * cellSize, cellSize * 0.44, 0, 2 * Math.PI);
             const hoverColor = tryPlayMode
                 ? (tryPlayCurrentPlayer === 1 ? '#222' : '#fff')
                 : (mySlot === 'black' ? '#222' : '#fff');
@@ -2796,7 +2808,7 @@
             const canHover = tryPlayMode || (!gameOver && isMyTurn);
             if (!canHover || !hoverCapture || !isHoverValid || hoverRow < 0 || hoverCol < 0) return;
             const x = padding + hoverCol * cellSize;
-            const y = padding + hoverRow * cellSize;
+            const y = padding + ((options.boardSize || 19) - 1 - hoverRow) * cellSize;
             ctx.save();
             ctx.beginPath();
             ctx.arc(x, y, stoneRadius + 1, 0, 2 * Math.PI);
@@ -2813,17 +2825,17 @@
                 for (let c = 0; c < boardSize; c++) {
                     if ((board[r][c] === 1 || board[r][c] === 2) && cachedLiveBoard[r][c] === 0) {
                         const x = padding + c * cellSize;
-                        const y = padding + r * cellSize;
+                        const y = padding + (boardSize - 1 - r) * cellSize;
                         ctx.fillStyle = board[r][c] === 1 ? '#fff' : '#222';
                         ctx.fillRect(x - dotRadius, y - dotRadius, dotRadius * 2, dotRadius * 2);
                     } else if (board[r][c] === 0 && cachedTerritory[r][c] === 1) {
                         const x = padding + c * cellSize;
-                        const y = padding + r * cellSize;
+                        const y = padding + (boardSize - 1 - r) * cellSize;
                         ctx.fillStyle = '#222';
                         ctx.fillRect(x - dotRadius, y - dotRadius, dotRadius * 2, dotRadius * 2);
                     } else if (board[r][c] === 0 && cachedTerritory[r][c] === 2) {
                         const x = padding + c * cellSize;
-                        const y = padding + r * cellSize;
+                        const y = padding + (boardSize - 1 - r) * cellSize;
                         ctx.fillStyle = '#f0f0f0';
                         ctx.fillRect(x - dotRadius, y - dotRadius, dotRadius * 2, dotRadius * 2);
                     }
@@ -3087,6 +3099,9 @@
      *   setReplayStep?: (step: number) => void,
      *   removeDeadAndDying?: (srcBoard: number[][]) => number[][],
      *   assignTerritoryWithRange?: (liveBoard: number[][]) => number[][],
+     *   komiInfoText?: string | ((ps: any) => string),   // 自定义贴点条全文（含「无贴点/无禁手/无贴目」类）；缺省走 totalScorePoints
+     *   totalPoints?: (ps: any) => number,               // 物理总点数接口（格点/顶点/面积点数，限时默认等用）；缺省 N²
+     *   totalScorePoints?: (ps: any) => number,          // 计分总点数接口（和棋线 yyy 用；带权棋种=权重和）；缺省 = totalPoints
      * }} opts
      */
     /**
@@ -3185,6 +3200,31 @@
         global.QiBoardMarks.clear = function () {
             clearUserBoardMarksMap(global.QiBoardMarks._active);
         };
+    }
+
+    /**
+     * 贴点显示文本：黑贴白xxx点。
+     * TODO(用户考虑中): 是否追加「(黑yyy点和棋)」，yyy = 计分总点数/2 + 贴目（totalScorePoints 参数保留备用）。
+     */
+    function formatKomiInfoText(komi, totalScorePoints) {
+        void totalScorePoints;
+        return `黑贴白${komi}点`;
+    }
+
+    /** 公共写入口：把贴点文本写入 komiInfo 元素；元素缺失则 no-op */
+    function writeKomiInfoText(el, komi, totalScorePoints) {
+        if (!el) return false;
+        el.innerText = formatKomiInfoText(komi, totalScorePoints);
+        return true;
+    }
+
+    /**
+     * 方格 N×N 棋盘的默认物理总点数（N = ps.BOARD_SIZE）。
+     * 物理总点数（totalPoints）与计分总点数（totalScorePoints）在大多数棋种相等；
+     * 仅权重/三权重围棋等计分带权的棋种不同（物理=N²，计分=权重和）。
+     */
+    function defaultKomiTotalPoints(ps) {
+        return ps.BOARD_SIZE * ps.BOARD_SIZE;
     }
 
     function create(ps, dom, opts) {
@@ -3375,11 +3415,11 @@
             const markLenDefault = cellSize * 0.352;
             const lowerLastMoveMarker = ps.showMoveNumbers || ps.showEstimateActive;
             if (lowerLastMoveMarker) {
-                d.lastMoveMarkersLower(dom.ctx, ps.lastMoveMarkers, ps.PADDING, cellSize, stoneRadius);
+                d.lastMoveMarkersLower(dom.ctx, ps.lastMoveMarkers, ps.PADDING, cellSize, stoneRadius, ps.BOARD_SIZE);
             }
             d.stonesBlackWhite(dom.ctx, ps.board, ps.BOARD_SIZE, ps.PADDING, cellSize, stoneRadius, ps.showMoveNumbers, invZ);
             if (!lowerLastMoveMarker) {
-                d.lastMoveMarkersUpper(dom.ctx, ps.lastMoveMarkers, ps.PADDING, cellSize, markLenDefault);
+                d.lastMoveMarkersUpper(dom.ctx, ps.lastMoveMarkers, ps.PADDING, cellSize, markLenDefault, ps.BOARD_SIZE);
             }
             d.userBoardMarks(dom.ctx, ps.userBoardMarks, ps.BOARD_SIZE, ps.PADDING, cellSize, isUserBoardMarkVisibleAt);
             if (ps.showMoveNumbers) {
@@ -3407,7 +3447,8 @@
                     isMyTurn: ps.isMyTurn || !!ps.editModeEnabled,
                     isHoverValid: ps.isHoverValid,
                     hoverCapture: !!ps.hoverCapture,
-                    strokeInvScale: invZ
+                    strokeInvScale: invZ,
+                    boardSize: ps.BOARD_SIZE
                 });
             }
             if (ps.showEstimateActive && ps.cachedLiveBoard && ps.cachedTerritory) {
@@ -3894,6 +3935,22 @@
             return C().initBoardArray(size);
         }
 
+        /** 贴点条文本解析：komiInfoText（函数/常量）优先；否则取计分总点数
+         *  （opts.totalScorePoints，缺省 = opts.totalPoints 物理总点数，再缺省 N²）
+         *  输出「黑贴白xxx点」（双段格式待定，见 formatKomiInfoText）。 */
+        function resolveKomiInfoText() {
+            if (typeof opts.komiInfoText === 'function') return opts.komiInfoText(ps);
+            if (opts.komiInfoText != null) return opts.komiInfoText;
+            const totalScorePoints = (typeof opts.totalScorePoints === 'function')
+                ? opts.totalScorePoints(ps)
+                : ((typeof opts.totalPoints === 'function')
+                    ? opts.totalPoints(ps)
+                    : defaultKomiTotalPoints(ps));
+            if (typeof totalScorePoints === 'number' && Number.isFinite(totalScorePoints) && totalScorePoints > 0)
+                return formatKomiInfoText(ps.KOMI, totalScorePoints);
+            return `黑贴白${ps.KOMI}点`;
+        }
+
         function updateBoardGeometry() {
             const g = C().computePaddingAndCell(ps.BOARD_SIZE);
             ps.PADDING = g.padding;
@@ -3905,14 +3962,7 @@
                 ps.viewCenterY = cs / 2;
             }
             drawBoard();
-            if (dom.komiInfo) {
-                if (typeof opts.komiInfoText === 'function')
-                    dom.komiInfo.innerText = opts.komiInfoText(ps);
-                else if (opts.komiInfoText != null)
-                    dom.komiInfo.innerText = opts.komiInfoText;
-                else
-                    dom.komiInfo.innerText = `黑贴白${ps.KOMI}点`;
-            }
+            if (dom.komiInfo) dom.komiInfo.innerText = resolveKomiInfoText();
         }
 
         function updateEditModeUI() {
@@ -4213,6 +4263,10 @@
             }
             drawBoard();
         }
+
+        // 挂载即写贴点条：入房时尺寸/贴目与默认一致的话几何路径可能永不触发，
+        // 公共默认文本（shell defaultKomiText）就会一直停留在旧格式；这里与 applyShellChrome 同 tick 覆盖。
+        if (dom.komiInfo) dom.komiInfo.innerText = resolveKomiInfoText();
 
         return {
             mobileTwoStepPlacing,
@@ -5165,12 +5219,12 @@
         return 1;
     }
 
-    function drawPitHole(row, col, ctx, padding, cellSize, boardSize, isHole) 
+    function drawPitHole(row, col, ctx, padding, cellSize, boardSize, isHole)
     {
         const innerLeft = padding + Math.max(col - 0.5, 0) * cellSize;
-        const innerTop = padding + Math.max(row - 0.5, 0) * cellSize;
+        const innerTop = padding + Math.max(boardSize - 1 - row - 0.5, 0) * cellSize;
         const innerRight = padding + Math.min(col + 0.5, boardSize - 1) * cellSize;
-        const innerBottom = padding + Math.min(row + 0.5, boardSize - 1) * cellSize;
+        const innerBottom = padding + Math.min(boardSize - 1 - row + 0.5, boardSize - 1) * cellSize;
         const innerWidth = innerRight - innerLeft;
         const innerHeight = innerBottom - innerTop;
 
@@ -5179,7 +5233,7 @@
 
         const shadowWidth = Math.max(4, cellSize * 0.2);
         if (!isHole(row - 1, col)) {
-            const shadowTop = padding + Math.max(row - 0.5, 0) * cellSize;
+            const shadowTop = padding + Math.max(boardSize - 1 - row - 0.5, 0) * cellSize;
             const gradTop = ctx.createLinearGradient(innerLeft, shadowTop, innerLeft, shadowTop + shadowWidth);
             gradTop.addColorStop(0, 'rgba(0,0,0,0.45)');
             gradTop.addColorStop(1, 'rgba(0,0,0,0)');
@@ -5205,10 +5259,10 @@
     }
 
     /** 洞围棋「方块」显示模式下的红色障碍格 */
-    function drawRedBlockHole(row, col, ctx, padding, cellSize) 
+    function drawRedBlockHole(row, col, ctx, padding, cellSize, boardSize)
     {
         const x = padding + col * cellSize;
-        const y = padding + row * cellSize;
+        const y = padding + (boardSize - 1 - row) * cellSize;
         const size = cellSize * 0.8;
         const halfSize = size / 2;
         const left = x - halfSize;
@@ -5242,18 +5296,19 @@
         ctx.restore();
     }
 
-    function drawVoidHole(row, col, ctx, padding, cellSize, boardSize) 
+    function drawVoidHole(row, col, ctx, padding, cellSize, boardSize)
     {
         const strip = Math.max(4, cellSize * 0.3);
         const halfStrip = strip / 2;
         ctx.fillStyle = '#deb887';
 
         const x = padding + col * cellSize;
-        const y = padding + row * cellSize;
+        const y = padding + (boardSize - 1 - row) * cellSize;
+        // 上下相邻格(行号相邻即相邻,方向语义无关)
         if (row > 0)
-            ctx.fillRect(x - halfStrip, 1 + padding + (row - 1) * cellSize, strip, cellSize - 1);
+            ctx.fillRect(x - halfStrip, y + halfStrip, strip, cellSize - 1);
         if (row < boardSize - 1)
-            ctx.fillRect(x - halfStrip, y, strip, cellSize - 1);
+            ctx.fillRect(x - halfStrip, 1 + padding + (boardSize - 1 - row - 1) * cellSize, strip, cellSize - 1);
         if (col > 0)
             ctx.fillRect(1 + padding + (col - 1) * cellSize, y - halfStrip, cellSize - 1, strip);
         if (col < boardSize - 1)
@@ -5264,7 +5319,7 @@
     function drawBridge(row, col, ctx, padding, cellSize, boardSize)
     {
         const x = padding + col * cellSize;
-        const y = padding + row * cellSize;
+        const y = padding + (boardSize - 1 - row) * cellSize;
         const deckLength = cellSize * 0.76;
         const deckWidth = cellSize * 0.24;
         ctx.save();
@@ -5278,16 +5333,8 @@
         verticalGrad.addColorStop(0.45, '#5d9ed8');
         verticalGrad.addColorStop(1, '#5e90cf');
         ctx.fillStyle = verticalGrad;
+        // 底边(row=0)的桥朝上延展、顶边(row=boardSize-1)的桥朝下延展
         if (row == 0)
-        {
-            ctx.fillRect(x - deckWidth / 2, y - deckWidth / 2, deckWidth, deckLength / 2 + deckWidth / 2);
-            ctx.beginPath();
-            ctx.moveTo(x - deckWidth / 2, y - deckWidth / 2);
-            ctx.lineTo(x - deckWidth / 2, y + deckLength / 2);
-            ctx.moveTo(x + deckWidth / 2, y - deckWidth / 2);
-            ctx.lineTo(x + deckWidth / 2, y + deckLength / 2);    
-        }
-        else if (row == boardSize - 1)
         {
             ctx.fillRect(x - deckWidth / 2, y - deckLength / 2, deckWidth, deckLength / 2 + deckWidth / 2);
             ctx.beginPath();
@@ -5295,6 +5342,15 @@
             ctx.lineTo(x - deckWidth / 2, y + deckWidth / 2);
             ctx.moveTo(x + deckWidth / 2, y - deckLength / 2);
             ctx.lineTo(x + deckWidth / 2, y + deckWidth / 2);
+        }
+        else if (row == boardSize - 1)
+        {
+            ctx.fillRect(x - deckWidth / 2, y - deckWidth / 2, deckWidth, deckLength / 2 + deckWidth / 2);
+            ctx.beginPath();
+            ctx.moveTo(x - deckWidth / 2, y - deckWidth / 2);
+            ctx.lineTo(x - deckWidth / 2, y + deckLength / 2);
+            ctx.moveTo(x + deckWidth / 2, y - deckWidth / 2);
+            ctx.lineTo(x + deckWidth / 2, y + deckLength / 2);
         }
         else
         {
@@ -5344,10 +5400,10 @@
         ctx.restore();
     }
 
-    function drawNeutralStone(row, col, ctx, padding, cellSize)
+    function drawNeutralStone(row, col, ctx, padding, cellSize, boardSize)
     {
         const radius = 0.44 * cellSize;
-        const x = padding + col * cellSize, y = padding + row * cellSize;
+        const x = padding + col * cellSize, y = padding + (boardSize - 1 - row) * cellSize;
         ctx.save();
         ctx.shadowBlur = 6;
         ctx.shadowColor = 'rgba(0,0,0,0.5)';
@@ -5363,10 +5419,10 @@
         ctx.restore();
     }
 
-    function drawMine(row, col, ctx, padding, cellSize)
+    function drawMine(row, col, ctx, padding, cellSize, boardSize)
     {
         const cx = padding + col * cellSize;
-        const cy = padding + row * cellSize;
+        const cy = padding + (boardSize - 1 - row) * cellSize;
         const spikeOuter = cellSize * 0.43, spikeInner = cellSize * 0.26, bodyRadius = cellSize * 0.24;
         ctx.save();
         ctx.shadowBlur = Math.max(4, cellSize * 0.1);
@@ -5744,6 +5800,9 @@
         DEFAULT_EDIT_CELL_BY_TOOL,
         buildEditToolValueMap,
         resolveEditToolCellValue,
+        formatKomiInfoText,
+        writeKomiInfoText,
+        defaultKomiTotalPoints,
         countBoardPlayerStones,
         pickRichestBoard,
         drawPitHole,
@@ -6195,7 +6254,7 @@
                 if (isVisibleAt && !isVisibleAt(r, c)) continue;
                 const ch = userBoardMarksMap[key];
                 const x = padding + c * cellSize;
-                const y = padding + r * cellSize;
+                const y = padding + (boardSize - 1 - r) * cellSize;
                 const markBgR = cellSize * 0.3;
                 ctx.beginPath();
                 ctx.arc(x, y, markBgR, 0, 2 * Math.PI);
@@ -6250,8 +6309,9 @@
                 || config.features.janggi
                 || config.features.hexagonXiangqi;
             if (!inlineRules) {
-                await loadScript('/qi/xiangqi-rules.js');
-                if (!window.QiXiangqiRules || typeof window.QiXiangqiRules.createInitialBoard !== 'function') {
+                // ?v= 后缀避免命中旧缓存（旧版 rules 无 flipped，象棋插件会取到 undefined）
+                await loadScript('/qi/xiangqi-rules.js?v=3');
+                if (!window.QiXiangqiRules || typeof window.QiXiangqiRules.createInitialBoard !== 'function' || !window.QiXiangqiRules.flipped) {
                     throw new Error('QiXiangqiRules missing after loading xiangqi-rules.js');
                 }
             }

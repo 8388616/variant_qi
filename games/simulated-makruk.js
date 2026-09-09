@@ -32,15 +32,15 @@ const R = (function () {
 
     function createInitialBoard() {
         const b = emptyBoard();
-        // 黑在上：旋转对称 — 士在 D、将在 E；兵在第 3 横排（row 2）
-        b[0][0] = 'br'; b[0][1] = 'bn'; b[0][2] = 'be'; b[0][3] = 'bm';
-        b[0][4] = 'bk'; b[0][5] = 'be'; b[0][6] = 'bn'; b[0][7] = 'br';
-        for (let c = 0; c < 8; c++) b[2][c] = 'bp';
+        // 红方在下(纵坐标小的一侧)：红王在 D、红士在 E；兵在第 3 横排（row 2）
+        for (let c = 0; c < 8; c++) b[2][c] = 'rp';
+        b[0][0] = 'rr'; b[0][1] = 'rn'; b[0][2] = 're'; b[0][3] = 'rk';
+        b[0][4] = 'rm'; b[0][5] = 're'; b[0][6] = 'rn'; b[0][7] = 'rr';
 
-        // 红在下：王在 D、士在 E；兵在第 3 横排（row 5）
-        for (let c = 0; c < 8; c++) b[5][c] = 'rp';
-        b[7][0] = 'rr'; b[7][1] = 'rn'; b[7][2] = 're'; b[7][3] = 'rk';
-        b[7][4] = 'rm'; b[7][5] = 're'; b[7][6] = 'rn'; b[7][7] = 'rr';
+        // 黑在上：旋转对称 — 士在 D、将在 E；兵在第 3 横排（row 5）
+        b[7][0] = 'br'; b[7][1] = 'bn'; b[7][2] = 'be'; b[7][3] = 'bm';
+        b[7][4] = 'bk'; b[7][5] = 'be'; b[7][6] = 'bn'; b[7][7] = 'br';
+        for (let c = 0; c < 8; c++) b[5][c] = 'bp';
         return b;
     }
 
@@ -76,8 +76,8 @@ const R = (function () {
 
     /** 兵到达己方第6横排则升变为士 */
     function pawnPromotesAt(side, toRow) {
-        if (side === 'red') return toRow <= 2; // rank 6,7,8 from red → rows 2,1,0
-        return toRow >= 5;
+        if (side === 'red') return toRow >= 5; // rank 6,7,8 from red → rows 5,6,7
+        return toRow <= 2;
     }
 
     function attacksSquare(piece, fr, fc, tr, tc, board) {
@@ -90,7 +90,7 @@ const R = (function () {
         const dR = tr - fr, dC = tc - fc;
         const aR = Math.abs(dR), aC = Math.abs(dC);
         const side = color === 'r' ? 'red' : 'black';
-        const forward = side === 'red' ? -1 : 1;
+        const forward = side === 'red' ? 1 : -1;
 
         if (type === 'k') return aR <= 1 && aC <= 1;
         if (type === 'm') return aR === 1 && aC === 1;
@@ -118,7 +118,7 @@ const R = (function () {
         const dR = tr - fr, dC = tc - fc;
         const aR = Math.abs(dR), aC = Math.abs(dC);
         const side = color === 'r' ? 'red' : 'black';
-        const forward = side === 'red' ? -1 : 1;
+        const forward = side === 'red' ? 1 : -1;
 
         if (type === 'p') {
             // 直走不吃；斜吃

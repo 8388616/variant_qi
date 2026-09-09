@@ -68,6 +68,8 @@ window.RoomPlugins["continuous-weiqi"] = {
     const SCORE_GRID = 80;
     const KOMI = 7.5;
 
+    // 连续围棋：物理总点数 = boardLength²（棋盘面积，与贴目同单位；经绑定 ctx.getTotalPoints 供限时默认值等使用）。
+    // KomiInfo 不适用「黑贴白xxx点(黑yyy点和棋)」双段格式，保持「黑贴白xxx点」（文本来自壳层 defaultKomiText，本文件不写）。
     let boardLength = 18;
     let scale = BOARD_SIZE_PX / boardLength;
     let piecePx = Math.round(scale);
@@ -363,6 +365,23 @@ window.RoomPlugins["continuous-weiqi"] = {
     let editTool = 'empty';
     let ws;
     let bindingsUpdateRadioStyles = null;
+
+    // 本棋种专属选项原在 room.html，已移入棋种代码按需创建（显示序号 label 之后插入）
+    (function ensureExtrasLabels() {
+        const anchor = document.querySelector('.show-numbers-label');
+        if (!anchor || !anchor.parentNode) return;
+        const parent = anchor.parentNode;
+        const mk = (labelId, html) => {
+            if (document.getElementById(labelId)) return;
+            const el = document.createElement('label');
+            el.className = 'chk-inline';
+            el.id = labelId;
+            el.innerHTML = html;
+            parent.insertBefore(el, anchor.nextSibling);
+        };
+        mk('showLibertyLabel', '<input type="checkbox" id="showLibertyCheck"> 显示气数');
+        mk('showGridLabel', '<input type="checkbox" id="showGridCheck" checked> 参考刻度');
+    })();
 
     const canvas = document.getElementById('goBoard');
     const ctx = canvas.getContext('2d');
@@ -936,6 +955,8 @@ const scoreTitle = document.getElementById('scoreTitle');
         setReplayStep, setLiveViewStep,
         getWs: () => ws,
         getBoardSize: () => boardLength,
+        // 物理总点数 = L²（棋盘面积，与贴目同单位）
+        getTotalPoints: () => boardLength * boardLength,
         setBoardSize: (n) => { boardLength = n; boardLengthSelect.value = String(n); updateGeometry(); },
         getKomi: () => KOMI, setKomi: () => {},
         getBoard: () => stones, setBoard: (s) => { stones = s; },

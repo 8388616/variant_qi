@@ -284,7 +284,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                         if (ps.board[r][c] !== -1)
                             continue;
                         if (ps.holeDisplayStyle === 'block')
-                            R().drawRedBlockHole(r, c, ctx, ps.PADDING, cellSize);
+                            R().drawRedBlockHole(r, c, ctx, ps.PADDING, cellSize, ps.BOARD_SIZE);
                         else if (ps.holeDisplayStyle === 'void') 
                             R().drawVoidHole(r, c, ctx, ps.PADDING, cellSize, ps.BOARD_SIZE);
                     }
@@ -294,11 +294,11 @@ const scoreTitle = document.getElementById('scoreTitle');
             const markLenDefault = cellSize * 0.352;
             const lowerLastMoveMarker = ps.showMoveNumbers || ps.showEstimateActive;
             if (lowerLastMoveMarker) {
-                d.lastMoveMarkersLower(ctx, ps.lastMoveMarkers, ps.PADDING, cellSize, stoneRadius);
+                d.lastMoveMarkersLower(ctx, ps.lastMoveMarkers, ps.PADDING, cellSize, stoneRadius, ps.BOARD_SIZE);
             }
             d.stonesBlackWhite(ctx, ps.board, ps.BOARD_SIZE, ps.PADDING, cellSize, stoneRadius, ps.showMoveNumbers);
             if (!lowerLastMoveMarker) {
-                d.lastMoveMarkersUpper(ctx, ps.lastMoveMarkers, ps.PADDING, cellSize, markLenDefault);
+                d.lastMoveMarkersUpper(ctx, ps.lastMoveMarkers, ps.PADDING, cellSize, markLenDefault, ps.BOARD_SIZE);
             }
             function isUserBoardMarkVisibleAt(br, bc) {
                 if (ps.showEstimateActive) return false;
@@ -353,6 +353,8 @@ const scoreTitle = document.getElementById('scoreTitle');
             roomId,
             roomPassword,
             isMouseDevice,
+            // 洞围棋总点数 = N² − 洞数；每盘洞数恰为 floor(0.083N²)（服务端 HOLE_COUNT，生成保证连通）
+            totalPoints: (p) => p.BOARD_SIZE * p.BOARD_SIZE - Math.floor(0.083 * p.BOARD_SIZE * p.BOARD_SIZE),
             tryPlaceStone: holeTryPlaceStone,
             drawBoard: holeDrawBoard,
             removeDeadAndDying: (src) => R().removeDeadAndDying(src, ps.BOARD_SIZE, (b) => QiSquareWeiqiCanvas.deepCopyBoard(b), 2),
@@ -457,6 +459,8 @@ const scoreTitle = document.getElementById('scoreTitle');
             getWs: () => ps.ws,
             getBoardSize: () => ps.BOARD_SIZE,
             setBoardSize: (n) => { ps.BOARD_SIZE = n; },
+            // 物理总点数 = N² − 洞数（限时默认值等用）
+            getTotalPoints: () => ps.BOARD_SIZE * ps.BOARD_SIZE - Math.floor(0.083 * ps.BOARD_SIZE * ps.BOARD_SIZE),
             getKomi: () => ps.KOMI,
             setKomi: (n) => { ps.KOMI = n; },
             getBoard: () => ps.board.map(row => row.map(c => (c === -1 ? 0 : c))),

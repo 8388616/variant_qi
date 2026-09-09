@@ -480,7 +480,8 @@ const scoreTitle = document.getElementById('scoreTitle');
                 const px = pad + (v.x - minX) * scale;
                 const py = pad + (v.y - minY) * scale;
                 const p = rotCW90(px, py);
-                pos.set(`${v.r},${v.c}`, p);
+                // 棋盘显示上下翻折：物理 y 镜像（600 为画布逻辑尺寸），坐标语义不变
+                pos.set(`${v.r},${v.c}`, { x: p.x, y: 600 - p.y });
             }
             const edgePath = new Path2D();
             const edgeSeen = new Set();
@@ -502,9 +503,13 @@ const scoreTitle = document.getElementById('scoreTitle');
         }
 
         /** 应用棋盘路数与尺寸：更新布局、棋盘与贴目。 */
+        function totalPointsSnub() {
+            // 扭棱合法顶点数闭式：g²−(L−1)²−(2L−1)，g=3L−2 → 4(2L−1)(L−1)（与 isValidVertex 循环对拍一致）
+            const L = BOARD_LANES;
+            return 4 * (2 * L - 1) * (L - 1);
+        }
         function updateKomiInfo() {
-            const el = document.getElementById('komiInfo');
-            if (el) el.textContent = '黑贴白' + KOMI + '点';
+            QiWeiqiSquarePageRuntime.writeKomiInfoText(document.getElementById('komiInfo'), KOMI, totalPointsSnub());
         }
 
         function applyBoardDimensions(lanes, w, h) {
@@ -587,7 +592,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                 const leftY = coordLabelPos.rowY[r];
                 if (leftY == null) continue;
                 // 行号从上到下递减（底部 1）：boardSize 不存在于本作用域，用网格行数 gw
-                tctx.fillText((gw - r).toString(), labelX, leftY);
+                tctx.fillText((r + 1).toString(), labelX, leftY);   // 大号在上、小号在下
             }
         }
 
@@ -1686,7 +1691,7 @@ syncState,
             };
         }
 
-        /* board edit UI (flat vertices) */
+        /* board edit UI（二维网格：棋盘本身是 GRID_W×GRID_H 数组，仅 Snub.isValidVertex 的顶点可落子） */
         if (typeof QiWeiqiSquarePageRuntime !== 'undefined' && QiWeiqiSquarePageRuntime.installBoardEditUI) {
             const _editPs = {
                 get board() { return board; },
@@ -1711,24 +1716,19 @@ syncState,
             const _editApi = QiWeiqiSquarePageRuntime.installBoardEditUI({
                 ps: _editPs,
                 canvas: document.getElementById('goBoard'),
-                mode: 'flat',
+                mode: 'grid2d',
                 pickAtClient(clientX, clientY) {
-                    const canvasEl = document.getElementById('goBoard');
-                    if (!canvasEl) return null;
-                    const rect = canvasEl.getBoundingClientRect();
-                    const scale = (typeof CANVAS_SIZE !== 'undefined' ? CANVAS_SIZE : canvasEl.width) / rect.width;
-                    const x = (clientX - rect.left) * scale;
-                    const y = (clientY - rect.top) * scale;
-                    let i = -1;
-                    if (typeof getNearestVertex === 'function') i = getNearestVertex(x, y);
-                    else if (typeof pickNearestVertex === 'function') i = pickNearestVertex(x, y);
-                    return (i != null && i >= 0) ? { index: i } : null;
+                    if (typeof canvasCoordsFromClient === 'function' && typeof getClosestIntersection === 'function') {
+                        const p = canvasCoordsFromClient(clientX, clientY);
+                        return getClosestIntersection(p.x, p.y);
+                    }
+                    return null;
                 },
                 drawBoard: (typeof drawBoardWithOverlay === 'function' ? drawBoardWithOverlay
                     : (typeof drawBoard === 'function' ? drawBoard : function () {})),
                 getBoard() { return board; },
                 setBoard(b) { board = b; },
-                emptyBoard() { return Array((typeof V !== 'undefined' ? V : board.length)).fill(0); }
+                emptyBoard() { return initGridBoard(); }
             });
             if (typeof syncState === 'function') {
                 const _sync0 = syncState;

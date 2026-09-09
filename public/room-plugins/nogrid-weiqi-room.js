@@ -76,7 +76,12 @@ window.RoomPlugins["nogrid-weiqi"] = {
     let roadCount = 18;
     function getDiameter() { return INNER_SIZE / roadCount; }
     function getRadius() { return getDiameter() / 2; }
+    /** 棋盘总点数：按面积归一为 roadCount² 点（规则文本同口径） */
     function totalAreaCells() { return roadCount * roadCount; }
+    function refreshNogridKomiInfo() {
+        QiWeiqiSquarePageRuntime.writeKomiInfoText(document.getElementById('komiInfo'), KOMI, totalAreaCells());
+    }
+    refreshNogridKomiInfo();
 
     function ixToX(ix) { return PADDING + (ix / COORD_SCALE) * INNER_SIZE; }
     function iyToY(iy) { return PADDING + (iy / COORD_SCALE) * INNER_SIZE; }
@@ -130,6 +135,23 @@ window.RoomPlugins["nogrid-weiqi"] = {
     let ws;
     let bindingsUpdateRadioStyles = null;
     let bindingsUpdateRecordButtons = null;
+
+    // 本棋种专属选项原在 room.html，已移入棋种代码按需创建（显示序号 label 之后插入）
+    (function ensureExtrasLabels() {
+        const anchor = document.querySelector('.show-numbers-label');
+        if (!anchor || !anchor.parentNode) return;
+        const parent = anchor.parentNode;
+        const mk = (labelId, html) => {
+            if (document.getElementById(labelId)) return;
+            const el = document.createElement('label');
+            el.className = 'chk-inline';
+            el.id = labelId;
+            el.innerHTML = html;
+            parent.insertBefore(el, anchor.nextSibling);
+        };
+        mk('showLibertyStonesLabel', '<input type="checkbox" id="showLibertyStonesCheck"> 显示有气棋子');
+        mk('showAdjacentLinesLabel', '<input type="checkbox" id="showAdjacentLinesCheckbox" checked> 显示相邻连线');
+    })();
 
     const canvas = document.getElementById('goBoard');
     const ctx = canvas.getContext('2d');
@@ -771,6 +793,7 @@ const scoreTitle = document.getElementById('scoreTitle');
         if (state.roadCount && state.roadCount !== roadCount) {
             roadCount = state.roadCount;
             roadCountSelect.value = String(roadCount);
+            refreshNogridKomiInfo();
         }
         numberOfHands = state.numberOfHands || 1;
         currentPlayer = state.currentPlayer;
@@ -903,7 +926,7 @@ const scoreTitle = document.getElementById('scoreTitle');
         setLiveViewStep,
         getWs: () => ws,
         getBoardSize: () => roadCount,
-        setBoardSize: (n) => { roadCount = n; roadCountSelect.value = String(n); },
+        setBoardSize: (n) => { roadCount = n; roadCountSelect.value = String(n); refreshNogridKomiInfo(); },
         getKomi: () => KOMI,
         setKomi: () => {},
         getBoard: () => [],
@@ -963,6 +986,7 @@ syncState,
                     roadCountSelect.value = String(roadCount);
                     rebuildLiveReplayFromMoveCoords(moveCoords);
                     setLiveViewStep(liveViewStep);
+                    refreshNogridKomiInfo();
                 }
                 return;
             }

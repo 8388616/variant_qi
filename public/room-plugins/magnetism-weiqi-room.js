@@ -494,11 +494,11 @@ const scoreTitle = document.getElementById('scoreTitle');
             const markLenDefault = cellSize * 0.352;
             const lowerLastMoveMarker = ps.showMoveNumbers || ps.showEstimateActive;
             if (lowerLastMoveMarker) {
-                d.lastMoveMarkersLower(dom.ctx, ps.lastMoveMarkers, ps.PADDING, cellSize, stoneRadius);
+                d.lastMoveMarkersLower(dom.ctx, ps.lastMoveMarkers, ps.PADDING, cellSize, stoneRadius, ps.BOARD_SIZE);
             }
             d.stonesBlackWhite(dom.ctx, ps.board, ps.BOARD_SIZE, ps.PADDING, cellSize, stoneRadius, ps.showMoveNumbers);
             if (!lowerLastMoveMarker) {
-                d.lastMoveMarkersUpper(dom.ctx, ps.lastMoveMarkers, ps.PADDING, cellSize, markLenDefault);
+                d.lastMoveMarkersUpper(dom.ctx, ps.lastMoveMarkers, ps.PADDING, cellSize, markLenDefault, ps.BOARD_SIZE);
             }
             function isUserBoardMarkVisibleAt(r, c) {
                 if (ps.showEstimateActive) return false;
@@ -529,7 +529,8 @@ const scoreTitle = document.getElementById('scoreTitle');
                     gameOver: ps.gameOver,
                     isMyTurn: ps.isMyTurn,
                     isHoverValid: ps.isHoverValid,
-                    hoverCapture: !!ps.hoverCapture
+                    hoverCapture: !!ps.hoverCapture,
+                    boardSize: ps.BOARD_SIZE
                 });
             }
             if (ps.showEstimateActive && ps.cachedLiveBoard && ps.cachedTerritory) {
@@ -628,8 +629,7 @@ const scoreTitle = document.getElementById('scoreTitle');
 
         function refreshKomiInfo() {
             ps.KOMI = komiForMagnetism(MAGNETISM, ps.BOARD_SIZE);
-            const el = document.getElementById('komiInfo');
-            if (el) el.textContent = `黑贴白${ps.KOMI}点`;
+            QiWeiqiSquarePageRuntime.writeKomiInfoText(document.getElementById('komiInfo'), ps.KOMI, ps.BOARD_SIZE * ps.BOARD_SIZE);
         }
 
         function exitReplayMode() {

@@ -536,6 +536,24 @@ class MatchWuziqiRoom extends QiTwoPlayerRoomBase {
         });
     }
 
+    /** 连棋：轮到自己的行棋阶段若正处移除期只悔 1 步，否则按通用 2/1 步 */
+    undoStepsFor(slot, isMyTurn) {
+        let steps = isMyTurn ? 2 : 1;
+        if (this.pendingRemoval && slot === this.pendingRemoval.player) steps = 1;
+        return steps;
+    }
+
+    /** 由公共悔棋协议调用：按整局快照恢复并广播 */
+    performUndoSteps(steps) {
+        for (let i = 0; i < steps; i++) this.restoreSnapshot(this.historyBoards.pop());
+        this.lastMoveMarkers = [];
+        if (this.tcClock && this.tcClock.timed && !this.gameOver) {
+            qiMatchTimeControl.setActiveSlot(this.tcClock, this.getCurrentSlot(), Date.now());
+            this._broadcastClock();
+        }
+        this.broadcast({ type: 'broadcast', action: 'undoAccept', ...this.getState() });
+    }
+
     handleMessage(ws, msg) {
         const slot = this.room.getSlotByWs(ws);
 
@@ -658,44 +676,12 @@ class MatchWuziqiRoom extends QiTwoPlayerRoomBase {
                 break;
             }
 
-            case 'requestUndo': {
-                if (!slot || this.gameOver) return;
-                const isMyTurn = (slot === 'black' && this.currentPlayer === 1) || (slot === 'white' && this.currentPlayer === 2);
-                let steps = isMyTurn ? 2 : 1;
-                if (this.pendingRemoval && slot === this.pendingRemoval.player) steps = 1;
-                if (this.historyBoards.length < steps) {
-                    ws.send(JSON.stringify({ type: 'error', message: '无法悔棋。' }));
-                    return;
-                }
-                const opponentSlot = slot === 'black' ? 'white' : 'black';
-                const opponent = this.room.getPlayerBySlot(opponentSlot);
-                if (!opponent) {
-                    for (let i = 0; i < steps; i++) this.restoreSnapshot(this.historyBoards.pop());
-                    this.lastMoveMarkers = [];
-                    this.broadcast({ type: 'broadcast', action: 'undoAccept', ...this.getState() });
-                } else {
-                    this.pendingUndo = { requester: ws, steps };
-                    opponent.send(JSON.stringify({ type: 'undoRequest' }));
-                }
+            case 'requestUndo':
+                qiProtocol.undoWuziqiHistory(this, ws, msg, slot);
                 break;
-            }
 
             case 'undoResponse':
-                if (this.pendingUndo && msg.accept) {
-                    const steps = this.pendingUndo.steps;
-                    if (this.historyBoards.length >= steps) {
-                        for (let i = 0; i < steps; i++) this.restoreSnapshot(this.historyBoards.pop());
-                        this.lastMoveMarkers = [];
-                        if (this.tcClock && this.tcClock.timed && !this.gameOver) {
-                            qiMatchTimeControl.setActiveSlot(this.tcClock, this.getCurrentSlot(), Date.now());
-                            this._broadcastClock();
-                        }
-                        this.broadcast({ type: 'broadcast', action: 'undoAccept', ...this.getState() });
-                    }
-                } else if (this.pendingUndo && !msg.accept) {
-                    this.pendingUndo.requester.send(JSON.stringify({ type: 'error', message: '对方拒绝悔棋。' }));
-                }
-                this.pendingUndo = null;
+                qiProtocol.undoResponseWuziqiHistory(this, ws, msg);
                 break;
 
             case 'resign':

@@ -5,7 +5,8 @@ const {
     qiBoardSeatOverlay
 } = require('../common');
 
-const R = require('./xiangqi-rules');
+// 翻转方向：红方在 row 小侧（row 0-2）、显示在下；黑方在上（row 7-9）
+const R = require('./xiangqi-rules').flipped;
 if (!R || typeof R.createInitialBoard !== 'function') {
     throw new Error('xiangqi-rules.js not found or invalid (need createInitialBoard)');
 }

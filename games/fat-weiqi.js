@@ -1,41 +1,105 @@
-const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, applyInitialPositionCompact, encodeInitialPositionCompact, qiBoardSeatOverlay, encodeOpeningPositionCompact } = require('../common');
+const crypto = require('crypto');
 
-function applyInitialPositionFromRecord(board, boardSize, initialPosition) {
-    if (!initialPosition) return;
-    if (Array.isArray(initialPosition)) {
-        applyInitialPositionCompact(board, boardSize, initialPosition);
-        return;
+const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, applyInitialPositionCompact, encodeInitialPositionCompact, encodeOpeningPositionCompact } = require('../common');
+
+// ======================== 胖围棋规则 ========================
+// 胖围棋在围棋基础上修改三条规则：
+//  1) 落子不能与任何棋盘上已有的棋子相邻（上下左右四邻）。
+//  2) 同色棋子按「胖连接」成组：坐标差 (±1,±1) 或 (±1,±2)/(±2,±1) 的点相连
+//     （普通四邻不相连）；提子整组提。
+//  3) 一组若能「落一个子与它相连」的点（胖邻且可落子的空点）全部不存在，
+//     则整组被提 —— 可落子点被自己或对方占掉、或因四邻有子而不可落，都会让它失气。
+// 落子后只判定受影响组：落点 p 及其四邻空点的可落性变化，
+// 会影响的组 = p 与其四邻点的胖邻棋子所在组；先判对方提子再判己方。
+const ORTH_DIRS = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+const FAT_DIRS = [
+    [-1, -1], [-1, 1], [1, -1], [1, 1],       // 横纵各差 1
+    [-1, -2], [-1, 2], [1, -2], [1, 2],       // 横差 1 纵差 2
+    [-2, -1], [-2, 1], [2, -1], [2, 1]        // 横差 2 纵差 1
+];
+const inB = (r, c, n) => r >= 0 && r < n && c >= 0 && c < n;
+
+/** 收集 (r,c) 同色棋子所在的胖组（12 向递归闭包），返回 [[r,c],...]（不含 (r,c) 为空的情况） */
+function fatGroupStones(board, r, c, n) {
+    const color = board[r][c];
+    if (color === 0) return [];
+    const stones = [];
+    const visited = Array.from({ length: n }, () => new Uint8Array(n));
+    visited[r][c] = 1;
+    const queue = [[r, c]];
+    for (let i = 0; i < queue.length; i++) {
+        const [cr, cc] = queue[i];
+        stones.push([cr, cc]);
+        for (const [dr, dc] of FAT_DIRS) {
+            const nr = cr + dr;
+            const nc = cc + dc;
+            if (inB(nr, nc, n) && board[nr][nc] === color && !visited[nr][nc]) {
+                visited[nr][nc] = 1;
+                queue.push([nr, nc]);
+            }
+        }
+    }
+    return stones;
+}
+
+/**
+ * 组是否有「可落子相连点」：存在空点 q，q 胖邻于组内某子，
+ * 且 q 的上下左右四邻没有任何棋子（规则 1，可合法落子）。
+ */
+function fatGroupHasPlayableSpot(board, stones, n) {
+    const seenSpots = new Set();
+    for (const [r, c] of stones) {
+        for (const [dr, dc] of FAT_DIRS) {
+            const nr = r + dr;
+            const nc = c + dc;
+            if (!inB(nr, nc, n) || board[nr][nc] !== 0) continue;
+            const key = nr * n + nc;
+            if (seenSpots.has(key)) continue;
+            seenSpots.add(key);
+            let playable = true;
+            for (const [dr2, dc2] of ORTH_DIRS) {
+                const ar = nr + dr2;
+                const ac = nc + dc2;
+                if (inB(ar, ac, n) && board[ar][ac] !== 0) { playable = false; break; }
+            }
+            if (playable) return true;
+        }
+    }
+    return false;
+}
+
+/** 在盘面上把 (r,c) 所在的整组（12 向同色）清空 */
+function fatRemoveGroupAt(board, r, c, n) {
+    const color = board[r][c];
+    if (color === 0) return;
+    const queue = [[r, c]];
+    board[r][c] = 0;
+    for (let i = 0; i < queue.length; i++) {
+        const [cr, cc] = queue[i];
+        for (const [dr, dc] of FAT_DIRS) {
+            const nr = cr + dr;
+            const nc = cc + dc;
+            if (inB(nr, nc, n) && board[nr][nc] === color) {
+                board[nr][nc] = 0;
+                queue.push([nr, nc]);
+            }
+        }
     }
 }
 
-function normalizeInitialPositionForReplayPayload(initialPosition) {
-    if (!initialPosition) return [];
-    if (Array.isArray(initialPosition)) return initialPosition;
-    if (typeof initialPosition !== 'object') return [];
-    const out = [];
-    for (const pos of initialPosition.black || []) {
-        if (Array.isArray(pos) && pos.length === 2) out.push(`B${pos[0]},${pos[1]}`);
-    }
-    for (const pos of initialPosition.white || []) {
-        if (Array.isArray(pos) && pos.length === 2) out.push(`W${pos[0]},${pos[1]}`);
-    }
-    return out;
-}
-
-class TriweightWeiqiRoom extends QiTwoPlayerRoomBase {
-    constructor(room) {
+class WeiqiRoom extends QiTwoPlayerRoomBase
+{
+    constructor(room, initialSize = 19) {
         super(room);
-        this.boardSize = 19;
+        this.boardSize = initialSize;
         this.board = Array(this.boardSize).fill().map(() => Array(this.boardSize).fill(0));
-        if (this.openingBoard === undefined) this.openingBoard = (typeof this.copyBoard === 'function' ? this.copyBoard(this.board) : (Array.isArray(this.board[0]) ? this.board.map(r => r.slice()) : this.board.slice()));
-        this.weights = this.generateWeights();
-        this.currentPlayer = 1;         // 1黑 2白
+        this.openingBoard = this.copyBoard(this.board);
+        this.currentPlayer = 1;
         this.historyBoards = [];
         this.historyBoardSet = new Set();
-        this.moveHistory = [];           // 存储每一步的玩家slot
+        this.moveHistory = [];
         this.historyMarkers = [];
         this.lastMoveMarkers = [];
-        this.moveCoords = [];
         this.gameOver = false;
         this.winner = null;
         this.passCounter = 0;
@@ -45,6 +109,7 @@ class TriweightWeiqiRoom extends QiTwoPlayerRoomBase {
         this.pendingEnd = null;
         this.pendingScore = null;
         this.scoreProposalData = null;
+        this.moveCoords = [];
         this.recordResultText = null;
         /** @type {{ black: number|null, white: number|null }} */
         this.slotJoinedAt = { black: null, white: null };
@@ -54,6 +119,10 @@ class TriweightWeiqiRoom extends QiTwoPlayerRoomBase {
         this.tcClock = null;
         this._clockInterval = null;
         this.matchStarted = false;
+        /** 先落座者为房主（WebSocket） */
+        this.hostWs = null;
+        /** 是否启用棋盘落座蒙版协议（执子由房主在限时对话框选择） */
+        this.boardSeatOverlay = true;
     }
 
     _stopClockTicker() {
@@ -98,7 +167,16 @@ class TriweightWeiqiRoom extends QiTwoPlayerRoomBase {
         }, 1000);
     }
 
+    _clearTimeNegotiation(reason) {
+        this.tcNego = null;
+        this.broadcast({ type: 'timeControlReset', reason: reason || 'cleared' });
+    }
+
     _firstPickerSlot() {
+        if (this.hostWs) {
+            const hs = this.room.getSlotByWs(this.hostWs);
+            if (hs) return hs;
+        }
         const tb = this.slotJoinedAt.black;
         const tw = this.slotJoinedAt.white;
         if (tb == null || tw == null) return 'black';
@@ -119,18 +197,82 @@ class TriweightWeiqiRoom extends QiTwoPlayerRoomBase {
             lastProposerSlot: null
         };
         const ws = room.getPlayerBySlot(first);
-        if (ws) ws.send(JSON.stringify({ type: 'timeControlNegotiation', mode: 'propose' }));
+        if (ws) {
+            ws.send(JSON.stringify({
+                type: 'timeControlNegotiation',
+                mode: 'propose',
+                boardSeatOverlay: !!this.boardSeatOverlay
+            }));
+        }
         const other = first === 'black' ? 'white' : 'black';
         const ws2 = room.getPlayerBySlot(other);
         if (ws2) ws2.send(JSON.stringify({ type: 'timeControlWaitPeer', text: '等待对方设置限时规则...' }));
     }
 
     afterColorAssigned(ws, slot) {
+        if (!this.hostWs) this.hostWs = ws;
         this.slotJoinedAt[slot] = Date.now();
         this._maybeBeginTimeNegotiation();
     }
 
+    /** 按「选择者己方执子」交换座位：colorChoice 为 black|white|random */
+    _applyChooserColorChoice(colorChoice, chooserSlot) {
+        if (!chooserSlot) return null;
+        const room = this.room;
+        if (!room.getPlayerBySlot(chooserSlot)) return null;
+        let raw = colorChoice;
+        if (raw === 'hostWhite') raw = 'white';
+        if (raw === 'hostBlack') raw = 'black';
+        let target = 'black';
+        if (raw === 'white') target = 'white';
+        else if (raw === 'random') target = Math.random() < 0.5 ? 'black' : 'white';
+        if (chooserSlot === target) return target;
+
+        if (typeof room.swapSlots === 'function') {
+            room.swapSlots('black', 'white');
+        } else {
+            const a = room.slotOccupancy.get('black') || null;
+            const b = room.slotOccupancy.get('white') || null;
+            room.slotOccupancy.delete('black');
+            room.slotOccupancy.delete('white');
+            if (a) {
+                room.players.set(a, 'white');
+                room.slotOccupancy.set('white', a);
+            }
+            if (b) {
+                room.players.set(b, 'black');
+                room.slotOccupancy.set('black', b);
+            }
+        }
+        const tb = this.slotJoinedAt.black;
+        const tw = this.slotJoinedAt.white;
+        this.slotJoinedAt.black = tw;
+        this.slotJoinedAt.white = tb;
+        return target;
+    }
+
+    _notifyColorsAfterHostChoice() {
+        const room = this.room;
+        const b = room.getPlayerBySlot('black');
+        const w = room.getPlayerBySlot('white');
+        const hostSlot = this.hostWs ? room.getSlotByWs(this.hostWs) : null;
+        if (b) b.send(JSON.stringify({ type: 'colorAssigned', color: 'black', finalized: true, isHost: b === this.hostWs }));
+        if (w) w.send(JSON.stringify({ type: 'colorAssigned', color: 'white', finalized: true, isHost: w === this.hostWs }));
+        this.broadcast({
+            type: 'colorsFinalized',
+            slots: { black: !!b, white: !!w },
+            hostSlot
+        });
+    }
+
     _finalizeTimeControl(valid) {
+        if (this.boardSeatOverlay) {
+            const chooserSlot = (valid && valid.colorChooserSlot)
+                || (this.tcNego && this.tcNego.lastProposerSlot)
+                || this._firstPickerSlot();
+            this._applyChooserColorChoice((valid && valid.colorChoice) || 'black', chooserSlot);
+            this._notifyColorsAfterHostChoice();
+        }
         this.tcSettings = valid.timed
             ? {
                 timed: true,
@@ -153,7 +295,12 @@ class TriweightWeiqiRoom extends QiTwoPlayerRoomBase {
         this.broadcast({
             type: 'timeControlAgreed',
             settings: this.tcSettings,
-            clock: this.tcClock ? qiMatchTimeControl.snapshotForClient(this.tcClock) : null
+            clock: this.tcClock ? qiMatchTimeControl.snapshotForClient(this.tcClock) : null,
+            slots: {
+                black: !!this.room.getPlayerBySlot('black'),
+                white: !!this.room.getPlayerBySlot('white')
+            },
+            hostSlot: this.hostWs ? this.room.getSlotByWs(this.hostWs) : null
         });
     }
 
@@ -163,15 +310,38 @@ class TriweightWeiqiRoom extends QiTwoPlayerRoomBase {
             ws.send(JSON.stringify({
                 type: 'timeControlNegotiation',
                 mode: 'respond',
+                boardSeatOverlay: !!this.boardSeatOverlay,
                 proposal: {
                     ok: true,
                     timed: proposal.timed,
                     mainMinutes: proposal.mainMinutes,
                     byoyomiSeconds: proposal.byoyomiSeconds,
-                    maxTimeouts: proposal.maxTimeouts
+                    maxTimeouts: proposal.maxTimeouts,
+                    colorChoice: proposal.colorChoice || null,
+                    colorChooserSlot: proposal.colorChooserSlot || null
                 }
             }));
         }
+    }
+
+    /** 把当前协商界面重新推给某客户端，避免提交被忽略后卡死 */
+    _resendNegotiationUi(ws) {
+        if (!this.tcNego || !ws) return;
+        const slot = this.room.getSlotByWs(ws);
+        if (!slot) return;
+        if (this.tcNego.waitingSlot === slot && this.tcNego.phase === 'propose') {
+            ws.send(JSON.stringify({
+                type: 'timeControlNegotiation',
+                mode: 'propose',
+                boardSeatOverlay: !!this.boardSeatOverlay
+            }));
+            return;
+        }
+        if (this.tcNego.waitingSlot === slot && this.tcNego.phase === 'respond' && this.tcNego.proposal) {
+            this._sendRespondDialog(slot, this.tcNego.proposal);
+            return;
+        }
+        ws.send(JSON.stringify({ type: 'timeControlWaitPeer', text: '等待对方确认...' }));
     }
 
     _handleTimeControlSubmit(ws, msg) {
@@ -180,11 +350,29 @@ class TriweightWeiqiRoom extends QiTwoPlayerRoomBase {
         const v = qiMatchTimeControl.validateProposal(msg);
         if (!v.ok) {
             ws.send(JSON.stringify({ type: 'error', message: v.error }));
+            this._resendNegotiationUi(ws);
             return;
+        }
+        if (this.boardSeatOverlay) {
+            // colorChoice 相对提交者己方：black|white|random（兼容旧 hostBlack/hostWhite）
+            const raw = msg && msg.colorChoice;
+            if (raw === 'black' || raw === 'hostBlack')
+                v.colorChoice = 'black';
+            else if (raw === 'white' || raw === 'hostWhite')
+                v.colorChoice = 'white';
+            else if (raw === 'random')
+                v.colorChoice = 'random';
+            else
+                v.colorChoice = 'black';
+            // 选择者永远是本次提交的人
+            v.colorChooserSlot = slot;
         }
         const room = this.room;
         if (this.tcNego.phase === 'propose') {
-            if (slot !== this.tcNego.waitingSlot) return;
+            if (slot !== this.tcNego.waitingSlot) {
+                this._resendNegotiationUi(ws);
+                return;
+            }
             this.tcNego.proposal = v;
             this.tcNego.lastProposerSlot = slot;
             this.tcNego.phase = 'respond';
@@ -195,7 +383,10 @@ class TriweightWeiqiRoom extends QiTwoPlayerRoomBase {
             return;
         }
         if (this.tcNego.phase === 'respond') {
-            if (slot !== this.tcNego.waitingSlot) return;
+            if (slot !== this.tcNego.waitingSlot) {
+                this._resendNegotiationUi(ws);
+                return;
+            }
             this.tcNego.proposal = v;
             this.tcNego.lastProposerSlot = slot;
             const other = slot === 'black' ? 'white' : 'black';
@@ -206,10 +397,16 @@ class TriweightWeiqiRoom extends QiTwoPlayerRoomBase {
         }
     }
 
-    _handleTimeControlAccept(ws) {
+    _handleTimeControlAccept(ws, msg) {
         const slot = this.room.getSlotByWs(ws);
-        if (!slot || !this.tcNego || this.tcNego.phase !== 'respond') return;
-        if (slot !== this.tcNego.waitingSlot) return;
+        if (!slot || !this.tcNego || this.tcNego.phase !== 'respond') {
+            if (this.tcNego) this._resendNegotiationUi(ws);
+            return;
+        }
+        if (slot !== this.tcNego.waitingSlot) {
+            this._resendNegotiationUi(ws);
+            return;
+        }
         const prop = this.tcNego.proposal;
         if (!prop || prop.ok !== true) return;
         this._finalizeTimeControl(prop);
@@ -248,9 +445,130 @@ class TriweightWeiqiRoom extends QiTwoPlayerRoomBase {
 
     _syncClockAfterTurnChange() {
         if (!this.tcClock || !this.tcClock.timed || this.gameOver) return;
-        const activeSlot = this.currentPlayer === 1 ? 'black' : 'white';
-        qiMatchTimeControl.setActiveSlot(this.tcClock, activeSlot, Date.now());
+        const slot = this.currentPlayer === 1 ? 'black' : 'white';
+        qiMatchTimeControl.setActiveSlot(this.tcClock, slot, Date.now());
         this._broadcastClock();
+    }
+
+    countGroupLiberties(board, row, col) {
+        // 胖语义：该胖组「可落子的相连点」个数（空点胖邻于组且其四邻无子）
+        const n = this.boardSize;
+        const stones = fatGroupStones(board, row, col, n);
+        const seenSpots = new Set();
+        let count = 0;
+        for (const [r, c] of stones) {
+            for (const [dr, dc] of FAT_DIRS) {
+                const nr = r + dr;
+                const nc = c + dc;
+                if (!inB(nr, nc, n) || board[nr][nc] !== 0) continue;
+                const key = nr * n + nc;
+                if (seenSpots.has(key)) continue;
+                seenSpots.add(key);
+                let playable = true;
+                for (const [dr2, dc2] of ORTH_DIRS) {
+                    const ar = nr + dr2;
+                    const ac = nc + dc2;
+                    if (inB(ar, ac, n) && board[ar][ac] !== 0) { playable = false; break; }
+                }
+                if (playable) count++;
+            }
+        }
+        return count;
+    }
+
+    removeGroup(board, row, col, color) {
+        fatRemoveGroupAt(board, row, col, this.boardSize);
+    }
+
+    tryPlaceStone(boardBefore, row, col, playerVal) {
+        const n = this.boardSize;
+        if (boardBefore[row][col] !== 0) return null;
+        // 胖规则 1：落子不能与任何棋盘上已有的棋子（上下左右）相邻
+        for (const [dr, dc] of ORTH_DIRS) {
+            const nr = row + dr;
+            const nc = col + dc;
+            if (inB(nr, nc, n) && boardBefore[nr][nc] !== 0) return null;
+        }
+        const newBoard = this.copyBoard(boardBefore);
+        newBoard[row][col] = playerVal;
+        const enemy = 3 - playerVal;
+
+        // 受影响点 = 落点 p 及其四邻空点（p 占位后，四邻点失去可落性）。
+        // 候选组 = 这些点的胖邻棋子所在的胖组（去重收集）。
+        const affectedPoints = [[row, col]];
+        for (const [dr, dc] of ORTH_DIRS) {
+            const nr = row + dr;
+            const nc = col + dc;
+            if (inB(nr, nc, n)) affectedPoints.push([nr, nc]);
+        }
+        const candidates = [];          // { color, stones }
+        const visitedCells = Array.from({ length: n }, () => new Uint8Array(n));
+        for (const [pr, pc] of affectedPoints) {
+            for (const [dr, dc] of FAT_DIRS) {
+                const nr = pr + dr;
+                const nc = pc + dc;
+                if (!inB(nr, nc, n) || newBoard[nr][nc] === 0 || visitedCells[nr][nc]) continue;
+                const stones = [];
+                const color = newBoard[nr][nc];
+                visitedCells[nr][nc] = 1;
+                const queue = [[nr, nc]];
+                for (let i = 0; i < queue.length; i++) {
+                    const [cr, cc] = queue[i];
+                    stones.push([cr, cc]);
+                    for (const [dr2, dc2] of FAT_DIRS) {
+                        const ar = cr + dr2;
+                        const ac = cc + dc2;
+                        if (inB(ar, ac, n) && newBoard[ar][ac] === color && !visitedCells[ar][ac]) {
+                            visitedCells[ar][ac] = 1;
+                            queue.push([ar, ac]);
+                        }
+                    }
+                }
+                candidates.push({ color, stones });
+            }
+        }
+
+        // 先判对方：所有候选对方组基于同一盘面（含 p、尚未提子）统一判定，无气的整组提
+        for (const g of candidates) {
+            if (g.color === enemy && !fatGroupHasPlayableSpot(newBoard, g.stones, n)) {
+                for (const [r2, c2] of g.stones) newBoard[r2][c2] = 0;
+            }
+        }
+        // 再判己方：对方提完后的盘面上，直接判落点 p 所在的整组（孤子也在此组内），
+        // 无气的整组提（允许自杀）
+        const ownStones = fatGroupStones(newBoard, row, col, n);
+        if (!fatGroupHasPlayableSpot(newBoard, ownStones, n)) {
+            for (const [r2, c2] of ownStones) newBoard[r2][c2] = 0;
+        }
+        return newBoard;
+    }
+
+    isLibertySurroundedByOpponent(board, libertyRow, libertyCol, opponentColor) {
+        return squareWeiqiRules.isLibertySurroundedByOpponent(
+            board, libertyRow, libertyCol, opponentColor, this.boardSize
+        );
+    }
+
+    removeDeadAndDying(srcBoard) {
+        // 胖围棋数点不做自动判死：保留此钩子供协议兼容，返回原盘
+        return this.copyBoard(srcBoard);
+    }
+
+    assignTerritoryWithRange(liveBoard) {
+        return squareWeiqiRules.assignTerritoryWithRange(liveBoard, this.boardSize);
+    }
+
+    computeScore(liveBoard, territory) {
+        return squareWeiqiRules.computeScore(liveBoard, territory, this.boardSize);
+    }
+
+    computeLead()
+    {
+        // 胖围棋：数点不做自动判死（无气提子只发生在落子时），直接按当前盘算地
+        const territory = this.assignTerritoryWithRange(this.board);
+        const { blackTotal, whiteTotal } = this.computeScore(this.board, territory);
+        const KOMI = this.boardSize <= 8 ? 4.25 : 3.25;
+        return blackTotal - whiteTotal - 2 * KOMI;
     }
 
     onResignResolved(resignSlot) {
@@ -284,108 +602,28 @@ class TriweightWeiqiRoom extends QiTwoPlayerRoomBase {
         return null;
     }
 
-    /** 每点独立随机：1、2、3，概率 4:2:1 */
-    generateWeights() {
-        const weights = Array(this.boardSize).fill().map(() => Array(this.boardSize).fill(0));
-        const pool = [1, 1, 1, 1, 2, 2, 3];
-        for (let i = 0; i < this.boardSize; i++) {
-            for (let j = 0; j < this.boardSize; j++) {
-                const randomIndex = Math.floor(Math.random() * pool.length);
-                weights[i][j] = pool[randomIndex];
-            }
-        }
-        return weights;
-    }
-
-    countGroupLiberties(board, row, col) {
-        return squareWeiqiRules.countGroupLiberties(board, row, col, this.boardSize);
-    }
-
-    removeGroup(board, row, col, color) {
-        squareWeiqiRules.removeGroup(board, row, col, color, this.boardSize);
-    }
-
-    getGroupWeight(board, row, col, color) {
-        let total = 0;
-        const queue = [[row, col]];
-        const visited = Array(this.boardSize).fill().map(() => Array(this.boardSize).fill(false));
-        visited[row][col] = true;
-        const dirs = [[-1, 0], [1, 0], [0, -1], [0, 1]];
-        while (queue.length) {
-            const [r, c] = queue.shift();
-            total += this.weights[r][c];
-            for (let [dr, dc] of dirs) {
-                const nr = r + dr, nc = c + dc;
-                if (nr >= 0 && nr < this.boardSize && nc >= 0 && nc < this.boardSize && board[nr][nc] === color && !visited[nr][nc]) {
-                    visited[nr][nc] = true;
-                    queue.push([nr, nc]);
-                }
-            }
-        }
-        return total;
-    }
-
-    tryPlaceStone(boardBefore, row, col, playerVal) {
-        return squareWeiqiRules.tryPlaceStoneNLiberty(
-            boardBefore, row, col, playerVal, this.boardSize, (b) => this.copyBoard(b), 1
-        );
-    }
-
-    isLibertySurroundedByOpponent(board, libertyRow, libertyCol, opponentColor) {
-        return squareWeiqiRules.isLibertySurroundedByOpponent(
-            board, libertyRow, libertyCol, opponentColor, this.boardSize
-        );
-    }
-
-    removeDeadAndDying(srcBoard) {
-        return squareWeiqiRules.removeDeadAndDying(srcBoard, this.boardSize, (b) => this.copyBoard(b));
-    }
-
-    assignTerritoryWithRange(liveBoard) {
-        return squareWeiqiRules.assignTerritoryWithRange(liveBoard, this.boardSize);
-    }
-
-    computeScore(liveBoard, territory) {
-        let blackStones = 0, whiteStones = 0, blackTerritory = 0, whiteTerritory = 0, publicTerritory = 0;
-        for (let r = 0; r < this.boardSize; r++) {
-            for (let c = 0; c < this.boardSize; c++) {
-                if (liveBoard[r][c] === 1) blackStones += this.weights[r][c];
-                else if (liveBoard[r][c] === 2) whiteStones += this.weights[r][c];
-                else if (liveBoard[r][c] === 0) {
-                    if (territory[r][c] === 1) blackTerritory += this.weights[r][c];
-                    else if (territory[r][c] === 2) whiteTerritory += this.weights[r][c];
-                    else if (territory[r][c] === 3) publicTerritory += this.weights[r][c];
-                }
-            }
-        }
-        const blackTotal = blackStones + blackTerritory + publicTerritory / 2;
-        const whiteTotal = whiteStones + whiteTerritory + publicTerritory / 2;
-        return { blackTotal, whiteTotal };
-    }
-
-    computeLead() {
-        const liveBoard = this.removeDeadAndDying(this.board);
-        const territory = this.assignTerritoryWithRange(liveBoard);
-        const { blackTotal, whiteTotal } = this.computeScore(liveBoard, territory);
-        const KOMI = 6.25;
-        return blackTotal - whiteTotal - 2 * KOMI;
-    }
-
-    getState() {
+    getState()
+    {
+        const initialBoard = this.openingBoard
+            ? this.copyBoard(this.openingBoard)
+            : this.copyBoard(this.board);
         return {
             boardSize: this.boardSize,
+            komi: this.boardSize <= 8 ? 4.25 : 3.25,
             board: this.board,
-            weights: this.weights,
+            initialBoard,
             numberOfHands: 1 + this.historyBoards.length,
             currentPlayer: this.currentPlayer,
             lastMoveMarkers: this.lastMoveMarkers,
-            moveCoords: this.moveCoords,
             gameOver: this.gameOver,
             winner: this.winner,
+            moveCoords: this.moveCoords,
             slots: {
                 black: !!this.room.getPlayerBySlot('black'),
                 white: !!this.room.getPlayerBySlot('white')
             },
+            hostSlot: this.hostWs ? this.room.getSlotByWs(this.hostWs) : null,
+            boardSeatOverlay: !!this.boardSeatOverlay,
             matchTime: {
                 negotiation: this.tcNego,
                 settings: this.tcSettings,
@@ -399,6 +637,14 @@ class TriweightWeiqiRoom extends QiTwoPlayerRoomBase {
         };
     }
 
+    getInitialState() {
+        return this.getState();
+    }
+
+    getStateForClient() {
+        return this.getState();
+    }
+
     startScoreCounting(requester, opponent) {
         if (this.tcClock && this.tcClock.timed) qiMatchTimeControl.setPaused(this.tcClock, true);
         const lead = this.computeLead();
@@ -409,21 +655,45 @@ class TriweightWeiqiRoom extends QiTwoPlayerRoomBase {
         this.pendingScore = { requester, opponent, agreed: new Set() };
     }
 
-    handleMessage(ws, msg) {
+    handleMessage(ws, msg)
+    {
         const slot = this.room.getSlotByWs(ws);
         const room = this.room;
 
-        switch (msg.type) {
+        switch (msg.type)
+        {
             case 'selectColor':
-                qiProtocol.selectColor(this, ws, msg);
+            case 'takeSeat': {
+                if (typeof qiProtocol.takeSeat === 'function') {
+                    qiProtocol.takeSeat(this, ws, msg);
+                    break;
+                }
+                // 旧 common 无 takeSeat：开局前自动分配空位，避免无 color 或抢座失败
+                if (this.gameOver) break;
+                let color = (msg.color === 'black' || msg.color === 'white') ? msg.color : null;
+                if (!this.matchStarted) {
+                    if (!this.room.getPlayerBySlot('black')) color = 'black';
+                    else if (!this.room.getPlayerBySlot('white')) color = 'white';
+                    else {
+                        // 座位已满：静默忽略
+                        break;
+                    }
+                } else if (!color) {
+                    ws.send(JSON.stringify({ type: 'error', message: '请选择继续执黑或执白。' }));
+                    break;
+                }
+                qiProtocol.selectColor(this, ws, { color }, {
+                    colorOccupiedMsg: this.matchStarted ? '该座位已被占用。' : '双方均已落座。'
+                });
                 break;
+            }
 
             case 'timeControlSubmit':
                 this._handleTimeControlSubmit(ws, msg);
                 break;
 
             case 'timeControlAccept':
-                this._handleTimeControlAccept(ws);
+                this._handleTimeControlAccept(ws, msg);
                 break;
 
             case 'setBoardSize':
@@ -503,7 +773,8 @@ class TriweightWeiqiRoom extends QiTwoPlayerRoomBase {
                 break;
 
             case 'scoreResponse':
-                if (this.pendingScore && (ws === this.pendingScore.requester || ws === this.pendingScore.opponent)) {
+                if (this.pendingScore && (ws === this.pendingScore.requester || ws === this.pendingScore.opponent))
+                {
                     if (msg.accept) {
                         this.pendingScore.agreed.add(ws);
                         if (this.pendingScore.agreed.size === 2) {
@@ -525,22 +796,6 @@ class TriweightWeiqiRoom extends QiTwoPlayerRoomBase {
                 }
                 break;
 
-            case 'estimate':
-                // 前端请求形势判断结果
-                const liveBoard = this.removeDeadAndDying(this.board);
-                const territory = this.assignTerritoryWithRange(liveBoard);
-                const { blackTotal, whiteTotal } = this.computeScore(liveBoard, territory);
-                const lead = blackTotal - whiteTotal - 2 * 6.25;
-                ws.send(JSON.stringify({
-                    type: 'estimateResult',
-                    liveBoard,
-                    territory,
-                    blackTotal,
-                    whiteTotal,
-                    lead
-                }));
-                break;
-
             case 'exportRecord':
                 qiProtocol.exportRecord(this, ws);
                 break;
@@ -558,9 +813,13 @@ class TriweightWeiqiRoom extends QiTwoPlayerRoomBase {
         }
     }
 
-    performUndo(steps, requesterWs) {
-        if (steps === 0 || steps > this.historyBoards.length) return;
-        for (let i = 0; i < steps; i++) {
+    performUndo(steps, requesterWs)
+    {
+        if (steps === 0 || steps > this.historyBoards.length)
+            return;
+
+        for (let i = 0; i < steps; i++)
+        {
             if (this.historyBoards.length > 0)
                 this.historyBoardSet.delete(this.boardToString(this.historyBoards.pop()));
             if (this.historyMarkers.length > 0)
@@ -571,23 +830,57 @@ class TriweightWeiqiRoom extends QiTwoPlayerRoomBase {
                 this.moveHistory.pop();
             if (this.moveCoords.length > 0)
                 this.moveCoords.pop();
+
             this.currentPlayer = 3 - this.currentPlayer;
         }
-        if (this.historyBoards.length === 0)
+        if (this.historyBoards.length == 0)
             this.board = Array(this.boardSize).fill().map(() => Array(this.boardSize).fill(0));
         else
-            this.board = this.copyBoard(this.historyBoards[this.historyBoards.length - 1]);
+            this.board = this.copyBoard(this.historyBoards.at(-1));
         this.broadcast({ type: 'broadcast', action: 'undoAccept', ...this.getState() });
         this._syncClockAfterTurnChange();
     }
 
-    copyMarkers(markers) {
+    copyMarkers(markers)
+    {
         return markers.map(m => ({ row: m.row, col: m.col, color: m.color }));
     }
 
-    setBoardSize(newSize, requesterWs) {
-        if (!Number.isInteger(newSize) || newSize < 7 || newSize > 21) {
-            requesterWs.send(JSON.stringify({ type: 'error', message: '棋盘大小无效。' }));
+    resetGame()
+    {
+        this._stopClockTicker();
+        this.slotJoinedAt = { black: null, white: null };
+        this.hostWs = null;
+        this.tcNego = null;
+        this.tcSettings = null;
+        this.tcClock = null;
+        this.recordResultText = null;
+        this.matchStarted = false;
+        this.board = Array(this.boardSize).fill().map(() => Array(this.boardSize).fill(0));
+        this.currentPlayer = 1;
+        this.historyBoards = [];
+        this.historyBoardSet.clear();
+        this.moveHistory = [];
+        this.historyMarkers = [];
+        this.lastMoveMarkers = [];
+        this.gameOver = false;
+        this.winner = null;
+        this.passCounter = 0;
+        this.moveCoords = [];
+        for (let [client, slot] of this.room.players.entries())
+        {
+            this.room.slotOccupancy.delete(slot);
+            this.room.players.delete(client);
+            this.room.observers.add(client);
+            client.send(JSON.stringify({ type: 'slotReleased', slot }));
+        }
+        this.broadcast({ type: 'newGameStarted', ...this.getState(), slots: { black: false, white: false } });
+    }
+
+    setBoardSize(newSize, requesterWs)
+    {
+        if (!Number.isInteger(newSize) || newSize < 7 || newSize > 27) {
+            requesterWs.send(JSON.stringify({ type: 'error', message: '棋盘大小无效' }));
             return false;
         }
         const hasAnyStone = this.board.some(row => row.some(v => v !== 0));
@@ -602,8 +895,8 @@ class TriweightWeiqiRoom extends QiTwoPlayerRoomBase {
         return true;
     }
 
-    exportRecord() {
-
+    exportRecord()
+    {
         let resultText = null;
         if (this.gameOver) {
             if (this.recordResultText) resultText = this.recordResultText;
@@ -614,11 +907,10 @@ class TriweightWeiqiRoom extends QiTwoPlayerRoomBase {
         return {
             format: 'muzei',
             version: 1,
-            gameType: '三权重围棋',
-            gameId: 'triweight-weiqi',
+            gameType: '围棋',
+            gameId: 'weiqi',
             boardSize: this.boardSize,
-            komi: 6.25,
-            weights: this.weights.map(row => row.slice()),
+            komi: this.boardSize <= 8 ? 4.25 : 3.25,
             players: { black: null, white: null },
             initialPosition: encodeOpeningPositionCompact(this),
             moves: this.moveCoords.map(m => {
@@ -633,16 +925,16 @@ class TriweightWeiqiRoom extends QiTwoPlayerRoomBase {
     resetToEmpty() {
         this._stopClockTicker();
         this.slotJoinedAt = { black: null, white: null };
+        this.hostWs = null;
         this.tcNego = null;
         this.tcSettings = null;
         this.tcClock = null;
         this.recordResultText = null;
         this.matchStarted = false;
         this.board = Array(this.boardSize).fill().map(() => Array(this.boardSize).fill(0));
-        this.weights = this.generateWeights();
         this.currentPlayer = 1;
         this.historyBoards = [];
-        this.historyBoardSet.clear();
+        this.historyBoardSet = new Set();
         this.moveHistory = [];
         this.moveCoords = [];
         this.historyMarkers = [];
@@ -669,40 +961,23 @@ class TriweightWeiqiRoom extends QiTwoPlayerRoomBase {
     }
 
     importRecord(data, requesterWs) {
-        if (!data || data.gameId !== 'triweight-weiqi') {
-            requesterWs.send(JSON.stringify({ type: 'error', message: '棋谱格式不匹配（需要三权重围棋棋谱）。' }));
+        if (!data || data.gameId !== 'weiqi') {
+            requesterWs.send(JSON.stringify({ type: 'error', message: '棋谱格式不匹配（需要围棋棋谱）。' }));
             return;
         }
         const newSize = data.boardSize || 19;
-        if (!Number.isInteger(newSize) || newSize < 7 || newSize > 21) {
-            requesterWs.send(JSON.stringify({ type: 'error', message: '棋谱中棋盘大小无效。' }));
-            return;
-        }
-
-        if (!data.weights || !Array.isArray(data.weights) || data.weights.length !== newSize) {
-            requesterWs.send(JSON.stringify({ type: 'error', message: '棋谱需包含与路数一致的棋盘权重 weights。' }));
-            return;
-        }
-        let weightsOk = true;
-        for (let r = 0; r < newSize; r++) {
-            if (!Array.isArray(data.weights[r]) || data.weights[r].length !== newSize) {
-                weightsOk = false;
-                break;
-            }
-            if (!weightsOk) break;
-        }
-        if (!weightsOk) {
+        if (!Number.isInteger(newSize) || newSize > 27) {
+            requesterWs.send(JSON.stringify({ type: 'error', message: '棋谱中棋盘大小无效' }));
             return;
         }
 
         this.boardSize = newSize;
         this.resetToEmpty();
-        this.weights = data.weights.map(row => row.slice());
 
-        applyInitialPositionFromRecord(this.board, this.boardSize, data.initialPosition);
+        applyInitialPositionCompact(this.board, this.boardSize, data.initialPosition);
 
         const rawMoves = data.moves || [];
-        const moves = rawMoves.map(TriweightWeiqiRoom.parseMove);
+        const moves = rawMoves.map(WeiqiRoom.parseMove);
         for (let i = 0; i < moves.length; i++) {
             const move = moves[i];
             const slot = move.player;
@@ -762,7 +1037,7 @@ class TriweightWeiqiRoom extends QiTwoPlayerRoomBase {
             this.gameOver = true;
             const importedResultText = data.resultText != null ? String(data.resultText) : String(data.result);
             this.recordResultText = importedResultText;
-            this.winner = TriweightWeiqiRoom.parseResultTextToWinner(importedResultText);
+            this.winner = WeiqiRoom.parseResultTextToWinner(importedResultText);
             if (!this.winner && (data.result === 'black' || data.result === 'white' || data.result === 'draw'))
                 this.winner = data.result;
         }
@@ -771,46 +1046,27 @@ class TriweightWeiqiRoom extends QiTwoPlayerRoomBase {
             type: 'importSuccess',
             ...this.getState(),
             replayData: {
-                initialPosition: normalizeInitialPositionForReplayPayload(data.initialPosition),
-                moves: this.moveCoords.map(m => ({ ...m })),
-                weights: this.weights.map(row => row.slice())
+                initialPosition: data.initialPosition || [],
+                moves: this.moveCoords.map(m => ({ ...m }))
             }
         });
     }
 
-    resetGame() {
-        this._stopClockTicker();
-        this.slotJoinedAt = { black: null, white: null };
-        this.tcNego = null;
-        this.tcSettings = null;
-        this.tcClock = null;
-        this.recordResultText = null;
-        this.matchStarted = false;
-        this.board = Array(this.boardSize).fill().map(() => Array(this.boardSize).fill(0));
-        this.weights = this.generateWeights();  // 重新生成权重
-        this.currentPlayer = 1;
-        this.historyBoards = [];
-        this.historyBoardSet.clear();
-        this.moveHistory = [];
-        this.moveCoords = [];
-        this.historyMarkers = [];
-        this.lastMoveMarkers = [];
-        this.gameOver = false;
-        this.winner = null;
-        this.passCounter = 0;
-        // 清除所有玩家槽位
-        for (let [client, slot] of this.room.players.entries()) {
-            this.room.slotOccupancy.delete(slot);
-            this.room.players.delete(client);
-            this.room.observers.add(client);
-            client.send(JSON.stringify({ type: 'slotReleased', slot }));
-        }
-        this.broadcast({ type: 'newGameStarted', ...this.getState(), slots: { black: false, white: false } });
+    getMoveCount() {
+        return this.moveHistory.length;
     }
 
-    onPlayerLeave(ws) {
+    onPlayerLeave(ws)
+    {
         const slot = this.room.getSlotByWs(ws);
-        if (slot) this.room.broadcast({ type: 'playerLeft', slot });
+        if (slot) this.room.broadcast({ type: 'playerLeft', slot, matchStarted: !!this.matchStarted });
+
+        if (this.hostWs === ws) {
+            const other = slot === 'black'
+                ? this.room.getPlayerBySlot('white')
+                : this.room.getPlayerBySlot('black');
+            this.hostWs = other || null;
+        }
 
         if (this.pendingUndo && this.pendingUndo.requester === ws) this.pendingUndo = null;
         if (this.pendingNewGame === ws) this.pendingNewGame = null;
@@ -830,10 +1086,12 @@ class TriweightWeiqiRoom extends QiTwoPlayerRoomBase {
 }
 
 module.exports = {
+    WeiqiRoom,
     initRoom(room) {
-        room.gameLogic = new TriweightWeiqiRoom(room);
-        if (typeof qiBoardSeatOverlay !== 'undefined' && qiBoardSeatOverlay) qiBoardSeatOverlay.install(room.gameLogic);
-        if (typeof qiProtocol.installStandardEditBoard === 'function') qiProtocol.installStandardEditBoard(room.gameLogic);
+        room.gameLogic = new WeiqiRoom(room);
         room.maxPlayers = 2;
+        if (typeof qiProtocol.installStandardEditBoard === 'function') {
+            qiProtocol.installStandardEditBoard(room.gameLogic);
+        }
     }
 };

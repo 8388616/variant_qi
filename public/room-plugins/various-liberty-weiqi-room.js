@@ -562,7 +562,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             const markLenDefault = cellSize * 0.352;
             const lowerLastMoveMarker = ps.showMoveNumbers || ps.showEstimateActive;
             if (lowerLastMoveMarker) {
-                d.lastMoveMarkersLower(ctx, ps.lastMoveMarkers, ps.PADDING, cellSize, stoneRadius);
+                d.lastMoveMarkersLower(ctx, ps.lastMoveMarkers, ps.PADDING, cellSize, stoneRadius, ps.BOARD_SIZE);
             }
             d.stonesBlackWhite(ctx, ps.board, ps.BOARD_SIZE, ps.PADDING, cellSize, stoneRadius, ps.showMoveNumbers);
             if (!ps.showMoveNumbers) {
@@ -572,7 +572,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                         const lv = safeLevelAt(ps.levelBoard, r, c);
                         if (lv <= 1) continue;
                         const x = ps.PADDING + c * cellSize;
-                        const y = ps.PADDING + r * cellSize;
+                        const y = ps.PADDING + (ps.BOARD_SIZE - 1 - r) * cellSize;
                         const fontPx = Math.max(11, Math.floor(stoneRadius * 0.85));
                         ctx.font = `bold ${fontPx}px Arial`;
                         ctx.textAlign = 'center';
@@ -586,7 +586,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                 }
             }
             if (!lowerLastMoveMarker) {
-                d.lastMoveMarkersUpper(ctx, ps.lastMoveMarkers, ps.PADDING, cellSize, markLenDefault);
+                d.lastMoveMarkersUpper(ctx, ps.lastMoveMarkers, ps.PADDING, cellSize, markLenDefault, ps.BOARD_SIZE);
             }
             d.userBoardMarks(ctx, ps.userBoardMarks, ps.BOARD_SIZE, ps.PADDING, cellSize,
                 page.isUserBoardMarkVisibleAt);

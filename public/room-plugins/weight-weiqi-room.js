@@ -33,7 +33,7 @@ window.RoomPlugins["weight-weiqi"] = {
 const C = QiSquareWeiqiCanvas;
 
         const ps = {
-            BOARD_SIZE: 19,
+            boardSize: 19,
             KOMI: 1048,
             PADDING: 0,
             CELL_SIZE: 0,
@@ -241,14 +241,56 @@ const scoreTitle = document.getElementById('scoreTitle');
             const totalCells = boardSize * boardSize;
             const highWeightThresh = Math.floor(totalCells * 0.75);
             if (!ps.showEstimateActive) {
-                for (let r = 0; r < boardSize; r++) {
-                    for (let c = 0; c < boardSize; c++) {
-                        if (safeWeightAt(weights, r, c) > highWeightThresh) {
-                            ctx.fillStyle = '#c08d44';
-                            ctx.fillRect(1 + PADDING + c * CELL_SIZE, 1 + PADDING + r * CELL_SIZE, CELL_SIZE - 2, CELL_SIZE - 2);
+                if (currentSubGame === 'weight-weiqi') {
+                    // weight-weiqi(1..N² 排列):高权重格(前 25%)着色
+                    for (let r = 0; r < boardSize; r++) {
+                        for (let c = 0; c < boardSize; c++) {
+                            if (safeWeightAt(weights, r, c) > highWeightThresh) {
+                                ctx.fillStyle = '#c08d44';
+                                ctx.fillRect(1 + PADDING + c * CELL_SIZE, 1 + PADDING + (boardSize - 1 - r) * CELL_SIZE, CELL_SIZE - 2, CELL_SIZE - 2);
+                            }
+                        }
+                    }
+                } 
+				else if (currentSubGame === 'biweight-weiqi' || currentSubGame === 'triweight-weiqi')
+				{
+                    const wc = { 2: '#ce7857', 3: '#ae3827'};
+                    for (let r = 0; r < boardSize; r++) {
+                        for (let c = 0; c < boardSize; c++) {
+                            const w = safeWeightAt(weights, r, c);
+                            if (w >= 2 && w <= 3) {
+                                ctx.fillStyle = wc[w];
+                                ctx.fillRect(1 + PADDING + c * CELL_SIZE, 1 + PADDING + (boardSize - 1 - r) * CELL_SIZE, CELL_SIZE - 2, CELL_SIZE - 2);
+                            }
                         }
                     }
                 }
+				else if (currentSubGame === 'quadriweight-weiqi')
+				{
+					const wc = { 2: '#ee9877', 3: '#c6503f', 4: '#9e2817' };
+					for (let r = 0; r < boardSize; r++) {
+						for (let c = 0; c < boardSize; c++) {
+							const w = safeWeightAt(weights, r, c);
+							if (w >= 2 && w <= 4) {
+								ctx.fillStyle = wc[w];
+								ctx.fillRect(1 + PADDING + c * CELL_SIZE, 1 + PADDING + (boardSize - 1 - r) * CELL_SIZE, CELL_SIZE - 2, CELL_SIZE - 2);
+							}
+						}
+					}
+				}
+				else if (currentSubGame === 'quintiweight-weiqi')
+				{
+					const wc = { 2: '#ee9877', 3: '#c6503f', 4: '#9e2817', 5: '#6e1807' };
+					for (let r = 0; r < boardSize; r++) {
+						for (let c = 0; c < boardSize; c++) {
+							const w = safeWeightAt(weights, r, c);
+							if (w >= 2 && w <= 5) {
+								ctx.fillStyle = wc[w];
+								ctx.fillRect(1 + PADDING + c * CELL_SIZE, 1 + PADDING + (boardSize - 1 - r) * CELL_SIZE, CELL_SIZE - 2, CELL_SIZE - 2);
+							}
+						}
+					}
+				}
             }
 
             if (ps.showEstimateActive && ps.cachedLiveBoard && ps.cachedTerritory) {
@@ -258,13 +300,13 @@ const scoreTitle = document.getElementById('scoreTitle');
                         const t = ps.cachedTerritory[r][c];
                         if (t === 1) {
                             ctx.fillStyle = '#000';
-                            ctx.fillRect(1 + PADDING + c * CELL_SIZE, 1 + PADDING + r * CELL_SIZE, CELL_SIZE - 2, CELL_SIZE - 2);
+                            ctx.fillRect(1 + PADDING + c * CELL_SIZE, 1 + PADDING + (boardSize - 1 - r) * CELL_SIZE, CELL_SIZE - 2, CELL_SIZE - 2);
                         } else if (t === 2) {
                             ctx.fillStyle = '#fff';
-                            ctx.fillRect(1 + PADDING + c * CELL_SIZE, 1 + PADDING + r * CELL_SIZE, CELL_SIZE - 2, CELL_SIZE - 2);
+                            ctx.fillRect(1 + PADDING + c * CELL_SIZE, 1 + PADDING + (boardSize - 1 - r) * CELL_SIZE, CELL_SIZE - 2, CELL_SIZE - 2);
                             ctx.strokeStyle = 'rgba(0,0,0,0.12)';
                             ctx.lineWidth = 1;
-                            ctx.strokeRect(1 + PADDING + c * CELL_SIZE, 1 + PADDING + r * CELL_SIZE, CELL_SIZE - 2, CELL_SIZE - 2);
+                            ctx.strokeRect(1 + PADDING + c * CELL_SIZE, 1 + PADDING + (boardSize - 1 - r) * CELL_SIZE, CELL_SIZE - 2, CELL_SIZE - 2);
                         }
                     }
                 }
@@ -283,14 +325,14 @@ const scoreTitle = document.getElementById('scoreTitle');
             for (let r = 0; r < boardSize; r++) {
                 const number = (boardSize - r).toString();
                 const x = 0.5 * PADDING;
-                const y = PADDING + r * CELL_SIZE + CELL_SIZE / 2;
+                const y = PADDING + (boardSize - 1 - r) * CELL_SIZE + CELL_SIZE / 2;
                 ctx.fillText(number, x, y);
             }
 
             const stoneRadius = CELL_SIZE * 0.38;
             for (let { row, col, color } of ps.lastMoveMarkers) {
                 const x = PADDING + col * CELL_SIZE + CELL_SIZE / 2;
-                const y = PADDING + row * CELL_SIZE + CELL_SIZE / 2;
+                const y = PADDING + (boardSize - 1 - row) * CELL_SIZE + CELL_SIZE / 2;
                 ctx.beginPath();
                 ctx.moveTo(x + stoneRadius, y + stoneRadius);
                 ctx.lineTo(x, y + stoneRadius);
@@ -305,7 +347,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                     const val = board[r][c];
                     if (val === 0) continue;
                     const x = PADDING + c * CELL_SIZE + CELL_SIZE / 2;
-                    const y = PADDING + r * CELL_SIZE + CELL_SIZE / 2;
+                    const y = PADDING + (boardSize - 1 - r) * CELL_SIZE + CELL_SIZE / 2;
                     const radius = stoneRadius;
                     ctx.save();
                     ctx.shadowBlur = 6;
@@ -335,7 +377,9 @@ const scoreTitle = document.getElementById('scoreTitle');
                 }
             }
 
-            if (!ps.showMoveNumbers) {
+            // 权重数字:仅 weight-weiqi(1..N² 排列)子类显示;
+            // 池子子类(二/三/四/五权重)与原三权重一致:格子只有颜色填充,不画数字
+            if (!ps.showMoveNumbers && currentSubGame === 'weight-weiqi') {
                 for (let r = 0; r < boardSize; r++) {
                     for (let c = 0; c < boardSize; c++) {
                         const val = board[r][c];
@@ -347,7 +391,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                         ctx.font = `bold ${Math.floor(CELL_SIZE * 0.35)}px Arial`;
                         
                         const x = PADDING + c * CELL_SIZE + 0.5 * CELL_SIZE;
-                        const y = PADDING + r * CELL_SIZE + 0.5 * CELL_SIZE;
+                        const y = PADDING + (boardSize - 1 - r) * CELL_SIZE + 0.5 * CELL_SIZE;
                         ctx.textAlign = 'center';
                         ctx.textBaseline = 'middle';
                         if (ps.showEstimateActive && ps.cachedTerritory && val === 0) {
@@ -371,7 +415,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                 if (!isUserBoardMarkVisibleAt(r, c)) continue;
                 const ch = ps.userBoardMarks[key];
                 const x = PADDING + c * CELL_SIZE + CELL_SIZE / 2;
-                const y = PADDING + r * CELL_SIZE + CELL_SIZE / 2;
+                const y = PADDING + (boardSize - 1 - r) * CELL_SIZE + CELL_SIZE / 2;
                 const fontPx = CELL_SIZE * (ch === '🚩' ? 0.6 : 0.66);
                 ctx.font = `bold ${fontPx}px "Segoe UI", "Apple Color Emoji", "Segoe UI Emoji", sans-serif`;
                 ctx.textAlign = 'center';
@@ -388,7 +432,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                     for (let c = 0; c < boardSize; c++) {
                         if (nums[r][c] > 0 && board[r][c] !== 0) {
                             const sx = PADDING + c * CELL_SIZE + CELL_SIZE / 2;
-                            const sy = PADDING + r * CELL_SIZE + CELL_SIZE / 2;
+                            const sy = PADDING + (boardSize - 1 - r) * CELL_SIZE + CELL_SIZE / 2;
                             const numStr = nums[r][c].toString();
                             const fontSize = Math.max(9, Math.floor(CELL_SIZE * (numStr.length >= 3 ? 0.308 : 0.396)));
                             ctx.font = `bold ${fontSize}px Arial`;
@@ -421,7 +465,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                     for (let c = 0; c < boardSize; c++) {
                         if (board[r][c] !== 0 && ps.cachedLiveBoard[r][c] === 0) {
                             const x = PADDING + c * CELL_SIZE + CELL_SIZE / 2;
-                            const y = PADDING + r * CELL_SIZE + CELL_SIZE / 2;
+                            const y = PADDING + (boardSize - 1 - r) * CELL_SIZE + CELL_SIZE / 2;
                             ctx.beginPath();
                             ctx.moveTo(x - half, y - half);
                             ctx.lineTo(x + half, y + half);
@@ -448,6 +492,73 @@ const scoreTitle = document.getElementById('scoreTitle');
             colorStatus
         };
 
+        // 权重围棋家族(主棋类 weight-weiqi,subGameId 区分五个子棋类):
+        // weight-weiqi:1..N² 不重复排列;其余:每点按权重池独立随机;贴目固定。
+        const WEIGHT_SUB_POOLS = {
+            'biweight-weiqi': [1, 1, 2],
+            'triweight-weiqi': [1, 1, 1, 1, 2, 2, 3],
+            'quadriweight-weiqi': [1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 4],
+            'quintiweight-weiqi': [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 5]
+        };
+        const WEIGHT_FIXED_KOMI = {
+            'biweight-weiqi': 5.25, 'triweight-weiqi': 6.25,
+            'quadriweight-weiqi': 6.75, 'quintiweight-weiqi': 7.25
+        };
+        let currentSubGame = 'weight-weiqi';
+        // 计分总点数(weight-weiqi 排列的闭式,Σ1..N²)
+        function weightScoreTotalPoints(n) {
+            return n * n * (n * n + 1) / 2;
+        }
+        // 当前权重表实际求和(komiInfo 辅助文本用)
+        function weightsTotalNow() {
+            let sum = 0;
+            const w = ps.weights;
+            for (let r = 0; r < w.length; r++) {
+                const row = w[r];
+                if (!row) continue;
+                for (let c = 0; c < row.length; c++) sum += Number(row[c]) || 0;
+            }
+            return sum;
+        }
+        // 子棋类贴目:固定值;weight-weiqi 沿用原公式
+        function weightKomiForSize(n) {
+            const f = WEIGHT_FIXED_KOMI[currentSubGame];
+            if (f != null) return f;
+            return Math.floor(0.008 * (1 + n * n) * n * n);
+        }
+        // 本地生成权重(乐观切换用,与服务器一致)
+        function genWeightsLocal(n) {
+            const pool = WEIGHT_SUB_POOLS[currentSubGame];
+            const out = Array.from({ length: n }, () => new Array(n).fill(0));
+            if (!pool) {
+                const total = n * n;
+                const arr = Array.from({ length: total }, (_, i) => i + 1);
+                for (let i = arr.length - 1; i > 0; i--) {
+                    const j = Math.floor(Math.random() * (i + 1));
+                    const t = arr[i]; arr[i] = arr[j]; arr[j] = t;
+                }
+                let idx = 0;
+                for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) out[r][c] = arr[idx++];
+                return out;
+            }
+            for (let r = 0; r < n; r++) {
+                for (let c = 0; c < n; c++) out[r][c] = pool[Math.floor(Math.random() * pool.length)];
+            }
+            return out;
+        }
+        function refreshKomiInfoLocal() {
+            if (!komiInfo) return;
+            komiInfo.innerText = QiWeiqiSquarePageRuntime.formatKomiInfoText(
+                weightKomiForSize(ps.BOARD_SIZE), weightsTotalNow() || weightScoreTotalPoints(ps.BOARD_SIZE));
+        }
+        function syncSubGameSelect() {
+            const sel = document.getElementById('subGameSelect');
+            if (!sel) return;
+            sel.value = currentSubGame;
+            sel.disabled = (ps.numberOfHands || 1) > 1 || !!ps.matchStarted || !!ps.gameOver;
+        }
+        ps.KOMI = weightKomiForSize(ps.BOARD_SIZE);
+
         const page = QiWeiqiSquarePageRuntime.create(ps, domPage, {
             enableEditBoard: true,
             recordDownloadPrefix,
@@ -458,12 +569,16 @@ const scoreTitle = document.getElementById('scoreTitle');
             roomPassword,
             isMouseDevice,
             drawBoard: drawBoardWeight,
-            komiInfoText: (p) => `黑贴白${Math.floor(0.008 * (1 + p.BOARD_SIZE * p.BOARD_SIZE) * p.BOARD_SIZE * p.BOARD_SIZE)}点`});
+            totalPoints: (p) => p.BOARD_SIZE * p.BOARD_SIZE,
+            totalScorePoints: (p) => weightScoreTotalPoints(p.BOARD_SIZE)});
 
         function applyWeightSyncExtras(state) {
             const n = ps.BOARD_SIZE;
+            if (state && WEIGHT_SUB_POOLS[state.subGameId] !== undefined) currentSubGame = state.subGameId;
             ps.weights = normalizeWeightMatrix(state.weights || ps.weights, n);
-            ps.KOMI = Math.floor(0.008 * (1 + ps.BOARD_SIZE * ps.BOARD_SIZE) * ps.BOARD_SIZE * ps.BOARD_SIZE);
+            if (state && typeof state.komi === 'number' && Number.isFinite(state.komi)) ps.KOMI = state.komi;
+            else ps.KOMI = weightKomiForSize(n);
+            syncSubGameSelect();
         }
 
         page.updateBoardGeometry = function weightSquareCellGeometry() {
@@ -473,11 +588,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             ps.CELL_SIZE = (600 - 2 * padding) / n;
             page.drawBoard();
 
-            if (komiInfo) 
-            {
-                const komi = Math.floor(0.008 * (1 + ps.BOARD_SIZE * ps.BOARD_SIZE) * ps.BOARD_SIZE * ps.BOARD_SIZE);
-                komiInfo.innerText = `黑贴白${komi}点`;
-            }
+            refreshKomiInfoLocal();
         };
 
         const _wSyncState = page.syncState;
@@ -554,7 +665,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             ps.cachedLiveBoard = msg.liveBoard;
             ps.cachedTerritory = msg.territory;
             scoreTitle.innerText = '形势判断';
-            scoreBoard.innerText = `黑: ${msg.blackTotal.toFixed(0)}　白: ${msg.whiteTotal.toFixed(0)}`;
+            scoreBoard.innerText = `黑: ${Number(msg.blackTotal.toFixed(2))}　白: ${Number(msg.whiteTotal.toFixed(2))}`;
             leadInfo.innerText = `黑${msg.lead >= 0 ? '+' : ''}${msg.lead.toFixed(1)}点`;
             drawBoard();
         }
@@ -564,7 +675,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             for (let r = 0; r < ps.BOARD_SIZE; r++) {
                 for (let c = 0; c < ps.BOARD_SIZE; c++) {
                     const cx = ps.PADDING + c * ps.CELL_SIZE + ps.CELL_SIZE / 2;
-                    const cy = ps.PADDING + r * ps.CELL_SIZE + ps.CELL_SIZE / 2;
+                    const cy = ps.PADDING + (ps.BOARD_SIZE - 1 - r) * ps.CELL_SIZE + ps.CELL_SIZE / 2;
                     const d = Math.hypot(x - cx, y - cy);
                     if (d < minDist) { minDist = d; bestR = r; bestC = c; }
                 }
@@ -635,6 +746,15 @@ syncState,
                 return;
             }
             _weiqiBindings.handleMessage(msg);
+            if (msg && msg.type === 'subGameChanged') {
+                if (WEIGHT_SUB_POOLS[msg.subGameId] !== undefined) currentSubGame = msg.subGameId;
+                const n = ps.BOARD_SIZE;
+                ps.weights = normalizeWeightMatrix(msg.weights || ps.weights, n);
+                if (typeof msg.komi === 'number' && Number.isFinite(msg.komi)) ps.KOMI = msg.komi;
+                syncSubGameSelect();
+                refreshKomiInfoLocal();
+                drawBoard();
+            }
         }
 
         let suppressCanvasClickAfterLongMark = false;
@@ -788,6 +908,38 @@ syncState,
                 ps.waitingScoreConfirm = false;
             };
         }
+        // 子棋类选择器(权重围棋/二/三/四/五权重围棋)
+        const subGameSelectEl = document.getElementById('subGameSelect');
+        if (subGameSelectEl) {
+            subGameSelectEl.innerHTML = '';
+            const subOpts = [
+                { value: 'weight-weiqi', label: '权重' },
+                { value: 'biweight-weiqi', label: '二权重' },
+                { value: 'triweight-weiqi', label: '三权重' },
+                { value: 'quadriweight-weiqi', label: '四权重' },
+                { value: 'quintiweight-weiqi', label: '五权重' }
+            ];
+            for (const o of subOpts) {
+                const opt = document.createElement('option');
+                opt.value = o.value;
+                opt.textContent = o.label;
+                subGameSelectEl.appendChild(opt);
+            }
+            subGameSelectEl.style.display = 'inline-block';
+            subGameSelectEl.addEventListener('change', () => {
+                const v = subGameSelectEl.value;
+                if (!v || v === currentSubGame) return;
+                // 乐观切换:本地立即生成权重/贴目并重绘;服务器 subGameChanged 回来校正
+                currentSubGame = v;
+                ps.weights = genWeightsLocal(ps.BOARD_SIZE);
+                ps.KOMI = weightKomiForSize(ps.BOARD_SIZE);
+                refreshKomiInfoLocal();
+                if (ps.ws && ps.ws.readyState === 1)
+                    ps.ws.send(JSON.stringify({ type: 'setSubGame', subGameId: v }));
+                drawBoard();
+            });
+        }
+
         connectWebSocket(handleMessage);
         })();
     }

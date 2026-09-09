@@ -300,8 +300,7 @@ const scoreTitle = document.getElementById('scoreTitle');
 
         function refreshKomiInfo() {
             ps.KOMI = komiForLiberty(LIBERTY, ps.BOARD_SIZE);
-            const el = document.getElementById('komiInfo');
-            if (el) el.textContent = `黑贴白${ps.KOMI}点`;
+            QiWeiqiSquarePageRuntime.writeKomiInfoText(document.getElementById('komiInfo'), ps.KOMI, ps.BOARD_SIZE * ps.BOARD_SIZE);
         }
 
         const _weiqiBindings = QiBoardRoomClient.createWeiqiMessageBindings({

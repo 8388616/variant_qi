@@ -167,12 +167,12 @@ const R = (function () {
         const board = {};
         // 白方（底部）
         const whiteRow = ['wr', 'wn', 'wq', 'wk', 'wn', 'wr'];
-        for (let c = 0; c < 6; c++) board[key(10, c)] = whiteRow[c];
+        for (let c = 0; c < 6; c++) board[key(0, c)] = whiteRow[c];
         board[key(9, 1)] = 'wb'; board[key(9, 2)] = 'wb';
         for (let c = 0; c < 8; c++) board[key(8, c)] = 'wp';
         // 黑方（顶部）
         const blackRow = ['br', 'bn', 'bq', 'bk', 'bn', 'br'];
-        for (let c = 0; c < 6; c++) board[key(0, c)] = blackRow[c];
+        for (let c = 0; c < 6; c++) board[key(10, c)] = blackRow[c];
         board[key(1, 1)] = 'bb'; board[key(1, 2)] = 'bb';
         for (let c = 0; c < 8; c++) board[key(2, c)] = 'bp';
         return board;
@@ -219,7 +219,7 @@ const R = (function () {
             }
         }
         if (type === 'p') {
-            const fwd = side === 'white' ? -1 : 1;
+            const fwd = side === 'white' ? 1 : -1;
             const c1 = centerOf(CELLS[id]);
             const fwdNbs = EDGE_NB[id].filter(n => {
                 const n2 = centerOf(CELLS[n]);
@@ -287,8 +287,8 @@ const R = (function () {
         const k = cellKeyOfId(id);
         const pc = board[k];
         if (!pc || pieceSide(pc) !== side) return [];
-        const promoRow = side === 'white' ? 1 : 9;
-        const fwd = side === 'white' ? -1 : 1;
+        const promoRow = side === 'white' ? 9 : 1;
+        const fwd = side === 'white' ? 1 : -1;
         const raw = pseudoMoves(board, id, side, ep);
         const legal = [];
         for (const t of raw) {
@@ -392,7 +392,7 @@ const R = (function () {
         function toPx(x, y) {
             return {
                 x: OX + BOARD_CX * SCALE + (x - BOARD_CX) * SCALE * GRID_SCALE,
-                y: OY + BOARD_CY * SCALE + (y - BOARD_CY) * SCALE * GRID_SCALE
+                y: OY + BOARD_CY * SCALE - (y - BOARD_CY) * SCALE * GRID_SCALE   // 白方在下显示(y 镜像)
             };
         }
         function cellCenter(id) {

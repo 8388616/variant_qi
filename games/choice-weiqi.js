@@ -1,4 +1,12 @@
 const { QiTwoPlayerRoomBase, qiMatchTimeControl, squareWeiqiRules, applyInitialPositionCompact, qiBoardSeatOverlay, encodeOpeningPositionCompact, qiProtocol } = require('../common');
+const {
+    acquireKatagoSession,
+    releaseKatagoSession,
+    canAcquireKatagoNow,
+    isKatagoBusyError,
+    KATAGO_BUSY_MESSAGE,
+    fromGtpVertex
+} = require('../katago-gtp');
 
 function normalizeLegacyInitialToCompact(initialPosition) {
     if (!initialPosition) return [];
@@ -36,6 +44,12 @@ class ChoiceWeiqiRoom extends QiTwoPlayerRoomBase {
         this.scoreProposalData = null;
         this.moveCoords = [];
         this.candidates = [];
+        this.aiCandidatesEnabled = false;   // AI 生成选点模式
+        this._aiSession = null;             // weiqi 引擎会话（复用与电脑对弈的引擎池）
+        this._aiGen = 0;                    // 会话代次：防止旧异步结果覆盖新状态
+        this._aiAcquiring = false;          // 引擎会话获取中（启动进程/加载模型，耗时数秒）
+        this._engineSyncedMoves = 0;        // 引擎已同步的 moveCoords 步数（增量 play 依据）
+        this._engineDirty = false;          // 盘面被直接替换（导入棋谱等）时强制全盘重放
         this.matchStarted = false;
         this.slotJoinedAt = { black: null, white: null };
         this.tcNego = null;
@@ -115,13 +129,14 @@ class ChoiceWeiqiRoom extends QiTwoPlayerRoomBase {
         }));
     }
 
-    _finalizeTimeControl(valid) {
+    async _finalizeTimeControl(valid) {
         this.tcSettings = valid.timed
             ? { timed: true, mainMinutes: valid.mainMinutes, byoyomiSeconds: valid.byoyomiSeconds, maxTimeouts: valid.maxTimeouts }
             : { timed: false };
         this.tcNego = null;
         this.matchStarted = true;
-        this.generateCandidates();
+        // 候选异步生成（不阻塞开局广播；引擎启动中时 acquire 完成会自动生成）
+        this.generateCandidates().then(() => { this._broadcastCandidates(); });
         const now = Date.now();
         this.tcClock = qiMatchTimeControl.createClock(this.tcSettings, now);
         if (this.tcClock && this.tcClock.timed) {
@@ -280,7 +295,45 @@ class ChoiceWeiqiRoom extends QiTwoPlayerRoomBase {
         return a.slice(0, k).map(p => ({ row: p.row, col: p.col }));
     }
 
+    /** 候选生成串行链：落子广播已不再等待候选，连续快速落子时后一次生成须等前一次完成，
+     *  否则两个 setupGame 交错会污染引擎局面、给出错误候选 */
     generateCandidates() {
+        const prev = this._candidatesChain || Promise.resolve();
+        const run = prev.then(() => this._generateCandidatesOnce());
+        // 链上某次失败不阻断后续，且返回的 promise 永不 reject（调用方 .then 广播必须执行，
+        // 否则候选永远为空、玩家无法落子）
+        this._candidatesChain = run.catch(() => {});
+        return run.catch(() => {});
+    }
+
+    async _generateCandidatesOnce() {
+        // 未开局（时间协商完成前/新局）：不显示任何候选
+        if (!this.matchStarted) {
+            this.candidates = [];
+            return;
+        }
+        // AI 生成选点模式：调 weiqi 引擎 kata-search_analyze 取 1 选到 n 选
+        if (this.aiCandidatesEnabled) {
+            if (!this._aiSession || this._aiSession.dead) {
+                // 会话不可用：引擎还在启动（acquire 进行中）时跳过本次（完成后会自动生成），
+                // 只有确定失败/被回收时才提示回退随机
+                if (!this._aiAcquiring) this._notifyAiFallback();
+            } else {
+                try {
+                    const cands = await this._aiGenerateCandidates();
+                    if (cands && cands.length) {
+                        this.candidates = cands;
+                        return;
+                    }
+                    // AI 分析未返回任何候选（引擎出错/无输出）：提示后回退随机，不静默
+                    console.error('AI 选点无结果，回退随机选点');
+                    this._notifyAiFallback();
+                } catch (e) {
+                    console.error('AI 选点失败，回退随机选点', e && e.message);
+                    this._notifyAiFallback();
+                }
+            }
+        }
         const need = this.getCandidateCount();
         const legal = this.collectLegalEmpties();
         if (legal.length === 0) {
@@ -308,6 +361,121 @@ class ChoiceWeiqiRoom extends QiTwoPlayerRoomBase {
         this.candidates = this.shufflePick(pool, pick);
     }
 
+    /** AI 生成候选点：同步局面后取模型策略网络的前 need 个点（与电脑对弈的落子一致） */
+    async _aiGenerateCandidates() {
+        const session = this._aiSession;
+        const gen = this._aiGen;
+        await this._syncEngineBoard(session);
+        if (gen !== this._aiGen || !this.aiCandidatesEnabled) return null;
+        const need = this.getCandidateCount();
+        const points = await session.analyzeMoves(this.boardSize, { minMoves: need });
+        if (gen !== this._aiGen || !this.aiCandidatesEnabled) return null;
+        // 与随机候选一致：只保留当前规则下合法（可落子且非禁全同）的点
+        const legalSet = new Set(this.collectLegalEmpties().map(c => c.row + ',' + c.col));
+        const filtered = points.filter(c => legalSet.has(c.row + ',' + c.col));
+        return filtered.length ? filtered : points;
+    }
+
+    /**
+     * 增量同步引擎局面：AI 会话在勾选期间被本房间独占，引擎盘面停留在上次分析后的局面，
+     * 只需把新增落子逐手 play 给引擎（毫秒级）；悔棋/新局（服务器步数少于引擎已同步）、
+     * 导入棋谱（_engineDirty）或首次同步时才全盘 setupGame。
+     * 这取代了每步全盘重放，是候选快速生成的关键。
+     */
+    async _syncEngineBoard(session) {
+        const synced = this._engineSyncedMoves || 0;
+        const mcs = this.moveCoords;
+        // 服务器棋盘尺寸与引擎不一致（勾选 AI 后改棋盘大小再开局等）：
+        // 必须全盘重设，否则 raw-nn 按旧尺寸输出、候选错乱
+        const engineSize = session.boardWidth || session.boardSize;
+        if (engineSize && engineSize !== this.boardSize) {
+            await session.setupGame(this._buildSetupOpts());
+            this._engineSyncedMoves = mcs.length;
+            this._engineDirty = false;
+            return;
+        }
+        if (mcs.length === synced && !this._engineDirty) return;
+        if (mcs.length < synced || this._engineDirty) {
+            // 悔棋/新局/导入：引擎盘面与服务器不一致，只能全盘重放
+            await session.setupGame(this._buildSetupOpts());
+            this._engineSyncedMoves = mcs.length;
+            this._engineDirty = false;
+            return;
+        }
+        for (let i = synced; i < mcs.length; i++) {
+            const m = mcs[i];
+            if (m.type === 'pass') await session.play(m.player, null, null);
+            else if (m.type === 'move' && Number.isInteger(m.row) && Number.isInteger(m.col))
+                await session.play(m.player, m.row, m.col);
+        }
+        this._engineSyncedMoves = mcs.length;
+    }
+
+    /** 构造引擎局面同步参数（与「与电脑对弈」的 buildKatagoSetupOpts 一致） */
+    _buildSetupOpts() {
+        const opts = {
+            boardSize: this.boardSize,
+            komi: 2.25,
+            board: this.board,
+            gameId: 'weiqi'
+        };
+        // set_position 后引擎行棋方恒为黑；当前轮到白时去掉最后一手再重放以翻转行棋方
+        const nextPlayer = this.currentPlayer === 1 ? 'black' : 'white';
+        const mcs = Array.isArray(this.moveCoords) ? this.moveCoords : [];
+        const last = mcs.length ? mcs[mcs.length - 1] : null;
+        if (nextPlayer === 'white' && last && (last.player === 'black' || last.player === 'white')) {
+            if (last.type === 'move' && Number.isInteger(last.row) && Number.isInteger(last.col)) {
+                opts.lastMove = { player: last.player, row: last.row, col: last.col, shapeIndex: null, stones: null };
+            } else if (last.type === 'pass') {
+                opts.lastMove = { player: last.player, type: 'pass' };
+            }
+        }
+        return opts;
+    }
+
+    /** 解析引擎分析输出的 info 行（格式：info move <loc> visits N ... prior P ... order N pv ...）。
+     *  引擎内部已排序（search/analysisdata.cpp operator<：0-visits 排最后，
+     *  其余按 playSelectionValue → visits → policyPrior，0-visits 间等价于按 prior 降序），
+     *  直接按输出顺序取前 need 个，按坐标去重即可 */
+    _parseAnalyzeMoves(lines, need) {
+        const out = [];
+        const seen = new Set();
+        for (const line of lines) {
+            const m = String(line).match(/\bmove\s+(\S+)/);
+            if (!m) continue;
+            const vertex = m[1];
+            if (!vertex || /^pass$/i.test(vertex) || /^resign$/i.test(vertex)) continue;
+            const v = fromGtpVertex(vertex, this.boardSize, this.boardSize);
+            if (!v || v.pass) continue;
+            const key = v.row + ',' + v.col;
+            if (seen.has(key)) continue;
+            seen.add(key);
+            out.push({ row: v.row, col: v.col });
+            if (out.length >= need) break;
+        }
+        return out;
+    }
+
+    /** AI 选点失败时通知客户端（5 秒节流，避免连续落子刷屏） */
+    _notifyAiFallback() {
+        const now = Date.now();
+        if (this._lastFallbackAt && now - this._lastFallbackAt < 5000) return;
+        this._lastFallbackAt = now;
+        this.broadcast({ type: 'aiCandidatesFallback', message: '引擎启动失败，回退为随机选点。' });
+    }
+
+    /** 释放 AI 选点引擎会话（引擎归还空闲池） */
+    _releaseAiEngine() {
+        this._aiGen++;
+        if (this._aiSession) {
+            releaseKatagoSession(this._aiSession).catch(err => {
+                console.warn('AI 选点引擎归还失败', err && err.message);
+                try { this._aiSession.destroy(); } catch (_) { /* ignore */ }
+            });
+            this._aiSession = null;
+        }
+    }
+
     getState() {
         return {
             boardSize: this.boardSize,
@@ -320,6 +488,7 @@ class ChoiceWeiqiRoom extends QiTwoPlayerRoomBase {
             winner: this.winner,
             moveCoords: this.moveCoords,
             candidates: this.candidates,
+            aiCandidates: this.aiCandidatesEnabled,
             matchStarted: this.matchStarted,
             matchTime: {
                 negotiation: this.tcNego,
@@ -375,6 +544,10 @@ class ChoiceWeiqiRoom extends QiTwoPlayerRoomBase {
                     this.setBoardSize(msg.size, ws);
                 break;
 
+            case 'setAiCandidates':
+                this.setAiCandidates(!!msg.enabled, ws);
+                break;
+
             case 'move':
                 if (this.gameOver)
                     return;
@@ -385,6 +558,7 @@ class ChoiceWeiqiRoom extends QiTwoPlayerRoomBase {
                 const { row, col } = msg;
                 if (row < 0 || row >= this.boardSize || col < 0 || col >= this.boardSize)
                     return;
+                // 落子必须命中当前候选点；候选未就绪（空）时拒绝，绝不允许自由落子
                 if (!this.candidates.some(c => c.row === row && c.col === col))
                     return;
                 if (this.board[row][col] !== 0) {
@@ -409,9 +583,11 @@ class ChoiceWeiqiRoom extends QiTwoPlayerRoomBase {
                 this.lastMoveMarkers = [{ row, col, color: playerVal }];
                 this.currentPlayer = 3 - this.currentPlayer;
                 this.passCounter = 0;
-                this.generateCandidates();
                 this._syncClockAfterTurnChange();
+                // 先立即广播落子（候选清空），AI 候选生成完后再单独广播更新 —— 落子显示不等待引擎
+                this.candidates = [];
                 this.broadcast({ type: 'broadcast', action: 'move', ...this.getState() });
+                this.generateCandidates().then(() => { this._broadcastCandidates(); });
                 break;
 
             case 'pass':
@@ -426,9 +602,11 @@ class ChoiceWeiqiRoom extends QiTwoPlayerRoomBase {
                 this.currentPlayer = this.currentPlayer === 1 ? 2 : 1;
                 this.passCounter++;
                 this.lastMoveMarkers = [];
-                this.generateCandidates();
                 this._syncClockAfterTurnChange();
+                // 先立即广播虚着（候选清空），候选生成完后再单独广播更新
+                this.candidates = [];
                 this.broadcast({ type: 'broadcast', action: 'pass', ...this.getState() });
+                this.generateCandidates().then(() => { this._broadcastCandidates(); });
                 if (this.passCounter >= 2) {
                     this.passCounter = 0;
                     const blackPlayer = room.getPlayerBySlot('black');
@@ -621,9 +799,20 @@ class ChoiceWeiqiRoom extends QiTwoPlayerRoomBase {
             if (this.moveCoords[i].type === 'pass') this.passCounter++;
             else break;
         }
-        this.generateCandidates();
         this._syncClockAfterTurnChange();
+        // 先立即广播悔棋（候选清空），候选生成完后再单独广播更新
+        this.candidates = [];
         this.broadcast({ type: 'broadcast', action: 'undoAccept', ...this.getState() });
+        this.generateCandidates().then(() => { this._broadcastCandidates(); });
+    }
+
+    /** 广播最新候选点（轻量消息：只更新候选，不重建整局状态） */
+    _broadcastCandidates() {
+        this.broadcast({
+            type: 'broadcast',
+            action: 'candidatesUpdated',
+            candidates: this.candidates.map(c => ({ row: c.row, col: c.col }))
+        });
     }
 
     copyMarkers(markers) {
@@ -644,6 +833,7 @@ class ChoiceWeiqiRoom extends QiTwoPlayerRoomBase {
         this.passCounter = 0;
         this.moveCoords = [];
         this.candidates = [];
+        // 新局保留前一局的 AI 生成选点选项（引擎会话继续复用）
         this.matchStarted = false;
         this.slotJoinedAt = { black: null, white: null };
         this.tcNego = null;
@@ -674,6 +864,55 @@ class ChoiceWeiqiRoom extends QiTwoPlayerRoomBase {
         this.resetGame();
         this.broadcast({ type: 'boardSizeChanged', boardSize: this.boardSize });
         return true;
+    }
+
+    /** 启用/停用 AI 生成选点：启用时从引擎池获取 weiqi 会话（与「与电脑对弈」同池，
+     *  受总进程数限制），繁忙时给出与其它棋类一致的提示；停用时归还引擎 */
+    setAiCandidates(enabled, ws) {
+        const want = !!enabled;
+        if (want === !!this.aiCandidatesEnabled) return;
+        if (want) {
+            if (!this._aiSession && !canAcquireKatagoNow('weiqi')) {
+                if (ws) ws.send(JSON.stringify({ type: 'error', message: KATAGO_BUSY_MESSAGE }));
+                return;
+            }
+            // acquire 可能耗时数秒（启动进程/加载模型）：期间不误报「引擎启动失败」，
+            // 开局时若会话未就绪则跳过本次分析，acquire 完成后自动生成并广播
+            this._aiAcquiring = true;
+            acquireKatagoSession('weiqi', { boardSize: this.boardSize }).then((session) => {
+                this._aiAcquiring = false;
+                if (!this.aiCandidatesEnabled && this._aiSession === null) {
+                    this._aiSession = session;
+                    this.aiCandidatesEnabled = true;
+                    // 会话可能来自空闲池（已 clear_board）：引擎盘面未知，首次同步须全盘 setupGame
+                    this._engineSyncedMoves = 0;
+                    // 立即用 AI 刷新当前候选点
+                    this.generateCandidates().then(() => {
+                        this.broadcast({ type: 'broadcast', action: 'aiCandidatesChanged', ...this.getState() });
+                    });
+                } else {
+                    // 获取期间已被关闭：直接归还
+                    releaseKatagoSession(session);
+                }
+            }).catch((err) => {
+                this._aiAcquiring = false;
+                const msg = isKatagoBusyError(err)
+                    ? (err.message || KATAGO_BUSY_MESSAGE)
+                    : 'AI 选点引擎启动失败。';
+                console.error('AI 选点引擎获取失败', err);
+                // 广播 aiCandidates=false：让所有客户端（含发起方）回滚勾选状态
+                this.broadcast({ type: 'broadcast', action: 'aiCandidatesChanged', ...this.getState() });
+                if (ws) {
+                    try { ws.send(JSON.stringify({ type: 'error', message: msg })); } catch (_) { /* ignore */ }
+                }
+            });
+        } else {
+            this.aiCandidatesEnabled = false;
+            this._releaseAiEngine();
+            this.generateCandidates().then(() => {
+                this.broadcast({ type: 'broadcast', action: 'aiCandidatesChanged', ...this.getState() });
+            });
+        }
     }
 
     /**
@@ -788,11 +1027,13 @@ class ChoiceWeiqiRoom extends QiTwoPlayerRoomBase {
         this.pendingScore = null;
         this.scoreProposalData = null;
         this.candidates = [];
+        // 重置房间/导入后保留 AI 生成选点选项（引擎会话继续复用）
         this.matchStarted = false;
         this.slotJoinedAt = { black: null, white: null };
         this.tcNego = null;
         this.tcSettings = null;
         this.tcClock = null;
+        this._engineDirty = true;   // 棋盘/手序列被直接替换（导入等），引擎盘面须全盘重放
     }
 
     importRecord(data, requesterWs) {
@@ -888,15 +1129,16 @@ class ChoiceWeiqiRoom extends QiTwoPlayerRoomBase {
             this.winner = data.result;
         }
 
-        this.generateCandidates();
-
-        this.broadcast({
-            type: 'importSuccess',
+        // 候选生成（AI 模式为异步）完成后再广播导入结果
+        this.generateCandidates().then(() => {
+            this.broadcast({
+                type: 'importSuccess',
             ...this.getState(),
             replayData: {
                 initialPosition: compactInit.length ? compactInit : [],
                 moves: this.moveCoords.map(m => ({ ...m }))
             }
+            });
         });
     }
 
@@ -925,6 +1167,11 @@ class ChoiceWeiqiRoom extends QiTwoPlayerRoomBase {
             this.matchStarted = false;
             this.candidates = [];
             this.broadcast({ type: 'timeControlReset', ...this.getState() });
+        }
+        // 房间无人时释放 AI 选点引擎
+        if (this.room.getPlayerCount() === 0 && this._aiSession) {
+            this.aiCandidatesEnabled = false;
+            this._releaseAiEngine();
         }
     }
 }

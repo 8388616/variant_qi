@@ -195,13 +195,13 @@ const scoreTitle = document.getElementById('scoreTitle'), scoreBoard = document.
             {
                 for (let r = 0; r < ps.BOARD_SIZE; r++)
                     for (let c = 0; c < ps.BOARD_SIZE; c++)
-                        if (ps.board[r][c] === MINE) R().drawMine(r, c, ctx, ps.PADDING, ps.CELL_SIZE);
+                        if (ps.board[r][c] === MINE) R().drawMine(r, c, ctx, ps.PADDING, ps.CELL_SIZE, ps.BOARD_SIZE);
             }
             const stoneRadius = ps.CELL_SIZE * 0.44, markLenDefault = ps.CELL_SIZE * 0.352;
             const lowerLastMoveMarker = ps.showMoveNumbers || ps.showEstimateActive;
-            if (lowerLastMoveMarker) d.lastMoveMarkersLower(ctx, ps.lastMoveMarkers, ps.PADDING, ps.CELL_SIZE, stoneRadius);
+            if (lowerLastMoveMarker) d.lastMoveMarkersLower(ctx, ps.lastMoveMarkers, ps.PADDING, ps.CELL_SIZE, stoneRadius, ps.BOARD_SIZE);
             d.stonesBlackWhite(ctx, ps.board, ps.BOARD_SIZE, ps.PADDING, ps.CELL_SIZE, stoneRadius, ps.showMoveNumbers);
-            if (!lowerLastMoveMarker) d.lastMoveMarkersUpper(ctx, ps.lastMoveMarkers, ps.PADDING, ps.CELL_SIZE, markLenDefault);
+            if (!lowerLastMoveMarker) d.lastMoveMarkersUpper(ctx, ps.lastMoveMarkers, ps.PADDING, ps.CELL_SIZE, markLenDefault, ps.BOARD_SIZE);
             d.userBoardMarks(ctx, ps.userBoardMarks, ps.BOARD_SIZE, ps.PADDING, ps.CELL_SIZE, isUserBoardMarkVisibleAt);
             if (ps.showMoveNumbers) {
                 const nums = numsSweep();
@@ -213,7 +213,7 @@ const scoreTitle = document.getElementById('scoreTitle'), scoreBoard = document.
                 for (let r = 0; r < ps.BOARD_SIZE; r++) for (let c = 0; c < ps.BOARD_SIZE; c++) {
                     const n = ps.minesweeperHints[`${r},${c}`];
                     if (n > 0 && (ps.board[r][c] === 1 || ps.board[r][c] === 2)) {
-                        const cx = 1 + ps.PADDING + c * ps.CELL_SIZE, cy = 1 + ps.PADDING + r * ps.CELL_SIZE;
+                        const cx = 1 + ps.PADDING + c * ps.CELL_SIZE, cy = 1 + ps.PADDING + (ps.BOARD_SIZE - 1 - r) * ps.CELL_SIZE;
                         ctx.font = `bold ${mineHintFontPx}px Arial`;
                         ctx.fillStyle = ps.board[r][c] === 1 ? '#ffffff' : '#000000';
                         ctx.shadowBlur = 0;
@@ -232,12 +232,12 @@ const scoreTitle = document.getElementById('scoreTitle'), scoreBoard = document.
                 const dr = ps.CELL_SIZE * 0.18;
                 for (let r = 0; r < ps.BOARD_SIZE; r++) for (let c = 0; c < ps.BOARD_SIZE; c++) {
                     if ((ps.board[r][c] === 1 || ps.board[r][c] === 2) && ps.cachedLiveBoard[r][c] === 0) {
-                        const x = ps.PADDING + c * ps.CELL_SIZE, y = ps.PADDING + r * ps.CELL_SIZE;
+                        const x = ps.PADDING + c * ps.CELL_SIZE, y = ps.PADDING + (ps.BOARD_SIZE - 1 - r) * ps.CELL_SIZE;
                         ctx.fillStyle = ps.board[r][c] === 1 ? '#fff' : '#222'; ctx.fillRect(x - dr, y - dr, dr * 2, dr * 2);
                     } else if (ps.board[r][c] === 0 && ps.cachedTerritory[r][c] === 1) {
-                        const x = ps.PADDING + c * ps.CELL_SIZE, y = ps.PADDING + r * ps.CELL_SIZE; ctx.fillStyle = '#222'; ctx.fillRect(x - dr, y - dr, dr * 2, dr * 2);
+                        const x = ps.PADDING + c * ps.CELL_SIZE, y = ps.PADDING + (ps.BOARD_SIZE - 1 - r) * ps.CELL_SIZE; ctx.fillStyle = '#222'; ctx.fillRect(x - dr, y - dr, dr * 2, dr * 2);
                     } else if (ps.board[r][c] === 0 && ps.cachedTerritory[r][c] === 2) {
-                        const x = ps.PADDING + c * ps.CELL_SIZE, y = ps.PADDING + r * ps.CELL_SIZE; ctx.fillStyle = '#f0f0f0'; ctx.fillRect(x - dr, y - dr, dr * 2, dr * 2);
+                        const x = ps.PADDING + c * ps.CELL_SIZE, y = ps.PADDING + (ps.BOARD_SIZE - 1 - r) * ps.CELL_SIZE; ctx.fillStyle = '#f0f0f0'; ctx.fillRect(x - dr, y - dr, dr * 2, dr * 2);
                     }
                 }
             }
@@ -470,7 +470,9 @@ const scoreTitle = document.getElementById('scoreTitle'), scoreBoard = document.
             recordDownloadPrefix, minLib, maxWeakLiberties: 0, gameType, roomId, roomPassword, isMouseDevice,
             boardMarkMode: 'minesweeper',
             tryPlaceStone: msTryPlace, removeDeadAndDying: msRemoveDead, assignTerritoryWithRange: msAssign,
-            drawBoard: drawBoardSweep, syncState: sweepSync, rebuildLiveReplayFromMoveCoords: rebuildLiveSweep, enterReplayMode: msEnterReplay
+            drawBoard: drawBoardSweep, syncState: sweepSync, rebuildLiveReplayFromMoveCoords: rebuildLiveSweep, enterReplayMode: msEnterReplay,
+            // 扫雷围棋不适用「黑贴白xxx点(黑yyy点和棋)」双段格式，保持单段
+            komiInfoText: (p) => `黑贴白${p.KOMI}点`
         });
 
         function shouldShowRemainingMinesScoreLine() {

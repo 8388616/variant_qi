@@ -158,7 +158,7 @@ window.RoomPlugins['bury-mine-weiqi'] = {
             function drawMineSemi(row, col, alpha) {
                 ctx.save();
                 ctx.globalAlpha = alpha;
-                R().drawMine(row, col, ctx, ps.PADDING, ps.CELL_SIZE);
+                R().drawMine(row, col, ctx, ps.PADDING, ps.CELL_SIZE, ps.BOARD_SIZE);
                 ctx.restore();
             }
 
@@ -202,9 +202,9 @@ window.RoomPlugins['bury-mine-weiqi'] = {
 
                 const stoneRadius = ps.CELL_SIZE * 0.44, markLenDefault = ps.CELL_SIZE * 0.352;
                 const lowerLastMoveMarker = ps.showMoveNumbers || ps.showEstimateActive;
-                if (lowerLastMoveMarker) d.lastMoveMarkersLower(ctx, ps.lastMoveMarkers, ps.PADDING, ps.CELL_SIZE, stoneRadius);
+                if (lowerLastMoveMarker) d.lastMoveMarkersLower(ctx, ps.lastMoveMarkers, ps.PADDING, ps.CELL_SIZE, stoneRadius, ps.BOARD_SIZE);
                 d.stonesBlackWhite(ctx, ps.board, ps.BOARD_SIZE, ps.PADDING, ps.CELL_SIZE, stoneRadius, ps.showMoveNumbers);
-                if (!lowerLastMoveMarker) d.lastMoveMarkersUpper(ctx, ps.lastMoveMarkers, ps.PADDING, ps.CELL_SIZE, markLenDefault);
+                if (!lowerLastMoveMarker) d.lastMoveMarkersUpper(ctx, ps.lastMoveMarkers, ps.PADDING, ps.CELL_SIZE, markLenDefault, ps.BOARD_SIZE);
                 d.userBoardMarks(ctx, ps.userBoardMarks, ps.BOARD_SIZE, ps.PADDING, ps.CELL_SIZE, isUserBoardMarkVisibleAt);
                 if (ps.showMoveNumbers) {
                     d.moveNumbersOnStones(ctx, numsOnBoard(), ps.board, ps.BOARD_SIZE, ps.PADDING, ps.CELL_SIZE);
@@ -220,12 +220,12 @@ window.RoomPlugins['bury-mine-weiqi'] = {
                     const dr = ps.CELL_SIZE * 0.18;
                     for (let r = 0; r < ps.BOARD_SIZE; r++) for (let c = 0; c < ps.BOARD_SIZE; c++) {
                         if ((ps.board[r][c] === 1 || ps.board[r][c] === 2) && ps.cachedLiveBoard[r][c] === 0) {
-                            const x = ps.PADDING + c * ps.CELL_SIZE, y = ps.PADDING + r * ps.CELL_SIZE;
+                            const x = ps.PADDING + c * ps.CELL_SIZE, y = ps.PADDING + (ps.BOARD_SIZE - 1 - r) * ps.CELL_SIZE;
                             ctx.fillStyle = ps.board[r][c] === 1 ? '#fff' : '#222'; ctx.fillRect(x - dr, y - dr, dr * 2, dr * 2);
                         } else if (ps.board[r][c] === 0 && ps.cachedTerritory[r][c] === 1) {
-                            const x = ps.PADDING + c * ps.CELL_SIZE, y = ps.PADDING + r * ps.CELL_SIZE; ctx.fillStyle = '#222'; ctx.fillRect(x - dr, y - dr, dr * 2, dr * 2);
+                            const x = ps.PADDING + c * ps.CELL_SIZE, y = ps.PADDING + (ps.BOARD_SIZE - 1 - r) * ps.CELL_SIZE; ctx.fillStyle = '#222'; ctx.fillRect(x - dr, y - dr, dr * 2, dr * 2);
                         } else if (ps.board[r][c] === 0 && ps.cachedTerritory[r][c] === 2) {
-                            const x = ps.PADDING + c * ps.CELL_SIZE, y = ps.PADDING + r * ps.CELL_SIZE; ctx.fillStyle = '#f0f0f0'; ctx.fillRect(x - dr, y - dr, dr * 2, dr * 2);
+                            const x = ps.PADDING + c * ps.CELL_SIZE, y = ps.PADDING + (ps.BOARD_SIZE - 1 - r) * ps.CELL_SIZE; ctx.fillStyle = '#f0f0f0'; ctx.fillRect(x - dr, y - dr, dr * 2, dr * 2);
                         }
                     }
                 }
@@ -285,7 +285,7 @@ window.RoomPlugins['bury-mine-weiqi'] = {
                     page.updateBoardGeometry();
                     const sel = document.getElementById('boardSizeSelect'); if (sel) sel.value = ps.BOARD_SIZE;
                 } else if (state.komi != null && Number.isFinite(state.komi) && state.komi !== ps.KOMI) {
-                    ps.KOMI = state.komi; if (komiInfo) komiInfo.innerText = `黑贴白${ps.KOMI}点`;
+                    ps.KOMI = state.komi; if (komiInfo) QiWeiqiSquarePageRuntime.writeKomiInfoText(komiInfo, ps.KOMI, ps.BOARD_SIZE * ps.BOARD_SIZE);
                 }
                 ps.numberOfHands = incomingNH; ps.currentPlayer = state.currentPlayer; ps.gameOver = incomingGO; ps.winner = state.winner || null;
                 applyMineState(state);
@@ -459,7 +459,7 @@ window.RoomPlugins['bury-mine-weiqi'] = {
             const _weiqiBindings = QiBoardRoomClient.createWeiqiMessageBindings({
                 roomId, gameType, pageState: ps, drawBoard, exitTryPlay, enterTryPlay, setTryPlayStep, setReplayStep, setLiveViewStep,
                 getWs: () => ps.ws, getBoardSize: () => ps.BOARD_SIZE, setBoardSize: (n) => { ps.BOARD_SIZE = n; },
-                getKomi: () => ps.KOMI, setKomi: (n) => { ps.KOMI = n; if (komiInfo) komiInfo.innerText = `黑贴白${ps.KOMI}点`; },
+                getKomi: () => ps.KOMI, setKomi: (n) => { ps.KOMI = n; if (komiInfo) QiWeiqiSquarePageRuntime.writeKomiInfoText(komiInfo, ps.KOMI, ps.BOARD_SIZE * ps.BOARD_SIZE); },
                 getBoard: () => ps.board, setBoard: (b) => { ps.board = b; }, getSlots: () => ps.slots, setSlots: (s) => { ps.slots = s; },
                 getMySlot: () => ps.mySlot, setMySlot: (s) => { ps.mySlot = s; }, getGameOver: () => ps.gameOver, setGameOver: (v) => { ps.gameOver = v; },
                 getWinner: () => ps.winner, setWinner: (w) => { ps.winner = w; }, getReplayMode: () => ps.replayMode,

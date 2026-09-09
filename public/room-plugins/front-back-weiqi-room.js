@@ -242,13 +242,13 @@ const scoreTitle = document.getElementById('scoreTitle');
             const lowerLastMoveMarker = ps.showMoveNumbers || ps.showEstimateActive;
             const markersHere = lastMoveMarkers.filter(m => (m.board === 'A' && ctx === ctxA) || (m.board === 'B' && ctx === ctxB));
             if (lowerLastMoveMarker) {
-                C().draw.lastMoveMarkersLower(ctx, markersHere, PADDING, CELL_SIZE, stoneRadius);
+                C().draw.lastMoveMarkersLower(ctx, markersHere, PADDING, CELL_SIZE, stoneRadius, ps.BOARD_SIZE);
             }
 
             C().draw.stonesBlackWhite(ctx, board, BOARD_SIZE, PADDING, CELL_SIZE, stoneRadius, ps.showMoveNumbers);
 
             for (const p of mines) {
-                R().drawMine(p.row, p.col, ctx, PADDING, CELL_SIZE);
+                R().drawMine(p.row, p.col, ctx, PADDING, CELL_SIZE, BOARD_SIZE);
             }
 
             if (ps.showMoveNumbers) {
@@ -257,7 +257,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             }
 
             if (!lowerLastMoveMarker) {
-                C().draw.lastMoveMarkersUpper(ctx, markersHere, PADDING, CELL_SIZE, markLenDefault);
+                C().draw.lastMoveMarkersUpper(ctx, markersHere, PADDING, CELL_SIZE, markLenDefault, ps.BOARD_SIZE);
             }
             const markPrefix = which + '|';
             const markBg = which === 'A' ? '#deb887' : '#cb9665';
@@ -267,7 +267,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                 if (!isUserBoardMarkVisibleAt(which, r, c)) continue;
                 const ch = userBoardMarks[key];
                 const x = PADDING + c * CELL_SIZE;
-                const y = PADDING + r * CELL_SIZE;
+                const y = PADDING + (BOARD_SIZE - 1 - r) * CELL_SIZE;
                 const markBgR = CELL_SIZE * 0.3;
                 ctx.beginPath();
                 ctx.arc(x, y, markBgR, 0, 2 * Math.PI);
@@ -289,13 +289,13 @@ const scoreTitle = document.getElementById('scoreTitle');
             if (board[r][c] !== 0) return;
             if (isMine(mines, r, c)) {
                 const cx = PADDING + c * CELL_SIZE;
-                const cy = PADDING + r * CELL_SIZE;
+                const cy = PADDING + (BOARD_SIZE - 1 - r) * CELL_SIZE;
                 R().stoneDanger.drawRing(ctx, cx, cy, CELL_SIZE * 0.44, '#d62828', CELL_SIZE * 0.055);
                 return;
             }
             ctx.globalAlpha = 0.45;
             ctx.beginPath();
-            ctx.arc(PADDING + c * CELL_SIZE, PADDING + r * CELL_SIZE, CELL_SIZE * 0.44, 0, 2 * Math.PI);
+            ctx.arc(PADDING + c * CELL_SIZE, PADDING + (BOARD_SIZE - 1 - r) * CELL_SIZE, CELL_SIZE * 0.44, 0, 2 * Math.PI);
             ctx.fillStyle = ps.mySlot === 'black' ? '#222' : '#ddd';
             ctx.fill();
             ctx.globalAlpha = 1;

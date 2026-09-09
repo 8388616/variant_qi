@@ -308,7 +308,7 @@ const N = Q.N;
             const WALL_FILL = '#2a1a10';
 
             function cellOrigin(c) { return MARGIN + c * (CELL + GAP); }
-            function cellOriginY(r) { return MARGIN + r * (CELL + GAP); }
+            function cellOriginY(r) { return MARGIN + (N - 1 - r) * (CELL + GAP); }   // 棋盘显示上下翻折(y 镜像)
             function boardOuterRect() {
                 const x0 = cellOrigin(0);
                 const y0 = cellOriginY(0);

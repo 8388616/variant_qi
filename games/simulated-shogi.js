@@ -49,17 +49,17 @@ const R = (function () {
 
     function createInitialBoard() {
         const b = emptyBoard();
-        // 黑（后手）在上
-        b[0][0] = 'bl'; b[0][1] = 'bn'; b[0][2] = 'bs'; b[0][3] = 'bg'; b[0][4] = 'bk';
-        b[0][5] = 'bg'; b[0][6] = 'bs'; b[0][7] = 'bn'; b[0][8] = 'bl';
+        // 红（先手）在下(纵坐标小的一侧)
+        b[0][0] = 'rl'; b[0][1] = 'rn'; b[0][2] = 'rs'; b[0][3] = 'rg'; b[0][4] = 'rk';
+        b[0][5] = 'rg'; b[0][6] = 'rs'; b[0][7] = 'rn'; b[0][8] = 'rl';
         // 角在各自左手、飞在各自右手 → 双方对角
-        b[1][7] = 'bb'; b[1][1] = 'br';
-        for (let c = 0; c < 9; c++) b[2][c] = 'bp';
-        // 红（先手）在下
-        for (let c = 0; c < 9; c++) b[6][c] = 'rp';
-        b[7][1] = 'rb'; b[7][7] = 'rr';
-        b[8][0] = 'rl'; b[8][1] = 'rn'; b[8][2] = 'rs'; b[8][3] = 'rg'; b[8][4] = 'rk';
-        b[8][5] = 'rg'; b[8][6] = 'rs'; b[8][7] = 'rn'; b[8][8] = 'rl';
+        b[1][7] = 'rb'; b[1][1] = 'rr';
+        for (let c = 0; c < 9; c++) b[2][c] = 'rp';
+        // 黑（后手）在上
+        for (let c = 0; c < 9; c++) b[6][c] = 'bp';
+        b[7][1] = 'bb'; b[7][7] = 'br';
+        b[8][0] = 'bl'; b[8][1] = 'bn'; b[8][2] = 'bs'; b[8][3] = 'bg'; b[8][4] = 'bk';
+        b[8][5] = 'bg'; b[8][6] = 'bs'; b[8][7] = 'bn'; b[8][8] = 'bl';
         return b;
     }
 
@@ -115,28 +115,28 @@ const R = (function () {
     }
 
     function inPromotionZone(side, row) {
-        if (side === 'red') return row <= 2;
-        return row >= 6;
+        if (side === 'red') return row >= 6;
+        return row <= 2;
     }
 
     function mustPromote(type, side, toRow) {
         const b = baseType(type);
         if (b === 'p' || b === 'l') {
-            return side === 'red' ? toRow === 0 : toRow === 8;
+            return side === 'red' ? toRow === 8 : toRow === 0;
         }
         if (b === 'n') {
-            return side === 'red' ? toRow <= 1 : toRow >= 7;
+            return side === 'red' ? toRow >= 7 : toRow <= 1;
         }
         return false;
     }
 
     function goldDeltas(side) {
-        const f = side === 'red' ? -1 : 1;
+        const f = side === 'red' ? 1 : -1;
         return [[f, 0], [f, -1], [f, 1], [0, -1], [0, 1], [-f, 0]];
     }
 
     function silverDeltas(side) {
-        const f = side === 'red' ? -1 : 1;
+        const f = side === 'red' ? 1 : -1;
         return [[f, 0], [f, -1], [f, 1], [-f, -1], [-f, 1]];
     }
 
@@ -178,7 +178,7 @@ const R = (function () {
         if (target && target[0] === color) return false;
         const dR = tr - fr, dC = tc - fc;
         const aR = Math.abs(dR), aC = Math.abs(dC);
-        const forward = side === 'red' ? -1 : 1;
+        const forward = side === 'red' ? 1 : -1;
 
         if (type === 'k') return aR <= 1 && aC <= 1;
         if (type === 'g' || type === 'S' || type === 'N' || type === 'L' || type === 'P') {
@@ -260,10 +260,10 @@ const R = (function () {
 
     function dropDestOk(type, side, row) {
         if (type === 'p' || type === 'l') {
-            return side === 'red' ? row > 0 : row < 8;
+            return side === 'red' ? row < 8 : row > 0;
         }
         if (type === 'n') {
-            return side === 'red' ? row > 1 : row < 7;
+            return side === 'red' ? row < 7 : row > 1;
         }
         return true;
     }

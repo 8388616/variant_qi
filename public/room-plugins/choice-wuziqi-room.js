@@ -429,11 +429,11 @@ const scoreTitle = document.getElementById('scoreTitle');
             const markLenDefault = cellSize * 0.352;
             const lowerLastMoveMarker = showMoveNumbers;
             if (lowerLastMoveMarker) {
-                d.lastMoveMarkersLower(ctx, lastMoveMarkers, PADDING, cellSize, stoneRadius);
+                d.lastMoveMarkersLower(ctx, lastMoveMarkers, PADDING, cellSize, stoneRadius, ps.BOARD_SIZE);
             }
             d.stonesBlackWhite(ctx, board, BOARD_SIZE, PADDING, cellSize, stoneRadius, showMoveNumbers);
             if (!lowerLastMoveMarker) {
-                d.lastMoveMarkersUpper(ctx, lastMoveMarkers, PADDING, cellSize, markLenDefault);
+                d.lastMoveMarkersUpper(ctx, lastMoveMarkers, PADDING, cellSize, markLenDefault, ps.BOARD_SIZE);
             }
             d.userBoardMarks(ctx, userBoardMarks, BOARD_SIZE, PADDING, cellSize, isUserBoardMarkVisibleAt);
             if (showMoveNumbers) {
@@ -446,7 +446,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                 const squareHalf = cellSize * 0.18;
                 candidates.forEach(({ row, col }) => {
                     const x = PADDING + col * cellSize;
-                    const y = PADDING + row * cellSize;
+                    const y = PADDING + (BOARD_SIZE - 1 - row) * cellSize;
                     ctx.fillStyle = playerColor;
                     ctx.fillRect(x - squareHalf, y - squareHalf, squareHalf * 2, squareHalf * 2);
                 });

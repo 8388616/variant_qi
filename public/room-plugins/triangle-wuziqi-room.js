@@ -100,6 +100,7 @@ let ROWS = 19;
             return r >= 0 && r < ROWS && c >= 0 && c <= r;
         }
         function triCoordToPixel(r, c) {
+            // 对称三角：r=0 为顶点（上），r=ROWS-1 为底边（下），与三角围棋一致
             const y = TOP_Y + r * DY;
             const leftX = CENTER_X - (r * DX) / 2;
             const x = leftX + c * DX;
@@ -316,8 +317,9 @@ const scoreTitle = document.getElementById('scoreTitle');
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
             for (let r = 0; r < ROWS; r++) {
+                // 左坐标自下而上递增（r=0 为顶点、行号取 ROWS-r），与三角围棋一致
                 const p = triCoordToPixel(r, 0);
-                ctx.fillText(String(r + 1), p.x - (17.4 - 0.2 * ROWS), p.y);
+                ctx.fillText((ROWS - r).toString(), p.x - (17.4 - 0.2 * ROWS), p.y);
             }
             for (let r = 0; r < ROWS; r++) {
                 const p = triCoordToPixel(r, r);

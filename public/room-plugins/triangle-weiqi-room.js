@@ -57,7 +57,8 @@ window.RoomPlugins['triangle-weiqi'] = {
         const CENTER_X_REF = 300;      // 画布水平中心（参考）
         const ROWS_REF = 27;
 
-        /** 行 r 格点数（按形状）：三角 r+1；菱形恒为行数；六角 (行数+1)/2+min(r, 行数-1-r) */
+        /** 行 r 格点数（按形状；坐标小号在下：row 0 = 底部）：
+         *  三角 ROWS-r（尖端在 row ROWS-1=顶部）；菱形恒为行数；六角 (行数+1)/2+min(r, 行数-1-r)（对称不变） */
         function rowLen(r) {
             if (SHAPE === 'triangle') return r + 1;
             if (SHAPE === 'rhombus') return ROWS;
@@ -179,6 +180,7 @@ window.RoomPlugins['triangle-weiqi'] = {
                 return padding + (boardSize - 1) * cellSize;
             },
             shiftUnitsForRow(row, boardSize) {
+                // 恢复原实现：row 0 在顶部偏移最大（与三角子棋类尖端在上的方向一致）
                 return 0.5 * (boardSize - 1 - row);
             },
             initGeometry(padding, cellSize, boardSize) {
@@ -195,6 +197,7 @@ window.RoomPlugins['triangle-weiqi'] = {
             },
             xyBase(row, col, padding, cellSize, boardSize) {
                 const bottomY = this.bottomY(padding, cellSize, boardSize);
+                // 恢复原实现：row 0 在顶部
                 const y = bottomY - (boardSize - 1 - row) * cellSize * RHOM_Y_SCALE;
                 const shiftU = this.shiftUnitsForRow(row, boardSize);
                 const x = padding + col * cellSize - shiftU * cellSize;
@@ -579,6 +582,7 @@ window.RoomPlugins['triangle-weiqi'] = {
             CENTER_X = innerA.x;
         }
         updateBoardGeometry();
+        writeKomiInfoTri();
 
         function getShapeStars() {
             if (SHAPE === 'rhombus') return null; // 菱形用公共星位
@@ -589,6 +593,7 @@ window.RoomPlugins['triangle-weiqi'] = {
             }
             const rows = ROWS;
             if (rows < 11) return [];
+            // row=0 在底部：物理位置不变的星位 r 翻转
             const base = [{ r: 4, c: 2 }, { r: rows - 3, c: 2 }, { r: rows - 3, c: rows - 5 }];
             if (rows % 2 === 1 && rows >= 15) {
                 base.push({ r: (1 + rows) / 2, c: 2 });
@@ -720,11 +725,13 @@ const scoreTitle = document.getElementById('scoreTitle');
                 return RhomBoardGeom.xy(r, c, RHOM_PADDING, RHOM_CELL, ROWS);
             }
             if (SHAPE === 'hexagon') {
-                const y = TOP_Y + r * DY;
+                const y = TOP_Y + (ROWS - 1 - r) * DY;
                 const leftX = CENTER_X - ((rowLen(r) - 1) / 2) * DX;
                 return { x: leftX + c * DX, y };
             }
+            // 三角形:尖端(row 0)在上、宽边在下(与外框/标签一致,不镜像)
             const y = TOP_Y + r * DY;
+            // 行 r 的实际宽度 = rowLen(r) = r+1：左端偏移必须按实际宽度，否则尖端(1格)被推到最左
             const leftX = CENTER_X - (r * DX) / 2;
             return { x: leftX + c * DX, y };
         }
@@ -990,7 +997,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             const { blackTotal, whiteTotal } = computeScore(cachedLiveBoard, cachedTerritory);
             const lead = blackTotal - whiteTotal - 2 * KOMI;
             scoreTitle.innerText = '形势判断';
-            scoreBoard.innerText = `黑: ${blackTotal.toFixed(0)}　白: ${whiteTotal.toFixed(0)}`;
+            scoreBoard.innerText = `黑: ${Number(blackTotal.toFixed(2))}　白: ${Number(whiteTotal.toFixed(2))}`;
             leadInfo.innerText = `黑${lead >= 0 ? '+' : ''}${lead.toFixed(1)}点`;
         }
 
@@ -1129,23 +1136,22 @@ const scoreTitle = document.getElementById('scoreTitle');
                 ctx.fillStyle = '#3a281c';
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
+                // 坐标标签固定物理位置（不随棋盘内容镜像）：y 用未镜像的 TOP_Y + r*DY
+                const labelY = (rr) => TOP_Y + rr * DY;
                 for (let c = 0; c < rowLen(0); c++) {
-                    let { x, y } = coordToPixel(0, c);
+                    let { x } = coordToPixel(0, c);
                     x += labelOff * 0.5;
-                    y -= labelOff;
-                    ctx.fillText(LETTERS[c], x, y);
+                    ctx.fillText(LETTERS[c], x, labelY(0) - labelOff);
                 }
                 for (let r = 0; r <= RH; r++) {
-                    let { x, y } = coordToPixel(r, 0);
+                    let { x } = coordToPixel(r, 0);
                     x -= labelOff * 0.6;
-                    y -= labelDy;
-                    ctx.fillText(String(r + 1), x, y);
+                    ctx.fillText(String(r + 1), x, labelY(r) - labelDy);
                 }
                 for (let r = RH; r < ROWS; r++) {
-                    let { x, y } = coordToPixel(r, 0);
+                    let { x } = coordToPixel(r, 0);
                     x -= labelOff * 0.6;
-                    y += labelDy;
-                    ctx.fillText(GREEK[r - RH] || String(r + 1), x, y);
+                    ctx.fillText(GREEK[r - RH] || String(r + 1), x, labelY(r) + labelDy);
                 }
             } else {
                 // 三角：木质外框
@@ -1198,16 +1204,17 @@ const scoreTitle = document.getElementById('scoreTitle');
                 ctx.fillStyle = '#3a281c';
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
+                const labelYTri = (rr) => TOP_Y + rr * DY;
                 for (let r = 0; r < ROWS; r++) {
-                    let { x, y } = coordToPixel(r, 0);
+                    let { x } = coordToPixel(r, 0);
                     x -= (17.4 - 0.2 * ROWS);
-                    ctx.fillText((boardSize - r).toString(), x, y);
+                    ctx.fillText((ROWS - r).toString(), x, labelYTri(r));
                 }
                 ctx.textAlign = 'center';
                 for (let r = 0; r < ROWS; r++) {
-                    let { x, y } = coordToPixel(r, r);
+                    let { x } = coordToPixel(r, r);
                     x += (17.4 - 0.2 * ROWS);
-                    ctx.fillText(rightEdgeLabel(r), x, y);
+                    ctx.fillText(rightEdgeLabel(r), x, labelYTri(r));
                 }
             }
 
@@ -1334,7 +1341,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                     let { x, y } = coordToPixel(hoverR, hoverC);
                     ctx.globalAlpha = 0.45;
                     ctx.beginPath();
-                    ctx.arc(x, y, DX * 0.35, 0, 2 * Math.PI);
+                    ctx.arc(x, y, DX * 0.42, 0, 2 * Math.PI);
                     ctx.fillStyle = hoverColor;
                     ctx.fill();
                     ctx.globalAlpha = 1.0;
@@ -1872,10 +1879,20 @@ const scoreTitle = document.getElementById('scoreTitle');
         function komiForShape(shape) {
             return shape === 'rhombus' ? 3.25 : 4.75;
         }
+        /** 三种形状的可落子总点数（行数按形状，Σ rowLen 的闭式） */
+        function totalPointsTri() {
+            const n = SHAPE === 'hexagon' ? (ROWS + 1) / 2 : ROWS;
+            if (SHAPE === 'triangle') return n * (n + 1) / 2;      // 行 r 长 r+1
+            if (SHAPE === 'rhombus') return n * n;                 // 每行恒 n
+            return 3 * n * n - 3 * n + 1;                          // 六角：Σ(n+min(r,2n-2-r)) = 3n²-3n+1
+        }
+        function writeKomiInfoTri() {
+            const el = document.getElementById('komiInfo');
+            if (el) QiWeiqiSquarePageRuntime.writeKomiInfoText(el, KOMI, totalPointsTri());
+        }
         function refreshKomiInfo() {
             KOMI = komiForShape(SHAPE);
-            const el = document.getElementById('komiInfo');
-            if (el) el.textContent = `黑贴白${KOMI}点`;
+            writeKomiInfoTri();
         }
         function refreshSeatOverlay() {
             if (typeof updateSeatOverlay === 'function') updateSeatOverlay();
@@ -1897,6 +1914,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                 ROWS = rowsFor(SHAPE, state.boardSize);
                 board = initBoardArray(ROWS);
                 updateBoardGeometry();
+                writeKomiInfoTri();
                 const sizeSelect = document.getElementById('boardSizeSelect');
                 if (sizeSelect) sizeSelect.value = state.boardSize;
                 refreshSeatOverlay();
@@ -1938,8 +1956,10 @@ const scoreTitle = document.getElementById('scoreTitle');
             }
 
             const hasAnyStone = board.some(row => row.some(v => v !== 0));
-            const hasPlayer = slots.black || slots.white;
-            const canChange = !hasAnyStone && !hasPlayer && !gameOver && mySlot === null;
+            const startedNow = !!(matchStarted || (matchTime && matchTime.settings));
+            // 开局（有子/开赛/计时协商中）锁定；终局开新局后盘面清空、未开赛即恢复可选。
+            // 是否已就座不影响——否则新局后两名玩家仍在座，下拉会永远隐藏/禁用。
+            const canChange = !hasAnyStone && !gameOver && !startedNow;
             const sizeSelect = document.getElementById('boardSizeSelect');
             if (sizeSelect) sizeSelect.style.display = canChange ? 'inline-block' : 'none';
             // 子棋类选择器（形状）：始终显示；开局后锁定不可改，新局时恢复可用
@@ -2007,7 +2027,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             getBoardSize: () => (SHAPE === 'hexagon' ? (ROWS + 1) / 2 : ROWS),
             setBoardSize: (n) => { ROWS = rowsFor(SHAPE, n); },
             getKomi: () => KOMI,
-            setKomi: (n) => { if (Number.isFinite(n)) KOMI = n; },
+            setKomi: (n) => { if (Number.isFinite(n)) { KOMI = n; writeKomiInfoTri(); } },
             getBoard: () => board,
             setBoard: (b) => { board = b; },
             getSlots: () => slots,
@@ -2061,6 +2081,7 @@ syncState,
                     ROWS = bs;
                     board = initBoardArray(ROWS);
                     updateBoardGeometry();
+                    writeKomiInfoTri();
                 }
                 const sel = document.getElementById('boardSizeSelect');
                 if (sel) sel.value = msg.boardSize;

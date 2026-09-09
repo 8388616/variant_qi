@@ -42,12 +42,12 @@ window.RoomPlugins["dfw"] = {
          *        六角最远点在 6 个方向用欧氏、四角最外圈是边（非角）用切比雪夫）；
          *  path: 画格外形（参数 r = 格半尺寸：六角外接半径 / 四角半边长）；
          *  genCenters: 生成格中心与坐标表（n = 每边路数，遍历顺序与服务端一致）；
-         *  vision: 视野（以 v0 为中心 ≤5 步）；fontScale: 格内字符放大系数；
-         *  turnPoly: 行动顺序条的格形点串（R = 外接半径）。 */
+         *  vision: 视野（以 v0 为中心 ≤5 步）；fontScale: 格内字符放大系数。 */
         const CELL_SHAPES = {
             hex: {
                 dirs: [[1, 0], [-1, 0], [0, 1], [0, -1], [1, -1], [-1, 1]],
-                angles: { 3: -90, 2: 90, 1: 210, 4: -30, 5: 150, 0: 30 },
+                // 棋盘显示 y 镜像（坐标小号在下）——方向角度随之关于水平轴取反
+                angles: { 0: -30, 1: 150, 2: -90, 3: 90, 4: 30, 5: 210 },
                 coordKey: (c) => `${c.q},${c.r}`,
                 coordDelta: (c, dx, dy) => `${c.q + dx},${c.r + dy}`,
                 step: Math.sqrt(3),
@@ -91,18 +91,12 @@ window.RoomPlugins["dfw"] = {
                     }
                 },
                 fontScale: 1,
-                turnPoly: (R) => {
-                    const pts = [];
-                    for (let k = 0; k < 6; k++) {
-                        const a = (60 * k - 90) * Math.PI / 180;   // 尖顶（顶点在上）
-                        pts.push((R + R * Math.cos(a)).toFixed(1) + ',' + (R + R * Math.sin(a)).toFixed(1));
-                    }
-                    return pts.join(' ');
-                },
+
             },
             square: {
                 dirs: [[0, -1], [1, 0], [0, 1], [-1, 0]],
-                angles: { 0: -90, 1: 0, 2: 90, 3: 180 },
+                // 棋盘显示 y 镜像——方向角度随之关于水平轴取反
+                angles: { 0: 90, 1: 0, 2: -90, 3: 180 },
                 coordKey: (c) => `${c.x},${c.y}`,
                 coordDelta: (c, dx, dy) => `${c.x + dx},${c.y + dy}`,
                 step: 2,
@@ -142,13 +136,7 @@ window.RoomPlugins["dfw"] = {
                     }
                 },
                 fontScale: 1.2,
-                turnPoly: (R) => {
-                    const pts = [];
-                    for (const [ox, oy] of [[-0.72, 0], [0, -0.72], [0.72, 0], [0, 0.72]]) {
-                        pts.push((R + R * ox).toFixed(1) + ',' + (R + R * oy).toFixed(1));
-                    }
-                    return pts.join(' ');
-                },
+
             },
         };
         /** 当前地图形状定义（mapType 变化时由 applyGeometry 更新） */
@@ -232,7 +220,7 @@ window.RoomPlugins["dfw"] = {
             const scale = maxDist > 0 ? (FRAME_CENTER - FRAME_MARGIN) / maxDist : 1;
             cellCenters = centers.map(c => ({
                 x: FRAME_CENTER + (c.x - cx) * scale,
-                y: FRAME_CENTER + (c.y - cy) * scale
+                y: FRAME_CENTER - (c.y - cy) * scale   // 棋盘显示上下翻折(y 镜像)
             }));
             const rs = HEX_R * scale;
             hexR = rs;   // 语义：格半尺寸（六角外接半径 / 四角半边长）
@@ -398,8 +386,8 @@ window.RoomPlugins["dfw"] = {
                 ctx.fillText(SEAT_PIECES[i], c.x, c.y);
                 // 悬停预览：轮到本页玩家行动时，鼠标悬停在候选目标格上——半透明显示角色（参考围棋落子预览）
                 if (hoverCell >= 0 && hoverCell === v && gameState.mySeat != null && gameState.mySeat === i &&
-                    gameState.phase === 'playing' && gameState.currentSeat === i &&
-                    gameState.reachable && gameState.reachable.includes(hoverCell)) {
+                    gameState.phase === 'playing' && gameState.roundPhase === 'choosing' &&
+                    gameState.myReachable && gameState.myReachable.includes(hoverCell)) {
                     ctx.globalAlpha = 0.4;
                     ctx.fillText(SEAT_PIECES[i], c.x, c.y);
                     ctx.globalAlpha = 1;
@@ -424,17 +412,29 @@ window.RoomPlugins["dfw"] = {
             }
         }
 
+        /** 本轮骰子叠加层：摇完后在角色右上角显示右下角骰子的缩小版（最上层——不被候选格框/蒙版遮挡；
+         *  rolling 阶段不显示——自己的骰子还在转）。移动动画中跟随棋子当前位置。 */
+        function drawPieceDice() {
+            if (!gameState || !gameState.piecePositions) return;
+            if (gameState.phase !== 'playing' || gameState.roundPhase === 'rolling') return;
+            if (!gameState.dicePoints) return;
+            const ctx = canvas.getContext('2d');
+            for (let i = 0; i < 6; i++) {
+                const p = gameState.dicePoints[i];
+                if (p == null) continue;
+                const mv = currentMovePos ? currentMovePos[i] : null;
+                const v = (mv != null) ? mv : gameState.piecePositions[i];
+                if (v == null || v < 0 || v >= V || !cellCenters[v]) continue;
+                const c = cellCenters[v];
+                const ds = Math.max(10, hexR * 0.68);   // 骰子边长（随格子缩放）
+                const icon = getDiceImage(i === 0 || i === 3 ? 'd8' : 'd6', p);
+                if (icon) {
+                    ctx.drawImage(icon, c.x + hexR * 0.62 - ds / 2, c.y - hexR * 0.62 - ds / 2, ds, ds);
+                }
+            }
+        }
+
         let animatingMove = false;      // 移动动画进行中（独立标记——moveTimer 会被 clearTimeout 清掉，不可靠）
-        let blinkTimer = null;          // 当前格框闪烁定时器（人类行动时 500ms 闪烁）
-        let blinkOn = true;             // 当前闪烁状态（false = 该半周期不画框）
-        function startBlink() {
-            if (blinkTimer) return;
-            blinkTimer = setInterval(() => { blinkOn = !blinkOn; drawBoard(); }, 500);
-        }
-        function stopBlink() {
-            if (blinkTimer) { clearInterval(blinkTimer); blinkTimer = null; }
-            blinkOn = true;
-        }
         let animPropsSnapshot = null;   // 移动动画期间的地图属性快照（占领/mine 等地图更新在动画完成后才显示）
         let hoverCell = -1;   // 悬停的候选目标格（-1 = 无）——轮到本页玩家行动时预览角色
         let hoverTravelSide = null;   // 悬停游历框的一方（0=红、1=蓝、null=无）——棋盘显示该方经过的格
@@ -575,30 +575,17 @@ window.RoomPlugins["dfw"] = {
             }
             // 六枚棋子（♜♞♝ 红蓝）——迷雾之上，双方位置始终可见
             drawPieces();
-            // 当前玩家的可选目标格：阵营色六角形框（画在格内部，比格小；骰子动画结束后才显示）
-            if (showTargets && gameState && gameState.phase === 'playing' && gameState.reachable && gameState.reachable.length) {
-                const curSeat = gameState.currentSeat;
-                ctx.strokeStyle = curSeat < 3 ? '#c03030' : '#3050c0';
+            // 己方的可选目标格：阵营色六角形框（画在格内部，比格小；choosing 阶段才显示，别人的候选不显示）
+            if (showTargets && gameState && gameState.phase === 'playing'
+                && gameState.roundPhase === 'choosing'
+                && gameState.mySeat >= 0 && gameState.myReachable && gameState.myReachable.length) {
+                const mySeat = gameState.mySeat;
+                ctx.strokeStyle = mySeat < 3 ? '#c03030' : '#3050c0';
                 ctx.lineWidth = Math.max(0.6, hexR * 0.09);   // 按格大小比例（随缩放同比例变化）
                 const ir = hexR * 0.8;   // 内缩格框（在格内）
-                for (const v of gameState.reachable) {
+                for (const v of gameState.myReachable) {
                     const c0 = cellCenters[v];
                     ctx.stroke(cellShape.path(c0.x, c0.y, ir));
-                }
-            }
-            // 当前行动玩家的当前位置框（与目标格框同样式；开始移动后移除）。
-            // 人类行动时闪烁（500ms 交替显示/隐藏）；AI 行动常亮
-            if (curFrameSeat != null && gameState && gameState.phase === 'playing' && gameState.piecePositions) {
-                const humanTurn = gameState.seats && gameState.seats[curFrameSeat] != null;
-                if (humanTurn && !blinkOn) { /* 闪烁关闭半周期：不画框 */ }
-                else {
-                const v = gameState.piecePositions[curFrameSeat];
-                if (v != null && v >= 0 && v < V && cellCenters[v]) {
-                    ctx.strokeStyle = curFrameSeat < 3 ? '#c03030' : '#3050c0';
-                    ctx.lineWidth = Math.max(0.6, hexR * 0.09);
-                    const c0 = cellCenters[v];
-                    ctx.stroke(cellShape.path(c0.x, c0.y, hexR * 0.8));
-                }
                 }
             }
             // 悬停游历点（画在最上层，不被位置框/目标框覆盖——独立框）：
@@ -623,6 +610,7 @@ window.RoomPlugins["dfw"] = {
                     drawPieces();   // 角色画在蒙版之上（悬停游历时棋子不被蒙版覆盖）
                 }
             }
+            drawPieceDice();   // 骰子最上层（候选格框/蒙版之上）
             ctx.restore();
             syncScrollbars();
         }
@@ -636,94 +624,15 @@ window.RoomPlugins["dfw"] = {
             buildKeptPaths();
         }
 
-        let lastDiceKey = null;   // 记录已播放的骰子（turnIndex:dicePoint），避免重复动画
+        let lastDiceKey = null;   // 记录已播放的骰子点数序列（R:点数列表），避免重复动画
         let moveAnimKey = null;   // 已播放/播放中的移动路径（seat:path），避免重复动画
         let moveTimer = null;     // 逐格移动动画定时器
-        let lastViewSeat = null;  // 视角已居中的行动玩家
         let lockView = false;     // 锁定视角：勾选后不再自动移动视角到行动方
         let mapTypeSel = null;    // 地图形状选择器（六角/四角；buildUI 创建，renderMask 控制显示）
-        let turnPolys = [];       // 行动顺序条的多边形元素（renderTurnBar 按 cellShape 切形状）
-        let turnR = 18;           // 行动顺序格外接半径（buildUI 设置）
-        let curFrameSeat = null;  // 显示当前位置框的行动玩家（选择移动后移除）
-
-        /** 逐格移动动画：沿 path 每格停留 200ms（不走最短路线，按骰子点数的格数走）。
-         *  动画期间该棋子不显示方向箭头；到达后按新格重新计算方向（记录来向）。
-         *  动画开始即移除当前位置框；骰子（右下角缩小版）保持显示直至行动完毕。
-         *  骰子未转完（diceAnim 活跃）时排队等待——保证前一轮骰子播完才开始行动。 */
-        function playMoveAnimation(path, seat, onDone) {
-            if (diceAnim) {   // 骰子还在转：等转完再开始移动
-                moveTimer = setTimeout(() => playMoveAnimation(path, seat, onDone), 150);
-                return;
-            }
-            if (moveTimer) clearTimeout(moveTimer);
-            animatingMove = true;   // 动画进行中——视野/地图更新冻结到动画完成
-            stopBlink();            // 移动开始：停止闪烁
-            showTargets = false;   // 移动动画期间不显示目标格
-            curFrameSeat = null;   // 选择后开始移动：移除当前位置框
-            currentMovePos[seat] = path[0];
-            drawBoard();
-            let idx = 0;
-            const step = () => {
-                idx++;
-                if (idx >= path.length) {
-                    currentMovePos[seat] = null;
-                    lastFrom[seat] = path[path.length - 2];   // 记录来向（新箭头方向按此计算）
-                    moveTimer = null;              // 动画完成：立即清除动画标记
-                    animatingMove = false;         // 动画结束——视野/地图更新解冻（角色已到目标格）
-                    animPropsSnapshot = null;      // 立即显示新地图（♜ 占领 / mine 等——不等下一手）
-                    drawBoard();
-                    if (onDone) onDone();
-                    return;
-                }
-                currentMovePos[seat] = path[idx];
-                drawBoard();
-                moveTimer = setTimeout(step, 150);   // 每格停留 150ms
-            };
-            moveTimer = setTimeout(step, 150);
-        }
 
         function hideDice() {
             const de = document.getElementById('dfwDice');
             if (de) de.style.display = 'none';
-        }
-
-        let viewAnimTimer = null;   // 视角过渡动画定时器
-
-        /** 视角平滑移动到 (tx, ty)（600ms easeInOut，逐帧重绘），完成后回调 */
-        function animateViewTo(tx, ty, onDone) {
-            if (viewAnimTimer) clearTimeout(viewAnimTimer);
-            const sx = viewCenterX, sy = viewCenterY;
-            const DUR = 600;
-            const t0 = performance.now();
-            const step = (now) => {
-                const t = Math.min(1, (now - t0) / DUR);
-                const e = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;   // easeInOut
-                viewCenterX = sx + (tx - sx) * e;
-                viewCenterY = sy + (ty - sy) * e;
-                clampBoardView();
-                drawBoard();
-                if (t < 1) viewAnimTimer = setTimeout(() => step(performance.now()), 16);
-                else if (onDone) onDone();
-            };
-            step(t0);
-        }
-
-        /** 先转视角到行动玩家（平滑过渡），转完视角后回调（再摇骰）；锁定视角时不移动 */
-        function centerViewToSeat(seat, onDone) {
-            if (lockView) { if (onDone) onDone(); return; }   // 锁定视角：跳过自动移动
-            if (seat == null || !gameState || !gameState.piecePositions) { if (onDone) onDone(); return; }
-            const p0 = gameState.piecePositions[seat];
-            if (p0 == null || p0 < 0 || p0 >= V || !cellCenters[p0]) { if (onDone) onDone(); return; }
-            lastViewSeat = seat;
-            if (viewZoom < 2) viewZoom = 2;
-            const tx = cellCenters[p0].x, ty = cellCenters[p0].y;
-            if (Math.abs(tx - viewCenterX) < 1 && Math.abs(ty - viewCenterY) < 1) {
-                clampBoardView();
-                drawBoard();
-                if (onDone) onDone();   // 已在目标位置：直接继续
-            } else {
-                animateViewTo(tx, ty, onDone);
-            }
         }
 
         function applyState(state) {
@@ -738,7 +647,6 @@ window.RoomPlugins["dfw"] = {
                 viewCenterX = FRAME_CENTER;
                 viewCenterY = FRAME_CENTER;
                 viewZoom = 1;
-                lastViewSeat = null;
                 moveAnimKey = null;
                 lastDiceKey = null;
                 hideDice();
@@ -750,47 +658,55 @@ window.RoomPlugins["dfw"] = {
             const prevProps = gameState ? gameState.cellProps : null;
             const prevMine = gameState ? gameState.mineWealth : null;
             const prevLand = gameState ? gameState.landValue : null;
+            const prevPhase = gameState ? gameState.roundPhase : null;
             gameState = state;
-            const willMove = state.movePath && state.movePath.length >= 2 &&
-                state.movePathSeat + ':' + state.movePath.join(',') !== moveAnimKey;
-            if (willMove) animPropsSnapshot = { cellProps: prevProps, mineWealth: prevMine, landValue: prevLand };
-            // 动画完成后清除快照（drawBoard 判断 moveTimer 结束）
-            const diceKey = (state.turnIndex != null ? state.turnIndex : -1) + ':' + (state.dicePoint != null ? state.dicePoint : '');
-            const hasNewDice = state.phase === 'playing' && state.dicePoint != null && diceKey !== lastDiceKey;
-            // movePath 与下一轮的 dicePoint 常在同一广播里——先播移动动画（每格 500ms），动画结束再摇骰 + 切换视角
-            const mpKey = (state.movePath && state.movePath.length >= 2) ? state.movePathSeat + ':' + state.movePath.join(',') : null;
-            const hasNewMove = mpKey != null && mpKey !== moveAnimKey;
-            if (hasNewMove) {
-                moveAnimKey = mpKey;
-                playMoveAnimation(state.movePath, state.movePathSeat, () => {
-                    if (hasNewDice) {
-                        // 移动完成：先给当前位置加框 → 转视角（平滑）→ 转完再摇骰
-                        curFrameSeat = state.currentSeat;
-                        lastDiceKey = diceKey;
-                        centerViewToSeat(state.currentSeat, () => playDice());
-                    } else {
-                        lastDiceKey = null;
-                        hideDice();
+
+            // 移动阶段：播放本回合全部移动/重生（所有角色同时动画）
+            const pmKey = state.roundPhase === 'moving' && state.pendingMoves
+                ? state.pendingMoves.moves.map((m) => m.seat + ':' + m.path.join(',')).join('|')
+                : null;
+            const hasNewMoveBatch = pmKey != null && pmKey !== moveAnimKey;
+            if (hasNewMoveBatch) {
+                moveAnimKey = pmKey;
+                animPropsSnapshot = { cellProps: prevProps, mineWealth: prevMine, landValue: prevLand };
+                playAllMoveAnimations(state.pendingMoves, () => {
+                    // 全部角色移动动画完成 → 通知服务端开始下一回合
+                    if (ws && ws.readyState === WebSocket.OPEN) {
+                        ws.send(JSON.stringify({ type: 'dfwAnimDone', anim: 'move' }));
+                    }
+                    drawBoard();
+                });
+            }
+
+            // choosing 阶段：骰子动画已播完，显示己方候选格
+            if (state.phase === 'playing' && state.roundPhase === 'choosing') showTargets = true;
+            else if (state.phase === 'playing' && state.roundPhase === 'moving') showTargets = false;
+
+            // 摇骰子阶段：只播自己的骰子动画（一次广播只播一次）
+            const mySeat = state.mySeat;
+            const canRoll = state.phase === 'playing' && state.roundPhase === 'rolling'
+                && mySeat >= 0 && state.dicePoints && state.dicePoints[mySeat] != null;
+            const diceKey = state.roundPhase === 'rolling' ? 'R:' + (state.dicePoints || []).join(',') : '';
+            const hasNewDice = canRoll && diceKey !== lastDiceKey;
+            if (hasNewDice) {
+                lastDiceKey = diceKey;
+                showDice(state.dicePoints[mySeat], (mySeat === 0 || mySeat === 3));
+                playDice(() => {
+                    // 自己的摇骰子动画完成 → 通知服务端
+                    if (ws && ws.readyState === WebSocket.OPEN) {
+                        ws.send(JSON.stringify({ type: 'dfwAnimDone', anim: 'dice' }));
                     }
                 });
-            } else {
-                if (hasNewDice) {
-                    // 轮到新玩家：先给当前位置加框 → 转视角（平滑）→ 转完再摇骰
-                    curFrameSeat = state.currentSeat;
-                    lastDiceKey = diceKey;
-                    centerViewToSeat(state.currentSeat, () => playDice());
-                } else if (state.phase !== 'playing' || state.dicePoint == null) {
-                    lastDiceKey = null;
-                    hideDice();
-                }
-                if (state.phase !== 'playing') { lastViewSeat = null; curFrameSeat = null; }
+            } else if (state.phase !== 'playing' || state.roundPhase !== 'rolling') {
+                lastDiceKey = null;
             }
+            // 技能按钮状态（choosing 阶段自己可行动时可用）
+            updateSkillsUI();
             renderSeats();
             renderStats();
             renderSidePanels && renderSidePanels();
             renderMask();
             renderPlayerId();
-            renderTurnBar();
             drawBoard();
         }
 
@@ -828,7 +744,7 @@ window.RoomPlugins["dfw"] = {
                 'newGameBtn', 'estimateBtn', 'tryPlayBtn', 'passBtn', 'undoBtn', 'resignBtn', 'drawBtn', 'endReqBtn',
                 'importBtn', 'exportBtn', 'vsComputerBtn', 'buryFinishBtn', 'scoreConfirmPanel',
                 'replayPanel', 'boardMarkOuter', 'editControls', 'boardSizeSelect', 'styleSelect', 'subGameSelect',
-                'goTimerPanel', 'roomChat', 'replayMinesRow', 'showLibertyStonesLabel'
+                'goTimerPanel', 'roomChat', 'replayMinesRow'
             ].forEach((id) => {
                 const el = document.getElementById(id);
                 if (el) el.style.display = 'none';
@@ -875,9 +791,10 @@ window.RoomPlugins["dfw"] = {
                     /* 胶囊形：左右圆、中间直；与座位框等宽，名字在左、数字靠右 */
                 .dfw-stat-gold { background: #fdf3d0; border: 2px solid #d4a017; color: #b8860b; }
                 .dfw-stat-travel { background: #e2f5e0; border: 2px solid #2e8b2e; color: #2e8b2e; }
-                #dfwSkills { display: none; flex-direction: row; flex-wrap: wrap; gap: 8px; margin-top: 8px;
+                #dfwSkills { display: none; flex-direction: row; flex-wrap: wrap; gap: 8px;
+                    margin: 8px auto 0;   /* 左右居中 */
                     padding: 8px; border: 2px solid #d8c9b0; border-radius: 12px; background: rgba(255,250,241,0.6);
-                    justify-content: center; max-width: 220px; }
+                    justify-content: center; width: 100%; box-sizing: border-box;   /* 固定宽度（拉伸填满容器） */ }
                 /* 手机上：技能框显示在地图下方，占满宽度 */
                 @media (max-width: 900px) {
                     #dfwSkills.dfw-skills-mobile { position: absolute; top: calc(100% + 8px); left: 6px; right: 6px;
@@ -914,9 +831,6 @@ window.RoomPlugins["dfw"] = {
                     pointer-events: none; }
                 #dfwMask .qi-seat-overlay-btn { pointer-events: auto; }
                 #dfwMask .dfw-wait-btn { color: #999; opacity: 1 !important; }   /* disabled 默认 opacity 0.45，等待按钮不透明 */
-                #dfwTurnBar { display: none; justify-content: center; gap: 6px; margin-top: 10px;
-                    grid-column: 2; z-index: 30; }
-                .dfw-turn-cell { flex-shrink: 0; display: block; }
                 #dfwDice { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%);
                     display: none; z-index: 45; }
                 /* 开始按钮直接复用棋类的 qi-seat-overlay-btn 样式（room.css 已定义） */
@@ -1025,38 +939,6 @@ window.RoomPlugins["dfw"] = {
             const skillRail = document.querySelector('.main-area-right');
             if (skillRail) skillRail.appendChild(skillsEl);
 
-            // 行动顺序条（棋盘正下方、水平居中：6 个固定尺寸 SVG 格，按行动顺序填棋子，轮到涂黄；
-            // 格子形状随地图形状：六角=正六边形、四角=菱形）
-            const turnBar = document.createElement('div');
-            turnBar.id = 'dfwTurnBar';
-            const R_T = 18;   // 格外接半径（固定，不随容器缩放）
-            turnR = R_T;
-            const NS = 'http://www.w3.org/2000/svg';
-            turnPolys = [];
-            for (let k = 0; k < 6; k++) {
-                const svg = document.createElementNS(NS, 'svg');
-                svg.setAttribute('width', String(R_T * 2));
-                svg.setAttribute('height', String(R_T * 2));
-                svg.setAttribute('class', 'dfw-turn-cell');
-                const poly = document.createElementNS(NS, 'polygon');
-                poly.setAttribute('points', cellShape.turnPoly(R_T));
-                poly.setAttribute('fill', '#ffffff');
-                poly.setAttribute('stroke', '#c8b89a');
-                poly.setAttribute('stroke-width', '1.2');
-                turnPolys.push(poly);
-                svg.appendChild(poly);
-                const txt = document.createElementNS(NS, 'text');
-                txt.setAttribute('x', String(R_T));
-                txt.setAttribute('y', String(R_T));
-                txt.setAttribute('text-anchor', 'middle');
-                txt.setAttribute('dominant-baseline', 'central');
-                txt.setAttribute('font-size', '16');
-                txt.setAttribute('font-family', 'serif');
-                svg.appendChild(txt);
-                turnBar.appendChild(svg);
-            }
-            if (boardContainer) boardContainer.after(turnBar);
-
             // 骰子：Three.js 圆角立方体（renderer 动态挂载），棋盘中央 overlay
             const diceEl = document.createElement('div');
             diceEl.id = 'dfwDice';
@@ -1117,8 +999,9 @@ window.RoomPlugins["dfw"] = {
             el.style.display = show ? 'flex' : 'none';
             if (!show) return;
             const canUse = gameState.phase === 'playing' &&
-                gameState.currentSeat === gameState.mySeat &&
-                gameState.dicePoint != null;
+                gameState.roundPhase === 'choosing' &&
+                gameState.dicePoints && gameState.dicePoints[gameState.mySeat] != null &&
+                !(gameState.respawnCooldown && gameState.respawnCooldown[gameState.mySeat] > 0);
             const rs = document.getElementById('dfwSkillResurrect');
             if (rs) rs.disabled = !canUse;
             const bk = document.getElementById('dfwSkillBackpack');
@@ -1173,29 +1056,6 @@ window.RoomPlugins["dfw"] = {
                 return;
             }
             mask.innerHTML = '<button class="qi-seat-overlay-btn dfw-wait-btn" disabled>等待房主开始游戏</button>';
-        }
-
-        /** 行动顺序条：6 个六角格按 turnOrder 填棋子，轮到当前格涂黄 */
-        function renderTurnBar() {
-            const bar = document.getElementById('dfwTurnBar');
-            if (!bar) return;
-            if (!gameState || gameState.phase !== 'playing' || !gameState.turnOrder) {
-                bar.style.display = 'none';
-                return;
-            }
-            bar.style.display = 'flex';
-            const pts = cellShape.turnPoly(turnR);
-            const cells = bar.children;
-            for (let k = 0; k < 6 && k < cells.length; k++) {
-                const seat = gameState.turnOrder[k];
-                const svg = cells[k];
-                const poly = turnPolys[k] || svg.querySelector('polygon');
-                if (poly) poly.setAttribute('points', pts);
-                const txt = svg.querySelector('text');
-                poly.setAttribute('fill', k === gameState.turnIndex ? '#ffd54a' : '#ffffff');
-                txt.textContent = SEAT_PIECES[seat];
-                txt.setAttribute('fill', seat < 3 ? '#c03030' : '#3050c0');
-            }
         }
 
         let diceTimer = null;
@@ -1314,22 +1174,9 @@ window.RoomPlugins["dfw"] = {
                 /** 初始化骰子场景（type: 'd6' 圆角立方体 / 'd8' 切角八面体）——
          *  统一 MeshStandardMaterial + 灯光；d8 = 切角八面体（8 六边形大面 + 6 角面），
          *  顶点法线平滑 = 圆角感，保持八面骰形状。 */
-        function initThreeDice(type) {
-            const container = document.getElementById('dfwDice');
-            if (!container) return;
-            container.innerHTML = '';
-            const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
-            renderer.setSize(180, 180);
-            renderer.setClearColor(0x000000, 0);   // 透明背景
-            container.appendChild(renderer.domElement);
-            const scene = new THREE.Scene();
-            const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 100);
-            camera.position.set(0, 0, 4.5);
-            camera.lookAt(0, 0, 0);
-            scene.add(new THREE.AmbientLight(0xffffff, 0.65));
-            const dl = new THREE.DirectionalLight(0xffffff, 0.85);
-            dl.position.set(3, 4, 5);
-            scene.add(dl);
+        /** 构建骰子网格（d6/d8 统一入口）：返回 { mesh, targetFor }。
+         *  仅构建几何/材质（不含场景/渲染器）——右下角大骰子与角色右上角小骰子共用同一网格。 */
+        function buildDice(type) {
             let mesh;
             let targetFor;
             if (type === 'd8') {
@@ -1624,6 +1471,74 @@ window.RoomPlugins["dfw"] = {
                     4: [-Math.PI / 2, 0], 5: [0, -Math.PI / 2], 6: [0, Math.PI]
                 }[p] || [0, 0]);
             }
+            return { mesh, targetFor };
+        }
+
+        // 骰子图像缓存（角色右上角小骰子）：离屏渲染 d6/d8 到 canvas，drawImage 复用
+        let diceImgCache = null;
+        let offRenderer = null, offScene = null, offCamera = null;
+        const diceTemplates = {};
+
+        /** 构建/复用骰子模板（共享几何材质——右上角小骰子与右下角大骰子同一形状） */
+        function getDiceTemplate(type) {
+            if (!diceTemplates[type]) diceTemplates[type] = buildDice(type);
+            return diceTemplates[type];
+        }
+
+        /** 骰子图像（d6/d8 统一接口）：渲染指定点数的骰子到离屏画布，返回 canvas 图像；
+         *  同 (type,点数) 缓存复用；Three.js 未加载时返回 null（右上角暂不显示）。 */
+        function getDiceImage(type, points) {
+            const key = type + ':' + points;
+            if (diceImgCache && diceImgCache.has(key)) return diceImgCache.get(key);
+            if (!window.THREE) return null;
+            if (!offRenderer) {
+                offRenderer = new THREE.WebGLRenderer({ alpha: true, antialias: true, preserveDrawingBuffer: true });
+                offRenderer.setSize(96, 96);
+                offRenderer.setClearColor(0x000000, 0);
+                offScene = new THREE.Scene();
+                offCamera = new THREE.PerspectiveCamera(45, 1, 0.1, 100);
+                offCamera.position.set(0, 0, 4.5);
+                offCamera.lookAt(0, 0, 0);
+                offScene.add(new THREE.AmbientLight(0xffffff, 0.65));
+                const dl = new THREE.DirectionalLight(0xffffff, 0.85);
+                dl.position.set(3, 4, 5);
+                offScene.add(dl);
+            }
+            const { mesh: tmpl, targetFor } = getDiceTemplate(type);
+            const mesh = tmpl.clone();   // 共享几何/材质，独立变换
+            const [tX, tY, tZ] = targetFor(points);
+            mesh.rotation.x = tX;
+            mesh.rotation.y = tY;
+            mesh.rotation.z = tZ || 0;
+            offScene.add(mesh);
+            offRenderer.render(offScene, offCamera);
+            offScene.remove(mesh);
+            const cv = document.createElement('canvas');
+            cv.width = 96;
+            cv.height = 96;
+            cv.getContext('2d').drawImage(offRenderer.domElement, 0, 0, 96, 96);
+            if (!diceImgCache) diceImgCache = new Map();
+            diceImgCache.set(key, cv);
+            return cv;
+        }
+
+        function initThreeDice(type) {
+            const container = document.getElementById('dfwDice');
+            if (!container) return;
+            container.innerHTML = '';
+            const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
+            renderer.setSize(180, 180);
+            renderer.setClearColor(0x000000, 0);   // 透明背景
+            container.appendChild(renderer.domElement);
+            const scene = new THREE.Scene();
+            const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 100);
+            camera.position.set(0, 0, 4.5);
+            camera.lookAt(0, 0, 0);
+            scene.add(new THREE.AmbientLight(0xffffff, 0.65));
+            const dl = new THREE.DirectionalLight(0xffffff, 0.85);
+            dl.position.set(3, 4, 5);
+            scene.add(dl);
+            const { mesh, targetFor } = buildDice(type);
             scene.add(mesh);
             threeDice = { renderer, scene, camera, mesh, type, targetFor };
             threeDice.renderer.render(scene, camera);
@@ -1631,14 +1546,14 @@ window.RoomPlugins["dfw"] = {
 
         /** 掷骰子动画：Three.js 圆角立方体旋转 2 秒（多圈翻滚）→ 停 1 秒 → 消失。
          *  先定结果（点数），起姿态随机偏移多圈，终姿态 = 目标面朝前（+Z 朝向相机）。 */
-        function playDice() {
+        function playDice(onDone) {
             const wrap = document.getElementById('dfwDice');
             if (!wrap || !gameState) return;
             // 立即同步关闭目标格（骰子组件异步加载期间也不能显示——否则"没开始转就显示目标格"）
             showTargets = false;
             if (diceTimer) clearTimeout(diceTimer);
-            const p = gameState.dicePoint || 1;
-            const isRook = (gameState.currentSeat === 0 || gameState.currentSeat === 3);   // ♜ 玩家用八角骰子
+            const p = gameState.dicePoints[gameState.mySeat] || 1;
+            const isRook = (gameState.mySeat === 0 || gameState.mySeat === 3);   // ♜ 玩家用八角骰子
             const type = isRook ? 'd8' : 'd6';
             loadThreeScripts().then(() => {
                 if (!threeDice || threeDice.type !== type) initThreeDice(type);
@@ -1673,7 +1588,7 @@ window.RoomPlugins["dfw"] = {
                     if (t < 1) {
                         diceAnim = requestAnimationFrame(step);
                     } else {
-                        diceAnim = null;   // 旋转结束标记（playMoveAnimation 排队检查用）
+                        diceAnim = null;   // 旋转结束标记（playAllMoveAnimations 排队检查用）
                         // 停止：先保持 180px 展示点数 700ms，再缩小 50% 移到棋盘容器右下角
                         // （absolute 贴容器底）——缩小后保持显示直至行动完毕
                         diceTimer = setTimeout(() => {
@@ -1685,11 +1600,8 @@ window.RoomPlugins["dfw"] = {
                             wrap.style.bottom = '0px';
                             wrap.style.transform = 'none';
                             threeDice.renderer.render(threeDice.scene, threeDice.camera);
-                            showTargets = true;   // 骰子已转完：显示目标格框选（骰子仍停在右下角）
-                            if (curFrameSeat != null && gameState && gameState.seats && gameState.seats[curFrameSeat] != null) {
-                                startBlink();   // 人类行动：当前格框 500ms 闪烁
-                            }
                             drawBoard();
+                            if (onDone) onDone();   // 摇骰子动画完全结束（等 choosing 广播显示候选格）
                         }, 700);
                     }
                 };
@@ -1699,11 +1611,109 @@ window.RoomPlugins["dfw"] = {
             });
         }
 
+        /** 右下角显示己方骰子点数（缩小骰子，一直显示到移动结束） */
+        function showDice(points, isRook) {
+            const wrap = document.getElementById('dfwDice');
+            if (!wrap) return;
+            loadThreeScripts().then(() => {
+                const type = isRook ? 'd8' : 'd6';
+                if (!threeDice || threeDice.type !== type) initThreeDice(type);
+                const [tX, tY, tZ] = threeDice.targetFor(points);
+                threeDice.mesh.rotation.x = tX;
+                threeDice.mesh.rotation.y = tY;
+                threeDice.mesh.rotation.z = tZ || 0;
+                threeDice.renderer.setSize(90, 90);
+                wrap.style.position = 'absolute';
+                wrap.style.top = 'auto';
+                wrap.style.left = 'auto';
+                wrap.style.right = '16px';
+                wrap.style.bottom = '0px';
+                wrap.style.transform = 'none';
+                wrap.style.display = 'flex';
+                threeDice.renderer.render(threeDice.scene, threeDice.camera);
+            }).catch(() => {});
+        }
+
+        /** 本回合全部移动/重生动画：所有角色同时逐格移动，全部完成后回调 */
+        function playAllMoveAnimations(pending, onDone) {
+            const moves = pending.moves || [];
+            const respawns = pending.respawns || [];
+            if (diceAnim) {   // 骰子还在转：等转完再开始移动
+                moveTimer = setTimeout(() => playAllMoveAnimations(pending, onDone), 150);
+                return;
+            }
+            if (moveTimer) clearTimeout(moveTimer);
+            animatingMove = true;   // 动画进行中——视野/地图更新冻结到动画完成
+            showTargets = false;
+            const timers = [];
+            let remaining = 0;
+            const finishOne = () => {
+                remaining--;
+                if (remaining <= 0) {
+                    moveTimer = null;
+                    animatingMove = false;
+                    animPropsSnapshot = null;
+                    for (const s of Object.keys(currentMovePos)) currentMovePos[s] = null;
+                    drawBoard();
+                    if (onDone) onDone();
+                }
+            };
+            // 移动：逐格动画（每格 150ms）
+            for (const m of moves) {
+                const path = m.path || [];
+                if (path.length < 2) continue;
+                remaining++;
+                currentMovePos[m.seat] = path[0];
+                let idx = 0;
+                const step = () => {
+                    idx++;
+                    if (idx >= path.length) {
+                        currentMovePos[m.seat] = null;
+                        lastFrom[m.seat] = path[path.length - 2];   // 记录来向（箭头按新格计算：排除来向，指向所有可选亮格）
+                        drawBoard();
+                        finishOne();
+                        return;
+                    }
+                    currentMovePos[m.seat] = path[idx];
+                    drawBoard();
+                    timers.push(setTimeout(step, 150));
+                };
+                timers.push(setTimeout(step, 150));
+            }
+            // 重生：直接闪现到新位置（随机空白格）
+            for (const r of respawns) {
+                remaining++;
+                const st = setTimeout(() => {
+                    currentMovePos[r.seat] = null;
+                    lastFrom[r.seat] = null;   // 重生：来向清空（箭头用服务端新方向）
+                    drawBoard();
+                    finishOne();
+                }, 400);
+                timers.push(st);
+            }
+            if (remaining === 0) { animatingMove = false; if (onDone) onDone(); }
+        }
+
+        /** 技能按钮状态：choosing 阶段自己可行动（非冷却、未选）时可用 */
+        function updateSkillsUI() {
+            const skillsEl = document.getElementById('dfwSkills');
+            if (!skillsEl) return;
+            const isMyChoice = !!(gameState && gameState.phase === 'playing'
+                && gameState.roundPhase === 'choosing'
+                && gameState.mySeat >= 0
+                && !(gameState.respawnCooldown && gameState.respawnCooldown[gameState.mySeat] > 0)
+                && gameState.dicePoints && gameState.dicePoints[gameState.mySeat] != null);
+            const btn = document.getElementById('dfwSkillResurrect');
+            if (btn) btn.disabled = !isMyChoice;
+        }
+
         /** 点击目标格 → 移动 */
         function onCanvasClick(e) {
             if (!gameState || gameState.phase !== 'playing') return;
-            if (gameState.mySeat !== gameState.currentSeat) return;   // 只能自己回合行动
-            if (!gameState.reachable || !gameState.reachable.length) return;
+            if (gameState.roundPhase !== 'choosing') return;   // 只能在选择阶段行动
+            if (gameState.mySeat < 0) return;
+            if (gameState.respawnCooldown && gameState.respawnCooldown[gameState.mySeat] > 0) return;   // 冷却不可行动
+            if (!gameState.myReachable || !gameState.myReachable.length) return;
             if (!ws || ws.readyState !== WebSocket.OPEN) return;
             const p = screenPointFromClient(e.clientX, e.clientY);
             let bx = p.x, by = p.y;
@@ -1712,7 +1722,7 @@ window.RoomPlugins["dfw"] = {
                 by = (p.y - CANVAS_SIZE / 2) / viewZoom + viewCenterY;
             }
             const ctx2 = canvas.getContext('2d');
-            for (const v of gameState.reachable) {
+            for (const v of gameState.myReachable) {
                 if (ctx2.isPointInPath(hexPaths[v], bx, by)) {
                     ws.send(JSON.stringify({ type: 'move', to: v }));
                     return;   // 候选目标格：优先移动，不显示 tooltip
@@ -1794,10 +1804,12 @@ window.RoomPlugins["dfw"] = {
                 drawBoard();
                 return;
             }
-            // 悬停检测：轮到本页玩家行动时，鼠标在候选目标格上 → 预览角色（drawBoard 画半透明棋子）
+            // 悬停检测：choosing 阶段鼠标在己方候选目标格上 → 预览角色（drawBoard 画半透明棋子）
             const canAct = gameState && gameState.phase === 'playing' &&
-                gameState.mySeat != null && gameState.mySeat === gameState.currentSeat &&
-                gameState.reachable && gameState.reachable.length;
+                gameState.roundPhase === 'choosing' &&
+                gameState.mySeat != null &&
+                !(gameState.respawnCooldown && gameState.respawnCooldown[gameState.mySeat] > 0) &&
+                gameState.myReachable && gameState.myReachable.length;
             const hp = screenPointFromClient(e.clientX, e.clientY);
             let hx = hp.x, hy = hp.y;
             if (viewZoom !== 1) {
@@ -1807,7 +1819,7 @@ window.RoomPlugins["dfw"] = {
             let h = -1;
             if (canAct) {
                 const hctx = canvas.getContext('2d');
-                for (const v of gameState.reachable) {
+                for (const v of gameState.myReachable) {
                     if (hctx.isPointInPath(hexPaths[v], hx, hy)) { h = v; break; }
                 }
             }

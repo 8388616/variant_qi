@@ -40,7 +40,8 @@ const C = QiSquareWeiqiCanvas, R = QiWeiqiSquarePageRuntime;
             replayBoards: [], replayMarkers: [], replayStepPlayers: [],
             liveReplayBoards: [], liveReplayMarkers: [], liveReplayStepPlayers: [], liveViewStep: 0, liveFollowLatest: true,
             userBoardMarks: Object.create(null), hoverRow: -1, hoverCol: -1, isHoverValid: false,
-            candidates: [], serverCandidatesSnapshot: [], replaySnapshots: [], replayMovesForNumbers: []
+            candidates: [], serverCandidatesSnapshot: [], replaySnapshots: [], replayMovesForNumbers: [],
+            aiCandidates: false
         };
         (function () {
             const g = C.computePaddingAndCell(ps.BOARD_SIZE);
@@ -223,9 +224,9 @@ const scoreTitle = document.getElementById('scoreTitle'), scoreBoard = document.
             d.clear(ctx, cs); d.grid(ctx, ps.BOARD_SIZE, ps.PADDING, z, cs); d.starPoints(ctx, ps.BOARD_SIZE, ps.PADDING, z);
             d.coordLabels(ctx, ps.BOARD_SIZE, ps.PADDING, z);
             const sr = z * 0.44, ml = z * 0.352;
-            if (low) d.lastMoveMarkersLower(ctx, ps.lastMoveMarkers, ps.PADDING, z, sr);
+            if (low) d.lastMoveMarkersLower(ctx, ps.lastMoveMarkers, ps.PADDING, z, sr, ps.BOARD_SIZE);
             d.stonesBlackWhite(ctx, ps.board, ps.BOARD_SIZE, ps.PADDING, z, sr, ps.showMoveNumbers);
-            if (!low) d.lastMoveMarkersUpper(ctx, ps.lastMoveMarkers, ps.PADDING, z, ml);
+            if (!low) d.lastMoveMarkersUpper(ctx, ps.lastMoveMarkers, ps.PADDING, z, ml, ps.BOARD_SIZE);
             d.userBoardMarks(ctx, ps.userBoardMarks, ps.BOARD_SIZE, ps.PADDING, z, (r, c) =>
                 !ps.showEstimateActive && r >= 0 && r < ps.BOARD_SIZE && c >= 0 && c < ps.BOARD_SIZE && ps.board[r][c] === 0
                 && (ps.tryPlayMode || ps.gameOver || !ps.candidates.length || !ps.candidates.some(p => p.row === r && p.col === c)));
@@ -238,7 +239,7 @@ const scoreTitle = document.getElementById('scoreTitle'), scoreBoard = document.
                     ctx.globalAlpha = 0.7;
                     const playerColor = ps.currentPlayer === 1 ? '#222' : '#fff', sh = z * 0.18;
                     for (const { row, col } of ps.candidates) {
-                        const x = ps.PADDING + col * z, y = ps.PADDING + row * z;
+                        const x = ps.PADDING + col * z, y = ps.PADDING + (ps.BOARD_SIZE - 1 - row) * z;
                         ctx.fillStyle = playerColor;
                         ctx.fillRect(x - sh, y - sh, sh * 2, sh * 2);
                     }
@@ -257,7 +258,26 @@ const scoreTitle = document.getElementById('scoreTitle'), scoreBoard = document.
                 d.estimateOverlay(ctx, ps.board, ps.BOARD_SIZE, ps.PADDING, z, ps.cachedLiveBoard, ps.cachedTerritory);
         }
 
+        /** AI 生成选点复选框：仅选点围棋显示；开局后可见但不可选（disabled） */
+        function updateAiCandidatesLabelVisibility(state) {
+            const label = document.getElementById('aiCandidatesLabel');
+            if (!label) return;
+            const started = ps.gameOver || ps.matchStarted
+                || (state && (state.numberOfHands || 1) > 1)
+                || ps.board.some(row => row.some(v => v !== 0))
+                || ps.slots.black || ps.slots.white;
+            label.hidden = false;
+            const cb = document.getElementById('aiCandidatesCheckbox');
+            if (cb) cb.disabled = started;
+        }
+
         function choiceSync(state) {
+            // AI 生成选点模式状态同步（服务端广播 aiCandidates）
+            if (state.aiCandidates !== undefined) {
+                ps.aiCandidates = !!state.aiCandidates;
+                const cb = document.getElementById('aiCandidatesCheckbox');
+                if (cb) cb.checked = ps.aiCandidates;
+            }
             const incomingMoveLen = (state.moveCoords && state.moveCoords.length) || 0;
             const prevSyncedLen = ps._syncMoveCoordsLen;
             const incomingNH = state.numberOfHands || 1;
@@ -276,7 +296,7 @@ const scoreTitle = document.getElementById('scoreTitle'), scoreBoard = document.
                 const sel = document.getElementById('boardSizeSelect'); if (sel) sel.value = ps.BOARD_SIZE;
             } else if (state.komi != null && Number.isFinite(state.komi) && state.komi !== ps.KOMI) {
                 ps.KOMI = state.komi;
-                if (komiInfo) komiInfo.innerText = `黑贴白${ps.KOMI}点`;
+                if (komiInfo) QiWeiqiSquarePageRuntime.writeKomiInfoText(komiInfo, ps.KOMI, ps.BOARD_SIZE * ps.BOARD_SIZE);
             }
             ps.numberOfHands = incomingNH;
             ps.currentPlayer = state.currentPlayer;
@@ -341,6 +361,9 @@ const scoreTitle = document.getElementById('scoreTitle'), scoreBoard = document.
                 page.showEstimate();
             } else page.updateTurn();
             page.updateReplayUI();
+            // AI 生成选点复选框可用性更新：须在 ps.board 已刷新为 state.board 之后，
+            // 否则新局时 ps.board 仍是上一局残局，误判为「已开局」而保持禁用
+            updateAiCandidatesLabelVisibility(state);
             ps._syncMoveCoordsLen = incomingMoveLen;
         }
 
@@ -450,7 +473,7 @@ const scoreTitle = document.getElementById('scoreTitle'), scoreBoard = document.
         const _weiqiBindings = QiBoardRoomClient.createWeiqiMessageBindings({
             roomId, gameType, pageState: ps, drawBoard, exitTryPlay, enterTryPlay, setTryPlayStep, setReplayStep, setLiveViewStep,
             getWs: () => ps.ws, getBoardSize: () => ps.BOARD_SIZE, setBoardSize: (n) => { ps.BOARD_SIZE = n; },
-            getKomi: () => ps.KOMI, setKomi: (n) => { ps.KOMI = n; if (komiInfo) komiInfo.innerText = `黑贴白${ps.KOMI}点`; },
+            getKomi: () => ps.KOMI, setKomi: (n) => { ps.KOMI = n; if (komiInfo) QiWeiqiSquarePageRuntime.writeKomiInfoText(komiInfo, ps.KOMI, ps.BOARD_SIZE * ps.BOARD_SIZE); },
             getBoard: () => ps.board, setBoard: (b) => { ps.board = b; }, getSlots: () => ps.slots, setSlots: (s) => { ps.slots = s; },
             getMySlot: () => ps.mySlot, setMySlot: (s) => { ps.mySlot = s; }, getGameOver: () => ps.gameOver, setGameOver: (v) => { ps.gameOver = v; },
             getWinner: () => ps.winner, setWinner: (w) => { ps.winner = w; }, getReplayMode: () => ps.replayMode,
@@ -467,7 +490,34 @@ const scoreTitle = document.getElementById('scoreTitle'), scoreBoard = document.
             const p = b.onclick;
             b.onclick = () => { if (ps.replayMode) { if (ps.ws && ps.ws.readyState === WebSocket.OPEN) ps.ws.send(JSON.stringify({ type: 'resetRoom' })); return; } if (typeof p === 'function') p(); };
         })();
-        const handleMessage = _weiqiBindings.handleMessage;
+        // AI 生成选点开关的变更广播（服务端发 {type:'broadcast', action:'aiCandidatesChanged', ...state}）：
+        // 全量同步，保证双方页面一致
+        const _baseHandleMessage = _weiqiBindings.handleMessage;
+        const handleMessage = (msg) => {
+            if (msg && msg.type === 'broadcast' && msg.action === 'aiCandidatesChanged') {
+                choiceSync(msg);
+                return;
+            }
+            if (msg && msg.type === 'broadcast' && msg.action === 'candidatesUpdated') {
+                // 落子已立即显示，此处仅更新异步生成好的候选点
+                ps.candidates = (msg.candidates || []).map(c => ({ row: c.row, col: c.col }));
+                ps.serverCandidatesSnapshot = ps.candidates.map(c => ({ row: c.row, col: c.col }));
+                drawBoardChoice();
+                return;
+            }
+            if (msg && msg.type === 'aiCandidatesFallback') {
+                // AI 选点引擎失败：提示并回退为随机选点
+                if (typeof window.qiAlert === 'function') {
+                    window.qiAlert(msg.message || '引擎启动失败，回退为随机选点。');
+                }
+                return;
+            }
+            _baseHandleMessage(msg);
+            // timeControlAgreed 不触发 syncState：开局后补一次复选框禁用更新
+            if (msg && msg.type === 'timeControlAgreed') {
+                updateAiCandidatesLabelVisibility(null);
+            }
+        };
 
         let suppressCanvasClickAfterLongMark = false;
         canvas.addEventListener('contextmenu', (e) => {
@@ -524,7 +574,8 @@ const scoreTitle = document.getElementById('scoreTitle'), scoreBoard = document.
             if (ps.waitingScoreConfirm) return;
             if (row < 0 || col < 0) { if (mobileTwoStepPlacing()) clearMobileMovePreview(); drawBoard(); return; }
             if (ps.board[row][col] !== 0) return;
-            if (ps.candidates.length > 0 && !ps.candidates.some(c => c.row === row && c.col === col)) {
+            // 落子只能点候选点：候选未就绪（空）时也禁止落子，绝不自由落子
+            if (!ps.candidates.some(c => c.row === row && c.col === col)) {
                 if (mobileTwoStepPlacing()) clearMobileMovePreview(); drawBoard(); return;
             }
             if (mobileTwoStepPlacing()) {
@@ -546,7 +597,7 @@ const scoreTitle = document.getElementById('scoreTitle'), scoreBoard = document.
                 const x = (e.clientX - rect.left) * scale, y = (e.clientY - rect.top) * scale;
                 const { row, col } = getClosestIntersection(x, y);
                 ps.hoverRow = row; ps.hoverCol = col;
-                const onCand = ps.candidates.length === 0 || ps.candidates.some(c => c.row === row && c.col === col);
+                const onCand = ps.candidates.some(c => c.row === row && c.col === col);
                 ps.isHoverValid = (row >= 0 && col >= 0 && ps.board[row][col] === 0 && onCand);
                 drawBoard();
             });
@@ -564,6 +615,18 @@ const scoreTitle = document.getElementById('scoreTitle'), scoreBoard = document.
                 if (ps.showEstimateActive) { ps.showEstimateActive = false; clearEstimate(); }
                 ps.waitingScoreConfirm = false;
             };
+        }
+        // AI 生成选点：勾选/取消 → 服务端启用/停用（引擎与「与电脑对弈」同池，
+        // 繁忙时服务端返回 error，走通用错误提示）
+        const aiCandidatesLabel = document.getElementById('aiCandidatesLabel');
+        const aiCandidatesCheckbox = document.getElementById('aiCandidatesCheckbox');
+        updateAiCandidatesLabelVisibility(null);   // 初始：开局前显示
+        if (aiCandidatesCheckbox) {
+            aiCandidatesCheckbox.addEventListener('change', () => {
+                if (ps.ws && ps.ws.readyState === WebSocket.OPEN) {
+                    ps.ws.send(JSON.stringify({ type: 'setAiCandidates', enabled: aiCandidatesCheckbox.checked }));
+                }
+            });
         }
         connectWebSocket(handleMessage);
         })();

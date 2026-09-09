@@ -6,14 +6,19 @@
  * 座位协议：black=红方(先手)，white=黑方(后手)
  */
 (function (root, factory) {
+    // 传统方向：红方在 row 大侧（row 7-9），棋盘数据与显示一致
     const api = factory();
     // Node：勿用 module.exports 真值判断（个别环境会踩空）
     if (typeof module === 'object' && module !== null) {
         module.exports = api;
     }
     if (root) root.QiXiangqiRules = api;
-})(typeof globalThis !== 'undefined' ? globalThis : this, function () {
+    // 翻转方向：红方在 row 小侧（row 0-2）、显示在下；象棋本体及二象棋/迷雾象棋均使用
+    api.flipped = factory({ redAtTop: true });
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (options) {
     'use strict';
+    // 红方在纵坐标较小的一侧（row 0-2）、显示在下；黑方在上（row 7-9）
+    const redAtTop = !!(options && options.redAtTop);
 
     const BOARD_H = 10;
     const BOARD_W = 9;
@@ -33,6 +38,25 @@
 
     function createInitialBoard() {
         const b = emptyBoard();
+        if (redAtTop) {
+            // 红方在下（row 0-2），黑方在上（row 7-9）
+            b[9][0] = 'br'; b[9][8] = 'br';
+            b[9][1] = 'bn'; b[9][7] = 'bn';
+            b[9][2] = 'be'; b[9][6] = 'be';
+            b[9][3] = 'ba'; b[9][5] = 'ba';
+            b[9][4] = 'bk';
+            b[7][1] = 'bc'; b[7][7] = 'bc';
+            for (let i = 0; i < 5; i++) b[6][2 * i] = 'bp';
+
+            b[0][0] = 'rr'; b[0][8] = 'rr';
+            b[0][1] = 'rn'; b[0][7] = 'rn';
+            b[0][2] = 're'; b[0][6] = 're';
+            b[0][3] = 'ra'; b[0][5] = 'ra';
+            b[0][4] = 'rk';
+            b[2][1] = 'rc'; b[2][7] = 'rc';
+            for (let i = 0; i < 5; i++) b[3][2 * i] = 'rp';
+            return b;
+        }
         b[0][0] = 'br'; b[0][8] = 'br';
         b[0][1] = 'bn'; b[0][7] = 'bn';
         b[0][2] = 'be'; b[0][6] = 'be';
@@ -74,6 +98,10 @@
 
     function inPalace(side, row, col) {
         if (col < 3 || col > 5) return false;
+        if (redAtTop) {
+            if (side === 'red') return row >= 0 && row <= 2;
+            return row >= 7 && row <= 9;
+        }
         if (side === 'red') return row >= 7 && row <= 9;
         return row >= 0 && row <= 2;
     }
@@ -152,6 +180,10 @@
             const midR = fromRow + dR / 2;
             const midC = fromCol + dC / 2;
             if (board[midR][midC] !== '') return false;
+            if (redAtTop) {
+                if (side === 'red') return toRow <= 4;
+                return toRow >= 5;
+            }
             if (side === 'red') return toRow >= 5;
             return toRow <= 4;
         }
@@ -199,8 +231,13 @@
             return cnt === 1;
         }
         if (type === 'p') {
-            const forward = side === 'red' ? -1 : 1;
-            const crossed = side === 'red' ? fromRow <= 4 : fromRow >= 5;
+            // 红兵朝 row 增大方向前进；过河（越过中线）后可横走
+            const forward = redAtTop
+                ? (side === 'red' ? 1 : -1)
+                : (side === 'red' ? -1 : 1);
+            const crossed = redAtTop
+                ? (side === 'red' ? fromRow >= 5 : fromRow <= 4)
+                : (side === 'red' ? fromRow <= 4 : fromRow >= 5);
             if (dR === forward && dC === 0) return true;
             if (crossed && aR === 0 && aC === 1) return true;
             return false;
@@ -371,6 +408,7 @@
         BOARD_H,
         BOARD_W,
         PIECE_CHAR,
+        redAtTop,
         emptyBoard,
         copyBoard,
         createInitialBoard,

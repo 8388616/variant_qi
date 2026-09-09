@@ -540,11 +540,11 @@ const scoreTitle = document.getElementById('scoreTitle');
             const markLenDefault = cellSize * 0.352;
             const lowerLastMoveMarker = ps.showMoveNumbers || ps.showEstimateActive;
             if (lowerLastMoveMarker) {
-                d.lastMoveMarkersLower(ctx, ps.lastMoveMarkers, ps.PADDING, cellSize, stoneRadius);
+                d.lastMoveMarkersLower(ctx, ps.lastMoveMarkers, ps.PADDING, cellSize, stoneRadius, ps.BOARD_SIZE);
             }
             d.stonesBlackWhite(ctx, ps.board, ps.BOARD_SIZE, ps.PADDING, cellSize, stoneRadius, ps.showMoveNumbers);
             if (!lowerLastMoveMarker) {
-                d.lastMoveMarkersUpper(ctx, ps.lastMoveMarkers, ps.PADDING, cellSize, markLenDefault);
+                d.lastMoveMarkersUpper(ctx, ps.lastMoveMarkers, ps.PADDING, cellSize, markLenDefault, ps.BOARD_SIZE);
             }
             d.userBoardMarks(ctx, ps.userBoardMarks, ps.BOARD_SIZE, ps.PADDING, cellSize, isUserBoardMarkVisibleAt);
             if (ps.showMoveNumbers) {
@@ -582,7 +582,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                             for (let idx = 0; idx < coords.length; idx++) {
                                 const [r, c] = coords[idx];
                                 if (r < 0 || r >= ps.BOARD_SIZE || c < 0 || c >= ps.BOARD_SIZE) continue;
-                                const cx = ps.PADDING + c * cellSize, cy = ps.PADDING + r * cellSize;
+                                const cx = ps.PADDING + c * cellSize, cy = ps.PADDING + (ps.BOARD_SIZE - 1 - r) * cellSize;
                                 if (ps.board[r][c] === 0) {
                                     ctx.globalAlpha = 0.45;
                                     ctx.beginPath();
@@ -966,6 +966,9 @@ const scoreTitle = document.getElementById('scoreTitle');
             },
             enterTryPlay() {
                 _page.clearMobileMovePreview();
+                const fromLive = !ps.replayMode;
+                ps.tryPlayFromLive = fromLive;
+                ps.tryPlayFromLiveStep = ps.liveViewStep || 0;
                 ps.tryPlayMode = true;
                 ps.tryPlayBaseStep = ps.replayStep;
                 ps.tryPlayBoards = [deepCopyBoard(ps.board)];
@@ -975,11 +978,10 @@ const scoreTitle = document.getElementById('scoreTitle');
                     ? { ...ps.replayLastUsedAtStep[ps.replayStep] }
                     : { 1: ps.lastUsedShapeByColor[1] ?? -1, 2: ps.lastUsedShapeByColor[2] ?? -1 };
                 refreshTryPlayLastUsedShapeByColor();
-                const _fromLive = !ps.replayMode;
                 const _RT = typeof QiWeiqiSquarePageRuntime !== 'undefined' ? QiWeiqiSquarePageRuntime : null;
                 ps.tryPlayCurrentPlayer = _RT && _RT.resolveTryPlaySideToMove
                     ? _RT.resolveTryPlaySideToMove({
-                        fromLive: _fromLive,
+                        fromLive,
                         replayStep: ps.replayStep,
                         replayStepPlayers: ps.replayStepPlayers,
                         liveViewStep: ps.liveViewStep,
@@ -989,6 +991,16 @@ const scoreTitle = document.getElementById('scoreTitle');
                     })
                     : (ps.replayStep > 0 ? (3 - ps.replayStepPlayers[ps.replayStep]) : ((ps.currentPlayer === 1 || ps.currentPlayer === 2) ? ps.currentPlayer : 1));
                 ps.tryPlayBasePlayer = ps.tryPlayCurrentPlayer;
+                if (fromLive) {
+                    // 挂 replayMode 脚手架（与公共 enterTryPlay 一致）：直播进入试下时，
+                    // 点击/绘制按 ps.replayMode && ps.tryPlayMode 判断，缺了它试下无反应
+                    ps.replayMode = true;
+                    ps.replayBoards = [deepCopyBoard(ps.board)];
+                    ps.replayMarkers = [(ps.lastMoveMarkers || []).map(m => ({ ...m }))];
+                    ps.replayStepPlayers = [ps.tryPlayCurrentPlayer === 1 ? 2 : 1];
+                    ps.replayStep = 0;
+                    ps.replayTotalSteps = 0;
+                }
                 ps.tryPlayStep = 0;
                 ps.tryPlayTotalSteps = 0;
                 const slider = document.getElementById('replaySlider');
@@ -1002,7 +1014,16 @@ const scoreTitle = document.getElementById('scoreTitle');
             },
             exitTryPlay() {
                 _page.clearMobileMovePreview();
+                // 从直播进入试下的要退回直播局面（与公共 exitTryPlay 一致），而不是走打谱 setReplayStep
+                const fromLive = !!ps.tryPlayFromLive;
+                const savedLiveStep = ps.tryPlayFromLiveStep != null ? ps.tryPlayFromLiveStep : ps.liveViewStep;
+                const snapBoard = fromLive && ps.tryPlayBoards.length > 0 ? deepCopyBoard(ps.tryPlayBoards[0]) : null;
+                const snapMarkers = fromLive && ps.tryPlayMarkers.length > 0 && ps.tryPlayMarkers[0]
+                    ? ps.tryPlayMarkers[0].map(m => ({ ...m }))
+                    : [];
                 ps.tryPlayMode = false;
+                ps.tryPlayFromLive = false;
+                if ('tryPlayFromLiveStep' in ps) ps.tryPlayFromLiveStep = null;
                 ps.tryPlayBoards = [];
                 ps.tryPlayMarkers = [];
                 ps.tryPlayShapeByStep = [-1];
@@ -1010,8 +1031,38 @@ const scoreTitle = document.getElementById('scoreTitle');
                 ps.tryPlayTotalSteps = 0;
                 const slider = document.getElementById('replaySlider');
                 slider.min = 0;
-                slider.max = ps.replayTotalSteps;
-                _page.setReplayStep(ps.tryPlayBaseStep);
+                if (fromLive) {
+                    ps.replayMode = false;
+                    ps.replayBoards = [];
+                    ps.replayMarkers = [];
+                    ps.replayStepPlayers = [];
+                    ps.replayStep = 0;
+                    ps.replayTotalSteps = 0;
+                    if (snapBoard) {
+                        ps.board = snapBoard;
+                        ps.lastMoveMarkers = snapMarkers.map(m => ({ ...m }));
+                        if (ps.liveReplayBoards.length > 0) {
+                            const step = Math.min(Math.max(0, savedLiveStep), ps.liveReplayBoards.length - 1);
+                            ps.liveReplayBoards[step] = deepCopyBoard(snapBoard);
+                            if (!ps.liveReplayMarkers[step]) ps.liveReplayMarkers[step] = [];
+                            ps.liveReplayMarkers[step] = snapMarkers.map(m => ({ ...m }));
+                            ps.liveViewStep = step;
+                        } else {
+                            ps.liveReplayBoards = [deepCopyBoard(snapBoard)];
+                            ps.liveReplayMarkers = [snapMarkers.map(m => ({ ...m }))];
+                            ps.liveReplayStepPlayers = [0];
+                            ps.liveViewStep = 0;
+                        }
+                    } else if (typeof _page.applyLiveViewBoard === 'function') {
+                        _page.applyLiveViewBoard();
+                    }
+                    _page.updateLiveReplayPanelUI();
+                    if (ps.showEstimateActive) _page.showEstimate();
+                    else _page.updateTurn();
+                } else {
+                    slider.max = ps.replayTotalSteps;
+                    _page.setReplayStep(ps.tryPlayBaseStep);
+                }
                 updateShapeAvailability();
                 updateShapeColors();
                 _page.updateReplayUI();

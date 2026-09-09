@@ -22,10 +22,34 @@ function normalizeInitialPositionForReplayPayload(initialPosition) {
     return out;
 }
 
+// 权重围棋家族(主棋类 weight-weiqi):subGameId 区分五个子棋类。
+// weight-weiqi:1..N² 不重复权重(排列);其余:每点独立按权重池随机。
+// 贴目:weight-weiqi 用原公式,其余固定值。
+const WEIGHT_SUB_GAMES = [
+    'weight-weiqi', 'biweight-weiqi', 'triweight-weiqi', 'quadriweight-weiqi', 'quintiweight-weiqi'
+];
+const WEIGHT_POOLS = {
+    'biweight-weiqi': [1, 1, 2],
+    'triweight-weiqi': [1, 1, 1, 1, 2, 2, 3],
+    'quadriweight-weiqi': [1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 4],
+    'quintiweight-weiqi': [
+        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+        2, 2, 2, 2, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 5
+    ]
+};
+const WEIGHT_FIXED_KOMI = {
+    'biweight-weiqi': 5.25,
+    'triweight-weiqi': 6.25,
+    'quadriweight-weiqi': 6.75,
+    'quintiweight-weiqi': 7.25
+};
+
 class WeightWeiqiRoom extends QiTwoPlayerRoomBase {
-    constructor(room) {
+    constructor(room, initialSize = 19, subGameId = 'weight-weiqi') {
         super(room);
-        this.boardSize = 19;          // 每行每列格数（19路 = 19×19 格）
+        this.boardSize = initialSize;   // 每行每列格数（19路 = 19×19 格）
+        this.subGameId = WEIGHT_SUB_GAMES.includes(subGameId) ? subGameId : 'weight-weiqi';
+        this.komi = this.komiFor();
         this.board = Array(this.boardSize).fill().map(() => Array(this.boardSize).fill(0));
         if (this.openingBoard === undefined) this.openingBoard = (typeof this.copyBoard === 'function' ? this.copyBoard(this.board) : (Array.isArray(this.board[0]) ? this.board.map(r => r.slice()) : this.board.slice()));
         this.weights = this.generateWeights();
@@ -284,23 +308,40 @@ class WeightWeiqiRoom extends QiTwoPlayerRoomBase {
         return null;
     }
 
-    // 生成 1 ~ 棋盘点数 不重复随机权重
+    /** 按子棋类生成权重:weight-weiqi 为 1..N² 不重复排列;其余按权重池逐点独立随机 */
     generateWeights() {
-        const total = this.boardSize * this.boardSize;
-        let arr = Array.from({ length: total }, (_, i) => i + 1);
-        // Fisher-Yates 洗牌
-        for (let i = arr.length - 1; i > 0; i--) {
-            const j = Math.floor(Math.random() * (i + 1));
-            [arr[i], arr[j]] = [arr[j], arr[i]];
-        }
+        const pool = WEIGHT_POOLS[this.subGameId];
         const weights = Array(this.boardSize).fill().map(() => Array(this.boardSize).fill(0));
-        let idx = 0;
+        if (!pool) {
+            // weight-weiqi:1 ~ 棋盘点数 不重复随机权重(Fisher-Yates)
+            const total = this.boardSize * this.boardSize;
+            const arr = Array.from({ length: total }, (_, i) => i + 1);
+            for (let i = arr.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                const t = arr[i]; arr[i] = arr[j]; arr[j] = t;
+            }
+            let idx = 0;
+            for (let i = 0; i < this.boardSize; i++) {
+                for (let j = 0; j < this.boardSize; j++) {
+                    weights[i][j] = arr[idx++];
+                }
+            }
+            return weights;
+        }
         for (let i = 0; i < this.boardSize; i++) {
             for (let j = 0; j < this.boardSize; j++) {
-                weights[i][j] = arr[idx++];
+                weights[i][j] = pool[Math.floor(Math.random() * pool.length)];
             }
         }
         return weights;
+    }
+
+    /** 子棋类贴目:固定值;weight-weiqi(排列)沿用原公式 */
+    komiFor() {
+        const fixed = WEIGHT_FIXED_KOMI[this.subGameId];
+        if (fixed != null) return fixed;
+        const n = this.boardSize;
+        return Math.floor(0.008 * (1 + n * n) * n * n);
     }
 
     countGroupLiberties(board, row, col) {
@@ -406,7 +447,7 @@ class WeightWeiqiRoom extends QiTwoPlayerRoomBase {
         const liveBoard = this.removeDeadAndDying(this.board);
         const territory = this.assignTerritoryWithRange(liveBoard);
         const { blackTotal, whiteTotal } = this.computeScore(liveBoard, territory);
-        const KOMI = Math.floor(0.008 * (1 + this.boardSize * this.boardSize) * this.boardSize * this.boardSize);
+        const KOMI = this.komiFor();
 
         return blackTotal - whiteTotal - 2 * KOMI;
     }
@@ -414,6 +455,8 @@ class WeightWeiqiRoom extends QiTwoPlayerRoomBase {
     getState() {
         return {
             boardSize: this.boardSize,
+            subGameId: this.subGameId,
+            komi: this.komiFor(),
             board: this.board,
             weights: this.weights,
             numberOfHands: 1 + this.historyBoards.length,
@@ -468,6 +511,11 @@ class WeightWeiqiRoom extends QiTwoPlayerRoomBase {
 
             case 'setBoardSize':
                 qiProtocol.setBoardSizeWeiqiObserver(this, ws, msg, slot);
+                break;
+
+            case 'setSubGame':
+                if (!slot && !room.players.size)
+                    this.setSubGame(msg.subGameId, ws);
                 break;
 
             case 'move': {
@@ -566,11 +614,11 @@ class WeightWeiqiRoom extends QiTwoPlayerRoomBase {
                 break;
 
             case 'estimate':
-                // 前端请求形势判断结果
+                // 前端请求形势判断结果(按当前子棋类贴目)
                 const liveBoard = this.removeDeadAndDying(this.board);
                 const territory = this.assignTerritoryWithRange(liveBoard);
                 const { blackTotal, whiteTotal } = this.computeScore(liveBoard, territory);
-                const lead = blackTotal - whiteTotal - 2000; // 1000*2
+                const lead = blackTotal - whiteTotal - 2 * this.komiFor();
                 ws.send(JSON.stringify({
                     type: 'estimateResult',
                     liveBoard,
@@ -669,9 +717,28 @@ class WeightWeiqiRoom extends QiTwoPlayerRoomBase {
             return false;
         }
         this.boardSize = newSize;
-        this.komi = Math.floor(0.008 * (1 + this.boardSize * this.boardSize) * this.boardSize * this.boardSize);
+        this.komi = this.komiFor();
         this.resetGame();
         this.broadcast({ type: 'boardSizeChanged', boardSize: this.boardSize });
+        return true;
+    }
+
+    /** 子棋类切换(仅观战者且房间无人时):重新生成权重并按子棋类贴目 */
+    setSubGame(subGameId, requesterWs) {
+        if (!WEIGHT_SUB_GAMES.includes(subGameId)) {
+            requesterWs.send(JSON.stringify({ type: 'error', message: '子棋类无效' }));
+            return false;
+        }
+        const hasAnyStone = this.board.some(row => row.some(v => v !== 0));
+        const hasPlayer = this.room.getPlayerBySlot('black') || this.room.getPlayerBySlot('white');
+        if (hasAnyStone || hasPlayer) {
+            // 已开局(有子/有人入座):静默忽略(客户端此时已隐藏选择器)
+            return false;
+        }
+        this.subGameId = subGameId;
+        this.komi = this.komiFor();
+        this.weights = this.generateWeights();
+        this.broadcast({ type: 'subGameChanged', subGameId, weights: this.weights.map(row => row.slice()), ...this.getState() });
         return true;
     }
 
@@ -689,8 +756,9 @@ class WeightWeiqiRoom extends QiTwoPlayerRoomBase {
             version: 1,
             gameType: '权重围棋',
             gameId: 'weight-weiqi',
+            subGameId: this.subGameId,
             boardSize: this.boardSize,
-            komi: this.komi,
+            komi: this.komiFor(),
             weights: this.weights.map(row => row.slice()),
             players: { black: null, white: null },
             initialPosition: encodeOpeningPositionCompact(this),
@@ -753,7 +821,8 @@ class WeightWeiqiRoom extends QiTwoPlayerRoomBase {
         }
 
         this.boardSize = newSize;
-        this.komi = Math.floor(0.008 * (1 + this.boardSize * this.boardSize) * this.boardSize * this.boardSize);
+        this.subGameId = WEIGHT_SUB_GAMES.includes(data.subGameId) ? data.subGameId : 'weight-weiqi';
+        this.komi = this.komiFor();
         this.resetToEmpty();
 
         if (data.weights && Array.isArray(data.weights) && data.weights.length === this.boardSize) {

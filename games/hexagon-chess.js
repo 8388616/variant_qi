@@ -39,17 +39,17 @@ function copyBoard(src) {
 function createInitialBoard() {
     const b = emptyBoard();
     // 白方（底部）：行 10（6 格）车马后王马车；行 9（7 格）兵兵象象象兵兵；行 8（8 格）空兵×6空
-    b[10][0] = 'wr'; b[10][1] = 'wn'; b[10][2] = 'wq'; b[10][3] = 'wk';
-    b[10][4] = 'wn'; b[10][5] = 'wr';
-    b[9][0] = 'wp'; b[9][1] = 'wp'; b[9][2] = 'wb'; b[9][3] = 'wb';
-    b[9][4] = 'wb'; b[9][5] = 'wp'; b[9][6] = 'wp';
-    b[8][0] = ''; for (let c = 1; c <= 6; c++) b[8][c] = 'wp'; b[8][7] = '';
+    b[0][0] = 'wr'; b[0][1] = 'wn'; b[0][2] = 'wq'; b[0][3] = 'wk';
+    b[0][4] = 'wn'; b[0][5] = 'wr';
+    b[1][0] = 'wp'; b[1][1] = 'wp'; b[1][2] = 'wb'; b[1][3] = 'wb';
+    b[1][4] = 'wb'; b[1][5] = 'wp'; b[1][6] = 'wp';
+    b[2][0] = ''; for (let c = 1; c <= 6; c++) b[2][c] = 'wp'; b[2][7] = '';
     // 黑方（顶部，白方视角下后左王右；双方当面下棋左右相同）
-    b[0][0] = 'br'; b[0][1] = 'bn'; b[0][2] = 'bq'; b[0][3] = 'bk';
-    b[0][4] = 'bn'; b[0][5] = 'br';
-    b[1][0] = 'bp'; b[1][1] = 'bp'; b[1][2] = 'bb'; b[1][3] = 'bb';
-    b[1][4] = 'bb'; b[1][5] = 'bp'; b[1][6] = 'bp';
-    b[2][0] = ''; for (let c = 1; c <= 6; c++) b[2][c] = 'bp'; b[2][7] = '';
+    b[10][0] = 'br'; b[10][1] = 'bn'; b[10][2] = 'bq'; b[10][3] = 'bk';
+    b[10][4] = 'bn'; b[10][5] = 'br';
+    b[9][0] = 'bp'; b[9][1] = 'bp'; b[9][2] = 'bb'; b[9][3] = 'bb';
+    b[9][4] = 'bb'; b[9][5] = 'bp'; b[9][6] = 'bp';
+    b[8][0] = ''; for (let c = 1; c <= 6; c++) b[8][c] = 'bp'; b[8][7] = '';
     return b;
 }
 
@@ -257,7 +257,7 @@ function pawnMoves(board, r, c, color, meta) {
     // （黑方面朝下时左右与白方相同（棋盘不翻转）——黑方左前 = 白方视角的左下 = SW、右前 = SE）
     // ——但用户定义"斜吃 = 左前格的左侧格"——黑方左前格 (SW) 的"左侧格"（黑方视角左 = 白方视角右 = E 方向）
     const FL = forwardDirs[0], FR = forwardDirs[1];
-    const startRows = side === 'white' ? [8, 9] : [1, 2];
+    const startRows = side === 'white' ? [1, 2] : [8, 9];
     const ep = meta && meta.enPassant;
 
     const one = dirNeighbor(r, c, FL);
@@ -323,20 +323,20 @@ function kingMoves(board, r, c, color, meta) {
     const castling = (meta && meta.castling) || defaultCastling();
     if (isInCheck(board, side)) return out;
     if (side === 'white') {
-        if (r !== 10 || c !== 3 || !castling.white) return out;
-        if (board[10][0] !== 'wr') return out;
-        if (board[10][1] !== '' || board[10][2] !== '') return out;
+        if (r !== 0 || c !== 3 || !castling.white) return out;
+        if (board[0][0] !== 'wr') return out;
+        if (board[0][1] !== '' || board[0][2] !== '') return out;
         if (isSquareAttackedBy(board, 10, 2, 'black')) return out;
         if (isSquareAttackedBy(board, 10, 1, 'black')) return out;
         out.push({ row: 10, col: 1, castling: true });
     } else {
         // 黑方视角的左侧 = 白方视角的左侧（当面下棋左右相同）；黑王 (0,3)、左车 (0,0)
-        if (r !== 0 || c !== 3 || !castling.black) return out;
-        if (board[0][0] !== 'br') return out;
-        if (board[0][1] !== '' || board[0][2] !== '') return out;
+        if (r !== 10 || c !== 3 || !castling.black) return out;
+        if (board[10][0] !== 'br') return out;
+        if (board[10][1] !== '' || board[10][2] !== '') return out;
         if (isSquareAttackedBy(board, 0, 2, 'white')) return out;
         if (isSquareAttackedBy(board, 0, 1, 'white')) return out;
-        out.push({ row: 0, col: 1, castling: true });
+        out.push({ row: 10, col: 1, castling: true });
     }
     return out;
 }
@@ -413,8 +413,8 @@ function isInCheck(board, side) {
 
 function needsPromotion(piece, toRow) {
     if (!piece || piece[1] !== 'p') return false;
-    if (piece[0] === 'w') return toRow === 0;
-    return toRow === ROWS - 1;
+    if (piece[0] === 'w') return toRow === ROWS - 1;
+    return toRow === 0;
 }
 
 function normalizePromote(promote) {
@@ -506,11 +506,11 @@ function applyMoveOnBoard(board, fromRow, fromCol, toRow, toCol, meta, promote) 
     // 易位：挪车（王左移 2、车右移 2）
     if (moveKind && moveKind.kind === 'castling') {
         if (piece[0] === 'w') {
-            next[10][2] = next[10][0];
-            next[10][0] = '';
-        } else {
             next[0][2] = next[0][0];
             next[0][0] = '';
+        } else {
+            next[10][2] = next[10][0];
+            next[10][0] = '';
         }
     }
 
@@ -526,10 +526,10 @@ function applyMoveOnBoard(board, fromRow, fromCol, toRow, toCol, meta, promote) 
     // 更新易位权
     if (piece === 'wk') castling.white = false;
     if (piece === 'bk') castling.black = false;
-    if (piece === 'wr' && fromRow === 10 && fromCol === 0) castling.white = false;
-    if (piece === 'br' && fromRow === 0 && fromCol === 0) castling.black = false;
-    if (captured === 'wr' && toRow === 10 && toCol === 0) castling.white = false;
-    if (captured === 'br' && toRow === 0 && toCol === 0) castling.black = false;
+    if (piece === 'wr' && fromRow === 0 && fromCol === 0) castling.white = false;
+    if (piece === 'br' && fromRow === 10 && fromCol === 0) castling.black = false;
+    if (captured === 'wr' && toRow === 0 && toCol === 0) castling.white = false;
+    if (captured === 'br' && toRow === 10 && toCol === 0) castling.black = false;
 
     // 新过路兵格（两步兵：记录第一步格 + 兵的目标格）
     if (wasDouble) {

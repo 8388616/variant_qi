@@ -45,7 +45,7 @@ window.RoomPlugins["fog-xiangqi"] = {
 
 
         (function () {
-const R = QiXiangqiRules;
+const R = QiXiangqiRules.flipped;
         const SLOT_UI = {
             black: { name: '红方', emoji: '🔴', continueText: '继续执红', choiceText: '执红', youText: '您执红', absentText: '红方已退出', statusText: '红方' },
             white: { name: '黑方', emoji: '⚫', continueText: '继续执黑', choiceText: '执黑', youText: '您执黑', absentText: '黑方已退出', statusText: '黑方' }
@@ -197,13 +197,16 @@ const canvas = document.getElementById('goBoard');
         }
 
         function toDisplayCoord(row, col) {
-            if (!boardFlipped()) return { row, col };
-            return { row: R.BOARD_H - 1 - row, col: R.BOARD_W - 1 - col };
+            // 红方在 row 小的一侧且显示在下：先做视角 180° 旋转，再整体 y 镜像
+            let r = row, c = col;
+            if (boardFlipped()) { r = R.BOARD_H - 1 - r; c = R.BOARD_W - 1 - c; }
+            return { row: R.BOARD_H - 1 - r, col: c };
         }
 
         function toOriginalCoord(dispRow, dispCol) {
-            if (!boardFlipped()) return { row: dispRow, col: dispCol };
-            return { row: R.BOARD_H - 1 - dispRow, col: R.BOARD_W - 1 - dispCol };
+            let r = R.BOARD_H - 1 - dispRow, c = dispCol;
+            if (boardFlipped()) { r = R.BOARD_H - 1 - r; c = R.BOARD_W - 1 - c; }
+            return { row: r, col: c };
         }
 
         function calcGeometry() {
@@ -371,25 +374,49 @@ const canvas = document.getElementById('goBoard');
                     const x = offsetX + d.col * cellSize;
                     const y = offsetY + d.row * cellSize;
                     const radius = cellSize * 0.42;
-                    ctx2d.shadowOffsetY = radius * 0.2;
-                    ctx2d.shadowBlur = radius * 0.4;
-                    ctx2d.shadowColor = 'rgba(0,0,0,0.45)';
+                                        // 天天象棋式：单色圆片 + 环绕侧影（上缘宽度 0，向下平滑过渡到最宽）
+                    ctx2d.shadowOffsetY = radius * 0.16;
+                    ctx2d.shadowBlur = radius * 0.28;
+                    ctx2d.shadowColor = 'rgba(0,0,0,0.35)';
                     ctx2d.beginPath();
-                    ctx2d.arc(x, y, radius, 0, Math.PI * 2);
                     ctx2d.fillStyle = '#e8d2a0';
+                    ctx2d.arc(x, y, radius, 0, Math.PI * 2);
                     ctx2d.fill();
                     ctx2d.shadowBlur = 0; ctx2d.shadowOffsetY = 0;
-                    ctx2d.strokeStyle = '#c49c6a';
+                    ctx2d.save();
+                    ctx2d.beginPath();
+                    ctx2d.arc(x, y, radius, 0, Math.PI * 2);
+                    ctx2d.clip();
+                    
+                    // 侧影内边界随角度变化：上(3π/2)=0、下(π/2)最宽，72 段细分平滑
+                    for (let si = 0; si < 72; si++) {
+                        const t1 = (si / 72) * Math.PI * 2;
+                        const t2 = ((si + 1) / 72) * Math.PI * 2;
+                        const tm = (t1 + t2) / 2;
+                        const wShade = radius * 0.30 * (1 + Math.sin(tm)) / 2;
+                        const innerR = radius - wShade;
+                        ctx2d.beginPath();
+                        ctx2d.arc(x, y, radius, t1, t2);
+                        ctx2d.arc(x, y, innerR, t2, t1, true);
+                        ctx2d.closePath();
+                        ctx2d.fillStyle = 'rgba(200,160,104,0.8)';
+                        ctx2d.fill();
+                    }
+                    ctx2d.restore();
+
+                    ctx2d.beginPath();
+                    ctx2d.arc(x, y, radius, 0, Math.PI * 2);
+                    ctx2d.strokeStyle = 'rgba(200,160,104,0.8)';
                     ctx2d.lineWidth = 1.5;
                     ctx2d.stroke();
                     const color = piece[0] === 'r' ? '#932c13' : '#222';
                     ctx2d.fillStyle = color;
-                    ctx2d.font = `${cellSize * 0.52}px XiangqiPiece`;
+                    ctx2d.font = `${cellSize * 0.5}px XiangqiPiece`;
                     ctx2d.textAlign = 'center';
                     ctx2d.textBaseline = 'middle';
-                    ctx2d.fillText(R.pieceLabel(piece), x, y + cellSize * 0.02);
+                    ctx2d.fillText(R.pieceLabel(piece), x, y - radius * 0.15 + cellSize * 0.02);
                     ctx2d.beginPath();
-                    ctx2d.arc(x, y, radius * 0.78, 0, Math.PI * 2);
+                    ctx2d.arc(x, y - radius * 0.15, radius * 0.72, 0, Math.PI * 2);
                     ctx2d.strokeStyle = color;
                     ctx2d.lineWidth = 1.2;
                     ctx2d.stroke();

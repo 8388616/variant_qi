@@ -1543,18 +1543,19 @@ class DfwRoom extends QiTwoPlayerRoomBase {
         this.piecePositions = null;                 // 开局后 [6]（每人初始格索引）
         this.pieceDirs = null;                      // 开局后 [6]（每人当前方向，方向索引）
         this.cellProps = null;                      // 开局后生成：每格属性（null=无属性）
-        // 回合：红1 蓝1 蓝2 红2 红3 蓝3 循环（座位索引）
-        this.turnOrder = [0, 3, 4, 1, 2, 5];
-        this.turnIndex = 0;                         // 当前轮到 turnOrder[turnIndex]
-        this.dicePoint = null;                      // 当前骰子点数（待移动格数）
-        this.availNext = new Array(this.turnOrder.length).fill(null);   // 每座位可选邻格集合（目标格 → 除来向外所有点亮邻格）
+        // 同步回合：每回合 6 人同时摇骰 → 各自选择 → 同时移动
+        this.roundPhase = null;                     // 'rolling'（摇骰子）| 'choosing'（选择）| 'moving'（移动动画）| null
+        this.dicePoints = new Array(6).fill(null);  // 每座位本轮骰子点数（全员可见）
+        this.reachableBySeat = new Array(6).fill(null);   // 每座位候选格（只发给本人）
+        this.choiceBySeat = new Array(6).fill(null);      // 每座位选择 {type:'move',to} | {type:'resurrect'} | null
+        this.respawnCooldown = new Array(6).fill(0);      // 重生冷却：>0 = 该座位跳过本回合；重生后置 2（下一回合跳过、再下一回合正常）
+        this.roundReadySeats = new Set();           // 已确认动画完成的座位（rolling/moving 阶段按座位收集）
+        this.pendingMoves = null;                   // 本回合移动结果 { moves:[{seat,path}], respawns:[{seat,to}] }
+        this.aiTimer = null;                        // AI 托管自动行动定时器
+        this.availNext = new Array(6).fill(null);   // 每座位可选邻格集合（目标格 → 除来向外所有点亮邻格）
         this.visitedCells = [new Set(), new Set()];              // 每方（0=红方、1=蓝方）经过过的格子集合（去重）——游历点
         this.wealth = [1000, 1000];                          // 每方财富点（初始 1000）
-        this.reachable = null;                      // 当前玩家的可选目标格（骰子后计算）
-        this.aiTimer = null;                        // AI 托管自动移动的定时器
         this.lastFrom = new Array(6).fill(null);    // 每个座位上一格的格子（null = 未移动过/开局）
-        this.movePath = null;                       // 最近一次移动的路径（[起点,...,目标]，客户端逐格动画）
-        this.movePathSeat = -1;                     // 移动路径对应的座位
     }
 
     /** 按地图形状生成棋盘数据并重新生成格局（开局前切换形状用；shape = 'hex' | 'square'） */
@@ -1738,13 +1739,11 @@ class DfwRoom extends QiTwoPlayerRoomBase {
             pieceDirs: this.pieceDirs,
             cellProps: (this.cellProps || []).map((prop, v) => (vis.has(v) ? prop : null)),   // 视野外的格属性不同步（开局前 cellProps 为 null）
             emptyBg: CELL_PROPS.empty.bg,
-            turnOrder: this.turnOrder,
-            turnIndex: this.turnIndex,
-            currentSeat: this.turnOrder[this.turnIndex],
-            dicePoint: this.dicePoint,
-            reachable: this.reachable,
-            movePath: this.movePath,
-            movePathSeat: this.movePathSeat,
+            roundPhase: this.roundPhase,                       // 'rolling' | 'choosing' | 'moving' | null
+            dicePoints: this.dicePoints,                       // 每座位本轮骰子点数（全员可见）
+            myReachable: (me && me.seat >= 0) ? this.reachableBySeat[me.seat] : null,   // 只给本人候选格
+            respawnCooldown: this.respawnCooldown,             // 每座位重生冷却（>0 = 本回合跳过）
+            pendingMoves: this.pendingMoves,                   // 移动阶段：{ moves:[{seat,path}], respawns:[{seat,to}] }
             wealth: this.wealth,
             mineWealth: (this.mineWealth || []).map((m, v) => (vis.has(v) ? m : 0)),   // 视野外的 mine 财富不同步
             landValue: (this.landValue || []).map((lv, v) => (vis.has(v) ? lv : 0))   // 视野外的占领地价值不同步
@@ -1785,9 +1784,9 @@ class DfwRoom extends QiTwoPlayerRoomBase {
                 me.seat = seat;
                 this.seats[seat] = ws;
                 if (!this.hostWs) this.hostWs = ws;   // 第一个坐下的是房主
-                // 暂停恢复：游戏进行中且没有进行中的行动（无骰子、无 AI 定时器）→ 继续掷骰
-                if (this.phase === 'playing' && this.dicePoint == null && !this.aiTimer) {
-                    this._rollDice();
+                // 暂停恢复：游戏进行中且回合停滞（无进行中的阶段、无 AI 定时器）→ 重新开始回合
+                if (this.phase === 'playing' && !this.roundPhase && !this.aiTimer) {
+                    this._startRound();
                 }
                 this.broadcastState();
                 break;
@@ -1806,132 +1805,45 @@ class DfwRoom extends QiTwoPlayerRoomBase {
                 break;
             }
             case 'move': {
-                if (this.phase !== 'playing') return;
+                // 同步回合：choosing 阶段任意座位可选自己的候选格
+                if (this.phase !== 'playing' || this.roundPhase !== 'choosing') return;
                 const me = this.players.get(ws);
                 if (!me || me.seat === -1) return;
                 const seat = me.seat;
-                if (this.turnOrder[this.turnIndex] !== seat) return;   // 不是当前行动者
-                if (this.dicePoint == null || !this.reachable) return;
+                if (this.respawnCooldown[seat] > 0) return;   // 冷却中（重生后下一回合不可行动）
+                if (this.choiceBySeat[seat] != null) return;  // 已选
                 const to = msg.to;
-                if (typeof to !== 'number' || !this.reachable.includes(to)) return;   // 目标不可达
-                this.piecePositions[seat] = to;
-                // 移动路径（pathsOf = 该终点的一条完整最长路径）
-                const path = this.pathsOf.get(to);
-                // 游历点：只计落点（每次移动停下的格），去重
-                // 财富结算（移动到目标格后）：mine（路径经过的每个：+500、≤500 全给并移除）+
-                //   占领/取消占领（♜ 到达终点时）+ 每回合结束双方按占领地结算收入
-                {
-                    const side = seat < 3 ? 0 : 1;
-                    const to = path[path.length - 1];
-                    this.visitedCells[side].add(to);
-                    // mine：只有到达（终点）矿产格才获得财富（途径不算）
-                    if (this.mineWealth[to] > 0) {
-                        if (this.mineWealth[to] <= 500) {
-                            this.wealth[side] += this.mineWealth[to];
-                            this.mineWealth[to] = 0;   // 剩余全给并移除
-                        } else {
-                            this.wealth[side] += 500;
-                            this.mineWealth[to] -= 500;
-                        }
-                    }
-                    // 占领/取消占领：♜（座位 0/3）到达（终点）developableLand 时占领；
-                    //   对方到达已占领格时取消（恢复 developableLand）；对方♜到达可直接占领（重新随机价值）
-                    const prop = this.cellProps[to];
-                    const isRook = (seat === 0 || seat === 3);
-                    if (prop && (prop.type === 'developableLandA' || prop.type === 'developableLandB')) {
-                        if (isRook) {
-                            const isA = prop.type === 'developableLandA';
-                            const landType = (side === 0 ? 'redLand' : 'blueLand') + (isA ? 'A' : 'B');
-                            this.cellProps[to] = { type: landType, bg: CELL_PROPS[landType].bg };
-                            this.landValue[to] = Math.max(1, Math.round(gaussRandom(isA ? 30 : 50, isA ? 10 : 15)));
-                        }
-                    } else if (prop && /^(redLand|blueLand)[AB]$/.test(prop.type)) {
-                        const ownerSide = prop.type.charAt(0) === 'r' ? 0 : 1;
-                        if (ownerSide !== side) {
-                            const isA = prop.type.endsWith('A');
-                            if (isRook) {
-                                const landType = (side === 0 ? 'redLand' : 'blueLand') + (isA ? 'A' : 'B');
-                                this.cellProps[to] = { type: landType, bg: CELL_PROPS[landType].bg };
-                                this.landValue[to] = Math.max(1, Math.round(gaussRandom(isA ? 30 : 50, isA ? 10 : 15)));
-                            } else {
-                                const devType = isA ? 'developableLandA' : 'developableLandB';
-                                this.cellProps[to] = { type: devType, bg: CELL_PROPS[devType].bg, symbol: CELL_PROPS[devType].symbol, fg: CELL_PROPS[devType].fg };
-                                this.landValue[to] = 0;
-                            }
-                        }
-                    }
-                }
-                this.movePath = path.length >= 2 ? path : null;
-                this.movePathSeat = seat;
-                this.lastFrom[seat] = path.length >= 2 ? path[path.length - 2] : null;   // 记录来向
-                // 保存可选邻格集合（目标格 → 除来时格外的所有点亮邻格——下轮寻路第一步必须从中选）
-                const cameFrom = path.length >= 2 ? path[path.length - 2] : -1;
-                this.availNext[seat] = [];
-                for (const nb of this.neighbors[to]) {
-                    if (this.removed[nb]) continue;
-                    if (nb === cameFrom) continue;
-                    this.availNext[seat].push(nb);
-                }
-                // 更新方向：新格周围所有点亮的方向，排除来时的格（路径前一格）；
-                // 若只剩来时格（死胡同），方向就是它
-                const cameFrom2 = path.length >= 2 ? path[path.length - 2] : -1;
-                const cand = [];
-                for (const nb of this.neighbors[to]) {
-                    if (this.removed[nb] || nb === cameFrom2) continue;
-                    cand.push(this.dirs[to].indexOf(nb));
-                }
-                if (cand.length > 0) {
-                    this.pieceDirs[seat] = cand[Math.floor(Math.random() * cand.length)];
-                } else if (cameFrom2 !== -1) {
-                    this.pieceDirs[seat] = this.dirs[to].indexOf(cameFrom2);
-                }
-                this.dicePoint = null;
-                this.reachable = null;
-                this._advanceTurn();
+                const reach = this.reachableBySeat[seat];
+                if (typeof to !== 'number' || !reach || !reach.includes(to)) return;   // 目标不可达
+                this.choiceBySeat[seat] = { type: 'move', to };
+                this._checkAllChoices();
                 this.broadcastState();
                 break;
             }
             case 'resurrect': {
-                // 重生：轮到当前玩家且已摇骰（摇骰后）——随机移到空白格，本回合行动结束，
-                //   并把该玩家移到行动顺序最后（后续回合最后行动；多次重生基于前一次结果）
-                if (this.phase !== 'playing') return;
+                // 同步回合：choosing 阶段选重生 → 本回合随机空白格重生、不移动
+                if (this.phase !== 'playing' || this.roundPhase !== 'choosing') return;
                 const me2 = this.players.get(ws);
                 if (!me2 || me2.seat === -1) return;
                 const seat2 = me2.seat;
-                if (this.turnOrder[this.turnIndex] !== seat2) return;   // 只能轮到当前玩家
-                if (this.dicePoint == null) return;                     // 摇骰子之后才可用
-                // 随机空白格（点亮 + 无角色 + 无属性；全图无候选则放宽到无角色）
-                const occupied = new Set(this.piecePositions);
-                let pool = [];
-                for (let v = 0; v < this.cellCount; v++) {
-                    if (this.removed[v] || occupied.has(v) || this.cellProps[v]) continue;
-                    pool.push(v);
-                }
-                if (!pool.length) {
-                    for (let v = 0; v < this.cellCount; v++) {
-                        if (this.removed[v] || occupied.has(v)) continue;
-                        pool.push(v);
-                    }
-                }
-                if (!pool.length) return;   // 全图无空格（几乎不可能）——忽略
-                const newPos = pool[Math.floor(Math.random() * pool.length)];
-                this.piecePositions[seat2] = newPos;
-                this.lastFrom[seat2] = null;        // 新起点：无来向
-                this.availNext[seat2] = null;       // 走开局逻辑（初始方向）
-                const nbs2 = this.neighbors[newPos].filter((nb) => !this.removed[nb]);
-                const dd = nbs2.length ? this.dirs[newPos].indexOf(nbs2[Math.floor(Math.random() * nbs2.length)]) : 0;
-                this.pieceDirs[seat2] = dd >= 0 ? dd : 0;
-                // 行动顺序：重生玩家移到本轮最后（后续回合最后行动）
-                const ridx = this.turnOrder.indexOf(seat2);
-                this.turnOrder.splice(ridx, 1);
-                this.turnOrder.push(seat2);
-                // 本回合结束：下一位 = 移除 seat2 后 ridx 位置的元素——turnIndex 设为 ridx-1（_advanceTurn 会 +1）
-                this.turnIndex = (ridx - 1 + this.turnOrder.length) % this.turnOrder.length;
-                this.dicePoint = null;
-                this.reachable = null;
-                if (this.aiTimer) clearTimeout(this.aiTimer);
-                this._advanceTurn();
+                if (this.respawnCooldown[seat2] > 0) return;
+                if (this.choiceBySeat[seat2] != null) return;
+                if (this.dicePoints[seat2] == null) return;   // 本回合无骰子（异常）——不可选
+                this.choiceBySeat[seat2] = { type: 'resurrect' };
+                this._checkAllChoices();
                 this.broadcastState();
+                break;
+            }
+            case 'dfwAnimDone': {
+                // 客户端动画完成确认：anim = 'dice'（摇骰子动画）| 'move'（移动动画）
+                if (this.phase !== 'playing') return;
+                const me3 = this.players.get(ws);
+                if (!me3 || me3.seat === -1) return;
+                if (msg.anim === 'dice' && this.roundPhase === 'rolling') {
+                    this._handleAnimDone(me3.seat);
+                } else if (msg.anim === 'move' && this.roundPhase === 'moving') {
+                    this._handleAnimDone(me3.seat);
+                }
                 break;
             }
             case 'dfwSetMapType': {
@@ -1990,7 +1902,7 @@ class DfwRoom extends QiTwoPlayerRoomBase {
      * （点亮且无属性，且至少 1 个邻格也是空格）作为初始格；初始方向从该格的
      * 空格邻格中随机选（空座由 AI 托管，同样有棋子）；随后轮到第一个玩家掷骰子。 */
     _startGame() {
-        if (this.aiTimer) clearTimeout(this.aiTimer);
+        if (this.aiTimer) { clearTimeout(this.aiTimer); this.aiTimer = null; }
         this.cellProps = this._generateCellProps();
         this.landValue = new Array(this.cellCount).fill(0);   // 每局重置占领价值
         // 坐标表（初始位置距离限制：优先中心 n/2 内 → 0.75n → 全部；与棋盘数据遍历顺序一致）
@@ -2075,121 +1987,256 @@ class DfwRoom extends QiTwoPlayerRoomBase {
                 this.mineWealth[v] = 1000 + Math.floor(Math.random() * 4001);   // 1000~5000 均匀整数
             }
         }
-        this.turnIndex = 0;
-        this.dicePoint = null;
-        this.reachable = null;
+        this.respawnCooldown = new Array(6).fill(0);
+        this.roundPhase = null;
+        this.dicePoints = new Array(6).fill(null);
+        this.reachableBySeat = new Array(6).fill(null);
+        this.choiceBySeat = new Array(6).fill(null);
+        this.pendingMoves = null;
         this.phase = 'playing';
-        this._rollDice();
+        this._startRound();
     }
 
-    /** 当前玩家掷骰子：♞ 玩家（座位 1/4）用八角骰子（1-8 步），其它用六角骰子（1-6 步）；
-     *  计算全部可选目标格（BFS n 步可达）。
-     *  若当前座位无人（AI 托管），延迟（客户端骰子动画 2s + 停留 1s）后自动随机移动 */
-    _rollDice() {
-        const cur = this.turnOrder[this.turnIndex];
+    /** 同步回合：每回合 6 人同时摇骰（冷却中的座位跳过）→ 各自选择 → 同时移动。
+     *  ♞ 玩家（座位 1/4）用八角骰子（1-8 步），其它用六角骰子（1-6 步）。 */
+    _startRound() {
         // 没有人类玩家：暂停游戏（等有人进入后恢复）
         if (!this.seats.some((w) => w != null)) {
-            this.dicePoint = null;
-            this.reachable = null;
-            if (this.aiTimer) clearTimeout(this.aiTimer);
+            this.roundPhase = null;
+            this.dicePoints = new Array(6).fill(null);
+            this.reachableBySeat = new Array(6).fill(null);
+            this.choiceBySeat = new Array(6).fill(null);
+            this.pendingMoves = null;
+            if (this.aiTimer) { clearTimeout(this.aiTimer); this.aiTimer = null; }
             this.broadcastState();
             return;
         }
-        const maxPips = (cur === 0 || cur === 3) ? 8 : 6;   // ♜ 玩家八角骰子
-        this.dicePoint = 1 + Math.floor(Math.random() * maxPips);
-        this.reachable = this._computeReachable(cur, this.dicePoint);
-        if (this.seats[cur] == null) {
-            this._scheduleAiAct(cur);   // 空座（AI 托管）：延迟后自动行动
+        this.roundPhase = 'rolling';
+        this.dicePoints = new Array(6).fill(null);
+        this.reachableBySeat = new Array(6).fill(null);
+        this.choiceBySeat = new Array(6).fill(null);
+        this.pendingMoves = null;
+        this.roundReadySeats = new Set();
+        for (let s = 0; s < 6; s++) {
+            if (this.respawnCooldown[s] > 0) continue;   // 冷却：本回合跳过（不摇骰、不行动）
+            const maxPips = (s === 0 || s === 3) ? 8 : 6;
+            const n = 1 + Math.floor(Math.random() * maxPips);
+            this.dicePoints[s] = n;
+            this.reachableBySeat[s] = this._computeReachable(s, n);
         }
+        this.broadcastState();
+        this._scheduleAiDiceReady();
     }
 
-    /** 安排 AI 行动：延迟（等客户端骰子动画结束）后自动移动；期间有人类坐下则取消 */
-    _scheduleAiAct(seat) {
-        if (this.aiTimer) clearTimeout(this.aiTimer);
+    /** AI 座位模拟摇骰子动画：延迟后视为动画完成 */
+    _scheduleAiDiceReady() {
+        if (this.aiTimer) { clearTimeout(this.aiTimer); this.aiTimer = null; }
         this.aiTimer = setTimeout(() => {
-            if (this.phase !== 'playing') return;
-            if (this.turnOrder[this.turnIndex] !== seat) return;
-            if (this.seats[seat] != null) return;   // 已有人类坐下——交给人类
-            if (!this.reachable || !this.reachable.length) {
-                this._advanceTurn();
-                this.broadcastState();
-                return;
+            if (this.phase !== 'playing' || this.roundPhase !== 'rolling') return;
+            for (let s = 0; s < 6; s++) {
+                if (this.seats[s] != null) continue;         // 人类：等前端动画完成消息
+                if (this.respawnCooldown[s] > 0) continue;
+                if (this.dicePoints[s] == null) continue;
+                this._handleAnimDone(s);
             }
-            const to = this.reachable[Math.floor(Math.random() * this.reachable.length)];
-                this.piecePositions[seat] = to;
-                const path = this.pathsOf.get(to);
-                // 游历点：只计落点（每次移动停下的格），去重
-                // 财富结算（移动到目标格后）：mine（路径经过的每个：+500、≤500 全给并移除）+
-                //   占领/取消占领（♜ 到达终点时）+ 每回合结束双方按占领地结算收入
-                {
-                    const side = seat < 3 ? 0 : 1;
-                    const to = path[path.length - 1];
-                    this.visitedCells[side].add(to);
-                    // mine：只有到达（终点）矿产格才获得财富（途径不算）
-                    if (this.mineWealth[to] > 0) {
-                        if (this.mineWealth[to] <= 500) {
-                            this.wealth[side] += this.mineWealth[to];
-                            this.mineWealth[to] = 0;   // 剩余全给并移除
-                        } else {
-                            this.wealth[side] += 500;
-                            this.mineWealth[to] -= 500;
-                        }
-                    }
-                    // 占领/取消占领：♜（座位 0/3）到达（终点）developableLand 时占领；
-                    //   对方到达已占领格时取消（恢复 developableLand）；对方♜到达可直接占领（重新随机价值）
-                    const prop = this.cellProps[to];
-                    const isRook = (seat === 0 || seat === 3);
-                    if (prop && (prop.type === 'developableLandA' || prop.type === 'developableLandB')) {
-                        if (isRook) {
-                            const isA = prop.type === 'developableLandA';
-                            const landType = (side === 0 ? 'redLand' : 'blueLand') + (isA ? 'A' : 'B');
-                            this.cellProps[to] = { type: landType, bg: CELL_PROPS[landType].bg };
-                            this.landValue[to] = Math.max(1, Math.round(gaussRandom(isA ? 30 : 50, isA ? 10 : 15)));
-                        }
-                    } else if (prop && /^(redLand|blueLand)[AB]$/.test(prop.type)) {
-                        const ownerSide = prop.type.charAt(0) === 'r' ? 0 : 1;
-                        if (ownerSide !== side) {
-                            const isA = prop.type.endsWith('A');
-                            if (isRook) {
-                                const landType = (side === 0 ? 'redLand' : 'blueLand') + (isA ? 'A' : 'B');
-                                this.cellProps[to] = { type: landType, bg: CELL_PROPS[landType].bg };
-                                this.landValue[to] = Math.max(1, Math.round(gaussRandom(isA ? 30 : 50, isA ? 10 : 15)));
-                            } else {
-                                const devType = isA ? 'developableLandA' : 'developableLandB';
-                                this.cellProps[to] = { type: devType, bg: CELL_PROPS[devType].bg, symbol: CELL_PROPS[devType].symbol, fg: CELL_PROPS[devType].fg };
-                                this.landValue[to] = 0;
-                            }
-                        }
-                    }
-                }
-                this.movePath = path.length >= 2 ? path : null;
-                this.movePathSeat = seat;
-                this.lastFrom[seat] = path.length >= 2 ? path[path.length - 2] : null;   // 记录来向
-                // 保存可选邻格集合（目标格 → 除来时格外的所有点亮邻格——下轮寻路第一步必须从中选）
-                const cameFromA = path.length >= 2 ? path[path.length - 2] : -1;
-                this.availNext[seat] = [];
-                for (const nb of this.neighbors[to]) {
-                    if (this.removed[nb]) continue;
-                    if (nb === cameFromA) continue;
-                    this.availNext[seat].push(nb);
-                }
-                // 更新方向（与人类移动一致）：新格周围点亮方向中排除来向随机选；死路则指向来向
-                const candA = [];
-                for (const nb of this.neighbors[to]) {
-                    if (this.removed[nb] || nb === cameFromA) continue;
-                    candA.push(this.dirs[to].indexOf(nb));
-                }
-                if (candA.length > 0) {
-                    this.pieceDirs[seat] = candA[Math.floor(Math.random() * candA.length)];
-                } else if (cameFromA !== -1) {
-                    this.pieceDirs[seat] = this.dirs[to].indexOf(cameFromA);
-                }
-                this.dicePoint = null;
-                this.reachable = null;
-                this._advanceTurn();
-                this.broadcastState();
-            }, 4500);   // 等客户端骰子动画完全结束（视角 600ms + 旋转 2s + 展示 700ms）才行动
+        }, 2000);   // 模拟摇骰子动画时长
     }
+
+    /** 动画完成确认：rolling（摇骰）阶段或 moving（移动）阶段 */
+    _handleAnimDone(seat) {
+        this.roundReadySeats.add(seat);
+        if (this.roundPhase === 'rolling') this._checkAllDiceReady();
+        else if (this.roundPhase === 'moving') this._checkAllMoveReady();
+    }
+
+    _checkAllDiceReady() {
+        if (this.roundPhase !== 'rolling') return;
+        for (let s = 0; s < 6; s++) {
+            if (this.respawnCooldown[s] > 0) continue;
+            if (this.dicePoints[s] == null) continue;
+            if (this.seats[s] != null && !this.roundReadySeats.has(s)) return;   // 有人类未确认
+        }
+        // 全部摇完 → choosing：各自显示候选格，等人选择
+        this.roundPhase = 'choosing';
+        this.roundReadySeats = new Set();
+        this.broadcastState();
+        this._scheduleAiChoices();
+    }
+
+    /** AI 座位自动选择（随机目标或小概率重生） */
+    _scheduleAiChoices() {
+        if (this.aiTimer) { clearTimeout(this.aiTimer); this.aiTimer = null; }
+        this.aiTimer = setTimeout(() => {
+            if (this.phase !== 'playing' || this.roundPhase !== 'choosing') return;
+            for (let s = 0; s < 6; s++) {
+                if (this.seats[s] != null) continue;         // 人类：等玩家选择
+                if (this.respawnCooldown[s] > 0) continue;
+                if (this.choiceBySeat[s] != null) continue;
+                const reach = this.reachableBySeat[s];
+                if (!reach || !reach.length) { this.choiceBySeat[s] = { type: 'move', to: -1 }; continue; }
+                if (Math.random() < 0.1) {
+                    this.choiceBySeat[s] = { type: 'resurrect' };
+                } else {
+                    this.choiceBySeat[s] = { type: 'move', to: reach[Math.floor(Math.random() * reach.length)] };
+                }
+            }
+            this._checkAllChoices();
+        }, 1200);
+    }
+
+    _checkAllChoices() {
+        if (this.roundPhase !== 'choosing') return;
+        for (let s = 0; s < 6; s++) {
+            if (this.respawnCooldown[s] > 0) continue;
+            if (this.dicePoints[s] == null) continue;
+            if (this.choiceBySeat[s] == null) return;   // 有人未选
+        }
+        this._executeRound();
+    }
+
+    /** 执行本回合所有行动：移动/重生 → 广播移动结果（前端同时播放动画） */
+    _executeRound() {
+        this.roundPhase = 'moving';
+        const moves = [];
+        const respawns = [];
+        for (let s = 0; s < 6; s++) {
+            if (this.respawnCooldown[s] > 0) {
+                this.respawnCooldown[s]--;   // 冷却递减：重生后第 2 回合跳过、第 3 回合正常
+                continue;
+            }
+            if (this.dicePoints[s] == null) continue;
+            const ch = this.choiceBySeat[s];
+            if (!ch) continue;
+            if (ch.type === 'resurrect') {
+                const newPos = this._randomEmptyCell();
+                if (newPos != null) {
+                    this.piecePositions[s] = newPos;
+                    this.lastFrom[s] = null;
+                    this.availNext[s] = null;
+                    const nbs = this.neighbors[newPos].filter((nb) => !this.removed[nb]);
+                    const dd = nbs.length ? this.dirs[newPos].indexOf(nbs[Math.floor(Math.random() * nbs.length)]) : 0;
+                    this.pieceDirs[s] = dd >= 0 ? dd : 0;
+                    this.respawnCooldown[s] = 2;   // 下一回合跳过、再下一回合正常
+                    respawns.push({ seat: s, to: newPos });
+                }
+                continue;
+            }
+            const to = ch.to;
+            if (typeof to !== 'number' || to < 0 || !this.reachableBySeat[s] || !this.reachableBySeat[s].includes(to)) continue;
+            const path = this._applyMove(s, to);
+            moves.push({ seat: s, path });
+        }
+        this._settleLandIncome();   // 每回合结束按占领地结算收入
+        this.pendingMoves = { moves, respawns };
+        this.roundReadySeats = new Set();
+        this.broadcastState();
+        this._scheduleAiMoveReady();
+    }
+
+    /** AI 座位无页面：延迟后视为移动动画完成（人类等前端 dfwAnimDone move） */
+    _scheduleAiMoveReady() {
+        if (this.aiTimer) { clearTimeout(this.aiTimer); this.aiTimer = null; }
+        this.aiTimer = setTimeout(() => {
+            if (this.phase !== 'playing' || this.roundPhase !== 'moving') return;
+            this._checkAllMoveReady();
+        }, 1500);
+    }
+
+    _checkAllMoveReady() {
+        if (this.roundPhase !== 'moving') return;
+        for (let s = 0; s < 6; s++) {
+            if (this.seats[s] == null) continue;   // AI 座位无页面，无需确认
+            if (!this.roundReadySeats.has(s)) return;
+        }
+        // 全部移动动画完成 → 下一回合
+        this.roundPhase = null;
+        this.pendingMoves = null;
+        this._startRound();
+    }
+
+    /** 单座位移动：结算游历/财富/占领并返回路径 */
+    _applyMove(seat, to) {
+        const path = (this.pathsOfBySeat && this.pathsOfBySeat[seat]
+            && this.pathsOfBySeat[seat].get(to))
+            || [this.piecePositions[seat], to];
+        this.piecePositions[seat] = to;
+        const side = seat < 3 ? 0 : 1;
+        this.visitedCells[side].add(to);
+        // mine：只有到达（终点）矿产格才获得财富（途径不算）
+        if (this.mineWealth[to] > 0) {
+            if (this.mineWealth[to] <= 500) {
+                this.wealth[side] += this.mineWealth[to];
+                this.mineWealth[to] = 0;
+            } else {
+                this.wealth[side] += 500;
+                this.mineWealth[to] -= 500;
+            }
+        }
+        // 占领/取消占领：♜（座位 0/3）到达（终点）developableLand 时占领
+        const prop = this.cellProps[to];
+        const isRook = (seat === 0 || seat === 3);
+        if (prop && (prop.type === 'developableLandA' || prop.type === 'developableLandB')) {
+            if (isRook) {
+                const isA = prop.type === 'developableLandA';
+                const landType = (side === 0 ? 'redLand' : 'blueLand') + (isA ? 'A' : 'B');
+                this.cellProps[to] = { type: landType, bg: CELL_PROPS[landType].bg };
+                this.landValue[to] = Math.max(1, Math.round(gaussRandom(isA ? 30 : 50, isA ? 10 : 15)));
+            }
+        } else if (prop && /^(redLand|blueLand)[AB]$/.test(prop.type)) {
+            const ownerSide = prop.type.charAt(0) === 'r' ? 0 : 1;
+            if (ownerSide !== side) {
+                const isA = prop.type.endsWith('A');
+                if (isRook) {
+                    const landType = (side === 0 ? 'redLand' : 'blueLand') + (isA ? 'A' : 'B');
+                    this.cellProps[to] = { type: landType, bg: CELL_PROPS[landType].bg };
+                    this.landValue[to] = Math.max(1, Math.round(gaussRandom(isA ? 30 : 50, isA ? 10 : 15)));
+                } else {
+                    const devType = isA ? 'developableLandA' : 'developableLandB';
+                    this.cellProps[to] = { type: devType, bg: CELL_PROPS[devType].bg, symbol: CELL_PROPS[devType].symbol, fg: CELL_PROPS[devType].fg };
+                    this.landValue[to] = 0;
+                }
+            }
+        }
+        this.lastFrom[seat] = path.length >= 2 ? path[path.length - 2] : null;
+        // 保存可选邻格集合（目标格 → 除来时格外的所有点亮邻格）
+        const cameFrom = path.length >= 2 ? path[path.length - 2] : -1;
+        this.availNext[seat] = [];
+        for (const nb of this.neighbors[to]) {
+            if (this.removed[nb]) continue;
+            if (nb === cameFrom) continue;
+            this.availNext[seat].push(nb);
+        }
+        // 更新方向
+        const cand = [];
+        for (const nb of this.neighbors[to]) {
+            if (this.removed[nb] || nb === cameFrom) continue;
+            cand.push(this.dirs[to].indexOf(nb));
+        }
+        if (cand.length > 0) {
+            this.pieceDirs[seat] = cand[Math.floor(Math.random() * cand.length)];
+        } else if (cameFrom !== -1) {
+            this.pieceDirs[seat] = this.dirs[to].indexOf(cameFrom);
+        }
+        return path;
+    }
+
+    /** 随机空白格（点亮 + 无角色 + 无属性；全图无候选则放宽到无角色） */
+    _randomEmptyCell() {
+        const occupied = new Set(this.piecePositions);
+        let pool = [];
+        for (let v = 0; v < this.cellCount; v++) {
+            if (this.removed[v] || occupied.has(v) || this.cellProps[v]) continue;
+            pool.push(v);
+        }
+        if (!pool.length) {
+            for (let v = 0; v < this.cellCount; v++) {
+                if (this.removed[v] || occupied.has(v)) continue;
+                pool.push(v);
+            }
+        }
+        return pool.length ? pool[Math.floor(Math.random() * pool.length)] : null;
+    }
+
 
     /** 最长无环路径（DFS 全搜索）：第一步必须从保存的可选邻格集合中选（目标格 → 除来时格外的
      * 所有点亮邻格——与客户端箭头指向完全一致）；开局（无来向）沿初始方向。之后每步遍历所有
@@ -2275,7 +2322,8 @@ class DfwRoom extends QiTwoPlayerRoomBase {
         if (bestLen === 0 && stopEnds.size === 0) return null;
         for (const sv of stopEnds) ends.add(sv);   // 候选 = 最长路径终点 ∪ stop 格
         for (const [k, v] of stopPaths) if (!pathsOf.has(k)) pathsOf.set(k, v);   // 合并 stop 路径
-        this.pathsOf = pathsOf;
+        this.pathsOfBySeat = this.pathsOfBySeat || new Array(6);
+        this.pathsOfBySeat[seat] = pathsOf;
         return Array.from(ends);
     }
 
@@ -2294,14 +2342,6 @@ class DfwRoom extends QiTwoPlayerRoomBase {
         }
     }
 
-    /** 下一位玩家，自动掷骰子；一轮（所有人行动完）结束时结算占领收入 */
-    _advanceTurn() {
-        const next = (this.turnIndex + 1) % this.turnOrder.length;
-        if (next === 0) this._settleLandIncome();   // 一轮结束：结算收入
-        this.turnIndex = next;
-        this._rollDice();
-    }
-
     /** 玩家断开：释放座位；房主退出则按座位顺序由下一个坐下者继任 */
     onPlayerLeave(ws) {
         const me = this.players.get(ws);
@@ -2312,15 +2352,21 @@ class DfwRoom extends QiTwoPlayerRoomBase {
         if (this.hostWs === ws) {
             this.hostWs = this.seats.find(Boolean) || null;
         }
-        this.broadcastState();
-        // 还有人类则继续游戏：当前行动者若已离开（空座）→ 由 AI 立即接管
-        if (this.phase === 'playing' && this.seats.some((w) => w != null)) {
-            const cur = this.turnOrder[this.turnIndex];
-            if (this.seats[cur] == null && !this.aiTimer) {
-                this._scheduleAiAct(cur);
+        // 离开的人类座位立即按 AI 补位：rolling 视为动画完成、choosing 自动随机选择，
+        // 否则 _checkAll* 会永远等不到该座位
+        if (this.phase === 'playing' && leftSeat >= 0) {
+            if (this.roundPhase === 'rolling') {
+                this._handleAnimDone(leftSeat);
+            } else if (this.roundPhase === 'choosing' && !this.choiceBySeat[leftSeat]) {
+                const reach = this.reachableBySeat[leftSeat];
+                this.choiceBySeat[leftSeat] = (reach && reach.length)
+                    ? { type: 'move', to: reach[Math.floor(Math.random() * reach.length)] }
+                    : { type: 'move', to: -1 };
+                this._checkAllChoices();
             }
         }
-        // 没有人类了 → 暂停（_rollDice 检查后不再掷骰）
+        this.broadcastState();
+        // 没有人类了 → 回合停滞（_startRound 检查后不再开始）
     }
 }
 

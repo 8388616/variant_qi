@@ -45,18 +45,6 @@
             <label class="show-numbers-label">
                 <input type="checkbox" id="showNumbersCheck"> 显示序号
             </label>
-            <label class="chk-inline" id="showLibertyStonesLabel" hidden>
-                <input type="checkbox" id="showLibertyStonesCheck"> 显示有气棋子
-            </label>
-            <label class="chk-inline" id="showAdjacentLinesLabel" hidden>
-                <input type="checkbox" id="showAdjacentLinesCheckbox" checked> 显示相邻连线
-            </label>
-            <label class="chk-inline" id="showLibertyLabel" hidden>
-                <input type="checkbox" id="showLibertyCheck"> 显示气数
-            </label>
-            <label class="chk-inline" id="showGridLabel" hidden>
-                <input type="checkbox" id="showGridCheck" checked> 参考刻度
-            </label>
             <div id="editControls" class="edit-controls" hidden>
                 <label class="edit-checkbox">
                     <input type="checkbox" id="editModeCheckbox"> 编辑
@@ -66,6 +54,9 @@
                 <button type="button" id="cancelEditBtn" class="edit-clear-btn hidden">取消</button>
                 <button type="button" id="clearBoardBtn" class="edit-clear-btn hidden">清空</button>
             </div>
+            <label class="edit-checkbox" id="aiCandidatesLabel" hidden>
+                <input type="checkbox" id="aiCandidatesCheckbox"> AI生成选点
+            </label>
         </div>
         <div class="right-buttons">
             <button class="help-btn" id="helpBtn">说明</button>

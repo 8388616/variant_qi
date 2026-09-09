@@ -58,21 +58,22 @@ function copyBags(bags) {
 function createInitialBoard() {
     const b = emptyBoard();
     const N = 'neutral';
-    b[0][0] = { type: 'br', owner: N }; b[0][8] = { type: 'br', owner: N };
-    b[0][1] = { type: 'bn', owner: N }; b[0][7] = { type: 'bn', owner: N };
-    b[0][2] = { type: 'be', owner: N }; b[0][6] = { type: 'be', owner: N };
-    b[0][3] = { type: 'ba', owner: N }; b[0][5] = { type: 'ba', owner: N };
-    b[0][4] = { type: 'bk', owner: N };
-    b[2][1] = { type: 'bc', owner: N }; b[2][7] = { type: 'bc', owner: N };
-    for (let i = 0; i < 5; i++) b[3][2 * i] = { type: 'bp', owner: N };
+    // 红方在下（row 0-2），黑方在上（row 7-9）
+    b[9][0] = { type: 'br', owner: N }; b[9][8] = { type: 'br', owner: N };
+    b[9][1] = { type: 'bn', owner: N }; b[9][7] = { type: 'bn', owner: N };
+    b[9][2] = { type: 'be', owner: N }; b[9][6] = { type: 'be', owner: N };
+    b[9][3] = { type: 'ba', owner: N }; b[9][5] = { type: 'ba', owner: N };
+    b[9][4] = { type: 'bk', owner: N };
+    b[7][1] = { type: 'bc', owner: N }; b[7][7] = { type: 'bc', owner: N };
+    for (let i = 0; i < 5; i++) b[6][2 * i] = { type: 'bp', owner: N };
 
-    b[9][0] = { type: 'rr', owner: N }; b[9][8] = { type: 'rr', owner: N };
-    b[9][1] = { type: 'rn', owner: N }; b[9][7] = { type: 'rn', owner: N };
-    b[9][2] = { type: 're', owner: N }; b[9][6] = { type: 're', owner: N };
-    b[9][3] = { type: 'ra', owner: N }; b[9][5] = { type: 'ra', owner: N };
-    b[9][4] = { type: 'rk', owner: N };
-    b[7][1] = { type: 'rc', owner: N }; b[7][7] = { type: 'rc', owner: N };
-    for (let i = 0; i < 5; i++) b[6][2 * i] = { type: 'rp', owner: N };
+    b[0][0] = { type: 'rr', owner: N }; b[0][8] = { type: 'rr', owner: N };
+    b[0][1] = { type: 'rn', owner: N }; b[0][7] = { type: 'rn', owner: N };
+    b[0][2] = { type: 're', owner: N }; b[0][6] = { type: 're', owner: N };
+    b[0][3] = { type: 'ra', owner: N }; b[0][5] = { type: 'ra', owner: N };
+    b[0][4] = { type: 'rk', owner: N };
+    b[2][1] = { type: 'rc', owner: N }; b[2][7] = { type: 'rc', owner: N };
+    for (let i = 0; i < 5; i++) b[3][2 * i] = { type: 'rp', owner: N };
     return b;
 }
 
@@ -123,8 +124,8 @@ function sortedBag(bag) {
 
 function inPalace(camp, row, col) {
     if (col < 3 || col > 5) return false;
-    if (camp === 'red') return row >= 7 && row <= 9;
-    return row >= 0 && row <= 2;
+    if (camp === 'red') return row >= 0 && row <= 2;
+    return row >= 7 && row <= 9;
 }
 
 function findKings(board) {
@@ -202,8 +203,8 @@ function isGeometryLegal(pieceType, fromRow, fromCol, toRow, toCol, board) {
         const midR = fromRow + dR / 2;
         const midC = fromCol + dC / 2;
         if (board[midR][midC]) return false;
-        if (camp === 'red') return toRow >= 5;
-        return toRow <= 4;
+        if (camp === 'red') return toRow <= 4;
+        return toRow >= 5;
     }
     if (kind === 'n') {
         if (aR === 2 && aC === 1) {
@@ -249,8 +250,9 @@ function isGeometryLegal(pieceType, fromRow, fromCol, toRow, toCol, board) {
         return cnt === 1;
     }
     if (kind === 'p') {
-        const forward = camp === 'red' ? -1 : 1;
-        const crossed = camp === 'red' ? fromRow <= 4 : fromRow >= 5;
+        // 红兵朝 row 增大方向前进；过河（越过中线）后可横走
+        const forward = camp === 'red' ? 1 : -1;
+        const crossed = camp === 'red' ? fromRow >= 5 : fromRow <= 4;
         if (dR === forward && dC === 0) return true;
         if (crossed && aR === 0 && aC === 1) return true;
         return false;

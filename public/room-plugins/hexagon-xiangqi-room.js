@@ -30,11 +30,12 @@ const ys = [-7,-8,-10,-11,-10,-8,-7,-8,-10,-11,-7,-8,-10,-11,-7,-8,-10,-11,-4,-5
 const hexagons = [[0,1,2,3,4,5],[6,7,8,9,2,1],[10,11,12,13,8,7],[14,15,16,17,12,11],[18,19,0,5,20,21],[22,23,6,1,0,19],[24,25,10,7,6,23],[26,27,14,11,10,25],[28,29,30,15,14,27],[31,32,18,21,33,34],[35,36,22,19,18,32],[37,38,24,23,22,36],[39,40,26,25,24,38],[41,42,28,27,26,40],[43,44,45,29,28,42],[46,47,31,34,48,49],[50,51,35,32,31,47],[52,53,37,36,35,51],[54,55,39,38,37,53],[56,57,41,40,39,55],[58,59,43,42,41,57],[60,61,62,44,43,59],[63,64,50,47,46,65],[66,67,52,51,50,64],[68,69,54,53,52,67],[70,71,56,55,54,69],[72,73,58,57,56,71],[74,75,60,59,58,73],[76,77,66,64,63,78],[79,80,68,67,66,77],[81,82,70,69,68,80],[83,84,72,71,70,82],[85,86,74,73,72,84],[87,88,79,77,76,89],[90,91,81,80,79,88],[92,93,83,82,81,91],[94,95,85,84,83,93]];
 const riverDropKeys = ['43,59','41,57','39,55','37,53','35,51','31,47']; // 仅视觉去线，仍可跨河
 const neighbors = neighborsRaw;
-const RED_BACK = [95,94,93,92,91,90,88,87,89];
-const RED_CANNONS = [72, 66]; // 相对原炮位再向前一格
-const RED_PAWNS = [60, 58, 54, 50, 46]; // 相对原兵位再向前一格
-const RED_PALACE = [83,93,70,82,92,69,81,91,68,80,90,79,88];
-const BLACK_PALACE = [11,12,25,10,13,24,7,8,23,6,9,1,2];
+// 红方在下(纵坐标小的一侧,ys 为负);黑方在上(ys 为正)。各常量为原黑方镜像位。
+const RED_BACK = [16,17,12,13,8,9,2,3,4];
+const RED_CANNONS = [27, 19]; // 相对原炮位再向前一格
+const RED_PAWNS = [44, 42, 38, 32, 34]; // 相对原兵位再向前一格
+const RED_PALACE = [11,12,25,10,13,24,7,8,23,6,9,1,2];
+const BLACK_PALACE = [83,93,70,82,92,69,81,91,68,80,90,79,88];
 
 const PIECE_CHAR = {
     rk: '帥', ra: '仕', re: '相', rn: '傌', rr: '俥', rc: '炮', rp: '兵',
@@ -110,15 +111,15 @@ function neighborInDir(v, dir, skip) {
 }
 
 function isForward(side, a, b) {
-    return side === 'red' ? ys[b] < ys[a] : ys[b] > ys[a];
+    return side === 'red' ? ys[b] > ys[a] : ys[b] < ys[a];
 }
 
 function inOwnHalf(side, v) {
-    return side === 'red' ? ys[v] >= 1 : ys[v] <= -1;
+    return side === 'red' ? ys[v] <= -1 : ys[v] >= 1;
 }
 
 function hasCrossedRiver(side, v) {
-    return side === 'red' ? ys[v] < 1 : ys[v] > -1;
+    return side === 'red' ? ys[v] > -1 : ys[v] < 1;
 }
 
 function palaceSet(side) {
@@ -353,12 +354,12 @@ function pawnTargets(from, board, side) {
     const ch = sideColorChar(side);
     const dests = new Set();
     const crossed = hasCrossedRiver(side, from);
-    // dir6: [90,30,-30,-90,-150,150]
-    // 红：过河前 前/斜前 = 2,3,4；过河后另加斜后 = 1,5，不可正后 0
-    // 黑：过河前 0,1,5；过河后另加 2,4，不可正后 3
+    // dir6: [90,30,-30,-90,-150,150]（90=向下/前进,0=正后）
+    // 红（在下,ys 小）向上为前进：过河前 前/斜前 = 0,1,5；过河后另加斜后 = 2,4，不可正后 3
+    // 黑（在上,ys 大）向下为前进：过河前 2,3,4；过河后另加 1,5，不可正后 0
     const allowed = crossed
-        ? (side === 'red' ? [1, 2, 3, 4, 5] : [0, 1, 2, 4, 5])
-        : (side === 'red' ? [2, 3, 4] : [0, 1, 5]);
+        ? (side === 'red' ? [0, 1, 2, 4, 5] : [1, 2, 3, 4, 5])
+        : (side === 'red' ? [0, 1, 5] : [2, 3, 4]);
     for (const nb of neighbors[from]) {
         if (board[nb] !== '' && board[nb][0] === ch) continue;
         if (allowed.indexOf(dir6(from, nb)) >= 0) dests.add(nb);
@@ -732,12 +733,10 @@ return {
         }
 
         function displayPos(v) {
+            // 红方在 ys 小的一侧且显示在下:整体 y 镜像;黑方视角再 180° 旋转(即 x 镜像)
             const p = transformed[v];
-            if (!boardFlipped()) return p;
-            return {
-                x: 2 * centerX - p.x,
-                y: 2 * centerY - p.y
-            };
+            if (boardFlipped()) return { x: 2 * centerX - p.x, y: p.y };
+            return { x: p.x, y: 2 * centerY - p.y };
         }
 
         function refreshLegalTargets() {
@@ -867,26 +866,50 @@ return {
                 const { x, y } = displayPos(v);
                 const radius = cellSize * 0.42;
                 // 与普通象棋相同视觉比例：半径≈25 时约等于 offsetY=5、blur=10
-                ctx2d.shadowOffsetY = radius * 0.2;
-                ctx2d.shadowBlur = radius * 0.4;
-                ctx2d.shadowColor = 'rgba(0,0,0,0.45)';
+                                // 天天象棋式：单色圆片 + 环绕侧影（上缘宽度 0，向下平滑过渡到最宽）
+                ctx2d.shadowOffsetY = radius * 0.16;
+                ctx2d.shadowBlur = radius * 0.28;
+                ctx2d.shadowColor = 'rgba(0,0,0,0.35)';
                 ctx2d.beginPath();
-                ctx2d.arc(x, y, radius, 0, Math.PI * 2);
                 ctx2d.fillStyle = '#e8d2a0';
-                ctx2d.fill();
+                ctx2d.arc(x, y, radius, 0, Math.PI * 2);
+                    ctx2d.fill();
                 ctx2d.shadowBlur = 0;
                 ctx2d.shadowOffsetY = 0;
-                ctx2d.strokeStyle = '#c49c6a';
+                ctx2d.save();
+                ctx2d.beginPath();
+                ctx2d.arc(x, y, radius, 0, Math.PI * 2);
+                ctx2d.clip();
+                
+                // 侧影内边界随角度变化：上(3π/2)=0、下(π/2)最宽，72 段细分平滑
+                for (let si = 0; si < 72; si++) {
+                    const t1 = (si / 72) * Math.PI * 2;
+                    const t2 = ((si + 1) / 72) * Math.PI * 2;
+                    const tm = (t1 + t2) / 2;
+                    const wShade = radius * 0.30 * (1 + Math.sin(tm)) / 2;
+                    const innerR = radius - wShade;
+                    ctx2d.beginPath();
+                    ctx2d.arc(x, y, radius, t1, t2);
+                    ctx2d.arc(x, y, innerR, t2, t1, true);
+                    ctx2d.closePath();
+                    ctx2d.fillStyle = 'rgba(200,160,104,0.8)';
+                    ctx2d.fill();
+                }
+                ctx2d.restore();
+
+                ctx2d.beginPath();
+                ctx2d.arc(x, y, radius, 0, Math.PI * 2);
+                ctx2d.strokeStyle = 'rgba(200,160,104,0.8)';
                 ctx2d.lineWidth = 1.5;
                 ctx2d.stroke();
                 const color = piece[0] === 'r' ? '#932c13' : '#222';
                 ctx2d.fillStyle = color;
-                ctx2d.font = `${cellSize * 0.52}px XiangqiPiece, "Segoe UI", sans-serif`;
+                ctx2d.font = `${cellSize * 0.5}px XiangqiPiece, "Segoe UI", sans-serif`;
                 ctx2d.textAlign = 'center';
                 ctx2d.textBaseline = 'middle';
-                ctx2d.fillText(R.pieceLabel(piece), x, y + cellSize * 0.02);
+                ctx2d.fillText(R.pieceLabel(piece), x, y - radius * 0.15 + cellSize * 0.02);
                 ctx2d.beginPath();
-                ctx2d.arc(x, y, radius * 0.78, 0, Math.PI * 2);
+                ctx2d.arc(x, y - radius * 0.15, radius * 0.72, 0, Math.PI * 2);
                 ctx2d.strokeStyle = color;
                 ctx2d.lineWidth = 1.2;
                 ctx2d.stroke();

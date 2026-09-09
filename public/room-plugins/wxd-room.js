@@ -137,14 +137,19 @@ const boardSizeSelect = document.getElementById('boardSizeSelect');
                 return Math.floor(0.01 * totalScore);
             }
 
+            function wxdTotalPoints() {
+                // 总点数 = 权重总和（每格权重为 1..N²−1 不重复洗牌，中心 0）
+                const n = ps.BOARD_SIZE;
+                return ((n * n - 1) * n * n) / 2;
+            }
             function updateKomiText() {
-                komiInfo.textContent = `黑贴白${ps.komi}点`;
+                QiWeiqiSquarePageRuntime.writeKomiInfoText(komiInfo, ps.komi, wxdTotalPoints());
             }
 
             function boardCenterOfCell(row, col) {
                 return {
                     x: ps.PADDING + col * ps.CELL_SIZE + ps.CELL_SIZE / 2,
-                    y: ps.PADDING + row * ps.CELL_SIZE + ps.CELL_SIZE / 2
+                    y: ps.PADDING + (ps.BOARD_SIZE - 1 - row) * ps.CELL_SIZE + ps.CELL_SIZE / 2
                 };
             }
 
@@ -305,15 +310,25 @@ const boardSizeSelect = document.getElementById('boardSizeSelect');
                 }
 
                 if (!ps.gameOver && ps.isHoverValid && ps.hoverRow >= 0 && ps.hoverCol >= 0) {
-                    const canH = ps.tryPlayMode ? tryPlayCanPlayAt(ps.hoverRow, ps.hoverCol) : (isMyTurn() && canPlayAt(ps.hoverRow, ps.hoverCol));
-                    if (canH) {
+                    let hoverColor = null;
+                    if (ps.editModeEnabled) {
+                        // 编辑悬停预览：按当前工具着色（空 = 无预览）
+                        const t = ps.editTool || 'empty';
+                        if (t === 'white') hoverColor = '#fff';
+                        else if (t === 'black') hoverColor = '#222';
+                        else if (t !== 'empty') hoverColor = '#666';
+                    } else if (ps.tryPlayMode) {
+                        hoverColor = ps.currentPlayer === 1 ? '#222' : '#ddd';
+                    } else if (isMyTurn() && canPlayAt(ps.hoverRow, ps.hoverCol)) {
+                        hoverColor = ps.mySlot === 'black' ? '#222' : '#ddd';
+                    }
+                    if (hoverColor) {
                         const p = boardCenterOfCell(ps.hoverRow, ps.hoverCol);
                         ctx.save();
                         ctx.globalAlpha = 0.42;
                         ctx.beginPath();
                         ctx.arc(p.x, p.y, stoneRadius, 0, Math.PI * 2);
-                        const isBlackStone = ps.tryPlayMode ? (ps.currentPlayer === 1) : (ps.mySlot === 'black');
-                        ctx.fillStyle = isBlackStone ? '#222' : '#ddd';
+                        ctx.fillStyle = hoverColor;
                         ctx.fill();
                         ctx.restore();
                     }
@@ -699,7 +714,10 @@ const boardSizeSelect = document.getElementById('boardSizeSelect');
                 const exportBtn = document.getElementById('exportBtn');
                 const hasPlayers = ps.slots.black || ps.slots.white;
                 const hasMoves = ps.moveLog.length > 0;
-                boardSizeSelect.style.display = (hasPlayers || hasMoves) ? 'none' : '';
+                // 开局（开赛/计时协商中/已有落子）隐藏路数选择；终局开新局（盘面清空、未开赛）后恢复可选，
+                // 是否已就座不影响——否则新局后玩家仍在座会永远隐藏。
+                const engaged = !!(ps.matchStarted || (ps.matchTime && ps.matchTime.settings) || hasMoves);
+                boardSizeSelect.style.display = engaged ? 'none' : '';
                 if (!hasPlayers && !hasMoves) {
                     importBtn.style.display = '';
                     exportBtn.style.display = 'none';
@@ -1039,17 +1057,10 @@ const boardSizeSelect = document.getElementById('boardSizeSelect');
                 canvas: document.getElementById('goBoard'),
                 mode: 'grid2d',
                 pickAtClient(clientX, clientY) {
-                    if (typeof canvasCoordsFromClient === 'function' && typeof getClosestIntersection === 'function') {
-                        const p = canvasCoordsFromClient(clientX, clientY);
-                        return getClosestIntersection(p.x, p.y);
-                    }
-                    if (typeof pickIntersectionAtCanvas === 'function') {
-                        const canvasEl = document.getElementById('goBoard');
-                        const rect = canvasEl.getBoundingClientRect();
-                        const scale = canvasEl.width / rect.width;
-                        return pickIntersectionAtCanvas((clientX - rect.left) * scale, (clientY - rect.top) * scale);
-                    }
-                    return null;
+                    // 与正常落子的取点一致：客户端坐标 → 600 逻辑画布 → 最近格
+                    const rect = canvas.getBoundingClientRect();
+                    const scale = 600 / rect.width;
+                    return getClosestCell((clientX - rect.left) * scale, (clientY - rect.top) * scale);
                 },
                 drawBoard: typeof drawBoard === 'function' ? drawBoard : function () {},
                 getBoard() { return ps.board; },

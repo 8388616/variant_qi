@@ -81,21 +81,22 @@ function copyBags(bags) {
 function createInitialBoard() {
     const b = emptyBoard();
     const N = 'neutral';
-    b[0][0] = { type: 'br', owner: N }; b[0][8] = { type: 'br', owner: N };
-    b[0][1] = { type: 'bn', owner: N }; b[0][7] = { type: 'bn', owner: N };
-    b[0][2] = { type: 'be', owner: N }; b[0][6] = { type: 'be', owner: N };
-    b[0][3] = { type: 'ba', owner: N }; b[0][5] = { type: 'ba', owner: N };
-    b[0][4] = { type: 'bk', owner: N };
-    b[2][1] = { type: 'bc', owner: N }; b[2][7] = { type: 'bc', owner: N };
-    for (let i = 0; i < 5; i++) b[3][2 * i] = { type: 'bp', owner: N };
+    // 红方在下（row 0-2），黑方在上（row 7-9）
+    b[9][0] = { type: 'br', owner: N }; b[9][8] = { type: 'br', owner: N };
+    b[9][1] = { type: 'bn', owner: N }; b[9][7] = { type: 'bn', owner: N };
+    b[9][2] = { type: 'be', owner: N }; b[9][6] = { type: 'be', owner: N };
+    b[9][3] = { type: 'ba', owner: N }; b[9][5] = { type: 'ba', owner: N };
+    b[9][4] = { type: 'bk', owner: N };
+    b[7][1] = { type: 'bc', owner: N }; b[7][7] = { type: 'bc', owner: N };
+    for (let i = 0; i < 5; i++) b[6][2 * i] = { type: 'bp', owner: N };
 
-    b[9][0] = { type: 'rr', owner: N }; b[9][8] = { type: 'rr', owner: N };
-    b[9][1] = { type: 'rn', owner: N }; b[9][7] = { type: 'rn', owner: N };
-    b[9][2] = { type: 're', owner: N }; b[9][6] = { type: 're', owner: N };
-    b[9][3] = { type: 'ra', owner: N }; b[9][5] = { type: 'ra', owner: N };
-    b[9][4] = { type: 'rk', owner: N };
-    b[7][1] = { type: 'rc', owner: N }; b[7][7] = { type: 'rc', owner: N };
-    for (let i = 0; i < 5; i++) b[6][2 * i] = { type: 'rp', owner: N };
+    b[0][0] = { type: 'rr', owner: N }; b[0][8] = { type: 'rr', owner: N };
+    b[0][1] = { type: 'rn', owner: N }; b[0][7] = { type: 'rn', owner: N };
+    b[0][2] = { type: 're', owner: N }; b[0][6] = { type: 're', owner: N };
+    b[0][3] = { type: 'ra', owner: N }; b[0][5] = { type: 'ra', owner: N };
+    b[0][4] = { type: 'rk', owner: N };
+    b[2][1] = { type: 'rc', owner: N }; b[2][7] = { type: 'rc', owner: N };
+    for (let i = 0; i < 5; i++) b[3][2 * i] = { type: 'rp', owner: N };
     return b;
 }
 
@@ -146,8 +147,8 @@ function sortedBag(bag) {
 
 function inPalace(camp, row, col) {
     if (col < 3 || col > 5) return false;
-    if (camp === 'red') return row >= 7 && row <= 9;
-    return row >= 0 && row <= 2;
+    if (camp === 'red') return row >= 0 && row <= 2;
+    return row >= 7 && row <= 9;
 }
 
 function findKings(board) {
@@ -225,8 +226,8 @@ function isGeometryLegal(pieceType, fromRow, fromCol, toRow, toCol, board) {
         const midR = fromRow + dR / 2;
         const midC = fromCol + dC / 2;
         if (board[midR][midC]) return false;
-        if (camp === 'red') return toRow >= 5;
-        return toRow <= 4;
+        if (camp === 'red') return toRow <= 4;
+        return toRow >= 5;
     }
     if (kind === 'n') {
         if (aR === 2 && aC === 1) {
@@ -272,8 +273,9 @@ function isGeometryLegal(pieceType, fromRow, fromCol, toRow, toCol, board) {
         return cnt === 1;
     }
     if (kind === 'p') {
-        const forward = camp === 'red' ? -1 : 1;
-        const crossed = camp === 'red' ? fromRow <= 4 : fromRow >= 5;
+        // 红兵朝 row 增大方向前进；过河（越过中线）后可横走
+        const forward = camp === 'red' ? 1 : -1;
+        const crossed = camp === 'red' ? fromRow >= 5 : fromRow <= 4;
         if (dR === forward && dC === 0) return true;
         if (crossed && aR === 0 && aC === 1) return true;
         return false;
@@ -569,13 +571,16 @@ const canvas = document.getElementById('goBoard');
         }
 
         function toDisplayCoord(row, col) {
-            if (!boardFlipped()) return { row, col };
-            return { row: R.BOARD_H - 1 - row, col: R.BOARD_W - 1 - col };
+            // 红方在 row 小的一侧且显示在下：先做视角 180° 旋转，再整体 y 镜像
+            let r = row, c = col;
+            if (boardFlipped()) { r = R.BOARD_H - 1 - r; c = R.BOARD_W - 1 - c; }
+            return { row: R.BOARD_H - 1 - r, col: c };
         }
 
         function toOriginalCoord(dispRow, dispCol) {
-            if (!boardFlipped()) return { row: dispRow, col: dispCol };
-            return { row: R.BOARD_H - 1 - dispRow, col: R.BOARD_W - 1 - dispCol };
+            let r = R.BOARD_H - 1 - dispRow, c = dispCol;
+            if (boardFlipped()) { r = R.BOARD_H - 1 - r; c = R.BOARD_W - 1 - c; }
+            return { row: r, col: c };
         }
 
         function calcGeometry() {
@@ -753,25 +758,49 @@ const canvas = document.getElementById('goBoard');
                     const x = offsetX + d.col * cellSize;
                     const y = offsetY + d.row * cellSize;
                     const radius = cellSize * 0.42;
-                    ctx2d.shadowOffsetY = radius * 0.2;
-                    ctx2d.shadowBlur = radius * 0.4;
-                    ctx2d.shadowColor = 'rgba(0,0,0,0.45)';
+                                        // 天天象棋式：单色圆片 + 环绕侧影（上缘宽度 0，向下平滑过渡到最宽）
+                    ctx2d.shadowOffsetY = radius * 0.16;
+                    ctx2d.shadowBlur = radius * 0.28;
+                    ctx2d.shadowColor = 'rgba(0,0,0,0.35)';
                     ctx2d.beginPath();
-                    ctx2d.arc(x, y, radius, 0, Math.PI * 2);
                     ctx2d.fillStyle = '#e8d2a0';
+                    ctx2d.arc(x, y, radius, 0, Math.PI * 2);
                     ctx2d.fill();
                     ctx2d.shadowBlur = 0; ctx2d.shadowOffsetY = 0;
-                    ctx2d.strokeStyle = '#c49c6a';
+                    ctx2d.save();
+                    ctx2d.beginPath();
+                    ctx2d.arc(x, y, radius, 0, Math.PI * 2);
+                    ctx2d.clip();
+                    
+                    // 侧影内边界随角度变化：上(3π/2)=0、下(π/2)最宽，72 段细分平滑
+                    for (let si = 0; si < 72; si++) {
+                        const t1 = (si / 72) * Math.PI * 2;
+                        const t2 = ((si + 1) / 72) * Math.PI * 2;
+                        const tm = (t1 + t2) / 2;
+                        const wShade = radius * 0.30 * (1 + Math.sin(tm)) / 2;
+                        const innerR = radius - wShade;
+                        ctx2d.beginPath();
+                        ctx2d.arc(x, y, radius, t1, t2);
+                        ctx2d.arc(x, y, innerR, t2, t1, true);
+                        ctx2d.closePath();
+                        ctx2d.fillStyle = 'rgba(200,160,104,0.8)';
+                        ctx2d.fill();
+                    }
+                    ctx2d.restore();
+
+                    ctx2d.beginPath();
+                    ctx2d.arc(x, y, radius, 0, Math.PI * 2);
+                    ctx2d.strokeStyle = 'rgba(200,160,104,0.8)';
                     ctx2d.lineWidth = 1.5;
                     ctx2d.stroke();
                     const color = R.ownerColorHex(piece.owner);
                     ctx2d.fillStyle = color;
-                    ctx2d.font = `${cellSize * 0.52}px XiangqiPiece`;
+                    ctx2d.font = `${cellSize * 0.5}px XiangqiPiece`;
                     ctx2d.textAlign = 'center';
                     ctx2d.textBaseline = 'middle';
-                    ctx2d.fillText(R.pieceLabel(piece.type), x, y + cellSize * 0.02);
+                    ctx2d.fillText(R.pieceLabel(piece.type), x, y - radius * 0.15 + cellSize * 0.02);
                     ctx2d.beginPath();
-                    ctx2d.arc(x, y, radius * 0.78, 0, Math.PI * 2);
+                    ctx2d.arc(x, y - radius * 0.15, radius * 0.72, 0, Math.PI * 2);
                     ctx2d.strokeStyle = color;
                     ctx2d.lineWidth = 1.2;
                     ctx2d.stroke();

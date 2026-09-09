@@ -96,10 +96,13 @@ let ROWS = 9; // 扭曲空间路数（比三角围棋少一路）
             DY = (innerB.y - innerA.y) / (GRID_ROWS - 1);
             TOP_Y = innerA.y;
             CENTER_X = innerA.x;
+            // 扭曲空间总点数：第 r 行 2r+1 格，Σ = ROWS²
+            QiWeiqiSquarePageRuntime.writeKomiInfoText(document.getElementById('komiInfo'), KOMI, ROWS * ROWS);
         }
         updateBoardGeometry();
 
         function triPointToPixel(r, c) {
+            // 参照三角围棋：row 0 在顶部（尖端），坐标不镜像；镜像会让格线与外框/标签错位（右下顶点错误）
             const y = TOP_Y + r * DY;
             const leftX = CENTER_X - (r * DX) / 2;
             return { x: leftX + c * DX, y };
@@ -337,7 +340,7 @@ if (sizeSelect) {
             const s = computeScore(cachedLiveBoard, cachedTerritory);
             const lead = s.blackTotal - s.whiteTotal - 2 * KOMI;
             scoreTitle.innerText = '形势判断';
-            scoreBoard.innerText = `黑: ${s.blackTotal.toFixed(0)}　白: ${s.whiteTotal.toFixed(0)}`;
+            scoreBoard.innerText = `黑: ${Number(s.blackTotal.toFixed(2))}　白: ${Number(s.whiteTotal.toFixed(2))}`;
             leadInfo.innerText = `黑${lead >= 0 ? '+' : ''}${lead.toFixed(1)}点`;
         }
 

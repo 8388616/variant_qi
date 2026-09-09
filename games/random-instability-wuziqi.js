@@ -679,6 +679,23 @@ class RandomInstabilityWuziqiRoom extends QiTwoPlayerRoomBase {
         });
     }
 
+    /** 随机失稳五子：悔棋固定悔 1 手 */
+    undoStepsFor(slot, isMyTurn) {
+        return 1;
+    }
+
+    /** 由公共悔棋协议调用：恢复 1 手（含寿命/预览）并广播 */
+    performUndoSteps(steps) {
+        this.board = this.copyBoard(this.historyBoards.pop());
+        this.lifetimes = this.copyLifetimes(this.historyLifetimes.pop());
+        this.moveLog.pop();
+        this.lastMoveMarkers = [];
+        this.currentPlayer = (this.currentPlayer === 'black') ? 'white' : 'black';
+        this.moveCount--;
+        this.generateNextPreview();
+        this.broadcast({ type: 'broadcast', action: 'undoAccept', ...this.getState() });
+    }
+
     handleMessage(ws, msg) {
         const slot = this.room.getSlotByWs(ws);
         const room = this.room;
@@ -873,59 +890,11 @@ class RandomInstabilityWuziqiRoom extends QiTwoPlayerRoomBase {
                 break;
 
             case 'requestUndo':
-                if (!slot || this.gameOver) return;
-                const undoOpponent = room.getPlayerBySlot(slot === 'black' ? 'white' : 'black');
-                if (!undoOpponent) {
-                    if (this.historyBoards.length > 0) {
-                        this.board = this.copyBoard(this.historyBoards.pop());
-                        this.lifetimes = this.copyLifetimes(this.historyLifetimes.pop());
-                        this.moveLog.pop();
-                        this.lastMoveMarkers = [];
-                        this.currentPlayer = (this.currentPlayer === 'black') ? 'white' : 'black';
-                        this.moveCount--;
-                        this.generateNextPreview();
-                        this.broadcast({
-                            type: 'broadcast',
-                            action: 'undoAccept',
-                            board: this.board,
-                            lifetimes: this.lifetimes,
-                            currentPlayer: this.currentPlayer,
-                            moveCount: this.moveCount,
-                            nextLifetimePreview: this.nextLifetimePreview,
-                            lastMoveMarkers: this.lastMoveMarkers
-                        });
-                    }
-                    return;
-                }
-                this.pendingUndo = ws;
-                undoOpponent.send(JSON.stringify({ type: 'undoRequest' }));
+                qiProtocol.undoWuziqiHistory(this, ws, msg, slot);
                 break;
 
             case 'undoResponse':
-                if (this.pendingUndo && this.historyBoards.length > 0) {
-                    if (msg.accept) {
-                        this.board = this.copyBoard(this.historyBoards.pop());
-                        this.lifetimes = this.copyLifetimes(this.historyLifetimes.pop());
-                        this.moveLog.pop();
-                        this.lastMoveMarkers = [];
-                        this.currentPlayer = (this.currentPlayer === 'black') ? 'white' : 'black';
-                        this.moveCount--;
-                        this.generateNextPreview();
-                        this.broadcast({
-                            type: 'broadcast',
-                            action: 'undoAccept',
-                            board: this.board,
-                            lifetimes: this.lifetimes,
-                            currentPlayer: this.currentPlayer,
-                            moveCount: this.moveCount,
-                            nextLifetimePreview: this.nextLifetimePreview,
-                            lastMoveMarkers: this.lastMoveMarkers
-                        });
-                    } else {
-                        this.pendingUndo.send(JSON.stringify({ type: 'error', message: '对方拒绝悔棋。' }));
-                    }
-                }
-                this.pendingUndo = null;
+                qiProtocol.undoResponseWuziqiHistory(this, ws, msg);
                 break;
 
             case 'resign':

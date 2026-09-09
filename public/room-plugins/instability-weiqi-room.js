@@ -428,7 +428,7 @@ function unstableLifetimeForSize(size) {
             d.starPoints(ctx, ps.BOARD_SIZE, ps.PADDING, cellSize);
             d.coordLabels(ctx, ps.BOARD_SIZE, ps.PADDING, cellSize);
             if (lowerLastMoveMarker) {
-                d.lastMoveMarkersLower(ctx, ps.lastMoveMarkers, ps.PADDING, cellSize, stoneRadius);
+                d.lastMoveMarkersLower(ctx, ps.lastMoveMarkers, ps.PADDING, cellSize, stoneRadius, ps.BOARD_SIZE);
             }
             d.stonesBlackWhite(ctx, ps.board, ps.BOARD_SIZE, ps.PADDING, cellSize, stoneRadius, showStepNumbersOnStones);
             ctx.save();
@@ -440,7 +440,7 @@ function unstableLifetimeForSize(size) {
                     if (ps.unstableInfo[r][c] === 0) continue;
                     const remaining = ps.unstableInfo[r][c] + ps.unstableLifetime - ps.moveCount;
                     const x = ps.PADDING + c * cellSize;
-                    const y = ps.PADDING + r * cellSize;
+                    const y = ps.PADDING + (ps.BOARD_SIZE - 1 - r) * cellSize;
                     if (remaining < 5)
                         ctx.strokeStyle = '#ff0000';
                     else if (val === 1)
@@ -467,7 +467,7 @@ function unstableLifetimeForSize(size) {
             }
             ctx.restore();
             if (!lowerLastMoveMarker) {
-                d.lastMoveMarkersUpper(ctx, ps.lastMoveMarkers, ps.PADDING, cellSize, markLenDefault);
+                d.lastMoveMarkersUpper(ctx, ps.lastMoveMarkers, ps.PADDING, cellSize, markLenDefault, ps.BOARD_SIZE);
             }
             d.userBoardMarks(ctx, ps.userBoardMarks, ps.BOARD_SIZE, ps.PADDING, cellSize, isUserBoardMarkVisibleAt);
             if (showStepNumbersOnStones) {
@@ -803,6 +803,9 @@ function unstableLifetimeForSize(size) {
 
         function enterTryPlayImpl() {
             page.clearMobileMovePreview();
+            const fromLive = !ps.replayMode;
+            ps.tryPlayFromLive = fromLive;
+            ps.tryPlayFromLiveStep = ps.liveViewStep || 0;
             ps.tryPlayMode = true;
             ps.tryPlayBaseStep = ps.replayStep;
             ps.tryPlayBoards = [C().deepCopyBoard(ps.board)];
@@ -810,11 +813,10 @@ function unstableLifetimeForSize(size) {
             ps.tryPlayMoveCounts = [ps.moveCount];
             ps.tryPlayMarkers = [ps.lastMoveMarkers.map(m => ({ ...m }))];
             ps.tryPlayMoveList = [];
-            const _fromLive = !ps.replayMode;
                 const _RT = typeof QiWeiqiSquarePageRuntime !== 'undefined' ? QiWeiqiSquarePageRuntime : null;
                 ps.tryPlayCurrentPlayer = _RT && _RT.resolveTryPlaySideToMove
                     ? _RT.resolveTryPlaySideToMove({
-                        fromLive: _fromLive,
+                        fromLive,
                         replayStep: ps.replayStep,
                         replayStepPlayers: ps.replayStepPlayers,
                         liveViewStep: ps.liveViewStep,
@@ -824,6 +826,15 @@ function unstableLifetimeForSize(size) {
                     })
                     : (ps.replayStep > 0 ? (3 - ps.replayStepPlayers[ps.replayStep]) : ((ps.currentPlayer === 1 || ps.currentPlayer === 2) ? ps.currentPlayer : 1));
                 ps.tryPlayBasePlayer = ps.tryPlayCurrentPlayer;
+            if (fromLive) {
+                // 挂 replayMode 脚手架（与公共 enterTryPlay 一致）：直播进入试下时点击/绘制按 replayMode && tryPlayMode 判断
+                ps.replayMode = true;
+                ps.replayBoards = [C().deepCopyBoard(ps.board)];
+                ps.replayMarkers = [(ps.lastMoveMarkers || []).map(m => ({ ...m }))];
+                ps.replayStepPlayers = [ps.tryPlayCurrentPlayer === 1 ? 2 : 1];
+                ps.replayStep = 0;
+                ps.replayTotalSteps = 0;
+            }
             ps.tryPlayStep = 0;
             ps.tryPlayTotalSteps = 0;
             const slider = document.getElementById('replaySlider');
@@ -836,7 +847,16 @@ function unstableLifetimeForSize(size) {
 
         function exitTryPlayImpl() {
             page.clearMobileMovePreview();
+            // 从直播进入试下的要退回直播局面（与公共 exitTryPlay 一致），而不是走打谱 setReplayStep
+            const fromLive = !!ps.tryPlayFromLive;
+            const savedLiveStep = ps.tryPlayFromLiveStep != null ? ps.tryPlayFromLiveStep : ps.liveViewStep;
+            const snapBoard = fromLive && ps.tryPlayBoards.length > 0 ? C().deepCopyBoard(ps.tryPlayBoards[0]) : null;
+            const snapMarkers = fromLive && ps.tryPlayMarkers.length > 0 && ps.tryPlayMarkers[0]
+                ? ps.tryPlayMarkers[0].map(m => ({ ...m }))
+                : [];
             ps.tryPlayMode = false;
+            ps.tryPlayFromLive = false;
+            if ('tryPlayFromLiveStep' in ps) ps.tryPlayFromLiveStep = null;
             ps.tryPlayBoards = [];
             ps.tryPlayUnstableInfos = [];
             ps.tryPlayMoveCounts = [];
@@ -846,8 +866,38 @@ function unstableLifetimeForSize(size) {
             ps.tryPlayMoveList = [];
             const slider = document.getElementById('replaySlider');
             slider.min = 0;
-            slider.max = ps.replayTotalSteps;
-            page.setReplayStep(ps.tryPlayBaseStep);
+            if (fromLive) {
+                ps.replayMode = false;
+                ps.replayBoards = [];
+                ps.replayMarkers = [];
+                ps.replayStepPlayers = [];
+                ps.replayStep = 0;
+                ps.replayTotalSteps = 0;
+                if (snapBoard) {
+                    ps.board = snapBoard;
+                    ps.lastMoveMarkers = snapMarkers.map(m => ({ ...m }));
+                    if (ps.liveReplayBoards.length > 0) {
+                        const step = Math.min(Math.max(0, savedLiveStep), ps.liveReplayBoards.length - 1);
+                        ps.liveReplayBoards[step] = C().deepCopyBoard(snapBoard);
+                        if (!ps.liveReplayMarkers[step]) ps.liveReplayMarkers[step] = [];
+                        ps.liveReplayMarkers[step] = snapMarkers.map(m => ({ ...m }));
+                        ps.liveViewStep = step;
+                    } else {
+                        ps.liveReplayBoards = [C().deepCopyBoard(snapBoard)];
+                        ps.liveReplayMarkers = [snapMarkers.map(m => ({ ...m }))];
+                        ps.liveReplayStepPlayers = [0];
+                        ps.liveViewStep = 0;
+                    }
+                } else if (typeof page.applyLiveViewBoard === 'function') {
+                    page.applyLiveViewBoard();
+                }
+                page.updateLiveReplayPanelUI();
+                if (ps.showEstimateActive) page.showEstimate();
+                else page.updateTurn();
+            } else {
+                slider.max = ps.replayTotalSteps;
+                page.setReplayStep(ps.tryPlayBaseStep);
+            }
             page.updateReplayUI();
         }
 
@@ -964,7 +1014,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             isMouseDevice,
             removeDeadAndDying: removeDeadAndDyingLocal,
             assignTerritoryWithRange: assignTerritoryWithRangeLocal,
-            komiInfoText: (p) => `黑贴白${p.KOMI}点 · 不稳定子寿命${p.unstableLifetime}手`,
+            komiInfoText: (p) => QiWeiqiSquarePageRuntime.formatKomiInfoText(p.KOMI, QiWeiqiSquarePageRuntime.defaultKomiTotalPoints(p)) + ` · 不稳定子寿命${p.unstableLifetime}手`,
             drawBoard: drawBoardImpl,
             syncState: syncStateImpl,
             rebuildLiveReplayFromMoveCoords: rebuildLiveReplayCore,

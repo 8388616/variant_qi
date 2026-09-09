@@ -99,16 +99,16 @@ window.RoomPlugins['sudoku-weiqi'] = {
             return { padding, cellSize, canvasSize: cs };
         }
 
-        function cellCenter(padding, cellSize, row, col) {
+        function cellCenter(padding, cellSize, row, col, boardSize) {
             return {
                 x: padding + (col + 0.5) * cellSize,
-                y: padding + (row + 0.5) * cellSize
+                y: padding + (boardSize - 1 - row + 0.5) * cellSize
             };
         }
 
         function getClosestCell(x, y, boardSize, padding, cellSize) {
             const col = Math.floor((x - padding) / cellSize);
-            const row = Math.floor((y - padding) / cellSize);
+            const row = boardSize - 1 - Math.floor((y - padding) / cellSize);
             if (row < 0 || row >= boardSize || col < 0 || col >= boardSize) return { row: -1, col: -1 };
             return { row, col };
         }
@@ -541,6 +541,7 @@ window.RoomPlugins['sudoku-weiqi'] = {
             scoreTitle,
             scoreBoard,
             leadInfo,
+            komiInfo: document.getElementById('komiInfo'),
             BOARD_MARK_CHAR_LIST
         };
 
@@ -703,6 +704,7 @@ window.RoomPlugins['sudoku-weiqi'] = {
             if (typeof origUpdateBoardGeometry === 'function') {
                 // skip default intersection geometry
             }
+            QiWeiqiSquarePageRuntime.writeKomiInfoText(domPage.komiInfo, ps.KOMI, ps.BOARD_SIZE * ps.BOARD_SIZE);
         };
 
         function hitCell(x, y) {
@@ -797,7 +799,7 @@ window.RoomPlugins['sudoku-weiqi'] = {
 
             if (lowerLastMoveMarker) {
                 for (const m of ps.lastMoveMarkers) {
-                    const { x, y } = cellCenter(padding, cellSize, m.row, m.col);
+                    const { x, y } = cellCenter(padding, cellSize, m.row, m.col, ps.BOARD_SIZE);
                     ctx.beginPath();
                     ctx.moveTo(x + stoneRadius, y + stoneRadius);
                     ctx.lineTo(x, y + stoneRadius);
@@ -812,7 +814,7 @@ window.RoomPlugins['sudoku-weiqi'] = {
                 for (let c = 0; c < ps.BOARD_SIZE; c++) {
                     const val = ps.board[r][c];
                     if (val !== 1 && val !== 2) continue;
-                    const { x, y } = cellCenter(padding, cellSize, r, c);
+                    const { x, y } = cellCenter(padding, cellSize, r, c, ps.BOARD_SIZE);
                     const digit = safeDigitAt(ps.digitBoard, r, c);
                     drawStoneAt(ctx, x, y, val, stoneRadius, digit, ps.showMoveNumbers);
                 }
@@ -820,7 +822,7 @@ window.RoomPlugins['sudoku-weiqi'] = {
 
             if (!lowerLastMoveMarker) {
                 for (const m of ps.lastMoveMarkers) {
-                    const { x, y } = cellCenter(padding, cellSize, m.row, m.col);
+                    const { x, y } = cellCenter(padding, cellSize, m.row, m.col, ps.BOARD_SIZE);
                     ctx.beginPath();
                     ctx.moveTo(x, y);
                     ctx.lineTo(x + markLenDefault, y);
@@ -837,7 +839,7 @@ window.RoomPlugins['sudoku-weiqi'] = {
                 if (r < 0 || r >= ps.BOARD_SIZE || c < 0 || c >= ps.BOARD_SIZE) continue;
                 if (page.isUserBoardMarkVisibleAt && !page.isUserBoardMarkVisibleAt(r, c)) continue;
                 const ch = ps.userBoardMarks[key];
-                const { x, y } = cellCenter(padding, cellSize, r, c);
+                const { x, y } = cellCenter(padding, cellSize, r, c, ps.BOARD_SIZE);
                 ctx.beginPath();
                 ctx.arc(x, y, cellSize * 0.28, 0, 2 * Math.PI);
                 ctx.fillStyle = '#fdcc90';
@@ -854,7 +856,7 @@ window.RoomPlugins['sudoku-weiqi'] = {
                 for (let r = 0; r < ps.BOARD_SIZE; r++) {
                     for (let c = 0; c < ps.BOARD_SIZE; c++) {
                         if (!nums[r] || !nums[r][c]) continue;
-                        const { x, y } = cellCenter(padding, cellSize, r, c);
+                        const { x, y } = cellCenter(padding, cellSize, r, c, ps.BOARD_SIZE);
                         ctx.font = `bold ${cellSize * 0.32}px Arial`;
                         ctx.textAlign = 'center';
                         ctx.textBaseline = 'middle';
@@ -867,7 +869,7 @@ window.RoomPlugins['sudoku-weiqi'] = {
             if (ps.hoverRow >= 0 && ps.hoverCol >= 0 && ps.isHoverValid) {
                 const canHover = ps.tryPlayMode || (!ps.gameOver && ps.isMyTurn);
                 if (canHover && ps.board[ps.hoverRow][ps.hoverCol] === 0) {
-                    const { x, y } = cellCenter(padding, cellSize, ps.hoverRow, ps.hoverCol);
+                    const { x, y } = cellCenter(padding, cellSize, ps.hoverRow, ps.hoverCol, ps.BOARD_SIZE);
                     const hoverColor = ps.tryPlayMode
                         ? (ps.tryPlayCurrentPlayer === 1 ? '#222' : '#ddd')
                         : (ps.mySlot === 'black' ? '#222' : '#ddd');

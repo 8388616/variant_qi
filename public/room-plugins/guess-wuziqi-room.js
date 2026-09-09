@@ -378,11 +378,11 @@ const scoreTitle = document.getElementById('scoreTitle');
             const markLenDefault = cellSize * 0.352;
             const lowerLastMoveMarker = showMoveNumbers;
             if (lowerLastMoveMarker) {
-                d.lastMoveMarkersLower(ctx, lastMoveMarkers, PADDING, cellSize, stoneRadius);
+                d.lastMoveMarkersLower(ctx, lastMoveMarkers, PADDING, cellSize, stoneRadius, BOARD_SIZE);
             }
             d.stonesBlackWhite(ctx, board, BOARD_SIZE, PADDING, cellSize, stoneRadius, showMoveNumbers);
             if (!lowerLastMoveMarker) {
-                d.lastMoveMarkersUpper(ctx, lastMoveMarkers, PADDING, cellSize, markLenDefault);
+                d.lastMoveMarkersUpper(ctx, lastMoveMarkers, PADDING, cellSize, markLenDefault, BOARD_SIZE);
             }
             d.userBoardMarks(ctx, userBoardMarks, BOARD_SIZE, PADDING, cellSize, isUserBoardMarkVisibleAt);
             if (showMoveNumbers) {
@@ -395,7 +395,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                 const { row, col } = rightGuessPoint;
                 if (board[row][col] === 0) {
                     const x = PADDING + col * cellSize;
-                    const y = PADDING + row * cellSize;
+                    const y = PADDING + (BOARD_SIZE - 1 - row) * cellSize;
                     const squareHalf = cellSize * 0.18;
                     ctx.globalAlpha = 0.7;
                     ctx.fillStyle = '#00a040';
@@ -409,7 +409,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                 const { row, col } = wrongGuessPoint;
                 if (board[row][col] === 0) {
                     const x = PADDING + col * cellSize;
-                    const y = PADDING + row * cellSize;
+                    const y = PADDING + (BOARD_SIZE - 1 - row) * cellSize;
                     const squareHalf = cellSize * 0.18;
                     ctx.globalAlpha = 0.7;
                     ctx.fillStyle = '#c00000';
@@ -425,7 +425,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                 const squareHalf = cellSize * 0.18;
                 candidates.forEach(({ row, col }) => {
                     const x = PADDING + col * cellSize;
-                    const y = PADDING + row * cellSize;
+                    const y = PADDING + (BOARD_SIZE - 1 - row) * cellSize;
                     ctx.fillStyle = playerColor;
                     ctx.fillRect(x - squareHalf, y - squareHalf, squareHalf * 2, squareHalf * 2);
                 });
@@ -445,7 +445,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                 const squareHalf = cellSize * 0.18;
                 guessCandidates.forEach(({ row, col }) => {
                     const x = PADDING + col * cellSize;
-                    const y = PADDING + row * cellSize;
+                    const y = PADDING + (BOARD_SIZE - 1 - row) * cellSize;
                     ctx.fillStyle = guessColor;
                     ctx.fillRect(x - squareHalf, y - squareHalf, squareHalf * 2, squareHalf * 2);
                 });

@@ -5,28 +5,28 @@ const {
     qiBoardSeatOverlay
 } = require('../common');
 
-const R = require('./xiangqi-rules');
+const R = require('./xiangqi-rules').flipped;
 if (!R || typeof R.createInitialBoard !== 'function') {
     throw new Error('xiangqi-rules.js not found or invalid (need createInitialBoard)');
 }
 
-/** 二象棋专属开局（子力加倍，花心多一将） */
+/** 二象棋专属开局（子力加倍，花心多一将）。红方在下（row 0-2），黑方在上（row 7-9） */
 function createDoubleInitialBoard() {
     const b = R.emptyBoard();
-    b[0][0] = 'br'; b[0][1] = 'bn'; b[0][2] = 'be'; b[0][3] = 'ba'; b[0][4] = 'bk';
-    b[0][5] = 'ba'; b[0][6] = 'be'; b[0][7] = 'bn'; b[0][8] = 'br';
-    b[1][0] = 'br'; b[1][1] = 'bn'; b[1][2] = 'bc'; b[1][3] = 'bc'; b[1][4] = 'bk';
-    b[1][5] = 'bc'; b[1][6] = 'bc'; b[1][7] = 'bn'; b[1][8] = 'br';
-    b[2][3] = 'ba'; b[2][4] = 'bp'; b[2][5] = 'ba';
-    for (let c = 0; c < R.BOARD_W; c++) b[3][c] = 'bp';
-    b[4][2] = 'be'; b[4][6] = 'be';
-    b[5][2] = 're'; b[5][6] = 're';
-    for (let c = 0; c < R.BOARD_W; c++) b[6][c] = 'rp';
-    b[7][3] = 'ra'; b[7][4] = 'rp'; b[7][5] = 'ra';
-    b[8][0] = 'rr'; b[8][1] = 'rn'; b[8][2] = 'rc'; b[8][3] = 'rc'; b[8][4] = 'rk';
-    b[8][5] = 'rc'; b[8][6] = 'rc'; b[8][7] = 'rn'; b[8][8] = 'rr';
-    b[9][0] = 'rr'; b[9][1] = 'rn'; b[9][2] = 're'; b[9][3] = 'ra'; b[9][4] = 'rk';
-    b[9][5] = 'ra'; b[9][6] = 're'; b[9][7] = 'rn'; b[9][8] = 'rr';
+    b[9][0] = 'br'; b[9][1] = 'bn'; b[9][2] = 'be'; b[9][3] = 'ba'; b[9][4] = 'bk';
+    b[9][5] = 'ba'; b[9][6] = 'be'; b[9][7] = 'bn'; b[9][8] = 'br';
+    b[8][0] = 'br'; b[8][1] = 'bn'; b[8][2] = 'bc'; b[8][3] = 'bc'; b[8][4] = 'bk';
+    b[8][5] = 'bc'; b[8][6] = 'bc'; b[8][7] = 'bn'; b[8][8] = 'br';
+    b[7][3] = 'ba'; b[7][4] = 'bp'; b[7][5] = 'ba';
+    for (let c = 0; c < R.BOARD_W; c++) b[6][c] = 'bp';
+    b[5][2] = 'be'; b[5][6] = 'be';
+    b[4][2] = 're'; b[4][6] = 're';
+    for (let c = 0; c < R.BOARD_W; c++) b[3][c] = 'rp';
+    b[2][3] = 'ra'; b[2][4] = 'rp'; b[2][5] = 'ra';
+    b[1][0] = 'rr'; b[1][1] = 'rn'; b[1][2] = 'rc'; b[1][3] = 'rc'; b[1][4] = 'rk';
+    b[1][5] = 'rc'; b[1][6] = 'rc'; b[1][7] = 'rn'; b[1][8] = 'rr';
+    b[0][0] = 'rr'; b[0][1] = 'rn'; b[0][2] = 're'; b[0][3] = 'ra'; b[0][4] = 'rk';
+    b[0][5] = 'ra'; b[0][6] = 're'; b[0][7] = 'rn'; b[0][8] = 'rr';
     return b;
 }
 

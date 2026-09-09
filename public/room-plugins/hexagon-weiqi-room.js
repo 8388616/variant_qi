@@ -149,7 +149,7 @@ window.RoomPlugins["hexagon-weiqi"] = {
 
             const transformedPts = vertices.map(v => ({
                 x: FRAME_CENTER + (v.x - cx) * scale,
-                y: FRAME_CENTER + (v.y - cy) * scale
+                y: FRAME_CENTER - (v.y - cy) * scale   // 棋盘显示上下翻折(y 镜像)
             }));
 
             let totalDist = 0;
@@ -299,6 +299,16 @@ const scoreTitle = document.getElementById('scoreTitle');
 
         // ======================== 工具函数 ========================
         const KOMI = 3.25;
+
+        /** 六角棋盘顶点总数：6(N−1)²（与 generateHexBoardData 生成结果对拍一致） */
+        function hexTotalPoints() {
+            const n = BOARD_SIZE;
+            return 6 * (n - 1) * (n - 1);
+        }
+        function refreshHexKomiInfo() {
+            QiWeiqiSquarePageRuntime.writeKomiInfoText(document.getElementById('komiInfo'), KOMI, hexTotalPoints());
+        }
+        refreshHexKomiInfo();
 
         function formatScore(num) {
             let str = num.toFixed(2);
@@ -1252,6 +1262,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             if (needGeometry) {
                 BOARD_SIZE = incomingSize;
                 applyHexGeometry(generateHexBoard(BOARD_SIZE));
+                refreshHexKomiInfo();
                 const sizeSelect = document.getElementById('boardSizeSelect');
                 if (sizeSelect) sizeSelect.value = String(BOARD_SIZE);
             }
@@ -1363,6 +1374,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             setBoardSize: (n) => {
                 BOARD_SIZE = n;
                 applyHexGeometry(generateHexBoard(BOARD_SIZE));
+                refreshHexKomiInfo();
             },
             getKomi: () => KOMI,
             setKomi: () => {},
@@ -1406,6 +1418,7 @@ komiInfo,
                 if (Number.isFinite(bs) && bs !== Number(BOARD_SIZE)) {
                     BOARD_SIZE = bs;
                     applyHexGeometry(generateHexBoard(BOARD_SIZE));
+                    refreshHexKomiInfo();
                     board = Array(V).fill(0);
                 }
                 const sel = document.getElementById('boardSizeSelect');

@@ -407,34 +407,6 @@ class RotationWuziqiRoom extends QiTwoPlayerRoomBase {
         this._syncClockAfterTurnChange();
     }
 
-    undoRotationWuziqi(ws, msg, slot) {
-        if (!slot || this.gameOver) return;
-        const room = this.room;
-        const isMyTurn = (slot === 'black' && this.currentPlayer === 1) || (slot === 'white' && this.currentPlayer === 2);
-        const steps = isMyTurn ? 2 : 1;
-        if (this.historyBoards.length < steps) {
-            ws.send(JSON.stringify({ type: 'error', message: '无法悔棋。' }));
-            return;
-        }
-        const opponentSlot = slot === 'black' ? 'white' : 'black';
-        const opponent = room.getPlayerBySlot(opponentSlot);
-        if (!opponent) {
-            this.performUndoSteps(steps);
-        } else {
-            this.pendingUndo = { requester: ws, steps };
-            opponent.send(JSON.stringify({ type: 'undoRequest' }));
-        }
-    }
-
-    undoResponseRotationWuziqi(ws, msg) {
-        if (this.pendingUndo && msg.accept) {
-            this.performUndoSteps(this.pendingUndo.steps);
-        } else if (this.pendingUndo && !msg.accept) {
-            this.pendingUndo.requester.send(JSON.stringify({ type: 'error', message: '对方拒绝悔棋。' }));
-        }
-        this.pendingUndo = null;
-    }
-
     handleMessage(ws, msg) {
         const slot = this.room.getSlotByWs(ws);
 
@@ -652,11 +624,11 @@ class RotationWuziqiRoom extends QiTwoPlayerRoomBase {
             }
 
             case 'requestUndo':
-                this.undoRotationWuziqi(ws, msg, slot);
+                qiProtocol.undoWuziqiHistory(this, ws, msg, slot);
                 break;
 
             case 'undoResponse':
-                this.undoResponseRotationWuziqi(ws, msg);
+                qiProtocol.undoResponseWuziqiHistory(this, ws, msg);
                 break;
 
             case 'resign':

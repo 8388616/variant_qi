@@ -304,18 +304,18 @@ const scoreTitle = document.getElementById('scoreTitle');
             d.coordLabels(ctx, ps.BOARD_SIZE, ps.PADDING, cellSize);
             for (let r = 0; r < ps.BOARD_SIZE; r++) {
                 for (let c = 0; c < ps.BOARD_SIZE; c++) {
-                    if (ps.board[r][c] === -1) R().drawRedBlockHole(r, c, ctx, ps.PADDING, cellSize);
+                    if (ps.board[r][c] === -1) R().drawRedBlockHole(r, c, ctx, ps.PADDING, cellSize, ps.BOARD_SIZE);
                 }
             }
             const stoneRadius = cellSize * 0.44;
             const markLenDefault = cellSize * 0.352;
             const lowerLastMoveMarker = ps.showMoveNumbers || ps.showEstimateActive;
             if (lowerLastMoveMarker) {
-                d.lastMoveMarkersLower(ctx, ps.lastMoveMarkers, ps.PADDING, cellSize, stoneRadius);
+                d.lastMoveMarkersLower(ctx, ps.lastMoveMarkers, ps.PADDING, cellSize, stoneRadius, ps.BOARD_SIZE);
             }
             d.stonesBlackWhite(ctx, ps.board, ps.BOARD_SIZE, ps.PADDING, cellSize, stoneRadius, ps.showMoveNumbers);
             if (!lowerLastMoveMarker) {
-                d.lastMoveMarkersUpper(ctx, ps.lastMoveMarkers, ps.PADDING, cellSize, markLenDefault);
+                d.lastMoveMarkersUpper(ctx, ps.lastMoveMarkers, ps.PADDING, cellSize, markLenDefault, ps.BOARD_SIZE);
             }
             function isUserBoardMarkVisibleAt(br, bc) {
                 if (ps.showEstimateActive) return false;
@@ -642,7 +642,7 @@ syncState: syncStateFull,
             if (msg.type === 'scoreProposal' && msg.blackTotal != null && msg.whiteTotal != null) {
                 _weiqiBindings.handleMessage(msg);
                 scoreTitle.innerText = '官方数点（待确认）';
-                scoreBoard.innerText = `黑: ${Number(msg.blackTotal).toFixed(0)}  白: ${Number(msg.whiteTotal).toFixed(0)}`;
+                scoreBoard.innerText = `黑: ${Number(Number(msg.blackTotal).toFixed(2))}  白: ${Number(Number(msg.whiteTotal).toFixed(2))}`;
                 leadInfo.innerText = `黑${msg.lead >= 0 ? '+' : ''}${Number(msg.lead).toFixed(1)}点`;
                 applySyncTurnUi({});
                 return;

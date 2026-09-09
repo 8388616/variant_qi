@@ -316,11 +316,11 @@ const scoreTitle = document.getElementById('scoreTitle');
             d.starPoints(ctx, ps.BOARD_SIZE, ps.PADDING, cellSize);
             d.coordLabels(ctx, ps.BOARD_SIZE, ps.PADDING, cellSize);
             if (lowerLastMoveMarker) {
-                d.lastMoveMarkersLower(ctx, ps.lastMoveMarkers, ps.PADDING, cellSize, stoneRadius);
+                d.lastMoveMarkersLower(ctx, ps.lastMoveMarkers, ps.PADDING, cellSize, stoneRadius, ps.BOARD_SIZE);
             }
             d.stonesBlackWhite(ctx, ps.board, ps.BOARD_SIZE, ps.PADDING, cellSize, stoneRadius, ps.showMoveNumbers);
             if (!lowerLastMoveMarker) {
-                d.lastMoveMarkersUpper(ctx, ps.lastMoveMarkers, ps.PADDING, cellSize, markLenDefault);
+                d.lastMoveMarkersUpper(ctx, ps.lastMoveMarkers, ps.PADDING, cellSize, markLenDefault, ps.BOARD_SIZE);
             }
             d.userBoardMarks(ctx, ps.userBoardMarks, ps.BOARD_SIZE, ps.PADDING, cellSize, isUserBoardMarkVisibleAt);
             if (ps.showMoveNumbers) {
@@ -348,7 +348,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                 const strokeColor = ps.lastMovePlayerColor === 1 ? '#ff9900' : '#0099ff';
                 for (const { row, col, frameOnly } of ps.moveHighlightMarkers) {
                     const x = ps.PADDING + col * ps.CELL_SIZE;
-                    const y = ps.PADDING + row * ps.CELL_SIZE;
+                    const y = ps.PADDING + (ps.BOARD_SIZE - 1 - row) * ps.CELL_SIZE;
                     ctx.strokeStyle = strokeColor;
                     ctx.lineWidth = 2;
                     ctx.beginPath();
@@ -369,7 +369,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             if (sel && selMyTurn) {
                 const { row, col } = sel;
                 const x = ps.PADDING + col * cellSize;
-                const y = ps.PADDING + row * cellSize;
+                const y = ps.PADDING + (ps.BOARD_SIZE - 1 - row) * cellSize;
                 ctx.strokeStyle = selColor;
                 ctx.lineWidth = 2;
                 ctx.beginPath();
@@ -829,7 +829,6 @@ const scoreTitle = document.getElementById('scoreTitle');
             roomId,
             roomPassword,
             isMouseDevice,
-            komiInfoText: (p) => `黑贴白${p.KOMI}点`,
             drawBoard: drawBoardImpl,
             syncState: syncStateImpl,
             rebuildLiveReplayFromMoveCoords: rebuildLiveReplayCore,
@@ -941,7 +940,7 @@ syncState,
                     if (Number.isFinite(bs)) {
                         ps.maxTranspositionMoves = computeMaxTranspositionMoves(bs);
                         ps.KOMI = komiForSize(bs);
-                        if (komiInfo) komiInfo.innerText = `黑贴白${ps.KOMI}点`;
+                        if (komiInfo) QiWeiqiSquarePageRuntime.writeKomiInfoText(komiInfo, ps.KOMI, bs * bs);
                     }
                 }
             },

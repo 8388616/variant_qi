@@ -641,7 +641,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                 const markLenDefault = cellSize * 0.352;
                 const lowerLastMoveMarker = ps.showMoveNumbers || ps.showEstimateActive;
                 if (lowerLastMoveMarker) {
-                    d.lastMoveMarkersLower(ctx, ps.lastMoveMarkers, ps.PADDING, cellSize, stoneRadius);
+                    d.lastMoveMarkersLower(ctx, ps.lastMoveMarkers, ps.PADDING, cellSize, stoneRadius, ps.BOARD_SIZE);
                 }
                 let baseBoard = ps.board;
                 if (ps.invisibleTintKeys.size) {
@@ -663,7 +663,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                     }
                 }
                 if (!lowerLastMoveMarker) {
-                    d.lastMoveMarkersUpper(ctx, ps.lastMoveMarkers, ps.PADDING, cellSize, markLenDefault);
+                    d.lastMoveMarkersUpper(ctx, ps.lastMoveMarkers, ps.PADDING, cellSize, markLenDefault, ps.BOARD_SIZE);
                 }
                 d.userBoardMarks(ctx, ps.userBoardMarks, ps.BOARD_SIZE, ps.PADDING, cellSize, page && page.isUserBoardMarkVisibleAt);
                 if (ps.showMoveNumbers) {

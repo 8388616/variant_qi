@@ -351,7 +351,7 @@ syncState,
             const oppColor = ps.mySlot === 'black' ? 2 : 1;
             if (m.color !== oppColor) return;
             ps.viewCenterX = ps.PADDING + m.col * ps.CELL_SIZE;
-            ps.viewCenterY = ps.PADDING + m.row * ps.CELL_SIZE;
+            ps.viewCenterY = ps.PADDING + (ps.BOARD_SIZE - 1 - m.row) * ps.CELL_SIZE;
             clampBoardView();
             drawBoardCore();
         }

@@ -357,6 +357,7 @@ class SquareDiagonalFourRoom extends QiTwoPlayerRoomBase {
             return false;
         }
         this.BOARD_SIZE = newSize;
+        this.boardSize = newSize;   // KataGo 人机同步用小写 boardSize,须同步
         this.resetToEmpty();
         this.broadcast({ type: 'boardSizeChanged', boardSize: this.BOARD_SIZE });
         this.broadcast({ type: 'gameState', ...this.getState() });
@@ -375,6 +376,7 @@ class SquareDiagonalFourRoom extends QiTwoPlayerRoomBase {
         }
 
         this.BOARD_SIZE = newSize;
+        this.boardSize = newSize;   // KataGo 人机同步用小写 boardSize,须同步
         this.resetToEmpty();
 
         const rawMoves = data.moves || [];

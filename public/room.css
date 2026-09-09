@@ -93,6 +93,8 @@ body.qi-room .edit-tool-select {
     border: 1px solid var(--qi-room-line);
     background: rgba(255, 249, 240, 0.96);
     color: var(--qi-room-ink);
+    /* 路数/形状下拉与贴点条（komi-info 0.95rem）同字号 */
+    font-size: 0.95rem;
     font-weight: 500;
     cursor: pointer;
 }
@@ -114,6 +116,13 @@ body.qi-room .edit-checkbox {
     gap: 6px;
     font-size: 0.95rem;
     color: var(--qi-room-muted);
+}
+
+/* display 显式设置会覆盖 HTML hidden 属性的 display:none：hidden 时强制隐藏 */
+body.qi-room .show-numbers-label[hidden],
+body.qi-room .edit-checkbox[hidden],
+body.qi-room .edit-controls[hidden] {
+    display: none;
 }
 
 body.qi-room .edit-controls {
