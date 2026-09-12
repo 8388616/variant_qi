@@ -53,7 +53,7 @@ const MATCH_SCORE_BLACK_WIN = 22;
             iRejected: false,
             ws: null,
             isMyTurn: false,
-            slots: { black: false, white: false },
+            slots: { player1: false, player2: false },
             reconnectTimer: null,
             replayMode: false,
             replayBoards: [],
@@ -194,7 +194,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                 if (typeof s !== 'string' || s.length < 3) return null;
                 const ch = s[0];
                 if (ch !== 'B' && ch !== 'W') return null;
-                const player = ch === 'B' ? 'black' : 'white';
+                const player = ch === 'B' ? 'player1' : 'player2';
                 const parts = s.substring(1).split(',').map(Number);
                 if (parts.length !== 2 && parts.length !== 4) return null;
                 if (!parts.every(Number.isFinite)) return null;
@@ -233,7 +233,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                 recentClearedStones: []
             });
             for (const m of actions || []) {
-                const pv = m.player === 'black' ? 1 : 2;
+                const pv = m.player === 'player1' ? 1 : 2;
                 const opp = pv === 1 ? 2 : 1;
                 let go = false;
                 let win = null;
@@ -250,7 +250,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                         nextCur = cur;
                     }
                 } else {
-                    if (m.player !== (cur === 1 ? 'black' : 'white')) return null;
+                    if (m.player !== (cur === 1 ? 'player1' : 'player2')) return null;
                     if (pr) return null;
                     if (b[m.row][m.col] !== 0) return null;
                     if (recentCleared.length > 0 && recentOwner && recentOwner !== m.player) {
@@ -326,7 +326,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             return !!ps.pendingRemoval;
         }
         function myStoneVal() {
-            return ps.mySlot === 'black' ? 1 : 2;
+            return ps.mySlot === 'player1' ? 1 : 2;
         }
         function canRemoveAt(row, col) {
             if (!isRemovalPhase()) return false;
@@ -518,7 +518,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                 }
 
                 const hasAnyStone = ps.board.some(row => row.some(v => v !== 0));
-                const hasPlayer = ps.slots.black || ps.slots.white;
+                const hasPlayer = ps.slots.player1 || ps.slots.player2;
                 const sizeSelect = document.getElementById('boardSizeSelect');
                 if (sizeSelect && !hasAnyStone && !hasPlayer && !ps.gameOver && ps.mySlot === null && !ps.replayMode)
                     sizeSelect.style.display = 'inline-block';
@@ -604,12 +604,26 @@ const scoreTitle = document.getElementById('scoreTitle');
             },
             enterTryPlay() {
                 page.clearMobileMovePreview();
+                const wasAtLive = !ps.replayMode;
+                ps.tryPlayFromLive = wasAtLive;
+                ps.tryPlayFromLiveStep = ps.liveViewStep || 0;
                 ps.tryPlayMode = true;
                 ps.tryPlayBaseStep = ps.replayStep;
                 ps.tryPlayBoards = [deepCopyBoard(ps.board)];
                 ps.tryPlayMarkers = [ps.lastMoveMarkers.map(m => ({ ...m }))];
-                const snap = ps.importReplaySnaps[ps.replayStep];
+                // 刚开房/还没落子时没有打谱快照，回退到当前对局状态，否则试下按钮一点就报
+                // "undefined.currentPlayer / undefined.board"（公共 enterTryPlay 也有同样的兜底）
+                const snap = ps.importReplaySnaps[ps.replayStep] || {
+                    currentPlayer: (ps.currentPlayer === 1 || ps.currentPlayer === 2) ? ps.currentPlayer : 1,
+                    blackScore: ps.blackScore || 0,
+                    whiteScore: ps.whiteScore || 0,
+                    pendingRemoval: ps.pendingRemoval ? { ...ps.pendingRemoval } : null,
+                    gameOver: false,
+                    winner: null
+                };
                 ps.tryPlayCurrentPlayer = snap.currentPlayer != null ? snap.currentPlayer : 1;
+                // 记下基准步的行棋方：直播进入试下时没有 importReplaySnaps，setTryPlayStep 得靠它推轮次
+                ps.tryPlayBasePlayer = ps.tryPlayCurrentPlayer;
                 ps.tryPlayBlackScore = snap.blackScore || 0;
                 ps.tryPlayWhiteScore = snap.whiteScore || 0;
                 ps.tryPlayPendingRemoval = snap.pendingRemoval ? { ...snap.pendingRemoval } : null;
@@ -624,16 +638,45 @@ const scoreTitle = document.getElementById('scoreTitle');
                 ps.winner = snap.winner != null ? snap.winner : null;
                 ps.tryPlayStep = 0;
                 ps.tryPlayTotalSteps = 0;
+                // 与公共 enterTryPlay 一致：直播局面进试下时挂上打谱脚手架。
+                // 本棋种的点击/悬停/绘制都按 replayMode && tryPlayMode 判断，缺了它试下点不动。
+                if (wasAtLive) {
+                    ps.replayMode = true;
+                    ps.importReplaySnaps = [{
+                        board: deepCopyBoard(ps.board),
+                        lastMoveMarkers: ps.lastMoveMarkers.map(m => ({ ...m })),
+                        currentPlayer: ps.tryPlayCurrentPlayer,
+                        blackScore: ps.tryPlayBlackScore,
+                        whiteScore: ps.tryPlayWhiteScore,
+                        pendingRemoval: ps.tryPlayPendingRemoval ? { ...ps.tryPlayPendingRemoval } : null,
+                        recentClearedStones: (ps.recentClearedStones || []).map(s => ({ ...s })),
+                        gameOver: false,
+                        winner: null
+                    }];
+                    ps.replayBoards = [deepCopyBoard(ps.board)];
+                    ps.replayMarkers = [ps.lastMoveMarkers.map(m => ({ ...m }))];
+                    ps.replayStepPlayers = [ps.tryPlayCurrentPlayer === 1 ? 2 : 1];
+                    ps.replayStep = 0;
+                    ps.replayTotalSteps = 0;
+                }
                 const slider = document.getElementById('replaySlider');
                 slider.min = 0;
                 slider.max = 0;
                 slider.value = 0;
                 page.updateReplayUI();
+                // 进入试下也刷新一次「试下 x / y」步数显示（否则停在进入前的打谱文字上）
+                page.updateTryPlayDisplay();
                 page.updateTurn();
             },
             exitTryPlay() {
                 page.clearMobileMovePreview();
+                const fromLive = !!ps.tryPlayFromLive;
+                const savedLiveStep = ps.tryPlayFromLiveStep != null ? ps.tryPlayFromLiveStep : ps.liveViewStep;
+                const snapBoard = ps.tryPlayBoards.length > 0 ? deepCopyBoard(ps.tryPlayBoards[0]) : null;
+                const snapMarkers = (ps.tryPlayMarkers[0] || []).map(m => ({ ...m }));
                 ps.tryPlayMode = false;
+                ps.tryPlayFromLive = false;
+                ps.tryPlayFromLiveStep = null;
                 ps.tryPlayBoards = [];
                 ps.tryPlayMarkers = [];
                 ps.tryPlayStep = 0;
@@ -642,7 +685,29 @@ const scoreTitle = document.getElementById('scoreTitle');
                 const slider = document.getElementById('replaySlider');
                 slider.min = 0;
                 slider.max = ps.replayTotalSteps;
-                page.setReplayStep(ps.tryPlayBaseStep);
+                // 打谱（导入棋谱）里进的试下：回到原来的打谱步；直播里进的试下：直接回直播盘面。
+                // 直播时 importReplaySnaps 只是进试下时挂的脚手架，走打谱分支会报 undefined.board。
+                if (fromLive) {
+                    ps.replayMode = false;
+                    ps.importReplaySnaps = [];
+                    ps.replayBoards = [];
+                    ps.replayMarkers = [];
+                    ps.replayStepPlayers = [];
+                    ps.replayStep = 0;
+                    ps.replayTotalSteps = 0;
+                    if (ps.liveFullSnaps.length) {
+                        ps.liveViewStep = Math.min(Math.max(0, savedLiveStep), ps.liveFullSnaps.length - 1);
+                        ps.liveFollowLatest = ps.liveViewStep >= ps.liveFullSnaps.length - 1;
+                        applyLiveFullSnap(ps.liveViewStep);
+                        page.updateLiveReplayPanelUI();
+                    } else if (snapBoard) {
+                        ps.board = snapBoard;
+                        ps.lastMoveMarkers = snapMarkers;
+                    }
+                    page.updateTurn();
+                } else {
+                    page.setReplayStep(ps.tryPlayBaseStep);
+                }
                 page.updateReplayUI();
             },
             tryPlayMove(row, col) {
@@ -665,10 +730,10 @@ const scoreTitle = document.getElementById('scoreTitle');
                 ps.winner = null;
                 if (ps.tryPlayBlackScore >= MATCH_SCORE_BLACK_WIN) {
                     ps.gameOver = true;
-                    ps.winner = 'black';
+                    ps.winner = 'player1';
                 } else if (ps.tryPlayWhiteScore >= MATCH_SCORE_WHITE_WIN) {
                     ps.gameOver = true;
-                    ps.winner = 'white';
+                    ps.winner = 'player2';
                 }
                 ps.tryPlayBoards.push(deepCopyBoard(ps.board));
                 ps.tryPlayMarkers.push(ps.lastMoveMarkers.map(m => ({ ...m })));
@@ -700,7 +765,11 @@ const scoreTitle = document.getElementById('scoreTitle');
                 ps.tryPlayPendingRemoval = meta.pr ? { ...meta.pr } : null;
                 ps.gameOver = !!meta.go;
                 ps.winner = meta.win != null ? meta.win : null;
-                const basePlayer = ps.tryPlayBaseStep === 0 ? 1 : (ps.importReplaySnaps[ps.tryPlayBaseStep].currentPlayer === 1 ? 2 : 1);
+                // 基准步的行棋方：优先用 enterTryPlay 记下的值（直播进试下时没有 importReplaySnaps）
+                const baseSnap = ps.importReplaySnaps[ps.tryPlayBaseStep];
+                const basePlayer = (ps.tryPlayBasePlayer === 1 || ps.tryPlayBasePlayer === 2)
+                    ? ps.tryPlayBasePlayer
+                    : (ps.tryPlayBaseStep === 0 || !baseSnap ? 1 : (baseSnap.currentPlayer === 1 ? 2 : 1));
                 ps.tryPlayCurrentPlayer = step % 2 === 0 ? basePlayer : (3 - basePlayer);
                 document.getElementById('replaySlider').value = step;
                 page.updateTurn();
@@ -730,7 +799,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             }
             if (ps.matchStartedOnce === undefined) ps.matchStartedOnce = false;
             if (ps.matchStarted) ps.matchStartedOnce = true;
-            const bothSelected = !!(ps.slots && ps.slots.black && ps.slots.white);
+            const bothSelected = !!(ps.slots && ps.slots.player1 && ps.slots.player2);
             const matchReady = !!(ps.matchTime && ps.matchTime.settings);
             if (bothSelected && matchReady) ps.matchStartedOnce = true;
             const hasStoneOnBoard = ps.board && ps.board.some(row => row.some(v => v === 1 || v === 2));
@@ -756,8 +825,8 @@ const scoreTitle = document.getElementById('scoreTitle');
             }
             if (ps.gameOver) {
                 turnDisplay.innerText = '对局结束';
-                if (ps.winner === 'black') scoreTitle.innerText = '黑胜';
-                else if (ps.winner === 'white') scoreTitle.innerText = '白胜';
+                if (ps.winner === 'player1') scoreTitle.innerText = '黑胜';
+                else if (ps.winner === 'player2') scoreTitle.innerText = '白胜';
                 else if (ps.winner === 'draw') scoreTitle.innerText = '和棋';
                 else scoreTitle.innerText = '　';
                 ps.isMyTurn = false;
@@ -765,24 +834,24 @@ const scoreTitle = document.getElementById('scoreTitle');
                 return;
             }
             if (!ps.matchStarted) {
-                turnDisplay.innerText = QiWeiqiSquarePageRuntime.waitingSeatTurnText(slots, mySlot);
+                turnDisplay.innerText = QiWeiqiSquarePageRuntime.waitingSeatTurnText(ps.slots, ps.mySlot);
                 ps.isMyTurn = false;
                 page.drawBoard();
                 return;
             }
             if (isRemovalPhase()) {
-                const colorEmoji = ps.pendingRemoval.player === 'black' ? '⚫' : '⚪';
+                const colorEmoji = ps.pendingRemoval.player === 'player1' ? '⚫' : '⚪';
                 turnDisplay.innerText = `${colorEmoji} 移除中`;
             } else if (ps.moveHistory.length === 0) {
                 turnDisplay.innerText = '初始局面';
             } else {
                 const last = ps.moveHistory[ps.moveHistory.length - 1];
-                const emoji = last.player === 'black' ? '⚫' : '⚪';
+                const emoji = last.player === 'player1' ? '⚫' : '⚪';
                 turnDisplay.innerText = `${emoji} 第${ps.moveHistory.length}手`;
             }
             const atLiveEdge = ps.liveFullSnaps.length === 0 || ps.liveViewStep >= ps.liveFullSnaps.length - 1;
             ps.isMyTurn = atLiveEdge && (ps.mySlot !== null)
-                && ((ps.mySlot === 'black' && ps.currentPlayer === 1) || (ps.mySlot === 'white' && ps.currentPlayer === 2));
+                && ((ps.mySlot === 'player1' && ps.currentPlayer === 1) || (ps.mySlot === 'player2' && ps.currentPlayer === 2));
             updateScoreBoardDom();
             page.drawBoard();
         };
@@ -855,6 +924,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             exitTryPlay,
             enterTryPlay,
             setTryPlayStep,
+            updateTryPlayDisplay,
             setReplayStep,
             setLiveViewStep,
             getWs: () => ps.ws,
@@ -914,9 +984,9 @@ syncState: page.syncState,
                 const wasOver = ps.gameOver;
                 page.syncState(msg);
                 if (msg.gameOver && !wasOver) {
-                    if (msg.winner === 'black') qiAlert('黑胜。');
-                    else if (msg.winner === 'white') qiAlert('白胜。');
-                    else if (msg.winner === 'draw') qiAlert('和棋。');
+                    if (msg.winner === 'player1') qiAlert('黑胜');
+                    else if (msg.winner === 'player2') qiAlert('白胜');
+                    else if (msg.winner === 'draw') qiAlert('和棋');
                 }
                 _weiqiBindings.updateRadioStyles();
                 return;

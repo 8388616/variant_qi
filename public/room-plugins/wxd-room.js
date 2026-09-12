@@ -70,7 +70,7 @@ window.RoomPlugins["wxd"] = {
                 gameOver: false,
                 winner: null,
                 lastMoveMarkers: [],
-                slots: { black: false, white: false },
+                slots: { player1: false, player2: false },
                 ws: null,
                 reconnectTimer: null,
                 moveLog: [],
@@ -167,9 +167,30 @@ const boardSizeSelect = document.getElementById('boardSizeSelect');
 
             function computeStoneNumbers() {
                 const nums = Array.from({ length: ps.BOARD_SIZE }, () => Array(ps.BOARD_SIZE).fill(0));
-                for (let i = 0; i < ps.moveLog.length; i++) {
-                    const m = ps.moveLog[i];
-                    if (m && m.type === 'move' && ps.board[m.row][m.col] !== 0) nums[m.row][m.col] = i + 1;
+                const put = (row, col, n) => {
+                    if (row < 0 || col < 0 || row >= ps.BOARD_SIZE || col >= ps.BOARD_SIZE) return;
+                    if (ps.board[row][col] === 0) return;
+                    nums[row][col] = n;
+                };
+                // 与公共实现（room.js computeStoneNumbers）一致：试下/打谱各自用本分支的标记编号，
+                // 否则试下时会去读对局的 moveLog，分支上的棋子拿不到序号（甚至串号）。
+                if (ps.tryPlayMode) {
+                    for (let i = 1; i <= ps.tryPlayStep; i++) {
+                        const markers = ps.tryPlayMarkers[i];
+                        if (markers && markers.length > 0) put(markers[0].row, markers[0].col, i);
+                    }
+                } else if (ps.replayMode) {
+                    for (let i = 1; i <= ps.replayStep; i++) {
+                        const markers = ps.replayMarkers[i];
+                        if (markers && markers.length > 0) put(markers[0].row, markers[0].col, i);
+                    }
+                } else {
+                    let n = 0;
+                    for (const m of ps.moveLog) {
+                        if (!m || m.type !== 'move') continue;
+                        n++;
+                        put(m.row, m.col, n);
+                    }
                 }
                 return nums;
             }
@@ -181,7 +202,7 @@ const boardSizeSelect = document.getElementById('boardSizeSelect');
                 if (ps.gameOver || !isMyTurn()) return false;
                 if (ps.board[row][col] !== 0) return false;
                 if (row === ps.center.row && col === ps.center.col) return false;
-                const me = ps.mySlot === 'black' ? 1 : 2;
+                const me = ps.mySlot === 'player1' ? 1 : 2;
                 let last = null;
                 for (let i = ps.moveLog.length - 1; i >= 0; i--) {
                     const m = ps.moveLog[i];
@@ -198,8 +219,7 @@ const boardSizeSelect = document.getElementById('boardSizeSelect');
 
             function drawBoard() {
                 ctx.clearRect(0, 0, 600, 600);
-                ctx.fillStyle = '#deb887';
-                ctx.fillRect(0, 0, 600, 600);
+                // 为透出底层木纹（见 room.js WOOD_TEXTURE_GAMES）：不铺底色，棋盘背景交给 canvas 的 CSS 木纹
 
                 ctx.lineWidth = 1.5;
                 ctx.strokeStyle = '#3a281c';
@@ -217,7 +237,8 @@ const boardSizeSelect = document.getElementById('boardSizeSelect');
                 }
 
                 const c = ps.center;
-                ctx.fillStyle = '#808080';
+                // 中心格（不可落子）用暖木色半透明色块，与棋盘木纹底色同一色调，不用原来的中性灰
+                ctx.fillStyle = 'rgba(224,160,112,0.8)';
                 ctx.fillRect(
                     ps.PADDING + c.col * ps.CELL_SIZE + 1,
                     ps.PADDING + c.row * ps.CELL_SIZE + 1,
@@ -225,7 +246,7 @@ const boardSizeSelect = document.getElementById('boardSizeSelect');
                     ps.CELL_SIZE - 2
                 );
 
-                ctx.font = `bold ${17 - 0.2 * ps.BOARD_SIZE}px Arial`;
+                ctx.font = `bold ${ps.CELL_SIZE * 0.455}px Arial`;   // 与围棋同比例
                 ctx.fillStyle = '#3a281c';
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
@@ -236,7 +257,8 @@ const boardSizeSelect = document.getElementById('boardSizeSelect');
                 }
                 for (let row = 0; row < ps.BOARD_SIZE; row++) {
                     const p = boardCenterOfCell(row, 0);
-                    ctx.fillText(String(ps.BOARD_SIZE - row), 0.5 * ps.PADDING, p.y);
+                    // 与其它棋类一致：row 0 画在棋盘最下面，所以最下面一行编号为 1（自上而下递减）
+                    ctx.fillText(String(row + 1), 0.5 * ps.PADDING, p.y);
                 }
 
                 const stoneRadius = ps.CELL_SIZE * 0.38;
@@ -318,9 +340,9 @@ const boardSizeSelect = document.getElementById('boardSizeSelect');
                         else if (t === 'black') hoverColor = '#222';
                         else if (t !== 'empty') hoverColor = '#666';
                     } else if (ps.tryPlayMode) {
-                        hoverColor = ps.currentPlayer === 1 ? '#222' : '#ddd';
+                        hoverColor = ps.currentPlayer === 1 ? '#222' : '#fff';
                     } else if (isMyTurn() && canPlayAt(ps.hoverRow, ps.hoverCol)) {
-                        hoverColor = ps.mySlot === 'black' ? '#222' : '#ddd';
+                        hoverColor = ps.mySlot === 'player1' ? '#222' : '#fff';
                     }
                     if (hoverColor) {
                         const p = boardCenterOfCell(ps.hoverRow, ps.hoverCol);
@@ -339,9 +361,9 @@ const boardSizeSelect = document.getElementById('boardSizeSelect');
                 scoreBoard.textContent = `黑: ${ps.blackScore}　白: ${ps.whiteScore}`;
                 if (ps.gameOver) {
                     const adjWhite = ps.whiteScore + ps.komi;
-                    if (ps.winner === 'black') {
+                    if (ps.winner === 'player1') {
                         leadInfo.textContent = `终局：黑胜`;
-                    } else if (ps.winner === 'white') {
+                    } else if (ps.winner === 'player2') {
                         leadInfo.textContent = `终局：白胜`;
                     } else {
                         leadInfo.textContent = `终局：和棋`;
@@ -407,8 +429,12 @@ const boardSizeSelect = document.getElementById('boardSizeSelect');
             function updateReplayUI() {
                 if (ps.tryPlayMode) return;
                 const n = ps.BOARD_SIZE;
-                const emptyBoard = Array.from({ length: n }, () => Array(n).fill(0));
-                const replayBoards = [emptyBoard.map((row) => row.slice())];
+                // 起始局面必须是「开局盘」（可能被编辑过），不能用空盘：
+                // 用空盘重建时，编辑过但不在 moveLog 里的棋子会被抹掉（刷新/同步后棋盘就空了）
+                const baseBoard = (ps.liveOpeningBoard && ps.liveOpeningBoard.length === n)
+                    ? ps.liveOpeningBoard.map((row) => row.slice())
+                    : Array.from({ length: n }, () => Array(n).fill(0));
+                const replayBoards = [baseBoard.map((row) => row.slice())];
                 const replayMarkers = [[]];
                 const replayStepPlayers = [0];
                 const replayScores = [{ blackScore: 0, whiteScore: 0 }];
@@ -416,7 +442,7 @@ const boardSizeSelect = document.getElementById('boardSizeSelect');
                 const replayGameOvers = [false];
                 const replayWinners = [null];
 
-                let curBoard = emptyBoard.map((row) => row.slice());
+                let curBoard = baseBoard.map((row) => row.slice());
                 let curBlackScore = 0;
                 let curWhiteScore = 0;
                 let curPlayer = 1;
@@ -445,31 +471,34 @@ const boardSizeSelect = document.getElementById('boardSizeSelect');
                     if (!m || m.type !== 'move') continue;
                     const row = m.row;
                     const col = m.col;
-                    const playerVal = m.player === 'black' ? 1 : 2;
+                    const playerVal = m.player === 'player1' ? 1 : 2;
                     if (row < 0 || row >= n || col < 0 || col >= n) continue;
                     if (curBoard[row][col] !== 0) continue;
 
                     curBoard[row][col] = playerVal;
                     if (playerVal === 1) curBlackScore += (ps.weights[row][col] || 0);
                     else curWhiteScore += (ps.weights[row][col] || 0);
-                    const slot = playerVal === 1 ? 'black' : 'white';
+                    const slot = playerVal === 1 ? 'player1' : 'player2';
                     lastBy[slot] = { row, col };
 
-                    const other = slot === 'black' ? 'white' : 'black';
+                    const other = slot === 'player1' ? 'player2' : 'player1';
                     const selfCan = replayCanPlayerMove(slot);
                     const otherCan = replayCanPlayerMove(other);
                     if (!selfCan && !otherCan) {
                         curOver = true;
                         const whiteAdj = curWhiteScore + ps.komi;
-                        if (curBlackScore > whiteAdj) curWinner = 'black';
-                        else if (whiteAdj > curBlackScore) curWinner = 'white';
+                        if (curBlackScore > whiteAdj) curWinner = 'player1';
+                        else if (whiteAdj > curBlackScore) curWinner = 'player2';
                         else curWinner = 'draw';
                     } else if (otherCan) {
                         curPlayer = playerVal === 1 ? 2 : 1;
                     }
 
                     replayBoards.push(curBoard.map((r) => r.slice()));
-                    replayMarkers.push([{ row, col, color: playerVal }]);
+                    // 与其它棋类一致：同时标记双方各自的最近一手（服务端 lastMoveMarkers 也是两条）
+                    replayMarkers.push(['black', 'white']
+                        .filter((sl) => lastBy[sl])
+                        .map((sl) => ({ ...lastBy[sl], color: sl === 'black' ? 1 : 2 })));
                     replayStepPlayers.push(playerVal);
                     replayScores.push({ blackScore: curBlackScore, whiteScore: curWhiteScore });
                     replayCurrentPlayers.push(curPlayer);
@@ -586,7 +615,7 @@ const boardSizeSelect = document.getElementById('boardSizeSelect');
                 if (ps.board[row][col] !== 0) return false;
                 if (row === ps.center.row && col === ps.center.col) return false;
                 const me = ps.currentPlayer;
-                const mySlot = me === 1 ? 'black' : 'white';
+                const mySlot = me === 1 ? 'player1' : 'player2';
                 const prefix = ps.moveLog
                     .slice(0, ps.tryPlayBaseStep)
                     .concat(ps.tryPlayBranchMoves.slice(0, ps.tryPlayStep));
@@ -619,7 +648,7 @@ const boardSizeSelect = document.getElementById('boardSizeSelect');
                     ps.tryPlayBranchMoves.length = t;
                 }
                 const playerVal = ps.tryPlayCurrentPlayers[t];
-                const slot = playerVal === 1 ? 'black' : 'white';
+                const slot = playerVal === 1 ? 'player1' : 'player2';
                 const prefixBefore = ps.moveLog.slice(0, ps.tryPlayBaseStep).concat(ps.tryPlayBranchMoves);
                 const lastBy = wxdBuildLastByFromMoveList(prefixBefore);
                 let curBoard = ps.tryPlayBoards[t].map((r) => r.slice());
@@ -632,21 +661,24 @@ const boardSizeSelect = document.getElementById('boardSizeSelect');
                 if (playerVal === 1) curBlack += (ps.weights[row][col] || 0);
                 else curWhite += (ps.weights[row][col] || 0);
                 lastBy[slot] = { row, col };
-                const other = slot === 'black' ? 'white' : 'black';
+                const other = slot === 'player1' ? 'player2' : 'player1';
                 const selfCan = wxdTryPlayCanMoveFrom(curBoard, lastBy, slot);
                 const otherCan = wxdTryPlayCanMoveFrom(curBoard, lastBy, other);
                 if (!selfCan && !otherCan) {
                     curOver = true;
                     const whiteAdj = curWhite + ps.komi;
-                    if (curBlack > whiteAdj) curWinner = 'black';
-                    else if (whiteAdj > curBlack) curWinner = 'white';
+                    if (curBlack > whiteAdj) curWinner = 'player1';
+                    else if (whiteAdj > curBlack) curWinner = 'player2';
                     else curWinner = 'draw';
                 } else if (otherCan) {
                     curPlayer = playerVal === 1 ? 2 : 1;
                 }
                 ps.tryPlayBranchMoves.push({ type: 'move', row, col, player: slot });
                 ps.tryPlayBoards.push(curBoard.map((r) => r.slice()));
-                ps.tryPlayMarkers.push([{ row, col, color: playerVal }]);
+                // 与对局一致：试下里也同时标记双方各自的最近一手
+                ps.tryPlayMarkers.push(['black', 'white']
+                    .filter((sl) => lastBy[sl])
+                    .map((sl) => ({ ...lastBy[sl], color: sl === 'black' ? 1 : 2 })));
                 ps.tryPlayStepPlayers.push(playerVal);
                 ps.tryPlayScores.push({ blackScore: curBlack, whiteScore: curWhite });
                 ps.tryPlayCurrentPlayers.push(curPlayer);
@@ -704,15 +736,15 @@ const boardSizeSelect = document.getElementById('boardSizeSelect');
 
             function isMyTurn() {
                 if (!ps.mySlot || ps.gameOver || !ps.matchStarted) return false;
-                if (ps.mySlot === 'black' && ps.currentPlayer === 1) return true;
-                if (ps.mySlot === 'white' && ps.currentPlayer === 2) return true;
+                if (ps.mySlot === 'player1' && ps.currentPlayer === 1) return true;
+                if (ps.mySlot === 'player2' && ps.currentPlayer === 2) return true;
                 return false;
             }
 
             function updateRecordButtons() {
                 const importBtn = document.getElementById('importBtn');
                 const exportBtn = document.getElementById('exportBtn');
-                const hasPlayers = ps.slots.black || ps.slots.white;
+                const hasPlayers = ps.slots.player1 || ps.slots.player2;
                 const hasMoves = ps.moveLog.length > 0;
                 // 开局（开赛/计时协商中/已有落子）隐藏路数选择；终局开新局（盘面清空、未开赛）后恢复可选，
                 // 是否已就座不影响——否则新局后玩家仍在座会永远隐藏。
@@ -749,6 +781,8 @@ const boardSizeSelect = document.getElementById('boardSizeSelect');
                 },
                 updateTurn,
                 updateReplayUI: () => { if (typeof updateReplayUI === 'function') updateReplayUI(); },
+                // 试下虚着/悔棋要落到具体某一步：seatOverlayOnly 短路后公共代码只能靠这里拿到步进函数
+                setTryPlayStep: setTryPlayStepWxD,
                 colorStatus});
 
             function updateRadioStyles() {
@@ -775,7 +809,7 @@ const boardSizeSelect = document.getElementById('boardSizeSelect');
                 ps.matchStarted = !!state.matchStarted;
                 ps.matchTime = state.matchTime || null;
                 if (ps.matchStarted || ps.moveLog.length > 0 || (ps.matchTime && ps.matchTime.settings)) ps.matchStartedOnce = true;
-                if (state.slots) ps.slots = { black: !!state.slots.black, white: !!state.slots.white };
+                if (state.slots) ps.slots = { player1: !!state.slots.player1, player2: !!state.slots.player2 };
                 boardSizeSelect.value = String(ps.BOARD_SIZE);
                 updateKomiText();
                 if (_seatOverlay.matchTimeCtl && state.matchTime !== undefined)
@@ -804,22 +838,22 @@ const boardSizeSelect = document.getElementById('boardSizeSelect');
                         break;
                     case 'colorAssigned':
                         ps.mySlot = msg.color;
-                        if (msg.color === 'black') ps.slots.black = true;
-                        if (msg.color === 'white') ps.slots.white = true;
+                        if (msg.color === 'player1') ps.slots.player1 = true;
+                        if (msg.color === 'player2') ps.slots.player2 = true;
                         _seatOverlay.refreshColorStatus();
                         updateRadioStyles();
                         updateTurn();
                         break;
                     case 'slotOccupied':
-                        if (msg.slot === 'black') ps.slots.black = true;
-                        if (msg.slot === 'white') ps.slots.white = true;
+                        if (msg.slot === 'player1') ps.slots.player1 = true;
+                        if (msg.slot === 'player2') ps.slots.player2 = true;
                         updateRadioStyles();
                         updateRecordButtons();
                         updateTurn();
                         break;
                     case 'slotReleased':
-                        if (msg.slot === 'black') ps.slots.black = false;
-                        if (msg.slot === 'white') ps.slots.white = false;
+                        if (msg.slot === 'player1') ps.slots.player1 = false;
+                        if (msg.slot === 'player2') ps.slots.player2 = false;
                         if (ps.mySlot === msg.slot) {
                             ps.mySlot = null;
                             colorStatus.textContent = '观战';
@@ -829,8 +863,8 @@ const boardSizeSelect = document.getElementById('boardSizeSelect');
                         updateTurn();
                         break;
                     case 'playerLeft':
-                        if (msg.slot === 'black') ps.slots.black = false;
-                        if (msg.slot === 'white') ps.slots.white = false;
+                        if (msg.slot === 'player1') ps.slots.player1 = false;
+                        if (msg.slot === 'player2') ps.slots.player2 = false;
                         if (ps.mySlot === msg.slot) {
                             ps.mySlot = null;
                             colorStatus.textContent = '观战';
@@ -842,7 +876,7 @@ const boardSizeSelect = document.getElementById('boardSizeSelect');
                         updateTurn();
                         break;
                     case 'colorsFinalized':
-                        if (msg.slots) ps.slots = { black: !!msg.slots.black, white: !!msg.slots.white };
+                        if (msg.slots) ps.slots = { player1: !!msg.slots.player1, player2: !!msg.slots.player2 };
                         updateRadioStyles();
                         updateTurn();
                         break;
@@ -864,7 +898,7 @@ const boardSizeSelect = document.getElementById('boardSizeSelect');
                     case 'clockUpdate':
                         if (_seatOverlay.matchTimeCtl) _seatOverlay.matchTimeCtl.handleMessage(msg);
                         if (msg.type === 'timeControlAgreed') {
-                            if (msg.slots) ps.slots = { black: !!msg.slots.black, white: !!msg.slots.white };
+                            if (msg.slots) ps.slots = { player1: !!msg.slots.player1, player2: !!msg.slots.player2 };
                             updateRadioStyles();
                         }
                         break;
@@ -873,16 +907,16 @@ const boardSizeSelect = document.getElementById('boardSizeSelect');
                             const wasOver = ps.gameOver;
                             syncState(msg);
                             if (!wasOver && msg.gameOver) {
-                                if (msg.winner === 'black') qiAlert('黑胜。');
-                                else if (msg.winner === 'white') qiAlert('白胜。');
-                                else qiAlert('和棋。');
+                                if (msg.winner === 'player1') qiAlert('黑胜');
+                                else if (msg.winner === 'player2') qiAlert('白胜');
+                                else qiAlert('和棋');
                             }
                         }
                         break;
                     case 'newGameStarted':
                         ps.mySlot = null;
                         colorStatus.textContent = '观战';
-                        ps.slots = { black: false, white: false };
+                        ps.slots = { player1: false, player2: false };
                         ps.matchStarted = false;
                         ps.matchTime = null;
                         ps.matchStartedOnce = false;

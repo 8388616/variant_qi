@@ -25,7 +25,7 @@ class TwistedSpaceWeiqiRoom extends QiTwoPlayerRoomBase {
         this.scoreProposalData = null;
         this.moveCoords = [];
         this.recordResultText = null;
-        this.slotJoinedAt = { black: null, white: null };
+        this.slotJoinedAt = { player1: null, player2: null };
         this.tcNego = null;
         this.tcSettings = null;
         this.tcClock = null;
@@ -207,8 +207,8 @@ class TwistedSpaceWeiqiRoom extends QiTwoPlayerRoomBase {
             moveCoords: this.moveCoords,
             cellNumbers: this.cellNumbers,
             slots: {
-                black: !!this.room.getPlayerBySlot('black'),
-                white: !!this.room.getPlayerBySlot('white')
+                player1: !!this.room.getPlayerBySlot('player1'),
+                player2: !!this.room.getPlayerBySlot('player2')
             },
             matchTime: {
                 negotiation: this.tcNego,
@@ -256,21 +256,21 @@ class TwistedSpaceWeiqiRoom extends QiTwoPlayerRoomBase {
     }
 
     _firstPickerSlot() {
-        const tb = this.slotJoinedAt.black;
-        const tw = this.slotJoinedAt.white;
-        if (tb == null || tw == null) return 'black';
-        return tb <= tw ? 'black' : 'white';
+        const tb = this.slotJoinedAt.player1;
+        const tw = this.slotJoinedAt.player2;
+        if (tb == null || tw == null) return 'player1';
+        return tb <= tw ? 'player1' : 'player2';
     }
 
     _maybeBeginTimeNegotiation() {
         if (this.moveHistory.length > 0 || this.gameOver) return;
-        if (!this.room.getPlayerBySlot('black') || !this.room.getPlayerBySlot('white')) return;
+        if (!this.room.getPlayerBySlot('player1') || !this.room.getPlayerBySlot('player2')) return;
         if (this.tcNego !== null || this.tcSettings !== null) return;
         const first = this._firstPickerSlot();
         this.tcNego = { phase: 'propose', proposal: null, waitingSlot: first, lastProposerSlot: null };
         const ws = this.room.getPlayerBySlot(first);
         if (ws) ws.send(JSON.stringify({ type: 'timeControlNegotiation', mode: 'propose' }));
-        const ws2 = this.room.getPlayerBySlot(first === 'black' ? 'white' : 'black');
+        const ws2 = this.room.getPlayerBySlot(first === 'player1' ? 'player2' : 'player1');
         if (ws2) ws2.send(JSON.stringify({ type: 'timeControlWaitPeer', text: '等待对方设置限时规则...' }));
     }
 
@@ -304,7 +304,7 @@ class TwistedSpaceWeiqiRoom extends QiTwoPlayerRoomBase {
         this.tcNego.proposal = v;
         this.tcNego.lastProposerSlot = slot;
         this.tcNego.phase = 'respond';
-        const other = slot === 'black' ? 'white' : 'black';
+        const other = slot === 'player1' ? 'player2' : 'player1';
         this.tcNego.waitingSlot = other;
         const me = this.room.getPlayerBySlot(slot);
         if (me) me.send(JSON.stringify({ type: 'timeControlWaitPeer', text: '等待对方确认...' }));
@@ -324,7 +324,7 @@ class TwistedSpaceWeiqiRoom extends QiTwoPlayerRoomBase {
         this.matchStarted = true;
         this.tcClock = qiMatchTimeControl.createClock(this.tcSettings, Date.now());
         if (this.tcClock.timed) {
-            qiMatchTimeControl.setActiveSlot(this.tcClock, this.currentPlayer === 1 ? 'black' : 'white', Date.now());
+            qiMatchTimeControl.setActiveSlot(this.tcClock, this.currentPlayer === 1 ? 'player1' : 'player2', Date.now());
             this._startClockTicker();
             this._broadcastClock();
         } else {
@@ -341,12 +341,12 @@ class TwistedSpaceWeiqiRoom extends QiTwoPlayerRoomBase {
     _timeAllowsPlay(slot) {
         if (this.gameOver || !this.matchStarted || this.tcNego || this.tcSettings === null) return false;
         if (!this.tcClock || !this.tcClock.timed) return true;
-        return slot === (this.currentPlayer === 1 ? 'black' : 'white');
+        return slot === (this.currentPlayer === 1 ? 'player1' : 'player2');
     }
 
     _drainClockBeforeMove(slot) {
         if (!this.tcClock || !this.tcClock.timed || this.gameOver) return true;
-        if (slot !== (this.currentPlayer === 1 ? 'black' : 'white')) return true;
+        if (slot !== (this.currentPlayer === 1 ? 'player1' : 'player2')) return true;
         const { lostSlot, winnerSlot } = qiMatchTimeControl.drain(this.tcClock, Date.now());
         if (!lostSlot) return true;
         this._stopClockTicker();
@@ -359,29 +359,29 @@ class TwistedSpaceWeiqiRoom extends QiTwoPlayerRoomBase {
 
     _syncClockAfterTurnChange() {
         if (!this.tcClock || !this.tcClock.timed || this.gameOver) return;
-        qiMatchTimeControl.setActiveSlot(this.tcClock, this.currentPlayer === 1 ? 'black' : 'white', Date.now());
+        qiMatchTimeControl.setActiveSlot(this.tcClock, this.currentPlayer === 1 ? 'player1' : 'player2', Date.now());
         this._broadcastClock();
     }
 
     onResignResolved(resignSlot) {
-        this.recordResultText = resignSlot === 'black' ? '白中盘胜' : '黑中盘胜';
+        this.recordResultText = resignSlot === 'player1' ? '白中盘胜' : '黑中盘胜';
     }
 
     onDrawResolved() {
-        this.recordResultText = '和胜';
+        this.recordResultText = '和棋';
     }
 
     setScoreResultTextByLead(lead) {
         if (!Number.isFinite(lead) || lead === 0) {
-            this.recordResultText = '和胜';
+            this.recordResultText = '和棋';
             return;
         }
         this.recordResultText = `${lead > 0 ? '黑' : '白'}胜${Math.abs(lead).toFixed(2)}点`;
     }
 
     setTimeLossResultText(lostSlot) {
-        if (lostSlot === 'black') this.recordResultText = '黑超时白胜';
-        else if (lostSlot === 'white') this.recordResultText = '白超时黑胜';
+        if (lostSlot === 'player1') this.recordResultText = '黑方超时，白胜';
+        else if (lostSlot === 'player2') this.recordResultText = '白方超时，黑胜';
     }
 
     startScoreCounting(requester, opponent) {
@@ -407,7 +407,7 @@ class TwistedSpaceWeiqiRoom extends QiTwoPlayerRoomBase {
             return false;
         }
         const hasAnyStone = this.board.some((row, r) => row.some((v, c) => this.isValidCoord(r, c) && v !== 0));
-        const hasPlayer = this.room.getPlayerBySlot('black') || this.room.getPlayerBySlot('white');
+        const hasPlayer = this.room.getPlayerBySlot('player1') || this.room.getPlayerBySlot('player2');
         if (hasAnyStone || hasPlayer) return false;
         this.boardSize = newSize;
         this.openingBoard = undefined;
@@ -424,9 +424,9 @@ class TwistedSpaceWeiqiRoom extends QiTwoPlayerRoomBase {
         let resultText = null;
         if (this.gameOver) {
             if (this.recordResultText) resultText = this.recordResultText;
-            else if (this.winner === 'draw') resultText = '和胜';
-            else if (this.winner === 'black') resultText = '黑胜';
-            else if (this.winner === 'white') resultText = '白胜';
+            else if (this.winner === 'draw') resultText = '和棋';
+            else if (this.winner === 'player1') resultText = '黑胜';
+            else if (this.winner === 'player2') resultText = '白胜';
         }
         return {
             format: 'muzei',
@@ -435,11 +435,11 @@ class TwistedSpaceWeiqiRoom extends QiTwoPlayerRoomBase {
             gameId: 'twisted-space-weiqi',
             boardSize: this.boardSize,
             komi: 4.75,
-            players: { black: null, white: null },
+            players: { player1: null, player2: null },
             initialPosition: encodeOpeningPositionCompact(this),
             cellNumbers: this.cellNumbers ? this.cellNumbers.map(row => row.slice()) : null,
             moves: this.moveCoords.map(m => {
-                const p = m.player === 'black' ? 'B' : 'W';
+                const p = m.player === 'player1' ? 'B' : 'W';
                 return m.type === 'pass' ? p + 'p' : `${p}${m.row},${m.col}`;
             }),
             timeControl: (this.tcSettings && this.tcSettings.timed) ? `S${this.tcSettings.mainMinutes || 0},${this.tcSettings.byoyomiSeconds || 0},${this.tcSettings.maxTimeouts || 0}` : null,
@@ -449,7 +449,7 @@ class TwistedSpaceWeiqiRoom extends QiTwoPlayerRoomBase {
 
     static parseMove(entry) {
         if (typeof entry === 'string') {
-            const player = entry[0] === 'B' ? 'black' : 'white';
+            const player = entry[0] === 'B' ? 'player1' : 'player2';
             if (entry[1] === 'p') return { type: 'pass', player };
             const [row, col] = entry.slice(1).split(',').map(Number);
             return { type: 'move', player, row, col };
@@ -474,7 +474,7 @@ class TwistedSpaceWeiqiRoom extends QiTwoPlayerRoomBase {
         const moves = (data.moves || []).map(TwistedSpaceWeiqiRoom.parseMove);
         for (let i = 0; i < moves.length; i++) {
             const move = moves[i];
-            const playerVal = move.player === 'black' ? 1 : 2;
+            const playerVal = move.player === 'player1' ? 1 : 2;
             if (move.type === 'move') {
                 if (!this.isValidCoord(move.row, move.col)) {
                     this.resetToEmpty();
@@ -537,7 +537,7 @@ class TwistedSpaceWeiqiRoom extends QiTwoPlayerRoomBase {
 
     resetToEmpty() {
         this._stopClockTicker();
-        this.slotJoinedAt = { black: null, white: null };
+        this.slotJoinedAt = { player1: null, player2: null };
         this.tcNego = null;
         this.tcSettings = null;
         this.tcClock = null;
@@ -573,7 +573,7 @@ class TwistedSpaceWeiqiRoom extends QiTwoPlayerRoomBase {
             this.room.observers.add(client);
             client.send(JSON.stringify({ type: 'slotReleased', slot }));
         }
-        this.broadcast({ type: 'newGameStarted', ...this.getState(), slots: { black: false, white: false } });
+        this.broadcast({ type: 'newGameStarted', ...this.getState(), slots: { player1: false, player2: false } });
     }
 
     handleMessage(ws, msg) {
@@ -598,7 +598,7 @@ class TwistedSpaceWeiqiRoom extends QiTwoPlayerRoomBase {
                     return;
                 }
                 if (this.gameOver) return;
-                if (!slot || slot !== (this.currentPlayer === 1 ? 'black' : 'white')) return;
+                if (!slot || slot !== (this.currentPlayer === 1 ? 'player1' : 'player2')) return;
                 if (!this._drainClockBeforeMove(slot)) return;
                 {
                     const { row, col } = msg;
@@ -656,7 +656,7 @@ class TwistedSpaceWeiqiRoom extends QiTwoPlayerRoomBase {
             case 'requestEnd':
                 if (!slot) return;
                 {
-                    const endOpponent = room.getPlayerBySlot(slot === 'black' ? 'white' : 'black');
+                    const endOpponent = room.getPlayerBySlot(slot === 'player1' ? 'player2' : 'player1');
                     if (!endOpponent) this.startScoreCounting(ws, ws);
                     else {
                         this.pendingEnd = { requester: ws, opponent: endOpponent };
@@ -676,7 +676,7 @@ class TwistedSpaceWeiqiRoom extends QiTwoPlayerRoomBase {
                         if (this.pendingScore.agreed.size === 2) {
                             const lead = this.scoreProposalData.lead;
                             this.gameOver = true;
-                            this.winner = lead > 0 ? 'black' : (lead < 0 ? 'white' : 'draw');
+                            this.winner = lead > 0 ? 'player1' : (lead < 0 ? 'player2' : 'draw');
                             this.setScoreResultTextByLead(lead);
                             this._stopClockTicker();
                             this.broadcast({ type: 'scoreAgreed', winner: this.winner, lead });

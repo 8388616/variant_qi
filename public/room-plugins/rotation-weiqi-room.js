@@ -271,7 +271,7 @@ const C = () => QiSquareWeiqiCanvas;
             let rotationCount = 0;
             const stepPlayers = [0];
             for (const move of (moveCoords || [])) {
-                const playerVal = move.player === 'black' ? 1 : 2;
+                const playerVal = move.player === 'player1' ? 1 : 2;
                 stepPlayers.push(playerVal);
                 const completedPlyCount = stepPlayers.length - 1;
                 const rotateNow = rwWillRotateThisPly(rotationCount, rotationInterval, completedPlyCount);
@@ -474,7 +474,7 @@ const ps = {
             iRejected: false,
             ws: null,
             isMyTurn: false,
-            slots: { black: false, white: false },
+            slots: { player1: false, player2: false },
             reconnectTimer: null,
             replayMode: false,
             replayBoards: [],
@@ -749,7 +749,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             const replayStepPlayers = [0];
 
             for (const move of (data.moves || [])) {
-                const playerVal = move.player === 'black' ? 1 : 2;
+                const playerVal = move.player === 'player1' ? 1 : 2;
                 replayStepPlayers.push(playerVal);
                 const completedPlyCount = replayStepPlayers.length - 1;
                 const rotateNow = rwWillRotateThisPly(rotationCount, rotationInterval, completedPlyCount);
@@ -865,7 +865,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             const liveReplayStepPlayers = [0];
 
             for (const move of (moveCoords || [])) {
-                const playerVal = move.player === 'black' ? 1 : 2;
+                const playerVal = move.player === 'player1' ? 1 : 2;
                 liveReplayStepPlayers.push(playerVal);
                 const completedPlyCount = liveReplayStepPlayers.length - 1;
                 const rotateNow = rwWillRotateThisPly(rotationCount, rotationInterval, completedPlyCount);
@@ -971,7 +971,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             for (let i = startLen; i < mcs.length; i++) {
                 const move = mcs[i];
 
-                const playerVal = move.player === 'black' ? 1 : 2;
+                const playerVal = move.player === 'player1' ? 1 : 2;
                 ps.liveReplayStepPlayers.push(playerVal);
                 const completedPlyCount = liveReplayStepPlayers.length - 1;
                 const rotateNow = rwWillRotateThisPly(rotationCount, rotationInterval, completedPlyCount);
@@ -1060,11 +1060,49 @@ const scoreTitle = document.getElementById('scoreTitle');
         }
 
         const pageHolder = { ref: null };
+        // 形势判断：Benson 加成（保活 + 确定领地覆盖）
+        function bensonRemoveDeadLocal(srcBoard) {
+            const RT = window.QiWeiqiSquarePageRuntime;
+            const size = ps.BOARD_SIZE;
+            const copy = (b) => QiSquareWeiqiCanvas.deepCopyBoard(b);
+            const benson = RT.bensonAlive(srcBoard, size);
+            let live = copy(srcBoard);
+            let changed = true;
+            while (changed) {
+                changed = false;
+                const cleaned = RT.removeDeadAndDying(live, size, copy, 2);
+                for (let r = 0; r < size; r++) {
+                    for (let c = 0; c < size; c++) {
+                        const v = srcBoard[r][c];
+                        if (benson.alive[r][c] && (v === 1 || v === 2) && cleaned[r][c] !== v) {
+                            cleaned[r][c] = v;
+                            changed = true;
+                        }
+                    }
+                }
+                live = cleaned;
+            }
+            return live;
+        }
+        function bensonTerritoryLocal(liveBoard) {
+            const RT = window.QiWeiqiSquarePageRuntime;
+            const size = ps.BOARD_SIZE;
+            const territory = RT.assignTerritoryWithRange(liveBoard, size);
+            const secure = RT.bensonAlive(liveBoard, size);
+            for (let r = 0; r < size; r++) {
+                for (let c = 0; c < size; c++) {
+                    if (liveBoard[r][c] === 0 && secure.territory[r][c]) territory[r][c] = secure.territory[r][c];
+                }
+            }
+            return territory;
+        }
         const page = QiWeiqiSquarePageRuntime.create(ps, domPage, {
             enableEditBoard: true,
             recordDownloadPrefix,
             minLib,
             maxWeakLiberties: 2,
+            removeDeadAndDying: bensonRemoveDeadLocal,
+            assignTerritoryWithRange: bensonTerritoryLocal,
             gameType,
             roomId,
             roomPassword,

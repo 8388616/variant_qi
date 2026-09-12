@@ -158,8 +158,8 @@ const R = (function () {
 
     function pieceSide(pc) { return pc[0] === 'w' ? 'white' : 'black'; }
     function oppositeSide(side) { return side === 'white' ? 'black' : 'white'; }
-    function sideFromSlot(slot) { return slot === 'black' ? 'white' : 'black'; }
-    function slotFromSide(side) { return side === 'white' ? 'black' : 'white'; }
+    function sideFromSlot(slot) { return slot === 'player1' ? 'white' : 'black'; }   // player1 座执白（先手）
+    function slotFromSide(side) { return side === 'white' ? 'player1' : 'player2'; }
     function normalizePromote(p) {
         p = String(p || '').toLowerCase();
         if (PROMOTE_TYPES.includes(p)) return p;
@@ -438,7 +438,7 @@ class RhombicChessRoom extends QiTwoPlayerRoomBase {
                 this._stopClockTicker();
                 this.gameOver = true;
                 this.winner = winnerSlot;
-                this.recordResultText = lostSlot === 'black' ? '白超时黑胜' : '黑超时白胜';
+                this.recordResultText = lostSlot === 'player2' ? '黑方超时，白胜' : '白方超时，黑胜';
                 this.broadcast({ type: 'broadcast', action: 'timeLoss', player: lostSlot, winner: winnerSlot, ...this.getState() });
                 return;
             }
@@ -447,21 +447,21 @@ class RhombicChessRoom extends QiTwoPlayerRoomBase {
     }
 
     _firstPickerSlot() {
-        const tb = this.slotJoinedAt.black;
-        const tw = this.slotJoinedAt.white;
-        if (tb == null || tw == null) return 'black';
-        return tb <= tw ? 'black' : 'white';
+        const tb = this.slotJoinedAt.player2;
+        const tw = this.slotJoinedAt.player1;
+        if (tb == null || tw == null) return 'player2';
+        return tb <= tw ? 'player2' : 'player1';
     }
 
     _maybeBeginTimeNegotiation() {
         if (this.getMoveCount() > 0 || this.gameOver) return;
-        if (!this.room.getPlayerBySlot('black') || !this.room.getPlayerBySlot('white')) return;
+        if (!this.room.getPlayerBySlot('player2') || !this.room.getPlayerBySlot('player1')) return;
         if (this.tcNego || this.tcSettings) return;
         const first = this._firstPickerSlot();
         this.tcNego = { phase: 'propose', proposal: null, waitingSlot: first };
         const ws = this.room.getPlayerBySlot(first);
         if (ws) ws.send(JSON.stringify({ type: 'timeControlNegotiation', mode: 'propose' }));
-        const other = first === 'black' ? 'white' : 'black';
+        const other = first === 'player2' ? 'player1' : 'player2';
         const ws2 = this.room.getPlayerBySlot(other);
         if (ws2) ws2.send(JSON.stringify({ type: 'timeControlWaitPeer', text: '对方正在选择限时规则…' }));
     }
@@ -482,7 +482,7 @@ class RhombicChessRoom extends QiTwoPlayerRoomBase {
         if (slot !== this.tcNego.waitingSlot) return;
         this.tcNego.proposal = v;
         this.tcNego.phase = 'respond';
-        const other = slot === 'black' ? 'white' : 'black';
+        const other = slot === 'player2' ? 'player1' : 'player2';
         this.tcNego.waitingSlot = other;
         ws.send(JSON.stringify({ type: 'timeControlWaitPeer', text: '正在等对方确认' }));
         const otherWs = this.room.getPlayerBySlot(other);
@@ -540,7 +540,7 @@ class RhombicChessRoom extends QiTwoPlayerRoomBase {
             this._stopClockTicker();
             this.gameOver = true;
             this.winner = winnerSlot;
-            this.recordResultText = lostSlot === 'black' ? '白超时黑胜' : '黑超时白胜';
+            this.recordResultText = lostSlot === 'player2' ? '黑方超时，白胜' : '白方超时，黑胜';
             this.broadcast({ type: 'broadcast', action: 'timeLoss', player: lostSlot, winner: winnerSlot, ...this.getState() });
             return false;
         }
@@ -555,6 +555,11 @@ class RhombicChessRoom extends QiTwoPlayerRoomBase {
 
     getMoveCount() {
         return this.moveHistory.length;
+    }
+
+    /** 聊天/棋谱里显示的执方名：这些棋种白方先行，player1 座执白 */
+    getChatSideLabel(slot) {
+        return slot === 'player1' ? '白方' : (slot === 'player2' ? '黑方' : String(slot));
     }
 
     getState() {
@@ -584,8 +589,8 @@ class RhombicChessRoom extends QiTwoPlayerRoomBase {
             matchStarted: this.matchStarted,
             recordResultText: this.recordResultText,
             slots: {
-                black: !!this.room.getPlayerBySlot('black'),
-                white: !!this.room.getPlayerBySlot('white')
+                player2: !!this.room.getPlayerBySlot('player2'),
+                player1: !!this.room.getPlayerBySlot('player1')
             }
         };
     }
@@ -613,7 +618,7 @@ class RhombicChessRoom extends QiTwoPlayerRoomBase {
             boardRows: 11,
             boardCols: 10,
             moves: this.moveHistory.map((m) => {
-                let s = `${m.player[0].toUpperCase()}${m.fromRow},${m.fromCol}-${m.toRow},${m.toCol}`;
+                let s = `${(m.player === 'player1' ? 'W' : 'B')}${m.fromRow},${m.fromCol}-${m.toRow},${m.toCol}`;
                 if (m.promote) s += `=${m.promote.toUpperCase()}`;
                 return s;
             }),
@@ -647,7 +652,7 @@ class RhombicChessRoom extends QiTwoPlayerRoomBase {
         this.pendingUndo = null;
         this.pendingDraw = null;
         this.halfmoveClock = 0;
-        this.slotJoinedAt = { black: null, white: null };
+        this.slotJoinedAt = { player2: null, player1: null };
         this.tcNego = null;
         this.tcSettings = null;
         this.tcClock = null;
@@ -705,7 +710,7 @@ class RhombicChessRoom extends QiTwoPlayerRoomBase {
 
         this.halfmoveClock = (captured !== undefined || this.board[toK] && this.board[toK][1] === 'p') ? 0 : this.halfmoveClock + 1;
         this.sideToMove = opp;
-        this.currentPlayer = opp === 'white' ? 1 : 2;
+        this.currentPlayer = opp === 'player1' ? 1 : 2;
         this.historyKeys.push(JSON.stringify(this.board));
 
         return { ok: true, gaveCheck, captured: captured !== undefined };
@@ -716,7 +721,7 @@ class RhombicChessRoom extends QiTwoPlayerRoomBase {
         const side = this.sideToMove;
         if (R.findKing(this.board, side) == null) {
             const winnerSlot = R.slotFromSide(R.oppositeSide(side));
-            this._endGame(winnerSlot, side === 'white' ? '白方无王黑胜' : '黑方无王白胜');
+            this._endGame(winnerSlot, side === 'white' ? '白方无王，黑胜' : '黑方无王，白胜');
             return true;
         }
         return false;
@@ -736,7 +741,7 @@ class RhombicChessRoom extends QiTwoPlayerRoomBase {
         if (kingCount === 1 && R.isInCheck(this.board, side)) {
             // 单王被将军且无法应将 → 判负
             const winnerSlot = R.slotFromSide(R.oppositeSide(side));
-            this._endGame(winnerSlot, side === 'white' ? '白方被将死黑胜' : '黑方被将死白胜');
+            this._endGame(winnerSlot, side === 'white' ? '黑胜' : '白胜');
         } else {
             this._endGame('draw', side === 'white' ? '白方无子可动，和棋' : '黑方无子可动，和棋');
         }
@@ -751,7 +756,7 @@ class RhombicChessRoom extends QiTwoPlayerRoomBase {
         if (!canMove) {
             if (inCheck) {
                 const winnerSlot = R.slotFromSide(R.oppositeSide(side));
-                const text = side === 'black' ? '白将死黑胜' : '黑将死白胜';
+                const text = side === 'black' ? '黑胜' : '白胜';
                 this._endGame(winnerSlot, text);
             } else {
                 this._endGame('draw', '逼和');
@@ -779,14 +784,14 @@ class RhombicChessRoom extends QiTwoPlayerRoomBase {
             let entry = rawMoves[i];
             let player; let fromRow; let fromCol; let toRow; let toCol; let promote = null;
             if (typeof entry === 'string') {
-                const m = entry.match(/^([BW])(\d+),(\d+)-(\d+),(\d+)(?:=([QRNB]))?$/i);
+                const m = entry.match(/^([WB])(\d+),(\d+)-(\d+),(\d+)(?:=([QRNB]))?$/i);
                 if (!m) {
                     this.resetToEmpty();
                     requesterWs.send(JSON.stringify({ type: 'error', message: `棋谱回放失败：第${i + 1}手格式错误。` }));
                     this.broadcast({ type: 'roomReset', ...this.getState() });
                     return;
                 }
-                player = m[1].toUpperCase() === 'B' ? 'black' : 'white';
+                player = m[1].toUpperCase() === 'B' ? 'player2' : 'player1';
                 fromRow = +m[2]; fromCol = +m[3]; toRow = +m[4]; toCol = +m[5];
                 if (m[6]) promote = m[6].toLowerCase();
             } else {
@@ -816,8 +821,8 @@ class RhombicChessRoom extends QiTwoPlayerRoomBase {
             this.recordResultText = data.resultText || String(data.result);
             const rt = String(data.resultText || data.result);
             if (data.result === 'draw' || rt.includes('和')) this.winner = 'draw';
-            else if (data.result === 'black' || /白胜/.test(rt)) this.winner = 'black';
-            else if (data.result === 'white' || /黑胜/.test(rt)) this.winner = 'white';
+            else if (data.result === 'player2' || /白胜/.test(rt)) this.winner = 'player2';
+            else if (data.result === 'player1' || /黑胜/.test(rt)) this.winner = 'player1';
             else this.winner = data.result;
         }
         if (!this.matchStarted && this.moveHistory.length > 0) {
@@ -882,7 +887,7 @@ class RhombicChessRoom extends QiTwoPlayerRoomBase {
             case 'requestUndo': {
                 if (!slot || this.gameOver) return;
                 if (this.moveHistory.length === 0) return;
-                const opp = slot === 'black' ? 'white' : 'black';
+                const opp = slot === 'player2' ? 'player1' : 'player2';
                 const oppWs = this.room.getPlayerBySlot(opp);
                 if (!oppWs) {
                     this._undoOne();
@@ -912,7 +917,7 @@ class RhombicChessRoom extends QiTwoPlayerRoomBase {
             }
             case 'requestDraw': {
                 if (!slot || this.gameOver) return;
-                const opp = slot === 'black' ? 'white' : 'black';
+                const opp = slot === 'player2' ? 'player1' : 'player2';
                 const oppWs = this.room.getPlayerBySlot(opp);
                 if (!oppWs) {
                     this._endGame('draw', '和棋');
@@ -937,7 +942,7 @@ class RhombicChessRoom extends QiTwoPlayerRoomBase {
             }
             case 'requestNewGame': {
                 if (!slot) return;
-                const opp = slot === 'black' ? 'white' : 'black';
+                const opp = slot === 'player2' ? 'player1' : 'player2';
                 const oppWs = this.room.getPlayerBySlot(opp);
                 if (!oppWs) {
                     this._startNewGame();
@@ -957,8 +962,8 @@ class RhombicChessRoom extends QiTwoPlayerRoomBase {
             }
             case 'resign': {
                 if (!slot || this.gameOver) return;
-                const opp = slot === 'black' ? 'white' : 'black';
-                this._endGame(opp, slot === 'black' ? '白方认输黑胜' : '黑方认输白胜');
+                const opp = slot === 'player2' ? 'player1' : 'player2';
+                this._endGame(opp, slot === 'player2' ? '黑方认输白胜' : '白方认输黑胜');
                 this.broadcast({ type: 'broadcast', action: 'resign', ...this.getState() });
                 break;
             }

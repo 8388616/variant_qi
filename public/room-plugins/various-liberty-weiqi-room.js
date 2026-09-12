@@ -177,7 +177,7 @@ const BACKPACK_CAP = 8;
 
         function parseVlMoveString(s) {
             if (typeof s !== 'string' || s.length < 2) return null;
-            const player = s[0] === 'B' ? 'black' : 'white';
+            const player = s[0] === 'B' ? 'player1' : 'player2';
             if (s[1] === 'p') return { type: 'pass', player };
             const parts = s.slice(1).split(',');
             if (parts.length < 3) return null;
@@ -212,7 +212,7 @@ const BACKPACK_CAP = 8;
             const moves = (movesRaw || []).map(normalizeVlMove).filter(Boolean);
             for (let i = 0; i < moves.length; i++) {
                 const m = moves[i];
-                const playerVal = m.player === 'black' ? 1 : 2;
+                const playerVal = m.player === 'player1' ? 1 : 2;
                 players.push(playerVal);
                 const bag = playerVal === 1 ? black : white;
                 if (m.type === 'move') {
@@ -265,7 +265,7 @@ const BACKPACK_CAP = 8;
             iRejected: false,
             ws: null,
             isMyTurn: false,
-            slots: { black: false, white: false },
+            slots: { player1: false, player2: false },
             reconnectTimer: null,
             replayMode: false,
             replayBoards: [],
@@ -387,7 +387,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             let white = (ps.liveReplayWhiteBags[ps.liveReplayWhiteBags.length - 1] || []).slice();
             for (let i = startLen; i < mcs.length; i++) {
                 const m = mcs[i];
-                const playerVal = m.player === 'black' ? 1 : 2;
+                const playerVal = m.player === 'player1' ? 1 : 2;
                 ps.liveReplayStepPlayers.push(playerVal);
                 const bag = playerVal === 1 ? black : white;
                 if (m.type === 'move') {
@@ -464,14 +464,14 @@ const scoreTitle = document.getElementById('scoreTitle');
             }
 
             const canSelect = !ps.gameOver && !ps.replayMode;
-            let wSel = ps.mySlot === 'white' ? Math.min(ps.selectedBagIndex, Math.max(0, ps.whiteBag.length - 1)) : -1;
-            let bSel = ps.mySlot === 'black' ? Math.min(ps.selectedBagIndex, Math.max(0, ps.blackBag.length - 1)) : -1;
+            let wSel = ps.mySlot === 'player2' ? Math.min(ps.selectedBagIndex, Math.max(0, ps.whiteBag.length - 1)) : -1;
+            let bSel = ps.mySlot === 'player1' ? Math.min(ps.selectedBagIndex, Math.max(0, ps.blackBag.length - 1)) : -1;
             if (browsing) {
                 wSel = -1;
                 bSel = -1;
             }
-            fillRow(whiteRow, ps.whiteBag, 'white', ps.mySlot === 'white' && canSelect, wSel);
-            fillRow(blackRow, ps.blackBag, 'black', ps.mySlot === 'black' && canSelect, bSel);
+            fillRow(whiteRow, ps.whiteBag, 'player2', ps.mySlot === 'player2' && canSelect, wSel);
+            fillRow(blackRow, ps.blackBag, 'player1', ps.mySlot === 'player1' && canSelect, bSel);
         }
 
         const page = QiWeiqiSquarePageRuntime.create(ps, domPage, {
@@ -762,7 +762,7 @@ syncState,
             if (ps.gameOver) return false;
             if (!ps.isMyTurn) return false;
             if (ps.board[row][col] !== 0) return false;
-            const bag = ps.mySlot === 'black' ? ps.blackBag : ps.whiteBag;
+            const bag = ps.mySlot === 'player1' ? ps.blackBag : ps.whiteBag;
             if (!bag.length) return false;
             const bagIndex = Math.min(ps.selectedBagIndex, bag.length - 1);
             const level = bag[bagIndex];
@@ -866,7 +866,7 @@ syncState,
             }
             if (ps.board[row][col] !== 0) return;
 
-            const myBag = ps.mySlot === 'black' ? ps.blackBag : ps.whiteBag;
+            const myBag = ps.mySlot === 'player1' ? ps.blackBag : ps.whiteBag;
             if (!myBag.length) return;
 
             if (mobileTwoStepPlacing()) {
@@ -896,7 +896,7 @@ syncState,
                 const x = (e.clientX - rect.left) * scale;
                 const y = (e.clientY - rect.top) * scale;
                 const { row, col } = getClosestIntersection(x, y);
-                const myBag = ps.mySlot === 'black' ? ps.blackBag : ps.whiteBag;
+                const myBag = ps.mySlot === 'player1' ? ps.blackBag : ps.whiteBag;
                 ps.hoverRow = row;
                 ps.hoverCol = col;
                 ps.isHoverValid = (row >= 0 && col >= 0 && ps.board[row][col] === 0 && myBag.length > 0);

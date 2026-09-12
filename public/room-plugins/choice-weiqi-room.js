@@ -34,7 +34,7 @@ const C = QiSquareWeiqiCanvas, R = QiWeiqiSquarePageRuntime;
         var ps = {
             BOARD_SIZE: 9, KOMI: 2.25, PADDING: 0, CELL_SIZE: 0, numberOfHands: 1, currentPlayer: 1, mySlot: null, gameOver: false, winner: null,
             lastMoveMarkers: [], showEstimateActive: false, cachedLiveBoard: null, cachedTerritory: null, waitingScoreConfirm: false, iRejected: false,
-            ws: null, isMyTurn: false, slots: { black: false, white: false }, reconnectTimer: null,
+            ws: null, isMyTurn: false, slots: { player1: false, player2: false }, reconnectTimer: null,
             replayMode: false, replayStep: 0, replayTotalSteps: 0, showMoveNumbers: false, moveLog: [],
             tryPlayMode: false, tryPlayBaseStep: 0, tryPlayBoards: [], tryPlayMarkers: [], tryPlayCurrentPlayer: 1, tryPlayStep: 0, tryPlayTotalSteps: 0,
             replayBoards: [], replayMarkers: [], replayStepPlayers: [],
@@ -78,7 +78,7 @@ const scoreTitle = document.getElementById('scoreTitle'), scoreBoard = document.
                     if (!Number.isFinite(cr) || !Number.isFinite(cc)) return null;
                     candidatesBefore.push({ row: cr, col: cc });
                 }
-                const pl = entry.player === 'black' || entry.player === 'white' ? entry.player : null;
+                const pl = entry.player === 'player1' || entry.player === 'player2' ? entry.player : null;
                 return pl ? { player: pl, row, col, candidatesBefore } : null;
             }
             if (typeof entry !== 'string') return null;
@@ -90,7 +90,7 @@ const scoreTitle = document.getElementById('scoreTitle'), scoreBoard = document.
             if (comma <= 1) return null;
             const row = Number(head.slice(1, comma)), col = Number(head.slice(comma + 1));
             if (!Number.isFinite(row) || !Number.isFinite(col)) return null;
-            const player = head[0] === 'B' ? 'black' : 'white', candidatesBefore = [];
+            const player = head[0] === 'B' ? 'player1' : 'player2', candidatesBefore = [];
             for (const seg of tail.split(';')) {
                 const s = seg.trim(); if (!s) continue;
                 const parts = s.split(',');
@@ -103,7 +103,7 @@ const scoreTitle = document.getElementById('scoreTitle'), scoreBoard = document.
         }
         function parseChoiceWeiqiReplayMove(raw) {
             if (typeof raw === 'string') {
-                if (raw.length >= 2 && raw[1] === 'p') return { type: 'pass', player: raw[0] === 'B' ? 'black' : 'white' };
+                if (raw.length >= 2 && raw[1] === 'p') return { type: 'pass', player: raw[0] === 'B' ? 'player1' : 'player2' };
                 const m = normalizeChoiceRecordMove(raw);
                 return m ? { type: 'move', ...m } : null;
             }
@@ -158,7 +158,7 @@ const scoreTitle = document.getElementById('scoreTitle'), scoreBoard = document.
                 if (!parsed) return null;
                 const last = snapshots[snapshots.length - 1];
                 if (parsed.type === 'pass') {
-                    const pv = parsed.player === 'black' ? 1 : 2;
+                    const pv = parsed.player === 'player1' ? 1 : 2;
                     if (pv !== last.currentPlayer) return null;
                     snapshots.push({ board: page.deepCopyBoard(brd), currentPlayer: pv, candidates: [], lastMoveMarkers: lastMoveMarkers.map(m => ({ ...m })) });
                     lastMoveMarkers = [];
@@ -168,7 +168,7 @@ const scoreTitle = document.getElementById('scoreTitle'), scoreBoard = document.
                 const m = parsed;
                 const cb = (m.candidatesBefore || []).map(c => ({ row: c.row, col: c.col }));
                 if (cb.length && !cb.some(c => c.row === m.row && c.col === m.col)) return null;
-                const playerVal = m.player === 'black' ? 1 : 2;
+                const playerVal = m.player === 'player1' ? 1 : 2;
                 if (playerVal !== last.currentPlayer) return null;
                 snapshots.push({
                     board: page.deepCopyBoard(brd), currentPlayer: playerVal,
@@ -265,7 +265,7 @@ const scoreTitle = document.getElementById('scoreTitle'), scoreBoard = document.
             const started = ps.gameOver || ps.matchStarted
                 || (state && (state.numberOfHands || 1) > 1)
                 || ps.board.some(row => row.some(v => v !== 0))
-                || ps.slots.black || ps.slots.white;
+                || ps.slots.player1 || ps.slots.player2;
             label.hidden = false;
             const cb = document.getElementById('aiCandidatesCheckbox');
             if (cb) cb.disabled = started;
@@ -349,7 +349,7 @@ const scoreTitle = document.getElementById('scoreTitle'), scoreBoard = document.
                 ps.lastMoveMarkers = state.lastMoveMarkers || [];
             }
             const hasAnyStone = ps.board.some(row => row.some(v => v !== 0));
-            const hasPlayer = ps.slots.black || ps.slots.white;
+            const hasPlayer = ps.slots.player1 || ps.slots.player2;
             const sizeSel = document.getElementById('boardSizeSelect');
             if (sizeSel) {
                 if (!hasAnyStone && !hasPlayer && !ps.gameOver && ps.mySlot === null) sizeSel.style.display = 'inline-block';
@@ -597,8 +597,13 @@ const scoreTitle = document.getElementById('scoreTitle'), scoreBoard = document.
                 const x = (e.clientX - rect.left) * scale, y = (e.clientY - rect.top) * scale;
                 const { row, col } = getClosestIntersection(x, y);
                 ps.hoverRow = row; ps.hoverCol = col;
-                const onCand = ps.candidates.some(c => c.row === row && c.col === col);
-                ps.isHoverValid = (row >= 0 && col >= 0 && ps.board[row][col] === 0 && onCand);
+                if (ps.tryPlayMode) {
+                    // 试下是自由落子（不限于候选点），悬停预览也应当如此
+                    ps.isHoverValid = (row >= 0 && col >= 0 && ps.board[row][col] === 0);
+                } else {
+                    const onCand = ps.candidates.some(c => c.row === row && c.col === col);
+                    ps.isHoverValid = (row >= 0 && col >= 0 && ps.board[row][col] === 0 && onCand);
+                }
                 drawBoard();
             });
             canvas.addEventListener('mouseleave', () => {

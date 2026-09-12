@@ -26,7 +26,7 @@ class WxdRoom extends QiTwoPlayerRoomBase {
         this.pendingNewGame = null;
         this.pendingUndo = null;
         this.pendingDraw = null;
-        this.slotJoinedAt = { black: null, white: null };
+        this.slotJoinedAt = { player1: null, player2: null };
         this.tcNego = null;
         this.tcSettings = null;
         this.tcClock = null;
@@ -75,15 +75,15 @@ class WxdRoom extends QiTwoPlayerRoomBase {
     }
 
     _firstPickerSlot() {
-        const tb = this.slotJoinedAt.black;
-        const tw = this.slotJoinedAt.white;
-        if (tb == null || tw == null) return 'black';
-        return tb <= tw ? 'black' : 'white';
+        const tb = this.slotJoinedAt.player1;
+        const tw = this.slotJoinedAt.player2;
+        if (tb == null || tw == null) return 'player1';
+        return tb <= tw ? 'player1' : 'player2';
     }
 
     _maybeBeginTimeNegotiation() {
         if (this.moveHistory.length > 0 || this.gameOver) return;
-        if (!this.room.getPlayerBySlot('black') || !this.room.getPlayerBySlot('white')) return;
+        if (!this.room.getPlayerBySlot('player1') || !this.room.getPlayerBySlot('player2')) return;
         if (this.tcNego !== null || this.tcSettings !== null) return;
         const first = this._firstPickerSlot();
         this.tcNego = {
@@ -93,7 +93,7 @@ class WxdRoom extends QiTwoPlayerRoomBase {
             lastProposerSlot: null
         };
         const ws1 = this.room.getPlayerBySlot(first);
-        const other = first === 'black' ? 'white' : 'black';
+        const other = first === 'player1' ? 'player2' : 'player1';
         const ws2 = this.room.getPlayerBySlot(other);
         if (ws1) ws1.send(JSON.stringify({ type: 'timeControlNegotiation', mode: 'propose' }));
         if (ws2) ws2.send(JSON.stringify({ type: 'timeControlWaitPeer', text: '等待对方设置限时规则...' }));
@@ -127,7 +127,7 @@ class WxdRoom extends QiTwoPlayerRoomBase {
         this.tcNego.proposal = v;
         this.tcNego.lastProposerSlot = slot;
         this.tcNego.phase = 'respond';
-        const other = slot === 'black' ? 'white' : 'black';
+        const other = slot === 'player1' ? 'player2' : 'player1';
         this.tcNego.waitingSlot = other;
         const selfWs = this.room.getPlayerBySlot(slot);
         if (selfWs) selfWs.send(JSON.stringify({ type: 'timeControlWaitPeer', text: '等待对方确认...' }));
@@ -153,7 +153,7 @@ class WxdRoom extends QiTwoPlayerRoomBase {
         const now = Date.now();
         this.tcClock = qiMatchTimeControl.createClock(this.tcSettings, now);
         if (this.tcClock.timed) {
-            qiMatchTimeControl.setActiveSlot(this.tcClock, this.currentPlayer === 1 ? 'black' : 'white', now);
+            qiMatchTimeControl.setActiveSlot(this.tcClock, this.currentPlayer === 1 ? 'player1' : 'player2', now);
             this._startClockTicker();
             this._broadcastClock();
         } else {
@@ -171,16 +171,16 @@ class WxdRoom extends QiTwoPlayerRoomBase {
         if (!this.matchStarted) return false;
         if (this.tcNego || this.tcSettings === null) return false;
         if (!this.tcClock || !this.tcClock.timed) {
-            const expect = this.currentPlayer === 1 ? 'black' : 'white';
+            const expect = this.currentPlayer === 1 ? 'player1' : 'player2';
             return slot === expect;
         }
-        const expect = this.currentPlayer === 1 ? 'black' : 'white';
+        const expect = this.currentPlayer === 1 ? 'player1' : 'player2';
         return slot === expect;
     }
 
     _drainClockBeforeMove(slot) {
         if (!this.tcClock || !this.tcClock.timed || this.gameOver) return true;
-        const expect = this.currentPlayer === 1 ? 'black' : 'white';
+        const expect = this.currentPlayer === 1 ? 'player1' : 'player2';
         if (slot !== expect) return true;
         const { lostSlot, winnerSlot } = qiMatchTimeControl.drain(this.tcClock, Date.now());
         if (lostSlot) {
@@ -201,7 +201,7 @@ class WxdRoom extends QiTwoPlayerRoomBase {
 
     _syncClockAfterTurnChange() {
         if (!this.tcClock || !this.tcClock.timed || this.gameOver) return;
-        const activeSlot = this.currentPlayer === 1 ? 'black' : 'white';
+        const activeSlot = this.currentPlayer === 1 ? 'player1' : 'player2';
         qiMatchTimeControl.setActiveSlot(this.tcClock, activeSlot, Date.now());
         this._broadcastClock();
     }
@@ -263,8 +263,8 @@ class WxdRoom extends QiTwoPlayerRoomBase {
 
     applyMove(slot, row, col) {
         if (this.gameOver) return false;
-        const playerVal = slot === 'black' ? 1 : 2;
-        const expect = this.currentPlayer === 1 ? 'black' : 'white';
+        const playerVal = slot === 'player1' ? 1 : 2;
+        const expect = this.currentPlayer === 1 ? 'player1' : 'player2';
         if (slot !== expect) return false;
         if (row < 0 || row >= this.boardSize || col < 0 || col >= this.boardSize) return false;
         if (this.board[row][col] !== 0) return false;
@@ -278,11 +278,11 @@ class WxdRoom extends QiTwoPlayerRoomBase {
         this.moveHistory.push(slot);
         this.moveCoords.push({ type: 'move', player: slot, row, col });
         this.lastByPlayer[slot] = { row, col };
-        if (slot === 'black') this.blackScore += this.weights[row][col];
+        if (slot === 'player1') this.blackScore += this.weights[row][col];
         else this.whiteScore += this.weights[row][col];
         this.lastMoveMarkers = this.buildLastMoveMarkers();
 
-        const other = slot === 'black' ? 'white' : 'black';
+        const other = slot === 'player1' ? 'player2' : 'player1';
         const selfCan = this.canPlayerMove(slot);
         const otherCan = this.canPlayerMove(other);
 
@@ -365,8 +365,8 @@ class WxdRoom extends QiTwoPlayerRoomBase {
             },
             matchStarted: this.matchStarted,
             slots: {
-                black: !!this.room.getPlayerBySlot('black'),
-                white: !!this.room.getPlayerBySlot('white')
+                player1: !!this.room.getPlayerBySlot('player1'),
+                player2: !!this.room.getPlayerBySlot('player2')
             }
         };
     }
@@ -379,14 +379,14 @@ class WxdRoom extends QiTwoPlayerRoomBase {
         this.blackScore = 0;
         this.whiteScore = 0;
         this.komi = Math.floor(0.01 * ((this.boardSize * this.boardSize - 1) * this.boardSize * this.boardSize / 2));
-        this.lastByPlayer = { black: null, white: null };
+        this.lastByPlayer = { player1: null, player2: null };
         this.lastMoveMarkers = [];
         this.moveCoords = [];
         this.moveHistory = [];
         this.historySnapshots = [];
         this.gameOver = false;
         this.winner = null;
-        this.slotJoinedAt = { black: null, white: null };
+        this.slotJoinedAt = { player1: null, player2: null };
         this.tcNego = null;
         this.tcSettings = null;
         this.tcClock = null;
@@ -402,7 +402,7 @@ class WxdRoom extends QiTwoPlayerRoomBase {
             this.room.observers.add(client);
             client.send(JSON.stringify({ type: 'slotReleased', slot }));
         }
-        this.broadcast({ type: 'newGameStarted', ...this.getState(), slots: { black: false, white: false } });
+        this.broadcast({ type: 'newGameStarted', ...this.getState(), slots: { player1: false, player2: false } });
     }
 
     setBoardSize(newSize, requesterWs) {
@@ -411,7 +411,7 @@ class WxdRoom extends QiTwoPlayerRoomBase {
             return false;
         }
         const hasAnyStone = this.board.some((row) => row.some((v) => v !== 0));
-        const hasPlayer = this.room.getPlayerBySlot('black') || this.room.getPlayerBySlot('white');
+        const hasPlayer = this.room.getPlayerBySlot('player1') || this.room.getPlayerBySlot('player2');
         if (hasAnyStone || hasPlayer) return false;
         this.boardSize = newSize;
         this.openingBoard = undefined;
@@ -429,7 +429,7 @@ class WxdRoom extends QiTwoPlayerRoomBase {
             gameId: 'wxd',
             boardSize: this.boardSize,
             weights: this.weights.map((row) => row.slice()),
-            moves: this.moveCoords.map((m) => `${m.player === 'black' ? 'B' : 'W'}${m.row},${m.col}`),
+            moves: this.moveCoords.map((m) => `${m.player === 'player1' ? 'B' : 'W'}${m.row},${m.col}`),
             result: this.gameOver ? this.winner : null
         };
     }
@@ -453,14 +453,14 @@ class WxdRoom extends QiTwoPlayerRoomBase {
 
         const moves = (data.moves || []).map((entry) => {
             if (typeof entry !== 'string') return null;
-            const player = entry[0] === 'B' ? 'black' : 'white';
+            const player = entry[0] === 'B' ? 'player1' : 'player2';
             const [r, c] = entry.slice(1).split(',').map(Number);
             return { player, row: r, col: c };
         }).filter(Boolean);
 
         for (let i = 0; i < moves.length; i++) {
             const m = moves[i];
-            const expect = this.currentPlayer === 1 ? 'black' : 'white';
+            const expect = this.currentPlayer === 1 ? 'player1' : 'player2';
             if (m.player !== expect && this.canPlayerMove(expect)) {
                 this.resetToEmpty();
                 requesterWs.send(JSON.stringify({ type: 'error', message: `棋谱回放失败：第${i + 1}手行棋方不符。` }));
@@ -533,7 +533,7 @@ class WxdRoom extends QiTwoPlayerRoomBase {
                     ws.send(JSON.stringify({ type: 'error', message: '无法悔棋。' }));
                     return;
                 }
-                const oppSlot = slot === 'black' ? 'white' : 'black';
+                const oppSlot = slot === 'player1' ? 'player2' : 'player1';
                 const opp = room.getPlayerBySlot(oppSlot);
                 if (!opp) this.performUndo(steps);
                 else {
@@ -573,7 +573,7 @@ class WxdRoom extends QiTwoPlayerRoomBase {
                 qiProtocol.importRecord(this, ws, msg, { importBlockedMsg: '已有玩家入座，无法导入棋谱' });
                 break;
             case 'resetRoom':
-                if (this.room.getPlayerBySlot('black') || this.room.getPlayerBySlot('white')) return;
+                if (this.room.getPlayerBySlot('player1') || this.room.getPlayerBySlot('player2')) return;
                 this.resetToEmpty();
                 this.broadcast({ type: 'roomReset', ...this.getState() });
                 break;
@@ -583,11 +583,11 @@ class WxdRoom extends QiTwoPlayerRoomBase {
     }
 
     onResignResolved(resignSlot) {
-        this.recordResultText = resignSlot === 'black' ? '白胜' : '黑胜';
+        this.recordResultText = resignSlot === 'player1' ? '白胜' : '黑胜';
     }
 
     onDrawResolved() {
-        this.recordResultText = '和胜';
+        this.recordResultText = '和棋';
     }
 
     getMoveCount() {

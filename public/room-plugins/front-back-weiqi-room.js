@@ -59,7 +59,7 @@ let boardA = initBoard(BOARD_SIZE);
         let minesB = [];
         let nextMoveNumber = 1;
         let expectedBoard = 'A';
-        let expectedSlot = 'black';
+        let expectedSlot = 'player1';
         let lastMoveMarkers = [];
         let moveCoords = [];
         let passCounter = 0;
@@ -68,7 +68,7 @@ let boardA = initBoard(BOARD_SIZE);
         /** createWeiqiMessageBindings 使用的 pageState（与标准围棋页 ps 字段对齐） */
         const ps = {
             mySlot: null,
-            slots: { black: false, white: false },
+            slots: { player1: false, player2: false },
             ws: null,
             showEstimateActive: false,
             isMyTurn: false,
@@ -83,6 +83,7 @@ let boardA = initBoard(BOARD_SIZE);
             replayTotalSteps: 0,
             tryPlayBaseReplayStep: 0,
             tryPlayTotalSteps: 0,
+            tryPlayFromLive: false,
             waitingScoreConfirm: false,
             gameOver: false,
             winner: null,
@@ -296,7 +297,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             ctx.globalAlpha = 0.45;
             ctx.beginPath();
             ctx.arc(PADDING + c * CELL_SIZE, PADDING + (BOARD_SIZE - 1 - r) * CELL_SIZE, CELL_SIZE * 0.44, 0, 2 * Math.PI);
-            ctx.fillStyle = ps.mySlot === 'black' ? '#222' : '#ddd';
+            ctx.fillStyle = ps.mySlot === 'player1' ? '#222' : '#fff';
             ctx.fill();
             ctx.globalAlpha = 1;
         }
@@ -379,12 +380,46 @@ const scoreTitle = document.getElementById('scoreTitle');
             return R().removeDeadAndDying(board, BOARD_SIZE, b => C().deepCopyBoard(b), 2);
         }
 
+        // 形势判断：Benson 加成（地雷视作洞：不可落子/无气/不连通）
+        function bensonLiveScoreOne(board, mines) {
+            const RT = window.QiWeiqiSquarePageRuntime;
+            const benson = RT.bensonAliveWithHoles(board, BOARD_SIZE, (r, c) => isMine(mines, r, c));
+            let live = board.map((row) => row.slice());
+            let changed = true;
+            while (changed) {
+                changed = false;
+                const cleaned = removeDeadAndDyingScore(live);
+                for (let r = 0; r < BOARD_SIZE; r++) {
+                    for (let c = 0; c < BOARD_SIZE; c++) {
+                        const v = board[r][c];
+                        if (benson.alive[r][c] && (v === 1 || v === 2) && cleaned[r][c] !== v) {
+                            cleaned[r][c] = v;
+                            changed = true;
+                        }
+                    }
+                }
+                live = cleaned;
+            }
+            return live;
+        }
+        function bensonTerrScoreOne(liveBoard, mines) {
+            const RT = window.QiWeiqiSquarePageRuntime;
+            const territory = assignTerritoryBlockingMines(liveBoard, mines);
+            const secure = RT.bensonAliveWithHoles(liveBoard, BOARD_SIZE, (r, c) => isMine(mines, r, c));
+            for (let r = 0; r < BOARD_SIZE; r++) {
+                for (let c = 0; c < BOARD_SIZE; c++) {
+                    if (liveBoard[r][c] === 0 && !isMine(mines, r, c) && secure.territory[r][c]) territory[r][c] = secure.territory[r][c];
+                }
+            }
+            return territory;
+        }
+        
         function showEstimate() {
             if (!ps.showEstimateActive) { clearEstimate(); return; }
-            cachedLiveA = removeDeadAndDyingScore(boardA);
-            cachedTerrA = assignTerritoryBlockingMines(cachedLiveA, minesA);
-            cachedLiveB = removeDeadAndDyingScore(boardB);
-            cachedTerrB = assignTerritoryBlockingMines(cachedLiveB, minesB);
+            cachedLiveA = bensonLiveScoreOne(boardA, minesA);
+            cachedTerrA = bensonTerrScoreOne(cachedLiveA, minesA);
+            cachedLiveB = bensonLiveScoreOne(boardB, minesB);
+            cachedTerrB = bensonTerrScoreOne(cachedLiveB, minesB);
             const a = R().computeScoreWithHoles(cachedLiveA, cachedTerrA, BOARD_SIZE, (r, c) => isMine(minesA, r, c));
             const b = R().computeScoreWithHoles(cachedLiveB, cachedTerrB, BOARD_SIZE, (r, c) => isMine(minesB, r, c));
             const blackTotal = a.blackTotal + b.blackTotal;
@@ -410,7 +445,7 @@ const scoreTitle = document.getElementById('scoreTitle');
         }
 
         function slotEmoji(slot) {
-            return slot === 'black' ? '⚫' : '⚪';
+            return slot === 'player1' ? '⚫' : '⚪';
         }
 
         /** 与 front-back-weiqi.js 中 expectedSlot() 一致：第 n 手应由谁下 */
@@ -593,7 +628,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                 if (mv.type !== 'move' && mv.type !== 'clearMine') break;
                 if (mv.board !== expB) break;
 
-                const playerVal = mv.player === 'black' ? 1 : 2;
+                const playerVal = mv.player === 'player1' ? 1 : 2;
                 if (mv.type === 'clearMine') {
                     const cleared = tryClearMineSim(mv.board, mv.row, mv.col);
                     if (!cleared) break;
@@ -778,7 +813,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                 }
                 if (mv.type !== 'move' && mv.type !== 'clearMine') return false;
                 if (mv.board !== expB) return false;
-                const playerVal = mv.player === 'black' ? 1 : 2;
+                const playerVal = mv.player === 'player1' ? 1 : 2;
                 if (mv.type === 'clearMine') {
                     const cleared = tryClearMineSim(mv.board, mv.row, mv.col);
                     if (!cleared) return false;
@@ -940,8 +975,18 @@ const scoreTitle = document.getElementById('scoreTitle');
         }
 
         function enterTryPlay() {
-            if (!ps.replayMode) return;
             clearMobileMovePreview();
+            if (!ps.replayMode) {
+                // 实时局面下点「试下」：把当前实战手顺当作打谱记录，内部先切到打谱态，
+                // 退出试下时再回到实时（见 exitTryPlay，与打谱退出同路）。
+                replaySnaps = buildFrontBackReplaySnapshots(moveCoords, BOARD_SIZE);
+                ps.replayTotalSteps = Math.max(0, replaySnaps.length - 1);
+                ps.replayStep = Math.min(Math.max(0, ps.liveViewStep), ps.replayTotalSteps);
+                ps.replayMode = true;
+                ps.tryPlayFromLive = true;
+            } else {
+                ps.tryPlayFromLive = false;
+            }
             ps.tryPlayMode = true;
             ps.tryPlayBaseReplayStep = ps.replayStep;
             tryPlaySnaps = [cloneSnap(replaySnaps[ps.replayStep])];
@@ -962,6 +1007,12 @@ const scoreTitle = document.getElementById('scoreTitle');
 
         function exitTryPlay() {
             clearMobileMovePreview();
+            if (ps.tryPlayFromLive) {
+                // 从实时局面进入的试下：退出即回到实时（exitReplayMode 内部已清掉试下状态并重绘）
+                ps.tryPlayFromLive = false;
+                exitReplayMode();
+                return;
+            }
             ps.tryPlayMode = false;
             tryPlaySnaps = [];
             tryPlayMoveList = [];
@@ -990,14 +1041,15 @@ const scoreTitle = document.getElementById('scoreTitle');
         }
 
         /**
-         * 在试下局面（tryPlaySnaps 末尾）上走一步；成功则追加快照。
+         * 在当前试下步（tryPlaySnaps[tryPlayStep]，即棋盘上看到的局面）上走一步；成功则追加快照。
+         * 注意：不能用末尾快照——滑块/悔棋回到中段后，末尾是分支之外的局面，行棋方与棋盘都会对不上。
          */
         function tryPlayApplyMove(which, row, col) {
             if (!tryPlaySnaps.length) return false;
-            const cur = cloneSnap(tryPlaySnaps[tryPlaySnaps.length - 1]);
+            const cur = cloneSnap(tryPlaySnaps[ps.tryPlayStep] || tryPlaySnaps[tryPlaySnaps.length - 1]);
             const mn = cur.nextMoveNumber;
             if (which !== expectedBoardForMoveNumber(mn)) return false;
-            const playerVal = expectedSlotForMoveNumber(mn) === 'black' ? 1 : 2;
+            const playerVal = expectedSlotForMoveNumber(mn) === 'player1' ? 1 : 2;
             const minesPlayedBefore = which === 'A' ? cur.minesA : cur.minesB;
             const wasMineBefore = isMine(minesPlayedBefore, row, col);
 
@@ -1134,6 +1186,48 @@ const scoreTitle = document.getElementById('scoreTitle');
             return true;
         }
 
+        /**
+         * 试下：虚着一手（棋盘/雷区不变、本步无落子标记），供公共的「虚着」按钮调用。
+         * 与真实虚着一致地累加 passCounter，但试下只是分析，不判终局（ps.gameOver 不动）。
+         */
+        function tryPlayPass() {
+            if (!ps.tryPlayMode) return false;
+            if (!tryPlaySnaps.length) return false;
+            const cur = cloneSnap(tryPlaySnaps[ps.tryPlayStep] || tryPlaySnaps[tryPlaySnaps.length - 1]);
+            const mn = cur.nextMoveNumber;
+            const nextSnap = {
+                boardA: deepCopyBoard(cur.boardA),
+                boardB: deepCopyBoard(cur.boardB),
+                minesA: copyMineList(cur.minesA),
+                minesB: copyMineList(cur.minesB),
+                lastMoveMarkers: [],
+                nextMoveNumber: mn + 1,
+                passCounter: (cur.passCounter != null ? cur.passCounter : 0) + 1
+            };
+            if (ps.tryPlayStep < ps.tryPlayTotalSteps) {
+                tryPlaySnaps.length = ps.tryPlayStep + 1;
+                tryPlayMoveList.length = ps.tryPlayStep;
+            }
+            tryPlaySnaps.push(cloneSnap(nextSnap));
+            // 虚着不落子：编号逻辑按全局手数 ply++，靠 type !== 'move' 跳过落号
+            tryPlayMoveList.push({
+                type: 'pass',
+                player: expectedSlotForMoveNumber(mn)
+            });
+            ps.tryPlayTotalSteps = tryPlaySnaps.length - 1;
+            ps.tryPlayStep = ps.tryPlayTotalSteps;
+            applySnapToGlobals(nextSnap);
+            const slider = document.getElementById('replaySlider');
+            if (slider) {
+                slider.max = ps.tryPlayTotalSteps;
+                slider.value = ps.tryPlayStep;
+            }
+            updateTryPlayDisplay();
+            if (ps.showEstimateActive) showEstimate();
+            else drawAllBoards();
+            return true;
+        }
+
         function updateTurn() {
             if (ps.waitingScoreConfirm) return;
             if (ps.gameOver) {
@@ -1209,14 +1303,14 @@ const scoreTitle = document.getElementById('scoreTitle');
                 minesB = (s.minesB || s.holesB || []).map(p => ({ row: p.row, col: p.col }));
                 nextMoveNumber = s.nextMoveNumber != null ? s.nextMoveNumber : 1;
                 expectedBoard = s.expectedBoard || 'A';
-                expectedSlot = s.expectedSlot || 'black';
+                expectedSlot = s.expectedSlot || 'player1';
                 passCounter = s.passCounter || 0;
                 lastMoveMarkers = (s.lastMoveMarkers || []).map(m => ({ ...m }));
             }
 
             const hasStone = boardA.some(r => r.some(v => v !== 0)) || boardB.some(r => r.some(v => v !== 0));
             const hasMine = minesA.length > 0 || minesB.length > 0;
-            const hasPlayer = ps.slots.black || ps.slots.white;
+            const hasPlayer = ps.slots.player1 || ps.slots.player2;
             const sizeSelect = document.getElementById('boardSizeSelect');
             const liveTotal = getLiveReplayTotal();
             if (!hasStone && !hasMine && !hasPlayer && !ps.gameOver && ps.mySlot === null && ps.liveViewStep === 0 && liveTotal === 0)
@@ -1273,6 +1367,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             drawBoard: drawAllBoards,
             exitTryPlay,
             enterTryPlay,
+            tryPlayPass,
             setTryPlayStep,
             setReplayStep,
             setLiveViewStep,

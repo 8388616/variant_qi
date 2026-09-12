@@ -194,6 +194,17 @@ body.qi-room .ctrl-btn:active {
     border-bottom-width: 1px;
 }
 
+/*
+ * 试下模式：显示「虚着 / 悔棋」。
+ * 各棋类在试下（replayMode 分支）里会把对局按钮批量隐藏（内联 style.display = 'none'），
+ * 这里用 !important 盖过去；退出试下时公共脚本移除 body 上的 qi-tryplay 类，
+ * 按钮随即恢复各棋类自己设置的显隐。
+ */
+body.qi-room.qi-tryplay #passBtn,
+body.qi-room.qi-tryplay #undoBtn {
+    display: inline-block !important;
+}
+
 body.qi-room .replay-nav-btn {
     padding: 6px 10px;
     font-size: 0.85rem;

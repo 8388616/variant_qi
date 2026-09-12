@@ -67,7 +67,7 @@ function unstableLifetimeForSize(size) {
             iRejected: false,
             ws: null,
             isMyTurn: false,
-            slots: { black: false, white: false },
+            slots: { player1: false, player2: false },
             reconnectTimer: null,
             replayMode: false,
             replayBoards: [],
@@ -405,8 +405,8 @@ function unstableLifetimeForSize(size) {
             if (ps.showEstimateActive) return false;
             if (r < 0 || r >= ps.BOARD_SIZE || c < 0 || c >= ps.BOARD_SIZE) return false;
             if (ps.board[r][c] !== 0) return false;
-            const canHover = ps.tryPlayMode || (!ps.gameOver && ps.isMyTurn);
-            const hoverVal = ps.tryPlayMode ? ps.tryPlayCurrentPlayer : (ps.mySlot === 'black' ? 1 : 2);
+            const canHover = ps.editModeEnabled || ps.tryPlayMode || (!ps.gameOver && ps.isMyTurn);
+            const hoverVal = ps.tryPlayMode ? ps.tryPlayCurrentPlayer : (ps.mySlot === 'player1' ? 1 : 2);
             const canPlaceHere = (ps.hoverRow >= 0 && ps.hoverCol >= 0) &&
                 (ps.board[ps.hoverRow][ps.hoverCol] === 0 ||
                     (ps.unstableInfo[ps.hoverRow][ps.hoverCol] !== 0 && ps.board[ps.hoverRow][ps.hoverCol] === hoverVal));
@@ -492,7 +492,7 @@ function unstableLifetimeForSize(size) {
 
         function parseReplayMoveEntry(entry) {
             if (typeof entry === 'string') {
-                const player = entry[0] === 'B' ? 'black' : 'white';
+                const player = entry[0] === 'B' ? 'player1' : 'player2';
                 if (entry[1] === 'p') return { type: 'pass', player };
                 const coords = entry.substring(1).split(',').map(Number);
                 return { type: 'move', player, row: coords[0], col: coords[1] };
@@ -518,7 +518,7 @@ function unstableLifetimeForSize(size) {
             ps.liveReplayMoveCounts.push(0);
             ps.liveReplayMarkers.push([]);
             for (const move of (coords || [])) {
-                const playerVal = move.player === 'black' ? 1 : 2;
+                const playerVal = move.player === 'player1' ? 1 : 2;
                 ps.liveReplayStepPlayers.push(playerVal);
                 if (move.type === 'move') {
                     const r = tryInstabilityPlace(curBoard, curUnstable, curMc, move.row, move.col, playerVal);
@@ -553,7 +553,7 @@ function unstableLifetimeForSize(size) {
             let curMc = ps.liveReplayMoveCounts[ps.liveReplayMoveCounts.length - 1] || 0;
             for (let i = startLen; i < mcs.length; i++) {
                 const move = mcs[i];
-                const playerVal = move.player === 'black' ? 1 : 2;
+                const playerVal = move.player === 'player1' ? 1 : 2;
                 ps.liveReplayStepPlayers.push(playerVal);
                 if (move.type === 'move') {
                     const r = tryInstabilityPlace(curBoard, curUnstable, curMc, move.row, move.col, playerVal);
@@ -676,7 +676,7 @@ function unstableLifetimeForSize(size) {
             }
 
             const hasAnyStone = ps.board.some(row => row.some(v => v !== 0));
-            const hasPlayer = ps.slots.black || ps.slots.white;
+            const hasPlayer = ps.slots.player1 || ps.slots.player2;
             const boardSizeSelect = document.getElementById('boardSizeSelect');
             if (boardSizeSelect && ps.liveViewStep === 0 && !hasPlayer && !ps.gameOver && ps.mySlot === null)
                 boardSizeSelect.style.display = 'inline-block';
@@ -722,7 +722,7 @@ function unstableLifetimeForSize(size) {
             ps.replayMovesParsed = [];
             const moves = (data.moves || []).map(parseReplayMoveEntry);
             for (const move of moves) {
-                const playerVal = move.player === 'black' ? 1 : 2;
+                const playerVal = move.player === 'player1' ? 1 : 2;
                 ps.replayStepPlayers.push(playerVal);
                 if (move.type === 'move') {
                     ps.replayMovesParsed.push({ type: 'move', player: move.player, row: move.row, col: move.col });
@@ -919,7 +919,7 @@ function unstableLifetimeForSize(size) {
             ps.tryPlayUnstableInfos.push(C().deepCopyBoard(r.unstableInfo));
             ps.tryPlayMoveCounts.push(r.moveCount);
             ps.tryPlayMarkers.push([{ row, col, color: playerVal }]);
-            ps.tryPlayMoveList.push({ type: 'move', player: playerVal === 1 ? 'black' : 'white', row, col });
+            ps.tryPlayMoveList.push({ type: 'move', player: playerVal === 1 ? 'player1' : 'player2', row, col });
             ps.tryPlayTotalSteps = ps.tryPlayBoards.length - 1;
             ps.tryPlayStep = ps.tryPlayTotalSteps;
             ps.tryPlayCurrentPlayer = 3 - ps.tryPlayCurrentPlayer;
@@ -1003,6 +1003,42 @@ const scoreTitle = document.getElementById('scoreTitle');
         let page = null;
         let _weiqiBindings = null;
 
+        // 形势判断：Benson 加成（保活 + 确定领地覆盖）
+        function bensonRemoveDeadInst(srcBoard) {
+            const RT = window.QiWeiqiSquarePageRuntime;
+            const size = ps.BOARD_SIZE;
+            const benson = RT.bensonAlive(srcBoard, size);
+            let live = srcBoard.map((row) => row.slice());
+            let changed = true;
+            while (changed) {
+                changed = false;
+                const cleaned = removeDeadAndDyingLocal(live);
+                for (let r = 0; r < size; r++) {
+                    for (let c = 0; c < size; c++) {
+                        const v = srcBoard[r][c];
+                        if (benson.alive[r][c] && (v === 1 || v === 2) && cleaned[r][c] !== v) {
+                            cleaned[r][c] = v;
+                            changed = true;
+                        }
+                    }
+                }
+                live = cleaned;
+            }
+            return live;
+        }
+        function bensonTerritoryInst(liveBoard) {
+            const RT = window.QiWeiqiSquarePageRuntime;
+            const size = ps.BOARD_SIZE;
+            const territory = assignTerritoryWithRangeLocal(liveBoard);
+            const secure = RT.bensonAlive(liveBoard, size);
+            for (let r = 0; r < size; r++) {
+                for (let c = 0; c < size; c++) {
+                    if (liveBoard[r][c] === 0 && secure.territory[r][c]) territory[r][c] = secure.territory[r][c];
+                }
+            }
+            return territory;
+        }
+        
         page = QiWeiqiSquarePageRuntime.create(ps, domPage, {
             enableEditBoard: true,
             recordDownloadPrefix,
@@ -1012,8 +1048,8 @@ const scoreTitle = document.getElementById('scoreTitle');
             roomId,
             roomPassword,
             isMouseDevice,
-            removeDeadAndDying: removeDeadAndDyingLocal,
-            assignTerritoryWithRange: assignTerritoryWithRangeLocal,
+            removeDeadAndDying: bensonRemoveDeadInst,
+            assignTerritoryWithRange: bensonTerritoryInst,
             komiInfoText: (p) => QiWeiqiSquarePageRuntime.formatKomiInfoText(p.KOMI, QiWeiqiSquarePageRuntime.defaultKomiTotalPoints(p)) + ` · 不稳定子寿命${p.unstableLifetime}手`,
             drawBoard: drawBoardImpl,
             syncState: syncStateImpl,
@@ -1128,7 +1164,7 @@ syncState,
         function commitUnstableMove(row, col) {
             if (ps.gameOver) return false;
             if (!ps.isMyTurn) return false;
-            const pv = ps.mySlot === 'black' ? 1 : 2;
+            const pv = ps.mySlot === 'player1' ? 1 : 2;
             if (ps.board[row][col] !== 0) {
                 if (ps.unstableInfo[row][col] === 0 || ps.board[row][col] !== pv) return false;
             }
@@ -1227,7 +1263,7 @@ syncState,
             if (ps.gameOver) return;
             if (!ps.isMyTurn) return;
             if (ps.waitingScoreConfirm) return;
-            const pv = ps.mySlot === 'black' ? 1 : 2;
+            const pv = ps.mySlot === 'player1' ? 1 : 2;
             if (!(row >= 0 && col >= 0 && (ps.board[row][col] === 0 || (ps.unstableInfo[row][col] !== 0 && ps.board[row][col] === pv)))) {
                 if (row < 0 || col < 0) {
                     if (mobileTwoStepPlacing()) clearMobileMovePreview();
@@ -1270,7 +1306,7 @@ syncState,
                         (ps.unstableInfo[row][col] !== 0 && ps.board[row][col] === pvTry)
                     ));
                 } else {
-                    const pv = ps.mySlot === 'black' ? 1 : 2;
+                    const pv = ps.mySlot === 'player1' ? 1 : 2;
                     ps.isHoverValid = (row >= 0 && col >= 0 && ps.mySlot !== null &&
                         (ps.board[row][col] === 0 || (ps.unstableInfo[row][col] !== 0 && ps.board[row][col] === pv)));
                 }

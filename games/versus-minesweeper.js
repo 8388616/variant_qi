@@ -118,15 +118,15 @@ class VersusMinesweeperRoom extends QiTwoPlayerRoomBase {
         this.gameOver = false;
         this.winner = null;
         this.resultText = null;
-        this.slotJoinedAt = { black: null, white: null };
+        this.slotJoinedAt = { player1: null, player2: null };
         this.settingsNego = null;
         this.settingsLocked = null;
         /** 各方埋雷集合 */
-        this.buryMines = { black: new Set(), white: new Set() };
+        this.buryMines = { player1: new Set(), player2: new Set() };
         /** 各方是否已确认埋雷结束 */
-        this.buryDone = { black: false, white: false };
+        this.buryDone = { player1: false, player2: false };
         /** 扫雷状态（扫的是对方埋的雷） */
-        this.sweep = { black: null, white: null };
+        this.sweep = { player1: null, player2: null };
         this.sharedClock = null;
         this._clockInterval = null;
         this.pendingNewGame = null;
@@ -134,14 +134,14 @@ class VersusMinesweeperRoom extends QiTwoPlayerRoomBase {
     }
 
     _other(slot) {
-        return slot === 'black' ? 'white' : 'black';
+        return slot === 'player1' ? 'player2' : 'player1';
     }
 
     _firstPickerSlot() {
-        const tb = this.slotJoinedAt.black;
-        const tw = this.slotJoinedAt.white;
-        if (tb == null || tw == null) return 'black';
-        return tb <= tw ? 'black' : 'white';
+        const tb = this.slotJoinedAt.player1;
+        const tw = this.slotJoinedAt.player2;
+        if (tb == null || tw == null) return 'player1';
+        return tb <= tw ? 'player1' : 'player2';
     }
 
     _stopClock() {
@@ -384,20 +384,20 @@ class VersusMinesweeperRoom extends QiTwoPlayerRoomBase {
             resultText: this.resultText,
             clock: this._clockSnapshot(),
             slots: {
-                black: !!this.room.getPlayerBySlot('black'),
-                white: !!this.room.getPlayerBySlot('white')
+                player1: !!this.room.getPlayerBySlot('player1'),
+                player2: !!this.room.getPlayerBySlot('player2')
             },
             progress: {
-                black: this._progressPercent('black'),
-                white: this._progressPercent('white')
+                player1: this._progressPercent('player1'),
+                player2: this._progressPercent('player2')
             },
             buryCounts: {
-                black: this.buryMines.black.size,
-                white: this.buryMines.white.size
+                player1: this.buryMines.player1.size,
+                player2: this.buryMines.player2.size
             },
             buryDone: {
-                black: !!this.buryDone.black,
-                white: !!this.buryDone.white
+                player1: !!this.buryDone.player1,
+                player2: !!this.buryDone.player2
             },
             settingsLocked: this.settingsLocked
         };
@@ -423,7 +423,7 @@ class VersusMinesweeperRoom extends QiTwoPlayerRoomBase {
 
     _maybeBeginSettingsNegotiation() {
         if (this.matchStarted || this.gameOver) return;
-        if (!this.room.getPlayerBySlot('black') || !this.room.getPlayerBySlot('white')) return;
+        if (!this.room.getPlayerBySlot('player1') || !this.room.getPlayerBySlot('player2')) return;
         if (this.settingsNego || this.settingsLocked) return;
         const first = this._firstPickerSlot();
         this.phase = 'negotiating';
@@ -493,9 +493,9 @@ class VersusMinesweeperRoom extends QiTwoPlayerRoomBase {
         };
         this.settingsNego = null;
         this.matchStarted = true;
-        this.buryMines = { black: new Set(), white: new Set() };
-        this.buryDone = { black: false, white: false };
-        this.sweep = { black: null, white: null };
+        this.buryMines = { player1: new Set(), player2: new Set() };
+        this.buryDone = { player1: false, player2: false };
+        this.sweep = { player1: null, player2: null };
         this.gameOver = false;
         this.winner = null;
         this.resultText = null;
@@ -542,7 +542,7 @@ class VersusMinesweeperRoom extends QiTwoPlayerRoomBase {
     }
 
     _bothBuryReady() {
-        return !!this.buryDone.black && !!this.buryDone.white;
+        return !!this.buryDone.player1 && !!this.buryDone.player2;
     }
 
     _finishBury(slot) {
@@ -560,8 +560,8 @@ class VersusMinesweeperRoom extends QiTwoPlayerRoomBase {
         this._stopClock();
         this.sharedClock = null;
         this.sweep = {
-            black: this._makeSweepState(this.buryMines.white),
-            white: this._makeSweepState(this.buryMines.black)
+            player1: this._makeSweepState(this.buryMines.player2),
+            player2: this._makeSweepState(this.buryMines.player1)
         };
         this.phase = 'sweeping';
         this._startPhaseClock(this.sweepMinutes * 60 * 1000, '扫雷');
@@ -576,7 +576,7 @@ class VersusMinesweeperRoom extends QiTwoPlayerRoomBase {
             sw.finished = true;
             sw.finishAt = Date.now();
             sw.revealed = true;
-            this._declareWinner(slot, `${slot === 'black' ? '黑方' : '白方'}完成扫雷获胜`);
+            this._declareWinner(slot, `${slot === 'player1' ? '黑方' : '白方'}完成扫雷获胜`);
         }
     }
 
@@ -589,8 +589,8 @@ class VersusMinesweeperRoom extends QiTwoPlayerRoomBase {
         this.phase = 'finished';
         this._stopClock();
         if (this.sharedClock) this.sharedClock.running = false;
-        if (this.sweep.black) this.sweep.black.revealed = true;
-        if (this.sweep.white) this.sweep.white.revealed = true;
+        if (this.sweep.player1) this.sweep.player1.revealed = true;
+        if (this.sweep.player2) this.sweep.player2.revealed = true;
         this.broadcast({
             type: 'broadcast',
             action: 'gameResult',
@@ -602,22 +602,22 @@ class VersusMinesweeperRoom extends QiTwoPlayerRoomBase {
     }
 
     _compareFailedOrTimeout() {
-        const b = this.sweep.black;
-        const w = this.sweep.white;
-        const bp = this._progressRatio('black');
-        const wp = this._progressRatio('white');
-        if (bp > wp) return { winner: 'black', text: '黑方进度更高获胜' };
-        if (wp > bp) return { winner: 'white', text: '白方进度更高获胜' };
+        const b = this.sweep.player1;
+        const w = this.sweep.player2;
+        const bp = this._progressRatio('player1');
+        const wp = this._progressRatio('player2');
+        if (bp > wp) return { winner: 'player1', text: '黑方进度更高获胜' };
+        if (wp > bp) return { winner: 'player2', text: '白方进度更高获胜' };
         const bt = b && b.failAt != null ? b.failAt : Number.POSITIVE_INFINITY;
         const wt = w && w.failAt != null ? w.failAt : Number.POSITIVE_INFINITY;
-        if (bt < wt) return { winner: 'black', text: '进度相同，黑方先触雷（用时更短）获胜' };
-        if (wt < bt) return { winner: 'white', text: '进度相同，白方先触雷（用时更短）获胜' };
+        if (bt < wt) return { winner: 'player1', text: '进度相同，黑方先触雷（用时更短）获胜' };
+        if (wt < bt) return { winner: 'player2', text: '进度相同，白方先触雷（用时更短）获胜' };
         return { winner: 'draw', text: '双方进度与用时相同，和棋' };
     }
 
     _maybeFinishBothFailed() {
-        const b = this.sweep.black;
-        const w = this.sweep.white;
+        const b = this.sweep.player1;
+        const w = this.sweep.player2;
         if (!b || !w) return;
         if (b.failed && w.failed) {
             const r = this._compareFailedOrTimeout();
@@ -627,14 +627,14 @@ class VersusMinesweeperRoom extends QiTwoPlayerRoomBase {
 
     _finishByTimeout() {
         if (this.gameOver) return;
-        const b = this.sweep.black;
-        const w = this.sweep.white;
+        const b = this.sweep.player1;
+        const w = this.sweep.player2;
         if (b && b.finished && (!w || !w.finished)) {
-            this._declareWinner('black', '黑方完成扫雷获胜');
+            this._declareWinner('player1', '黑方完成扫雷获胜');
             return;
         }
         if (w && w.finished && (!b || !b.finished)) {
-            this._declareWinner('white', '白方完成扫雷获胜');
+            this._declareWinner('player2', '白方完成扫雷获胜');
             return;
         }
         const r = this._compareFailedOrTimeout();
@@ -753,12 +753,12 @@ class VersusMinesweeperRoom extends QiTwoPlayerRoomBase {
         this.gameOver = false;
         this.winner = null;
         this.resultText = null;
-        this.slotJoinedAt = { black: null, white: null };
+        this.slotJoinedAt = { player1: null, player2: null };
         this.settingsNego = null;
         this.settingsLocked = null;
-        this.buryMines = { black: new Set(), white: new Set() };
-        this.buryDone = { black: false, white: false };
-        this.sweep = { black: null, white: null };
+        this.buryMines = { player1: new Set(), player2: new Set() };
+        this.buryDone = { player1: false, player2: false };
+        this.sweep = { player1: null, player2: null };
         this.sharedClock = null;
         this.pendingNewGame = null;
     }
@@ -772,9 +772,9 @@ class VersusMinesweeperRoom extends QiTwoPlayerRoomBase {
         this.resultText = null;
         this.settingsNego = null;
         this.settingsLocked = null;
-        this.buryMines = { black: new Set(), white: new Set() };
-        this.buryDone = { black: false, white: false };
-        this.sweep = { black: null, white: null };
+        this.buryMines = { player1: new Set(), player2: new Set() };
+        this.buryDone = { player1: false, player2: false };
+        this.sweep = { player1: null, player2: null };
         this.sharedClock = null;
         this.pendingNewGame = null;
         this._maybeBeginSettingsNegotiation();
@@ -792,7 +792,7 @@ class VersusMinesweeperRoom extends QiTwoPlayerRoomBase {
                     ws.send(JSON.stringify({ type: 'error', message: '对局已开始或正在确认规则，无法修改棋盘大小。' }));
                     return;
                 }
-                if (this.room.getPlayerBySlot('black') || this.room.getPlayerBySlot('white')) {
+                if (this.room.getPlayerBySlot('player1') || this.room.getPlayerBySlot('player2')) {
                     ws.send(JSON.stringify({ type: 'error', message: '已有玩家入座，无法修改棋盘大小。' }));
                     return;
                 }
@@ -874,7 +874,7 @@ class VersusMinesweeperRoom extends QiTwoPlayerRoomBase {
             case 'resign': {
                 if (!slot || this.gameOver || !this.matchStarted) return;
                 const winner = this._other(slot);
-                this._declareWinner(winner, `${slot === 'black' ? '黑方' : '白方'}认输，${winner === 'black' ? '黑方' : '白方'}获胜`);
+                this._declareWinner(winner, `${slot === 'player1' ? '黑方' : '白方'}认输，${winner === 'player1' ? '黑方' : '白方'}获胜`);
                 break;
             }
             default:

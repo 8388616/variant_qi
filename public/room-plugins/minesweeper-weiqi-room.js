@@ -32,7 +32,7 @@ const C = QiSquareWeiqiCanvas, R = () => QiWeiqiSquarePageRuntime;
         var ps = {
             BOARD_SIZE: 19, KOMI: 3.25, PADDING: 0, CELL_SIZE: 0, numberOfHands: 1, currentPlayer: 1, mySlot: null, gameOver: false, winner: null,
             lastMoveMarkers: [], showEstimateActive: false, cachedLiveBoard: null, cachedTerritory: null, waitingScoreConfirm: false, iRejected: false,
-            ws: null, isMyTurn: false, slots: { black: false, white: false }, reconnectTimer: null,
+            ws: null, isMyTurn: false, slots: { player1: false, player2: false }, reconnectTimer: null,
             replayMode: false, replayBoards: [], replayMarkers: [], replayStepPlayers: [], replayStep: 0, replayTotalSteps: 0,
             showMoveNumbers: false, moveLog: [],
             tryPlayMode: false, tryPlayBaseStep: 0, tryPlayBoards: [], tryPlayMarkers: [], tryPlayCurrentPlayer: 1, tryPlayStep: 0, tryPlayTotalSteps: 0,
@@ -225,7 +225,7 @@ const scoreTitle = document.getElementById('scoreTitle'), scoreBoard = document.
             if (canHover && ps.isHoverValid && ps.hoverRow >= 0 && ps.hoverCol >= 0 && (ps.board[ps.hoverRow][ps.hoverCol] === 0 || ps.board[ps.hoverRow][ps.hoverCol] === MINE)) {
                 ctx.globalAlpha = 0.45; ctx.beginPath();
                 ctx.arc(ps.PADDING + ps.hoverCol * ps.CELL_SIZE, ps.PADDING + ps.hoverRow * ps.CELL_SIZE, ps.CELL_SIZE * 0.44, 0, 2 * Math.PI);
-                ctx.fillStyle = ps.tryPlayMode ? (ps.tryPlayCurrentPlayer === 1 ? '#222' : '#ddd') : (ps.mySlot === 'black' ? '#222' : '#ddd');
+                ctx.fillStyle = ps.tryPlayMode ? (ps.tryPlayCurrentPlayer === 1 ? '#222' : '#fff') : (ps.mySlot === 'player1' ? '#222' : '#fff');
                 ctx.fill(); ctx.globalAlpha = 1;
             }
             if (ps.showEstimateActive && ps.cachedLiveBoard && ps.cachedTerritory) {
@@ -256,7 +256,7 @@ const scoreTitle = document.getElementById('scoreTitle'), scoreBoard = document.
             }
             ps.liveReplayBoards.push(dc(cur)); ps.liveReplayMarkers.push([]);
             for (const move of (moveCoords || [])) {
-                const pv = move.player === 'black' ? 1 : 2;
+                const pv = move.player === 'player1' ? 1 : 2;
                 if (move.type === 'move') {
                     const nb = msTryPlace(cur, move.row, move.col, pv);
                     if (nb) cur = nb;
@@ -345,7 +345,7 @@ const scoreTitle = document.getElementById('scoreTitle'), scoreBoard = document.
                 }
                 ps.liveReplayStepPlayers = [0];
                 for (const m of coords)
-                    ps.liveReplayStepPlayers.push(m.player === 'black' ? 1 : 2);
+                    ps.liveReplayStepPlayers.push(m.player === 'player1' ? 1 : 2);
                 const newT = Math.max(0, ps.liveReplayBoards.length - 1);
                 if (newT === 0) { ps.liveViewStep = 0; ps.liveFollowLatest = true; }
                 else if (wasEnd) { ps.liveViewStep = newT; ps.liveFollowLatest = true; }
@@ -363,7 +363,7 @@ const scoreTitle = document.getElementById('scoreTitle'), scoreBoard = document.
             }
             ps.holes = [];
             for (let r = 0; r < ps.BOARD_SIZE; r++) for (let c = 0; c < ps.BOARD_SIZE; c++) if (ps.board[r] && ps.board[r][c] === MINE) ps.holes.push({ r, c });
-            const hasS = ps.board.some(row => row.some(v => v === 1 || v === 2)), hasP = ps.slots.black || ps.slots.white;
+            const hasS = ps.board.some(row => row.some(v => v === 1 || v === 2)), hasP = ps.slots.player1 || ps.slots.player2;
             const sizeSel = document.getElementById('boardSizeSelect');
             if (sizeSel) {
                 if (!hasS && !hasP && !ps.gameOver && ps.mySlot === null && !ps.replayMode) sizeSel.style.display = '';
@@ -434,7 +434,7 @@ const scoreTitle = document.getElementById('scoreTitle'), scoreBoard = document.
             let minesPlacedFromSnapshot = cur.some(row => row.some(v => v === MINE));
             ps.replayBoards.push(dc(cur)); ps.replayMarkers.push([]);
             for (const move of (data.moves || [])) {
-                const pv = move.player === 'black' ? 1 : 2;
+                const pv = move.player === 'player1' ? 1 : 2;
                 ps.replayStepPlayers.push(pv);
                 if (move.type === 'move') {
                     const nb = msTryPlace(cur, move.row, move.col, pv);

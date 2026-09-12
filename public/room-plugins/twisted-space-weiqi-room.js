@@ -235,7 +235,7 @@ let ROWS = 9; // 扭曲空间路数（比三角围棋少一路）
         let mySlot = null, gameOver = false, winner = null, lastMoveMarkers = [];
         let showEstimateActive = false, cachedLiveBoard = null, cachedTerritory = null;
         let waitingScoreConfirm = false, iRejected = false, matchTime = null, matchStarted = false;
-        let ws, isMyTurn = false, slots = { black: false, white: false }, reconnectTimer = null;
+        let ws, isMyTurn = false, slots = { player1: false, player2: false }, reconnectTimer = null;
         let replayMode = false, replayBoards = [], replayMarkers = [], replayStepPlayers = [], replayStep = 0, replayTotalSteps = 0;
         let showMoveNumbers = false, moveLog = [];
         let tryPlayMode = false, tryPlayFromLive = false, tryPlayFromLiveStep = null;
@@ -416,7 +416,7 @@ if (sizeSelect) {
             liveReplayBoards.push(deepCopyBoard(cur));
             liveReplayMarkers.push([]);
             for (const move of (moveCoords || [])) {
-                const p = move.player === 'black' ? 1 : 2;
+                const p = move.player === 'player1' ? 1 : 2;
                 liveReplayStepPlayers.push(p);
                 if (move.type === 'move') {
                     const nb = tryPlaceStone(cur, move.row, move.col, p);
@@ -448,7 +448,7 @@ if (sizeSelect) {
             let cur = deepCopyBoard(liveReplayBoards[liveReplayBoards.length - 1]);
             for (let i = startLen; i < mcs.length; i++) {
                 const move = mcs[i];
-                const p = move.player === 'black' ? 1 : 2;
+                const p = move.player === 'player1' ? 1 : 2;
                 liveReplayStepPlayers.push(p);
                 if (move.type === 'move') {
                     const nb = tryPlaceStone(cur, move.row, move.col, p);
@@ -487,7 +487,7 @@ if (sizeSelect) {
             // 木质外框与 weiqi 统一：无阴影、背景 #fdcc90、边线 #3a281c 0.5px
             ctx.shadowBlur = 0;
             ctx.shadowOffsetY = 0;
-            ctx.fillStyle = '#fdcc90';
+            ctx.fillStyle = QiSquareWeiqiCanvas.getWoodFill(ctx, canvas) || '#fdcc90';
             ctx.strokeStyle = '#3a281c';
             ctx.lineWidth = 0.5;
             ctx.beginPath();
@@ -570,8 +570,9 @@ if (sizeSelect) {
                     ctx.beginPath();
                     ctx.arc(p.x, p.y, stoneRadius, 0, 2 * Math.PI);
                     const g = ctx.createRadialGradient(p.x - 2, p.y - 2, stoneRadius * 0.2, p.x, p.y, stoneRadius * 1.2);
-                    if (v === 1) { g.addColorStop(0, '#444'); g.addColorStop(1, '#111'); }
-                    else { g.addColorStop(0, '#fff'); g.addColorStop(1, '#aaa'); }
+                    // 与公共 stonesBlackWhite 保持一致的渐变停靠点
+                    if (v === 1) { g.addColorStop(0, '#444'); g.addColorStop(0.6, '#222'); g.addColorStop(1, '#111'); }
+                    else { g.addColorStop(0, '#fff'); g.addColorStop(0.5, '#eee'); g.addColorStop(1, '#aaa'); }
                     ctx.fillStyle = g;
                     ctx.fill();
                     if (cellNumbers && !hideAllCellNumbers) {
@@ -631,8 +632,8 @@ if (sizeSelect) {
                     if (t === 'white') hoverColor = '#fff';
                     else if (t === 'black') hoverColor = '#222';
                     else if (t !== 'empty') hoverColor = '#666';
-                } else if (tryPlayMode) hoverColor = tryPlayCurrentPlayer === 1 ? '#222' : '#ddd';
-                else hoverColor = mySlot === 'black' ? '#222' : '#ddd';
+                } else if (tryPlayMode) hoverColor = tryPlayCurrentPlayer === 1 ? '#222' : '#fff';
+                else hoverColor = mySlot === 'player1' ? '#222' : '#fff';
                 if (hoverColor) {
                     const p = triCellCenter(hoverR, hoverC);
                     ctx.globalAlpha = 0.45;
@@ -728,7 +729,7 @@ if (sizeSelect) {
                 lastMoveMarkers = state.lastMoveMarkers || [];
             }
             const hasAnyStone = board.some(row => row.some(v => v !== 0));
-            const hasPlayer = slots.black || slots.white;
+            const hasPlayer = slots.player1 || slots.player2;
             if (!hasAnyStone && !hasPlayer && !gameOver && mySlot === null) sizeSelect.style.display = 'inline-block';
             else sizeSelect.style.display = 'none';
             const nowMatchStarted = !!matchStarted;
@@ -777,7 +778,7 @@ if (sizeSelect) {
 
             if (gameOver) {
                 turnDisplay.innerText = '对局结束';
-                scoreTitle.innerText = winner === 'black' ? '黑胜' : (winner === 'white' ? '白胜' : (winner === 'draw' ? '和棋' : '　'));
+                scoreTitle.innerText = winner === 'player1' ? '黑胜' : (winner === 'player2' ? '白胜' : (winner === 'draw' ? '和棋' : '　'));
                 isMyTurn = false;
             } else if (!matchStarted) {
                 if (matchStartedOnce) {
@@ -789,7 +790,7 @@ if (sizeSelect) {
                 }
             } else {
                 fillTurnDisplayHandsOnly();
-                isMyTurn = (mySlot === 'black' && currentPlayer === 1) || (mySlot === 'white' && currentPlayer === 2);
+                isMyTurn = (mySlot === 'player1' && currentPlayer === 1) || (mySlot === 'player2' && currentPlayer === 2);
             }
             if (showEstimateActive) updateEstimateData();
             drawBoardWithOverlay();
@@ -833,7 +834,7 @@ if (sizeSelect) {
             replayBoards.push(deepCopyBoard(cur));
             replayMarkers.push([]);
             for (const move of (data.moves || [])) {
-                const p = move.player === 'black' ? 1 : 2;
+                const p = move.player === 'player1' ? 1 : 2;
                 replayStepPlayers.push(p);
                 if (move.type === 'move') {
                     const nb = tryPlaceStone(cur, move.row, move.col, p);
@@ -1001,6 +1002,29 @@ if (sizeSelect) {
             drawBoardWithOverlay();
             return true;
         }
+        /** 试下：虚着一手（棋盘不变、本步无落子标记），供公共的「虚着」按钮调用 */
+        function tryPlayPass() {
+            if (!tryPlayMode) return false;
+            if (tryPlayStep < tryPlayTotalSteps) {
+                tryPlayBoards.length = tryPlayStep + 1;
+                tryPlayMarkers.length = tryPlayStep + 1;
+            }
+            tryPlayBoards.push(deepCopyBoard(board));
+            tryPlayMarkers.push([]);
+            tryPlayTotalSteps = tryPlayBoards.length - 1;
+            tryPlayStep = tryPlayTotalSteps;
+            tryPlayCurrentPlayer = 3 - tryPlayCurrentPlayer;
+
+            // 本步无落子：与 setTryPlayStep 落到该步时的效果一致
+            lastMoveMarkers = [];
+
+            const slider = document.getElementById('replaySlider');
+            slider.max = tryPlayTotalSteps;
+            slider.value = tryPlayStep;
+            updateTryPlayDisplay();
+            drawBoardWithOverlay();
+            return true;
+        }
         function setTryPlayStep(step) {
             if (!tryPlayMode) return;
             if (step < 0) step = 0;
@@ -1087,6 +1111,7 @@ if (sizeSelect) {
             drawBoard: drawBoardWithOverlay,
             exitTryPlay,
             enterTryPlay,
+            tryPlayPass,
             setTryPlayStep,
             setReplayStep,
             setLiveViewStep,

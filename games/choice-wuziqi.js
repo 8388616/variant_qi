@@ -5,7 +5,7 @@ class ChoiceWuziqiRoom extends QiTwoPlayerRoomBase {
         this.BOARD_SIZE = 13;
         this.board = Array(this.BOARD_SIZE).fill().map(() => Array(this.BOARD_SIZE).fill(0));
         if (this.openingBoard === undefined) this.openingBoard = (typeof this.copyBoard === 'function' ? this.copyBoard(this.board) : (Array.isArray(this.board[0]) ? this.board.map(r => r.slice()) : this.board.slice()));
-        this.currentPlayer = 'black';
+        this.currentPlayer = 'player1';
         this.historyBoards = [];
         this.lastMoveMarkers = [];
         this.moveCount = 0;
@@ -17,7 +17,7 @@ class ChoiceWuziqiRoom extends QiTwoPlayerRoomBase {
         this.pendingUndo = null;
         this.pendingDraw = null;
         this.matchStarted = false;
-        this.slotJoinedAt = { black: null, white: null };
+        this.slotJoinedAt = { player1: null, player2: null };
         this.tcNego = null;
         this.tcSettings = null;
         this.tcClock = null;
@@ -57,10 +57,10 @@ class ChoiceWuziqiRoom extends QiTwoPlayerRoomBase {
     }
 
     _firstPickerSlot() {
-        const tb = this.slotJoinedAt.black;
-        const tw = this.slotJoinedAt.white;
-        if (tb == null || tw == null) return 'black';
-        return tb <= tw ? 'black' : 'white';
+        const tb = this.slotJoinedAt.player1;
+        const tw = this.slotJoinedAt.player2;
+        if (tb == null || tw == null) return 'player1';
+        return tb <= tw ? 'player1' : 'player2';
     }
 
     afterColorAssigned(ws, newSlot) {
@@ -70,12 +70,12 @@ class ChoiceWuziqiRoom extends QiTwoPlayerRoomBase {
 
     _maybeBeginTimeNegotiation() {
         if (this.moveLog.length > 0 || this.gameOver) return;
-        if (!this.room.getPlayerBySlot('black') || !this.room.getPlayerBySlot('white')) return;
+        if (!this.room.getPlayerBySlot('player1') || !this.room.getPlayerBySlot('player2')) return;
         if (this.tcNego !== null || this.tcSettings !== null) return;
         const first = this._firstPickerSlot();
         this.tcNego = { phase: 'propose', proposal: null, waitingSlot: first, lastProposerSlot: null };
         const ws1 = this.room.getPlayerBySlot(first);
-        const other = first === 'black' ? 'white' : 'black';
+        const other = first === 'player1' ? 'player2' : 'player1';
         const ws2 = this.room.getPlayerBySlot(other);
         if (ws1) ws1.send(JSON.stringify({ type: 'timeControlNegotiation', mode: 'propose' }));
         if (ws2) ws2.send(JSON.stringify({ type: 'timeControlWaitPeer', text: '对方正在选择限时规则…' }));
@@ -112,7 +112,7 @@ class ChoiceWuziqiRoom extends QiTwoPlayerRoomBase {
         this.tcNego.proposal = v;
         this.tcNego.lastProposerSlot = slot;
         this.tcNego.phase = 'respond';
-        const other = slot === 'black' ? 'white' : 'black';
+        const other = slot === 'player1' ? 'player2' : 'player1';
         this.tcNego.waitingSlot = other;
         const selfWs = this.room.getPlayerBySlot(slot);
         const peerWs = this.room.getPlayerBySlot(other);
@@ -231,8 +231,8 @@ class ChoiceWuziqiRoom extends QiTwoPlayerRoomBase {
             },
             moveLog: this.serializeMoveLog(),
             slots: {
-                black: !!this.room.getPlayerBySlot('black'),
-                white: !!this.room.getPlayerBySlot('white')
+                player1: !!this.room.getPlayerBySlot('player1'),
+                player2: !!this.room.getPlayerBySlot('player2')
             }
         };
     }
@@ -242,7 +242,7 @@ class ChoiceWuziqiRoom extends QiTwoPlayerRoomBase {
      * 候选点顺序须与当回合可选点一致。
      */
     static encodeMove(m) {
-        const p = m.player === 'black' ? 'B' : 'W';
+        const p = m.player === 'player1' ? 'B' : 'W';
         const cands = m.candidatesBefore.map(c => `${c.row},${c.col}`).join(';');
         return `${p}${m.row},${m.col}@${cands}`;
     }
@@ -263,7 +263,7 @@ class ChoiceWuziqiRoom extends QiTwoPlayerRoomBase {
                 if (!Number.isFinite(cr) || !Number.isFinite(cc)) return null;
                 candidatesBefore.push({ row: cr, col: cc });
             }
-            const pl = entry.player === 'black' || entry.player === 'white' ? entry.player : null;
+            const pl = entry.player === 'player1' || entry.player === 'player2' ? entry.player : null;
             if (!pl) return null;
             return { player: pl, row, col, candidatesBefore };
         }
@@ -278,7 +278,7 @@ class ChoiceWuziqiRoom extends QiTwoPlayerRoomBase {
         const row = Number(head.slice(1, comma));
         const col = Number(head.slice(comma + 1));
         if (!Number.isFinite(row) || !Number.isFinite(col)) return null;
-        const player = head[0] === 'B' ? 'black' : 'white';
+        const player = head[0] === 'B' ? 'player1' : 'player2';
         const candidatesBefore = [];
         for (const seg of tail.split(';')) {
             const s = seg.trim();
@@ -309,7 +309,7 @@ class ChoiceWuziqiRoom extends QiTwoPlayerRoomBase {
     resetToEmpty() {
         this._stopClockTicker();
         this.board = Array(this.BOARD_SIZE).fill().map(() => Array(this.BOARD_SIZE).fill(0));
-        this.currentPlayer = 'black';
+        this.currentPlayer = 'player1';
         this.historyBoards = [];
         this.lastMoveMarkers = [];
         this.gameOver = false;
@@ -320,7 +320,7 @@ class ChoiceWuziqiRoom extends QiTwoPlayerRoomBase {
         this.pendingDraw = null;
         this.candidates = [];
         this.matchStarted = false;
-        this.slotJoinedAt = { black: null, white: null };
+        this.slotJoinedAt = { player1: null, player2: null };
         this.tcNego = null;
         this.tcSettings = null;
         this.tcClock = null;
@@ -333,7 +333,7 @@ class ChoiceWuziqiRoom extends QiTwoPlayerRoomBase {
             return false;
         }
         const hasAnyStone = this.board.some(row => row.some(v => v !== 0));
-        const hasPlayer = this.room.getPlayerBySlot('black') || this.room.getPlayerBySlot('white');
+        const hasPlayer = this.room.getPlayerBySlot('player1') || this.room.getPlayerBySlot('player2');
         if (hasAnyStone || hasPlayer) {
             return false;
         }
@@ -357,7 +357,7 @@ class ChoiceWuziqiRoom extends QiTwoPlayerRoomBase {
         const rawMoves = data.moves || [];
         this.BOARD_SIZE = newSize;
         this.board = Array(this.BOARD_SIZE).fill().map(() => Array(this.BOARD_SIZE).fill(0));
-        this.currentPlayer = 'black';
+        this.currentPlayer = 'player1';
         this.historyBoards = [];
         this.lastMoveMarkers = [];
         this.gameOver = false;
@@ -408,7 +408,7 @@ class ChoiceWuziqiRoom extends QiTwoPlayerRoomBase {
             });
 
             this.historyBoards.push(this.copyBoard(this.board));
-            const playerVal = slot === 'black' ? 1 : 2;
+            const playerVal = slot === 'player1' ? 1 : 2;
             this.board[row][col] = playerVal;
             this.lastMoveMarkers = [{ row, col, color: playerVal }];
 
@@ -418,7 +418,7 @@ class ChoiceWuziqiRoom extends QiTwoPlayerRoomBase {
                 break;
             }
 
-            this.currentPlayer = this.currentPlayer === 'black' ? 'white' : 'black';
+            this.currentPlayer = this.currentPlayer === 'player1' ? 'player2' : 'player1';
             if (squareWuziqiRules.isBoardFull(this.board, this.BOARD_SIZE)) {
                 this.gameOver = true;
                 this.winner = 'draw';
@@ -459,7 +459,7 @@ class ChoiceWuziqiRoom extends QiTwoPlayerRoomBase {
         this.board = this.copyBoard(this.historyBoards.pop());
         this.moveLog.pop();
         this.lastMoveMarkers = [];
-        this.currentPlayer = (this.currentPlayer === 'black') ? 'white' : 'black';
+        this.currentPlayer = (this.currentPlayer === 'player1') ? 'player2' : 'player1';
         this.gameOver = false;
         this.winner = null;
         this.generateCandidates();
@@ -526,7 +526,7 @@ class ChoiceWuziqiRoom extends QiTwoPlayerRoomBase {
 
                 this.historyBoards.push(this.copyBoard(this.board));
 
-                const playerVal = this.currentPlayer === 'black' ? 1 : 2;
+                const playerVal = this.currentPlayer === 'player1' ? 1 : 2;
                 this.board[row][col] = playerVal;
                 this.lastMoveMarkers = [{ row, col, color: playerVal }];
 
@@ -542,7 +542,7 @@ class ChoiceWuziqiRoom extends QiTwoPlayerRoomBase {
                     return;
                 }
 
-                this.currentPlayer = (this.currentPlayer === 'black') ? 'white' : 'black';
+                this.currentPlayer = (this.currentPlayer === 'player1') ? 'player2' : 'player1';
                 if (this.tcClock && this.tcClock.timed && !this.gameOver) {
                     qiMatchTimeControl.setActiveSlot(this.tcClock, this.currentPlayer, Date.now());
                     this._broadcastClock();
@@ -607,7 +607,7 @@ class ChoiceWuziqiRoom extends QiTwoPlayerRoomBase {
     resetGame() {
         this._stopClockTicker();
         this.board = Array(this.BOARD_SIZE).fill().map(() => Array(this.BOARD_SIZE).fill(0));
-        this.currentPlayer = 'black';
+        this.currentPlayer = 'player1';
         this.historyBoards = [];
         this.lastMoveMarkers = [];
         this.gameOver = false;
@@ -615,7 +615,7 @@ class ChoiceWuziqiRoom extends QiTwoPlayerRoomBase {
         this.moveLog = [];
         this.candidates = [];
         this.matchStarted = false;
-        this.slotJoinedAt = { black: null, white: null };
+        this.slotJoinedAt = { player1: null, player2: null };
         this.tcNego = null;
         this.tcSettings = null;
         this.tcClock = null;
@@ -626,7 +626,7 @@ class ChoiceWuziqiRoom extends QiTwoPlayerRoomBase {
             room.observers.add(client);
             client.send(JSON.stringify({ type: 'slotReleased', slot }));
         }
-        this.broadcast({ type: 'newGameStarted', ...this.getState(), slots: { black: false, white: false } });
+        this.broadcast({ type: 'newGameStarted', ...this.getState(), slots: { player1: false, player2: false } });
     }
 
     onPlayerLeave(ws) {

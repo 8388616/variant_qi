@@ -323,7 +323,7 @@ const ps = {
             iRejected: false,
             ws: null,
             isMyTurn: false,
-            slots: { black: false, white: false },
+            slots: { player1: false, player2: false },
             reconnectTimer: null,
             replayMode: false,
             replayBoards: [],
@@ -576,7 +576,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             for (const raw of moves) {
                 let entry = raw;
                 if (typeof entry === 'string') {
-                    const player = entry[0] === 'B' ? 'black' : 'white';
+                    const player = entry[0] === 'B' ? 'player1' : 'player2';
                     if (entry.length >= 2 && entry[1] === 'p') {
                         entry = { type: 'pass', player };
                     } else {
@@ -584,7 +584,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                         entry = { type: 'move', player, row: coords[0], col: coords[1] };
                     }
                 }
-                const playerVal = entry.player === 'black' ? 1 : 2;
+                const playerVal = entry.player === 'player1' ? 1 : 2;
                 replayStepPlayers.push(playerVal);
                 const completedPly = replayStepPlayers.length - 1;
 
@@ -667,8 +667,8 @@ const scoreTitle = document.getElementById('scoreTitle');
 
         function rwMovesForSimulate(moveCoords) {
             return (moveCoords || []).map(m => {
-                if (m.type === 'pass') return `${m.player === 'black' ? 'B' : 'W'}p`;
-                return `${m.player === 'black' ? 'B' : 'W'}${m.row},${m.col}`;
+                if (m.type === 'pass') return `${m.player === 'player1' ? 'B' : 'W'}p`;
+                return `${m.player === 'player1' ? 'B' : 'W'}${m.row},${m.col}`;
             });
         }
 
@@ -713,7 +713,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             for (let i = startLen; i < mcs.length; i++) {
                 let entry = mcs[i];
                 if (typeof entry === 'string') {
-                    const player = entry[0] === 'B' ? 'black' : 'white';
+                    const player = entry[0] === 'B' ? 'player1' : 'player2';
                     if (entry.length >= 2 && entry[1] === 'p') {
                         entry = { type: 'pass', player };
                     } else {
@@ -721,7 +721,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                         entry = { type: 'move', player, row: coords[0], col: coords[1] };
                     }
                 }
-                const playerVal = entry.player === 'black' ? 1 : 2;
+                const playerVal = entry.player === 'player1' ? 1 : 2;
                 ps.liveReplayStepPlayers.push(playerVal);
                 const completedPly = ps.liveReplayStepPlayers.length - 1;
                 if (entry.type === 'pass') {

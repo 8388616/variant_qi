@@ -47,8 +47,8 @@ window.RoomPlugins["xiangqi"] = {
         (function () {
 const R = QiXiangqiRules.flipped;
         const SLOT_UI = {
-            black: { name: '红方', emoji: '🔴', continueText: '继续执红', choiceText: '执红', youText: '您执红', absentText: '红方已退出', statusText: '红方' },
-            white: { name: '黑方', emoji: '⚫', continueText: '继续执黑', choiceText: '执黑', youText: '您执黑', absentText: '黑方已退出', statusText: '黑方' }
+            player1: { name: '红方', emoji: '🔴', continueText: '继续执红', choiceText: '执红', youText: '您执红', absentText: '红方已退出', statusText: '红方' },
+            player2: { name: '黑方', emoji: '⚫', continueText: '继续执黑', choiceText: '执黑', youText: '您执黑', absentText: '黑方已退出', statusText: '黑方' }
         };
 
 const canvas = document.getElementById('goBoard');
@@ -80,7 +80,7 @@ const canvas = document.getElementById('goBoard');
             lastTo: null,
             ws: null,
             isMyTurn: false,
-            slots: { black: false, white: false },
+            slots: { player1: false, player2: false },
             reconnectTimer: null,
             replayMode: false,
             tryPlayMode: false,
@@ -151,7 +151,7 @@ const canvas = document.getElementById('goBoard');
         function slotOfSide(side) { return R.slotFromSide(side); }
 
         function boardFlipped() {
-            return ps.mySlot === 'white';
+            return ps.mySlot === 'player2';
         }
 
         function toDisplayCoord(row, col) {
@@ -382,18 +382,18 @@ const canvas = document.getElementById('goBoard');
 
         function updateTurn() {
             if (ps.gameOver) {
-                let text = '对局结束';
+                let text = '';
                 if (ps.winner === 'draw') text = '和棋';
-                else if (ps.winner === 'black') text = '🔴 红方胜';
-                else if (ps.winner === 'white') text = '⚫ 黑方胜';
+                else if (ps.winner === 'player1') text = '🔴 红方胜';
+                else if (ps.winner === 'player2') text = '⚫ 黑方胜';
                 if (ps.recordResultText) text = ps.recordResultText;
-                turnDisplay.innerText = text;
-                scoreTitle.innerText = '结果';
-                scoreBoard.innerText = text;
-                leadInfo.innerText = ps.inCheck ? '' : '　';
+                turnDisplay.innerText = '对局结束';
+                scoreTitle.innerText = text || '　';   // 结果放这里（与围棋一致）
+                scoreBoard.innerText = '　';
+                leadInfo.innerText = '　';
                 return;
             }
-            const bothSelected = !!(ps.slots && ps.slots.black && ps.slots.white);
+            const bothSelected = !!(ps.slots && ps.slots.player1 && ps.slots.player2);
             const matchStarted = !!(ps.matchStarted || (ps.matchTime && ps.matchTime.settings));
             if (!matchStarted && !ps.tryPlayMode && !ps.replayMode) {
                 turnDisplay.innerText = QiWeiqiSquarePageRuntime.waitingSeatTurnText(ps.slots, ps.mySlot);
@@ -403,10 +403,16 @@ const canvas = document.getElementById('goBoard');
                 return;
             }
             const side = ps.tryPlayMode ? ps.tryPlaySide : ps.sideToMove;
-            const label = side === 'red' ? '🔴 红方行棋' : '⚫ 黑方行棋';
-            turnDisplay.innerText = (ps.tryPlayMode ? '试下 · ' : '') + label;
+            if (!ps.tryPlayMode && !ps.replayMode) {
+                // turnDisplay 显示「刚下完这手棋」的一方与回合数（不再写 scoreBoard）
+                const moverLabel = side === 'red' ? '黑方' : '红方';
+                turnDisplay.innerText = QiWeiqiSquarePageRuntime.roundTurnText(ps.moveHistory.length, moverLabel);
+            } else {
+                const label = side === 'red' ? '🔴 红方行棋' : '⚫ 黑方行棋';
+                turnDisplay.innerText = (ps.tryPlayMode ? '试下 · ' : '') + label;
+            }
             scoreTitle.innerText = '　';
-            scoreBoard.innerText = `第 ${Math.floor(ps.moveHistory.length / 2) + 1} 回合`;
+            scoreBoard.innerText = '　';
             leadInfo.innerText = ps.halfmoveClock > 60 ? `未吃子 ${ps.halfmoveClock}/120` : '　';
         }
 
@@ -556,7 +562,7 @@ const canvas = document.getElementById('goBoard');
             for (const raw of moves) {
                 let m = raw;
                 if (typeof raw === 'string') {
-                    const mt = raw.match(/^([BW])(\d+),(\d+)-(\d+),(\d+)$/i);
+                    const mt = raw.match(/^([RB])(\d+),(\d+)-(\d+),(\d+)$/i);
                     if (!mt) continue;
                     m = { fromRow: +mt[2], fromCol: +mt[3], toRow: +mt[4], toCol: +mt[5] };
                 }
@@ -740,6 +746,8 @@ const canvas = document.getElementById('goBoard');
             roomId,
             gameType,
             pageState: ps,
+            // 试下虚着：快照型棋种要由棋种自己给出「另一方」的取值，才能生成跳过一手的快照
+            tryPlayOppositeSide: (side) => R.oppositeSide(side),
             drawBoard,
             exitTryPlay,
             enterTryPlay,

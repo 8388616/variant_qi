@@ -37,11 +37,11 @@ const ps = {
             winner: null,
             resultText: null,
             myBoard: null,
-            progress: { black: 0, white: 0 },
-            buryCounts: { black: 0, white: 0 },
-            buryDone: { black: false, white: false },
+            progress: { player1: 0, player2: 0 },
+            buryCounts: { player1: 0, player2: 0 },
+            buryDone: { player1: false, player2: false },
             clock: null,
-            slots: { black: false, white: false },
+            slots: { player1: false, player2: false },
             mineCount: 72,
             settingsMode: null
         };
@@ -244,8 +244,8 @@ const ps = {
             progBlackBlock.hidden = !showProg;
             progWhiteBlock.hidden = !showProg;
             if (showProg) {
-                progBlack.textContent = (ps.progress.black || 0) + '%';
-                progWhite.textContent = (ps.progress.white || 0) + '%';
+                progBlack.textContent = (ps.progress.player1 || 0) + '%';
+                progWhite.textContent = (ps.progress.player2 || 0) + '%';
             }
         }
 
@@ -260,7 +260,7 @@ const ps = {
                 scoreTitle.textContent = '埋雷';
                 scoreBoard.textContent =
                     `已埋雷: ${b.placed}\n目标雷数: ${b.target}\n还可埋: ${Math.max(0, b.target - b.placed)}`;
-                const oppSlot = ps.mySlot === 'black' ? 'white' : 'black';
+                const oppSlot = ps.mySlot === 'player1' ? 'player2' : 'player1';
                 const oppDone = ps.buryDone[oppSlot];
                 const selfDone = ps.mySlot && ps.buryDone[ps.mySlot];
                 if (selfDone) {
@@ -277,7 +277,7 @@ const ps = {
                 if (ps.gameOver && ps.resultText) leadInfo.textContent = ps.resultText;
                 else if (b.failed) leadInfo.textContent = '已触雷，等待结果…';
                 else if (b.finished) leadInfo.textContent = '已完成！';
-                else leadInfo.textContent = `对方进度: ${ps.progress[ps.mySlot === 'black' ? 'white' : 'black'] || 0}%`;
+                else leadInfo.textContent = `对方进度: ${ps.progress[ps.mySlot === 'player1' ? 'player2' : 'player1'] || 0}%`;
                 return;
             }
             scoreTitle.textContent = '　';
@@ -309,8 +309,8 @@ const ps = {
             labelWhite.classList.remove('self-radio', 'opponent-radio', 'checked-disabled');
             labelBlack.style.opacity = '';
             labelWhite.style.opacity = '';
-            if (ps.slots.black) {
-                labelBlack.classList.add(ps.mySlot === 'black' ? 'self-radio' : 'opponent-radio');
+            if (ps.slots.player1) {
+                labelBlack.classList.add(ps.mySlot === 'player1' ? 'self-radio' : 'opponent-radio');
                 labelBlack.classList.add('checked-disabled');
                 radioBlack.disabled = true;
                 radioBlack.checked = true;
@@ -318,8 +318,8 @@ const ps = {
                 radioBlack.disabled = !!ps.mySlot;
                 radioBlack.checked = false;
             }
-            if (ps.slots.white) {
-                labelWhite.classList.add(ps.mySlot === 'white' ? 'self-radio' : 'opponent-radio');
+            if (ps.slots.player2) {
+                labelWhite.classList.add(ps.mySlot === 'player2' ? 'self-radio' : 'opponent-radio');
                 labelWhite.classList.add('checked-disabled');
                 radioWhite.disabled = true;
                 radioWhite.checked = true;
@@ -327,10 +327,10 @@ const ps = {
                 radioWhite.disabled = !!ps.mySlot;
                 radioWhite.checked = false;
             }
-            if (ps.mySlot === 'black') colorStatus.textContent = '已选择: 黑方';
-            else if (ps.mySlot === 'white') colorStatus.textContent = '已选择: 白方';
+            if (ps.mySlot === 'player1') colorStatus.textContent = '已选择: 黑方';
+            else if (ps.mySlot === 'player2') colorStatus.textContent = '已选择: 白方';
             else colorStatus.textContent = '观战';
-            const canSize = !ps.matchStarted && !ps.slots.black && !ps.slots.white && !ps.mySlot;
+            const canSize = !ps.matchStarted && !ps.slots.player1 && !ps.slots.player2 && !ps.mySlot;
             boardSizeSelect.style.display = canSize ? '' : 'none';
             boardSizeSelect.value = String(ps.boardSize);
             resignBtn.style.display = ps.mySlot && ps.matchStarted && !ps.gameOver ? '' : 'none';
@@ -641,10 +641,10 @@ const ps = {
         }, { passive: true });
 
         radioBlack.addEventListener('change', () => {
-            if (radioBlack.checked && ps.ws) ps.ws.send(JSON.stringify({ type: 'selectColor', color: 'black' }));
+            if (radioBlack.checked && ps.ws) ps.ws.send(JSON.stringify({ type: 'selectColor', color: 'player1' }));
         });
         radioWhite.addEventListener('change', () => {
-            if (radioWhite.checked && ps.ws) ps.ws.send(JSON.stringify({ type: 'selectColor', color: 'white' }));
+            if (radioWhite.checked && ps.ws) ps.ws.send(JSON.stringify({ type: 'selectColor', color: 'player2' }));
         });
         boardSizeSelect.addEventListener('change', () => {
             if (!ps.ws) return;
@@ -683,18 +683,18 @@ const ps = {
                     break;
                 case 'colorAssigned':
                     ps.mySlot = msg.color;
-                    if (msg.color === 'black') ps.slots.black = true;
-                    if (msg.color === 'white') ps.slots.white = true;
+                    if (msg.color === 'player1') ps.slots.player1 = true;
+                    if (msg.color === 'player2') ps.slots.player2 = true;
                     updateSeatsUI();
                     break;
                 case 'slotOccupied':
-                    if (msg.slot === 'black') ps.slots.black = true;
-                    if (msg.slot === 'white') ps.slots.white = true;
+                    if (msg.slot === 'player1') ps.slots.player1 = true;
+                    if (msg.slot === 'player2') ps.slots.player2 = true;
                     updateSeatsUI();
                     break;
                 case 'slotReleased':
-                    if (msg.slot === 'black') ps.slots.black = false;
-                    if (msg.slot === 'white') ps.slots.white = false;
+                    if (msg.slot === 'player1') ps.slots.player1 = false;
+                    if (msg.slot === 'player2') ps.slots.player2 = false;
                     if (ps.mySlot === msg.slot) ps.mySlot = null;
                     updateSeatsUI();
                     break;

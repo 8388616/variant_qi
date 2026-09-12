@@ -104,7 +104,7 @@ const Cairo = {
 
         let ws;
         let isMyTurn = false;
-        let slots = { black: false, white: false };
+        let slots = { player1: false, player2: false };
         let matchStarted = false;
         let matchStartedOnce = false;
         /** 与 qi.js 限时协商一致：由 syncState / 限时消息更新 */
@@ -341,9 +341,49 @@ const scoreTitle = document.getElementById('scoreTitle');
             return { blackTotal, whiteTotal };
         }
 
-        function computeScoreFromBoard(srcBoard) {
-            const liveBoard = removeDeadAndDying(srcBoard);
+        // Benson 加成（网格图棋盘：沿用本棋种邻接与有效点）
+        function bensonInfoCairo(bd) {
+            return window.QiWeiqiSquarePageRuntime.bensonAliveGrid({
+                width: GRID_H, height: GRID_W,
+                getNeighbors: (r, c) => Cairo.getNeighbors(r, c, GRID_W, GRID_H),
+                isValid: (r, c) => Cairo.isValidVertex(r, c, GRID_W, GRID_H),
+                get: (r, c) => bd[r][c]
+            });
+        }
+        function bensonCairoRemoveDead(srcBoard) {
+            const benson = bensonInfoCairo(srcBoard);
+            let live = srcBoard.map((row) => row.slice());
+            let changed = true;
+            while (changed) {
+                changed = false;
+                const cleaned = removeDeadAndDying(live);
+                for (let r = 0; r < GRID_W; r++) {
+                    for (let c = 0; c < GRID_H; c++) {
+                        const v = srcBoard[r][c];
+                        if (benson.alive[r][c] && (v === 1 || v === 2) && cleaned[r][c] !== v) {
+                            cleaned[r][c] = v;
+                            changed = true;
+                        }
+                    }
+                }
+                live = cleaned;
+            }
+            return live;
+        }
+        function bensonCairoTerritory(liveBoard) {
             const territory = assignTerritoryWithRange(liveBoard);
+            const secure = bensonInfoCairo(liveBoard);
+            for (let r = 0; r < GRID_W; r++) {
+                for (let c = 0; c < GRID_H; c++) {
+                    if (liveBoard[r][c] === 0 && secure.territory[r][c]) territory[r][c] = secure.territory[r][c];
+                }
+            }
+            return territory;
+        }
+
+        function computeScoreFromBoard(srcBoard) {
+            const liveBoard = bensonCairoRemoveDead(srcBoard);
+            const territory = bensonCairoTerritory(liveBoard);
             return computeScore(liveBoard, territory);
         }
 
@@ -698,7 +738,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                     else if (t === 'black') hoverColor = '#222';
                     else if (t !== 'empty') hoverColor = '#666';
                 } else if (tryPlayMode) hoverColor = tryPlayCurrentPlayer === 1 ? '#222' : '#fff';
-                else hoverColor = mySlot === 'black' ? '#222' : '#fff';
+                else hoverColor = mySlot === 'player1' ? '#222' : '#fff';
                 if (hoverColor) {
                     const { x, y } = pixelAt(hoverRow, hoverCol);
                     ctx.globalAlpha = 0.45;
@@ -750,8 +790,8 @@ const scoreTitle = document.getElementById('scoreTitle');
             }
             if (gameOver) {
                 turnDisplay.innerText = '对局结束';
-                if (winner === 'black') scoreTitle.innerText = '黑胜';
-                else if (winner === 'white') scoreTitle.innerText = '白胜';
+                if (winner === 'player1') scoreTitle.innerText = '黑胜';
+                else if (winner === 'player2') scoreTitle.innerText = '白胜';
                 else if (winner === 'draw') scoreTitle.innerText = '和棋';
                 else scoreTitle.innerText = '　';
                 isMyTurn = false;
@@ -760,7 +800,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             }
             if (matchStartedOnce === undefined) matchStartedOnce = false;
             if (matchStarted) matchStartedOnce = true;
-            const bothSelected = !!(slots && slots.black && slots.white);
+            const bothSelected = !!(slots && slots.player1 && slots.player2);
             const hasStoneOnBoard = board.some((row, r) => row.some((v, c) => Cairo.isValidVertex(r, c, GRID_W, GRID_H) && (v === 1 || v === 2)));
             const matchReady = !!(matchStarted || matchStartedOnce);
             if (bothSelected && matchReady) matchStartedOnce = true;
@@ -782,7 +822,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                 turnDisplay.innerText = `${p === 1 ? '⚫' : '⚪'} 第${total}手`;
             }
             isMyTurn = !!(matchStarted && (mySlot !== null)
-                && ((mySlot === 'black' && currentPlayer === 1) || (mySlot === 'white' && currentPlayer === 2)));
+                && ((mySlot === 'player1' && currentPlayer === 1) || (mySlot === 'player2' && currentPlayer === 2)));
             drawBoard();
         }
 
@@ -790,7 +830,7 @@ const scoreTitle = document.getElementById('scoreTitle');
         {
             if (!showEstimateActive) { clearEstimate(); return; }
             const r = QiSquareWeiqiCanvas.computeWeiqiEstimateCaches(
-                board, removeDeadAndDying, assignTerritoryWithRange, computeScore, KOMI
+                board, bensonCairoRemoveDead, bensonCairoTerritory, computeScore, KOMI
             );
             cachedLiveBoard = r.cachedLiveBoard;
             cachedTerritory = r.cachedTerritory;
@@ -861,7 +901,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             replayMarkers.push([]);
 
             for (const move of (data.moves || [])) {
-                const playerVal = move.player === 'black' ? 1 : 2;
+                const playerVal = move.player === 'player1' ? 1 : 2;
                 replayStepPlayers.push(playerVal);
                 if (move.type === 'move') {
                     const newBoard = tryPlaceStone(curBoard, move.row, move.col, playerVal);
@@ -1071,6 +1111,32 @@ const scoreTitle = document.getElementById('scoreTitle');
             return true;
         }
 
+        /** 试下：虚着一手（棋盘不变、本步无落子标记），供公共的「虚着」按钮调用 */
+        function tryPlayPass() {
+            if (!tryPlayMode) return false;
+            if (tryPlayStep < tryPlayTotalSteps) {
+                tryPlayBoards.length = tryPlayStep + 1;
+                tryPlayMarkers.length = tryPlayStep + 1;
+            }
+
+            tryPlayBoards.push(deepCopyBoard(board));
+            tryPlayMarkers.push([]);
+            tryPlayTotalSteps = tryPlayBoards.length - 1;
+            tryPlayStep = tryPlayTotalSteps;
+            tryPlayCurrentPlayer = 3 - tryPlayCurrentPlayer;
+
+            // 本步无落子：与 setTryPlayStep 落到该步时的效果一致
+            lastMoveMarkers = [];
+
+            const slider = document.getElementById('replaySlider');
+            slider.max = tryPlayTotalSteps;
+            slider.value = tryPlayStep;
+            updateTryPlayDisplay();
+            if (showEstimateActive) showEstimate();
+            else drawBoard();
+            return true;
+        }
+
         function setTryPlayStep(step) {
             clearMobileMovePreview();
             if (step < 0) step = 0;
@@ -1114,7 +1180,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             liveReplayBoards.push(deepCopyBoard(curBoard));
             liveReplayMarkers.push([]);
             for (const move of (moveCoords || [])) {
-                const playerVal = move.player === 'black' ? 1 : 2;
+                const playerVal = move.player === 'player1' ? 1 : 2;
                 liveReplayStepPlayers.push(playerVal);
                 if (move.type === 'move') {
                     const newBoard = tryPlaceStone(curBoard, move.row, move.col, playerVal);
@@ -1136,7 +1202,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             for (let i = startLen; i < mcs.length; i++) {
                 const move = mcs[i];
 
-                const playerVal = move.player === 'black' ? 1 : 2;
+                const playerVal = move.player === 'player1' ? 1 : 2;
                 liveReplayStepPlayers.push(playerVal);
                 if (move.type === 'move') {
                     const newBoard = tryPlaceStone(curBoard, move.row, move.col, playerVal);
@@ -1211,15 +1277,11 @@ const scoreTitle = document.getElementById('scoreTitle');
                     if (typeof reconnectTimer !== 'undefined' && reconnectTimer) {
                         clearTimeout(reconnectTimer);
                         reconnectTimer = null;
-                    } else if (typeof ps !== 'undefined' && ps && ps.reconnectTimer) {
-                        clearTimeout(ps.reconnectTimer);
-                        ps.reconnectTimer = null;
                     }
                 },
-                getReconnectTimer: () => (typeof reconnectTimer !== 'undefined' ? reconnectTimer : (ps && ps.reconnectTimer)),
+                getReconnectTimer: () => reconnectTimer,
                 setReconnectTimer: (id) => {
-                    if (typeof reconnectTimer !== 'undefined') reconnectTimer = id;
-                    else if (ps) ps.reconnectTimer = id;
+                    reconnectTimer = id;
                 }
             });
         }
@@ -1295,7 +1357,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                 exitTryPlay();
 
             const hasAnyStone = board.some((row, r) => row.some((v, c) => Cairo.isValidVertex(r, c, GRID_W, GRID_H) && (v === 1 || v === 2)));
-            const hasPlayer = slots.black || slots.white;
+            const hasPlayer = slots.player1 || slots.player2;
             const sizeSelect = document.getElementById('boardSizeSelect');
             if (!hasAnyStone && !hasPlayer && !gameOver && mySlot === null)
                 sizeSelect.style.display = 'inline-block';
@@ -1357,6 +1419,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             drawBoard,
             exitTryPlay,
             enterTryPlay,
+            tryPlayPass,
             setTryPlayStep,
             setReplayStep,
             setLiveViewStep,
@@ -1595,7 +1658,8 @@ syncState,
                     if (isHoverValid) { isHoverValid = false; hoverRow = -1; hoverCol = -1; drawBoard(); }
                     return;
                 }
-                const canHover = tryPlayMode || (!gameOver && isMyTurn);
+                const __editing = !!(document.getElementById('editModeCheckbox') || {}).checked;
+                const canHover = __editing || tryPlayMode || (!gameOver && isMyTurn);
                 if (!canHover) {
                     if (isHoverValid || hoverRow >= 0 || hoverCol >= 0) {
                         isHoverValid = false;
@@ -1611,7 +1675,8 @@ syncState,
                 const y = (e.clientY - rect.top) * scale;
                 const { row, col } = getClosestIntersection(x, y);
                 hoverRow = row; hoverCol = col;
-                isHoverValid = (row >= 0 && col >= 0 && Cairo.isValidVertex(row, col, GRID_W, GRID_H) && board[row][col] === 0);
+                isHoverValid = (row >= 0 && col >= 0 && Cairo.isValidVertex(row, col, GRID_W, GRID_H)
+                    && (__editing || board[row][col] === 0));
                 scheduleHoverDraw();
             });
             canvas.addEventListener('mouseleave', () => {

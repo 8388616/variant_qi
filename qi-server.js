@@ -67,19 +67,13 @@ function findGameModulePath(gameId) {
     return fs.existsSync(flat) ? flat : null;
 }
 
-/** 正式开局后聊天显示的执方名（与各 room-plugin 的 slotUi.statusText 对齐） */
-const CHAT_SIDE_LABELS_BY_GAME = {
-    xiangqi: { black: '红方', white: '黑方' },
-    'fog-xiangqi': { black: '红方', white: '黑方' },
-    'double-xiangqi': { black: '红方', white: '黑方' },
-    'hexagon-xiangqi': { black: '红方', white: '黑方' },
-    'dyeing-xiangqi': { black: '红方', white: '绿方' },
-    'simulated-makruk': { black: '红方', white: '黑方' },
-    'simulated-shogi': { black: '红方', white: '黑方' },
-    janggi: { black: '蓝方', white: '红方' },
-    chess: { black: '白方', white: '黑方' }
-};
-
+/**
+ * 正式开局后聊天里显示的执方名。
+ * 约定：black 座位 = 黑方、white 座位 = 白方（谁先走由各棋种自己决定，与座位名无关），
+ * 所以默认直接按座位名给出中文，新增棋种无需在这里登记。
+ * 执方名不是黑/白的棋种（如象棋的红/黑、将棋的红/黑、韩国将棋的蓝/红），
+ * 在自己的 games/{id}.js 里实现 getChatSideLabel(slot) 即可，同样不用改本文件。
+ */
 function getChatSideLabel(room, slot) {
     if (!slot) return null;
     const gl = room && room.gameLogic;
@@ -89,10 +83,8 @@ function getChatSideLabel(room, slot) {
             if (custom) return String(custom);
         } catch (_) { /* ignore */ }
     }
-    const map = CHAT_SIDE_LABELS_BY_GAME[room && room.gameType] || null;
-    if (map && map[slot]) return map[slot];
-    if (slot === 'black') return '黑方';
-    if (slot === 'white') return '白方';
+    if (slot === 'player1') return '黑方';
+    if (slot === 'player2') return '白方';
     return String(slot);
 }
 

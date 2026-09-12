@@ -84,7 +84,7 @@ window.RoomPlugins['magnetism-weiqi'] = {
             iRejected: false,
             ws: null,
             isMyTurn: false,
-            slots: { black: false, white: false },
+            slots: { player1: false, player2: false },
             reconnectTimer: null,
             replayMode: false,
             replayBoards: [],
@@ -429,7 +429,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                     if (!mv || mv.type === 'pass') continue;
                     if (mv.type !== 'move') continue;
                     mi++;
-                    const pv = mv.player === 'black' ? 1 : 2;
+                    const pv = mv.player === 'player1' ? 1 : 2;
                     const r = magneticTryPlaceStoneWithNum(board, numGrid, mv.row, mv.col, pv, mi);
                     if (r) {
                         board = r.board;
@@ -538,11 +538,50 @@ const scoreTitle = document.getElementById('scoreTitle');
             }
         }
 
-        const page = QiWeiqiSquarePageRuntime.create(ps, domPage, {
+                // 标准/变体围棋形势判断：Benson 无条件活加成（保活 + 确定领地覆盖）
+        function bensonRemoveDead(srcBoard) {
+            const RT = window.QiWeiqiSquarePageRuntime;
+            const size = ps.BOARD_SIZE;
+            const copy = (b) => QiSquareWeiqiCanvas.deepCopyBoard(b);
+            const benson = RT.bensonAlive(srcBoard, size);
+            let live = copy(srcBoard);
+            let changed = true;
+            while (changed) {
+                changed = false;
+                const cleaned = RT.removeDeadAndDying(live, size, copy, 2);
+                for (let r = 0; r < size; r++) {
+                    for (let c = 0; c < size; c++) {
+                        const v = srcBoard[r][c];
+                        if (benson.alive[r][c] && (v === 1 || v === 2) && cleaned[r][c] !== v) {
+                            cleaned[r][c] = v;
+                            changed = true;
+                        }
+                    }
+                }
+                live = cleaned;
+            }
+            return live;
+        }
+        function bensonTerritory(liveBoard) {
+            const RT = window.QiWeiqiSquarePageRuntime;
+            const size = ps.BOARD_SIZE;
+            const territory = RT.assignTerritoryWithRange(liveBoard, size);
+            const secure = RT.bensonAlive(liveBoard, size);
+            for (let r = 0; r < size; r++) {
+                for (let c = 0; c < size; c++) {
+                    if (liveBoard[r][c] === 0 && secure.territory[r][c]) territory[r][c] = secure.territory[r][c];
+                }
+            }
+            return territory;
+        }
+
+const page = QiWeiqiSquarePageRuntime.create(ps, domPage, {
             enableEditBoard: true,
             recordDownloadPrefix,
             minLib,
             maxWeakLiberties: 2,
+            removeDeadAndDying: bensonRemoveDead,
+            assignTerritoryWithRange: bensonTerritory,
             gameType,
             roomId,
             roomPassword,
@@ -621,7 +660,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             const sel = document.getElementById('subGameSelect');
             if (!sel) return;
             const hasAnyStone = ps.board.some(row => row.some(v => v !== 0));
-            const hasPlayer = ps.slots.black || ps.slots.white;
+            const hasPlayer = ps.slots.player1 || ps.slots.player2;
             // 有子棋类：始终显示；开局（有子/有人入座/对局结束）后锁定不可改，新局时恢复可用
             sel.style.display = 'inline-block';
             sel.disabled = hasAnyStone || hasPlayer || ps.gameOver;

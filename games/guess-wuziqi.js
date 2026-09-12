@@ -5,7 +5,7 @@ class GuessWuziqiRoom extends QiTwoPlayerRoomBase {
         this.BOARD_SIZE = 13;
         this.board = Array(this.BOARD_SIZE).fill().map(() => Array(this.BOARD_SIZE).fill(0));
         if (this.openingBoard === undefined) this.openingBoard = (typeof this.copyBoard === 'function' ? this.copyBoard(this.board) : (Array.isArray(this.board[0]) ? this.board.map(r => r.slice()) : this.board.slice()));
-        this.currentPlayer = 'black';
+        this.currentPlayer = 'player1';
         this.historyBoards = [];
         this.lastMoveMarkers = [];
         this.moveCount = 0;
@@ -21,7 +21,7 @@ class GuessWuziqiRoom extends QiTwoPlayerRoomBase {
         this.pendingDraw = null;
         this.winner = null;
         this.matchStarted = false;
-        this.slotJoinedAt = { black: null, white: null };
+        this.slotJoinedAt = { player1: null, player2: null };
         this.tcNego = null;
         this.tcSettings = null;
         this.tcClock = null;
@@ -37,7 +37,7 @@ class GuessWuziqiRoom extends QiTwoPlayerRoomBase {
     }
 
     _activeSlotByPhase() {
-        if (this.phase === 'guess') return this.currentPlayer === 'black' ? 'white' : 'black';
+        if (this.phase === 'guess') return this.currentPlayer === 'player1' ? 'player2' : 'player1';
         return this.currentPlayer;
     }
 
@@ -86,21 +86,21 @@ class GuessWuziqiRoom extends QiTwoPlayerRoomBase {
     }
 
     _firstPickerSlot() {
-        const tb = this.slotJoinedAt.black;
-        const tw = this.slotJoinedAt.white;
-        if (tb == null || tw == null) return 'black';
-        return tb <= tw ? 'black' : 'white';
+        const tb = this.slotJoinedAt.player1;
+        const tw = this.slotJoinedAt.player2;
+        if (tb == null || tw == null) return 'player1';
+        return tb <= tw ? 'player1' : 'player2';
     }
 
     _maybeBeginTimeNegotiation() {
         if (this.eventLog.length > 0 || this.gameOver) return;
-        if (!this.room.getPlayerBySlot('black') || !this.room.getPlayerBySlot('white')) return;
+        if (!this.room.getPlayerBySlot('player1') || !this.room.getPlayerBySlot('player2')) return;
         if (this.tcNego || this.tcSettings) return;
         const first = this._firstPickerSlot();
         this.tcNego = { phase: 'propose', proposal: null, waitingSlot: first };
         const ws = this.room.getPlayerBySlot(first);
         if (ws) ws.send(JSON.stringify({ type: 'timeControlNegotiation', mode: 'propose' }));
-        const other = first === 'black' ? 'white' : 'black';
+        const other = first === 'player1' ? 'player2' : 'player1';
         const ws2 = this.room.getPlayerBySlot(other);
         if (ws2) ws2.send(JSON.stringify({ type: 'timeControlWaitPeer', text: '对方正在选择限时规则…' }));
     }
@@ -120,7 +120,7 @@ class GuessWuziqiRoom extends QiTwoPlayerRoomBase {
         }
         this.tcNego.proposal = v;
         this.tcNego.phase = 'respond';
-        const other = slot === 'black' ? 'white' : 'black';
+        const other = slot === 'player1' ? 'player2' : 'player1';
         this.tcNego.waitingSlot = other;
         ws.send(JSON.stringify({ type: 'timeControlWaitPeer', text: '正在等对方确认' }));
         const otherWs = this.room.getPlayerBySlot(other);
@@ -247,8 +247,8 @@ class GuessWuziqiRoom extends QiTwoPlayerRoomBase {
                     : (this.tcSettings && this.tcSettings.timed === false ? { timed: false, ruleLine: '本局不限时' } : null)
             },
             slots: {
-                black: !!this.room.getPlayerBySlot('black'),
-                white: !!this.room.getPlayerBySlot('white')
+                player1: !!this.room.getPlayerBySlot('player1'),
+                player2: !!this.room.getPlayerBySlot('player2')
             }
         };
     }
@@ -258,7 +258,7 @@ class GuessWuziqiRoom extends QiTwoPlayerRoomBase {
      * 格式：B r1,c1;r2,c2;r3,c3|sr,sc|gr,gc（B/W 为行棋方）
      */
     static encodeMoveRound(selectEv, guessEv) {
-        const h = selectEv.player === 'black' ? 'B' : 'W';
+        const h = selectEv.player === 'player1' ? 'B' : 'W';
         const pts = (selectEv.candidatesBefore || []).map(p => `${p.row},${p.col}`).join(';');
         return `${h}${pts}|${selectEv.row},${selectEv.col}|${guessEv.row},${guessEv.col}`;
     }
@@ -268,7 +268,7 @@ class GuessWuziqiRoom extends QiTwoPlayerRoomBase {
         if (typeof s !== 'string' || s.length < 2) return null;
         const head = s[0];
         if (head !== 'B' && head !== 'W') return null;
-        const player = head === 'B' ? 'black' : 'white';
+        const player = head === 'B' ? 'player1' : 'player2';
         const rest = s.slice(1);
         const segs = rest.split('|');
         if (segs.length !== 3) return null;
@@ -291,7 +291,7 @@ class GuessWuziqiRoom extends QiTwoPlayerRoomBase {
         const gr = +gParts[0];
         const gc = +gParts[1];
         if (![sr, sc, gr, gc].every(Number.isFinite)) return null;
-        const guessPlayer = player === 'black' ? 'white' : 'black';
+        const guessPlayer = player === 'player1' ? 'player2' : 'player1';
         return {
             select: { type: 'select', player, row: sr, col: sc, candidatesBefore },
             guess: { type: 'guess', player: guessPlayer, row: gr, col: gc }
@@ -339,7 +339,7 @@ class GuessWuziqiRoom extends QiTwoPlayerRoomBase {
         }
 
         let board = Array(size).fill().map(() => Array(size).fill(0));
-        let currentPlayer = 'black';
+        let currentPlayer = 'player1';
         let lastMoveMarkers = [];
 
         this.pushSnapshot(snapshots, board, 'select', currentPlayer, [], null, [], null, null, lastMoveMarkers, false, null, 0);
@@ -384,7 +384,7 @@ class GuessWuziqiRoom extends QiTwoPlayerRoomBase {
             let roundWinner = null;
 
             if (!isHit) {
-                const playerVal = currentPlayer === 'black' ? 1 : 2;
+                const playerVal = currentPlayer === 'player1' ? 1 : 2;
                 board[selectedMove.row][selectedMove.col] = playerVal;
                 lastMoveMarkers = [{ row: selectedMove.row, col: selectedMove.col, color: playerVal }];
                 if (squareWuziqiRules.checkFiveInRow(board, selectedMove.row, selectedMove.col, playerVal, size)) {
@@ -400,7 +400,7 @@ class GuessWuziqiRoom extends QiTwoPlayerRoomBase {
                 break;
             }
 
-            currentPlayer = currentPlayer === 'black' ? 'white' : 'black';
+            currentPlayer = currentPlayer === 'player1' ? 'player2' : 'player1';
 
             let emptyCount = 0;
             for (let r = 0; r < size; r++)
@@ -449,7 +449,7 @@ class GuessWuziqiRoom extends QiTwoPlayerRoomBase {
 
     resetToEmpty() {
         this.board = Array(this.BOARD_SIZE).fill().map(() => Array(this.BOARD_SIZE).fill(0));
-        this.currentPlayer = 'black';
+        this.currentPlayer = 'player1';
         this.historyBoards = [];
         this.lastMoveMarkers = [];
         this.gameOver = false;
@@ -463,7 +463,7 @@ class GuessWuziqiRoom extends QiTwoPlayerRoomBase {
         this.pendingNewGame = null;
         this.pendingDraw = null;
         this.matchStarted = false;
-        this.slotJoinedAt = { black: null, white: null };
+        this.slotJoinedAt = { player1: null, player2: null };
         this.tcNego = null;
         this.tcSettings = null;
         this.tcClock = null;
@@ -477,7 +477,7 @@ class GuessWuziqiRoom extends QiTwoPlayerRoomBase {
             return false;
         }
         const hasAnyStone = this.board.some(row => row.some(v => v !== 0));
-        const hasPlayer = this.room.getPlayerBySlot('black') || this.room.getPlayerBySlot('white');
+        const hasPlayer = this.room.getPlayerBySlot('player1') || this.room.getPlayerBySlot('player2');
         if (hasAnyStone || hasPlayer) {
             requesterWs.send(JSON.stringify({ type: 'error', message: '已有棋子或玩家，不能改变路数。' }));
             return false;
@@ -519,7 +519,7 @@ class GuessWuziqiRoom extends QiTwoPlayerRoomBase {
 
         this.BOARD_SIZE = newSize;
         this.board = Array(this.BOARD_SIZE).fill().map(() => Array(this.BOARD_SIZE).fill(0));
-        this.currentPlayer = 'black';
+        this.currentPlayer = 'player1';
         this.historyBoards = [];
         this.lastMoveMarkers = [];
         this.gameOver = false;
@@ -600,7 +600,7 @@ class GuessWuziqiRoom extends QiTwoPlayerRoomBase {
                 const isHit = (guessRow === this.selectedMove.row && guessCol === this.selectedMove.col);
                 let winner = null;
                 if (!isHit) {
-                    const playerVal = this.currentPlayer === 'black' ? 1 : 2;
+                    const playerVal = this.currentPlayer === 'player1' ? 1 : 2;
                     this.board[this.selectedMove.row][this.selectedMove.col] = playerVal;
                     this.lastMoveMarkers = [{ row: this.selectedMove.row, col: this.selectedMove.col, color: playerVal }];
                     if (this.checkWin(this.selectedMove.row, this.selectedMove.col, playerVal)) {
@@ -622,7 +622,7 @@ class GuessWuziqiRoom extends QiTwoPlayerRoomBase {
                     break;
                 }
 
-                this.currentPlayer = this.currentPlayer === 'black' ? 'white' : 'black';
+                this.currentPlayer = this.currentPlayer === 'player1' ? 'player2' : 'player1';
                 const empty = this.getEmptyCells();
                 if (empty.length < 4) {
                     this.gameOver = true;
@@ -762,7 +762,7 @@ class GuessWuziqiRoom extends QiTwoPlayerRoomBase {
                 let winner = null;
 
                 if (!isHit) {
-                    const playerVal = this.currentPlayer === 'black' ? 1 : 2;
+                    const playerVal = this.currentPlayer === 'player1' ? 1 : 2;
                     this.board[this.selectedMove.row][this.selectedMove.col] = playerVal;
                     this.lastMoveMarkers = [{ row: this.selectedMove.row, col: this.selectedMove.col, color: playerVal }];
                     if (this.checkWin(this.selectedMove.row, this.selectedMove.col, playerVal)) {
@@ -800,7 +800,7 @@ class GuessWuziqiRoom extends QiTwoPlayerRoomBase {
                     return;
                 }
 
-                this.currentPlayer = (this.currentPlayer === 'black') ? 'white' : 'black';
+                this.currentPlayer = (this.currentPlayer === 'player1') ? 'player2' : 'player1';
                 const empty = this.getEmptyCells();
 
                 if (empty.length < 4) {
@@ -911,7 +911,7 @@ class GuessWuziqiRoom extends QiTwoPlayerRoomBase {
             room.observers.add(client);
             client.send(JSON.stringify({ type: 'slotReleased', slot }));
         }
-        this.broadcast({ type: 'newGameStarted', ...this.getState(), slots: { black: false, white: false } });
+        this.broadcast({ type: 'newGameStarted', ...this.getState(), slots: { player1: false, player2: false } });
     }
 }
 

@@ -58,7 +58,7 @@ const ps = {
             iRejected: false,
             ws: null,
             isMyTurn: false,
-            slots: { black: false, white: false },
+            slots: { player1: false, player2: false },
             reconnectTimer: null,
             matchStarted: false,
             replayMode: false,
@@ -346,7 +346,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                 ps.myPreviewMarker
                 && Number.isInteger(ps.myPreviewMarker.row)
                 && Number.isInteger(ps.myPreviewMarker.col)
-                && (ps.mySlot === 'black' || ps.mySlot === 'white')
+                && (ps.mySlot === 'player1' || ps.mySlot === 'player2')
             ) {
                 const rr = ps.myPreviewMarker.row;
                 const cc = ps.myPreviewMarker.col;
@@ -356,11 +356,11 @@ const scoreTitle = document.getElementById('scoreTitle');
                     && ps.board[rr][cc] === 0
                 ) {
                     const x = ps.PADDING + cc * cellSize;
-                    const y = ps.PADDING + rr * cellSize;
+                    const y = ps.PADDING + (ps.BOARD_SIZE - 1 - rr) * cellSize;
                     const r = cellSize * 0.4;
                     ctx.save();
                     ctx.lineWidth = 1.5;
-                    ctx.strokeStyle = ps.mySlot === 'black' ? '#111111' : '#f8f8f8';
+                    ctx.strokeStyle = ps.mySlot === 'player1' ? '#111111' : '#f8f8f8';
                     ctx.shadowBlur = 6;
                     ctx.shadowColor = 'rgba(0,0,0,0.35)';
                     ctx.beginPath();
@@ -389,6 +389,42 @@ const scoreTitle = document.getElementById('scoreTitle');
         };
 
         const pageHolder = {};
+        // 形势判断：Benson 加成（保活 + 确定领地覆盖）
+        function bensonRemoveDeadLocal(srcBoard) {
+            const RT = window.QiWeiqiSquarePageRuntime;
+            const size = ps.BOARD_SIZE;
+            const copy = (b) => QiSquareWeiqiCanvas.deepCopyBoard(b);
+            const benson = RT.bensonAlive(srcBoard, size);
+            let live = copy(srcBoard);
+            let changed = true;
+            while (changed) {
+                changed = false;
+                const cleaned = RT.removeDeadAndDying(live, size, copy, 2);
+                for (let r = 0; r < size; r++) {
+                    for (let c = 0; c < size; c++) {
+                        const v = srcBoard[r][c];
+                        if (benson.alive[r][c] && (v === 1 || v === 2) && cleaned[r][c] !== v) {
+                            cleaned[r][c] = v;
+                            changed = true;
+                        }
+                    }
+                }
+                live = cleaned;
+            }
+            return live;
+        }
+        function bensonTerritoryLocal(liveBoard) {
+            const RT = window.QiWeiqiSquarePageRuntime;
+            const size = ps.BOARD_SIZE;
+            const territory = RT.assignTerritoryWithRange(liveBoard, size);
+            const secure = RT.bensonAlive(liveBoard, size);
+            for (let r = 0; r < size; r++) {
+                for (let c = 0; c < size; c++) {
+                    if (liveBoard[r][c] === 0 && secure.territory[r][c]) territory[r][c] = secure.territory[r][c];
+                }
+            }
+            return territory;
+        }
         const page = QiWeiqiSquarePageRuntime.create(ps, domPage, {
             enableEditBoard: true,
             recordDownloadPrefix,
@@ -400,8 +436,8 @@ const scoreTitle = document.getElementById('scoreTitle');
             isMouseDevice,
             tryPlaceStone: syncTryPlaceStone,
             drawBoard: holeDrawBoard,
-            removeDeadAndDying: (src) => R().removeDeadAndDying(src, ps.BOARD_SIZE, (b) => QiSquareWeiqiCanvas.deepCopyBoard(b), 2),
-            assignTerritoryWithRange: (live) => R().assignTerritoryWithRange(live, ps.BOARD_SIZE),
+            removeDeadAndDying: bensonRemoveDeadLocal,
+            assignTerritoryWithRange: bensonTerritoryLocal,
             rebuildLiveReplayFromMoveCoords(coords) {
                 rebuildSyncLiveReplay(coords);
             },
@@ -504,8 +540,8 @@ const scoreTitle = document.getElementById('scoreTitle');
             if (ps.waitingScoreConfirm) {
                 turnDisplay.innerText = '等待数点确认';
             } else if (!ps.matchStarted) {
-                const bothSelected = !!(ps.slots && ps.slots.black && ps.slots.white);
-                turnDisplay.innerText = QiWeiqiSquarePageRuntime.waitingSeatTurnText(slots, mySlot);
+                const bothSelected = !!(ps.slots && ps.slots.player1 && ps.slots.player2);
+                turnDisplay.innerText = QiWeiqiSquarePageRuntime.waitingSeatTurnText(ps.slots, ps.mySlot);
             } else if (!ps.mySlot) {
                 turnDisplay.innerText = `第${Math.max(1, ps.numberOfHands)}手`;
             } else if (ps.numberOfHands <= 1) {
@@ -633,9 +669,9 @@ syncState: syncStateFull,
                 const wasOver = ps.gameOver;
                 syncStateFull(msg);
                 if (msg.gameOver && !wasOver) {
-                    if (msg.winner === 'black') qiAlert('黑胜。');
-                    else if (msg.winner === 'white') qiAlert('白胜。');
-                    else if (msg.winner === 'draw') qiAlert('和棋。');
+                    if (msg.winner === 'player1') qiAlert('黑胜');
+                    else if (msg.winner === 'player2') qiAlert('白胜');
+                    else if (msg.winner === 'draw') qiAlert('和棋');
                 }
                 return;
             }

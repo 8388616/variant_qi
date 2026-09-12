@@ -85,11 +85,11 @@
 
     /** 协议座位 ↔ 行棋方 */
     function sideFromSlot(slot) {
-        return slot === 'black' ? 'red' : 'black';
+        return slot === 'player1' ? 'red' : 'black';
     }
 
     function slotFromSide(side) {
-        return side === 'red' ? 'black' : 'white';
+        return side === 'red' ? 'player1' : 'player2';
     }
 
     function inBounds(row, col) {

@@ -1008,19 +1008,28 @@ const PLANT_SPECIES_NAMES = [
 const DEFAULT_ROUND_COUNT = 5;
 const DEFAULT_ROUND_MINUTES = 3;
 
+/** 子游戏（页面内下拉切换）：ultimate-24=究级24点（原玩法）；super-24=超级24点（新增） */
+const SUB_GAME_DEFS = {
+    'ultimate-24': { label: '究级24点', numberCount: 10, numberMin: 1, numberMax: 100, targetMin: 1000000000, targetMax: 9999999999, scoreExponent: 4 },
+    'super-24': { label: '超级24点', numberCount: 6, numberMin: 1, numberMax: 16, targetMin: 100, targetMax: 999, scoreExponent: 2 }
+};
+const DEFAULT_SUB_GAME = 'super-24';
+
 /** @param {number} min @param {number} max */
 function randInt(min, max) {
     return Math.floor(Math.random() * (max - min + 1)) + min;
 }
 
-function generateRoundPuzzle() {
+function generateRoundPuzzle(subGameId) {
+    const d = SUB_GAME_DEFS[subGameId] || SUB_GAME_DEFS[DEFAULT_SUB_GAME];
     const numbers = [];
-    for (let i = 0; i < 10; i++) numbers.push(randInt(1, 100));
-    const target = randInt(1000000000, 9999999999);
+    for (let i = 0; i < d.numberCount; i++) numbers.push(randInt(d.numberMin, d.numberMax));
+    const target = randInt(d.targetMin, d.targetMax);
     return { numbers, target };
 }
 
-const ALLOWED_EXPR_RE = /^[0-9+\-*/().\s]*$/;
+// 与输入框允许的字符集一致：数字 + - * / ( )（无小数点/空格；空格在求值前已去掉）
+const ALLOWED_EXPR_RE = /^[0-9+\-*/()]*$/;
 
 function tokenizeNumbers(expr) {
     const out = [];
@@ -1173,12 +1182,14 @@ function formatResultValue(v) {
 
 /** @param {number} error absolute error */
 /** @param {number} target round target */
-function calcRoundPoints(error, target) {
+function calcRoundPoints(error, target, subGameId) {
     if (!Number.isFinite(error) || !Number.isFinite(target) || target < 0) return 0;
     const denom = Math.log(1 + target);
     if (denom <= 0) return 0;
+    // 究级24点指数 4；超级24点指数 2
+    const exp = (SUB_GAME_DEFS[subGameId] && SUB_GAME_DEFS[subGameId].scoreExponent) || 4;
     const ratio = Math.log(1 + Math.max(0, error)) / denom;
-    return Math.max(0, (1 - Math.pow(ratio, 4)) * 100);
+    return Math.max(0, (1 - Math.pow(ratio, exp)) * 100);
 }
 
 class Super24Room {
@@ -1195,6 +1206,7 @@ class Super24Room {
         this.roundCount = DEFAULT_ROUND_COUNT;
         this.roundMinutes = DEFAULT_ROUND_MINUTES;
         this.roundMs = DEFAULT_ROUND_MINUTES * 60 * 1000;
+        this.subGameId = DEFAULT_SUB_GAME;
         /** @type {{ numbers: number[], target: number }|null} */
         this.puzzle = null;
         /** @type {{ endMs: number, remainingMs: number, lastUpdateMs: number, pauseCount: number }|null} */
@@ -1321,7 +1333,7 @@ class Super24Room {
 
     _startRound() {
         this.currentRound += 1;
-        this.puzzle = generateRoundPuzzle();
+        this.puzzle = generateRoundPuzzle(this.subGameId);
         this.roundBest.clear();
         for (const id of this.joinOrder) {
             this.roundBest.set(id, null);
@@ -1342,7 +1354,7 @@ class Super24Room {
             const target = this.puzzle ? this.puzzle.target : 1e11;
             const error = best != null ? best : target;
             p.roundErrors[idx] = error;
-            p.roundScores[idx] = calcRoundPoints(error, target);
+            p.roundScores[idx] = calcRoundPoints(error, target, this.subGameId);
             this._updatePlayerAverages(p);
         }
 
@@ -1366,6 +1378,7 @@ class Super24Room {
         });
         return {
             phase: this.phase,
+            subGameId: this.subGameId,
             gameStarted: this.gameStarted,
             finished: this.finished,
             hostId: this.hostId,
@@ -1493,6 +1506,21 @@ class Super24Room {
 
     handleMessage(ws, msg) {
         switch (msg.type) {
+            case 'setSubGame': {
+                const sub = String(msg.subGameId || '');
+                if (!SUB_GAME_DEFS[sub]) {
+                    ws.send(JSON.stringify({ type: 'error', message: '子游戏无效' }));
+                    return;
+                }
+                if (this._isActiveMatch()) return; // 对局中不可切换
+                const requesterId = this.room.getSlotByWs(ws);
+                if (requesterId && this.hostId && requesterId !== this.hostId) return; // 仅房主可切换
+                if (this.subGameId === sub) return;
+                this.subGameId = sub;
+                this.puzzle = null;
+                this.broadcast({ type: 'subGameChanged', subGameId: sub, ...this.getState() });
+                break;
+            }
             case 'enterRoom': {
                 if (this._isActiveMatch()) {
                     ws.send(JSON.stringify({ type: 'roomEntered', hostId: this.hostId, state: this.getStateForClient(ws) }));

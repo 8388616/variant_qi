@@ -72,7 +72,7 @@ window.RoomPlugins['duo-quadricolour-weiqi'] = {
             iRejected: false,
             ws: null,
             isMyTurn: false,
-            slots: { black: false, white: false },
+            slots: { player1: false, player2: false },
             reconnectTimer: null,
             replayMode: false,
             replayBoards: [],
@@ -345,9 +345,9 @@ const BOARD_MARK_CHAR_LIST = (() => {
                 if (m && m.type === 'pass') {
                     boards.push(copy2(prev));
                     markers.push([]);
-                    stepPlayers.push(m.player === 'black' ? 1 : 2);
+                    stepPlayers.push(m.player === 'player1' ? 1 : 2);
                 } else if (m && m.type === 'move') {
-                    const colorVal = m.color || (m.player === 'black' ? 1 : 2);
+                    const colorVal = m.color || (m.player === 'player1' ? 1 : 2);
                     const nb = localFourTryPlace(prev, m.row, m.col, colorVal);
                     if (!nb) {
                         boards.push(copy2(prev));
@@ -430,6 +430,12 @@ const BOARD_MARK_CHAR_LIST = (() => {
         fourPageOpts.drawBoard = drawBoardCore;
 
         /** 公共棋盘绘制 + 红/蓝棋子叠加层（公共只画 1 黑 2 白） */
+        // 本方是否轮到：1=黑蓝方(player1) 2=白红方(player2)
+        function isMyTurnNow() {
+            if (!ps.mySlot) return false;
+            return ps.mySlot === (ps.currentPlayer === 1 ? 'player1' : 'player2');
+        }
+
         function redBlueOverlay() {
             const N = ps.BOARD_SIZE;
             const pad = ps.PADDING;
@@ -494,7 +500,7 @@ const BOARD_MARK_CHAR_LIST = (() => {
             // 仅当轮到本方可悬停(与公共 canHover 一致):试下中放行,对局中须 isMyTurn。
             const hoverColVal = ps.tryPlayMode ? (ps.tryPlayLocalColor || ps.turnColor) : ps.turnColor;
             const hoverColor = hoverColVal === 3 ? '#aa2620' : (hoverColVal === 4 ? '#2a4baf' : '');
-            const hoverAllowed = ps.tryPlayMode || (ps.isMyTurn && !ps.gameOver);
+            const hoverAllowed = ps.tryPlayMode || (isMyTurnNow() && !ps.gameOver);
             if (hoverColor && hoverAllowed && ps.isHoverValid && ps.hoverRow >= 0 && ps.hoverCol >= 0) {
                 ctx.save();
                 ctx.globalAlpha = 0.45;
@@ -641,7 +647,7 @@ const BOARD_MARK_CHAR_LIST = (() => {
             const m = ps.lastMoveMarkers && ps.lastMoveMarkers[0];
             if (!m || m.row < 0 || m.col < 0) return;
             if (lastMoveMarkerKey() === keyBefore) return;
-            const oppColor = ps.mySlot === 'black' ? 2 : 1;
+            const oppColor = ps.mySlot === 'player1' ? 2 : 1;
             if (m.color !== oppColor) return;
             ps.viewCenterX = ps.PADDING + m.col * ps.CELL_SIZE;
             ps.viewCenterY = ps.PADDING + m.row * ps.CELL_SIZE;
@@ -734,7 +740,8 @@ const BOARD_MARK_CHAR_LIST = (() => {
             const lead = (blk + blu) - (wht + red);
             scoreTitle.textContent = '形势判断';
             scoreBoard.innerHTML = '黑: ' + fmtTxt(blk) + '　白: ' + fmtTxt(wht) + '<br>红: ' + fmtTxt(red) + '　蓝: ' + fmtTxt(blu);
-            leadInfo.textContent = '黑蓝' + fmtTxt(lead) + '点';
+            // 正号不可省略：领先显示「黑蓝+50点」，落后显示「黑蓝-50点」
+            leadInfo.textContent = '黑蓝' + (lead >= 0 ? '+' : '') + fmtTxt(lead) + '点';
             ps.showEstimateActive = true;
             ps.fourTerritoryCache = localFourTerritory();
             drawBoardCore();
@@ -790,8 +797,8 @@ const BOARD_MARK_CHAR_LIST = (() => {
                     else {
                         const mc = ps.moveCoords && ps.moveCoords.length
                             ? ps.moveCoords[ps.moveCoords.length - 1] : null;
-                        dot = mc && mc.player === 'white' ? '⚪'
-                            : (mc && mc.player === 'black' ? '⚫' : '');
+                        dot = mc && mc.player === 'player2' ? '⚪'
+                            : (mc && mc.player === 'player1' ? '⚫' : '');
                     }
                     turnDisplay.textContent = (dot ? dot + ' ' : '') + body;
                 } else {
@@ -1068,6 +1075,7 @@ const BOARD_MARK_CHAR_LIST = (() => {
                 return;
             }
             if (ps.gameOver) return;
+            ps.isMyTurn = isMyTurnNow();
             if (!ps.isMyTurn) return;
             if (ps.waitingScoreConfirm) return;
 

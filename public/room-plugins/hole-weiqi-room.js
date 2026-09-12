@@ -3,10 +3,10 @@ window.RoomPlugins['hole-weiqi'] = {
     shell: {
         "title": "洞围棋",
         "rulesHtml": "基本规则同围棋。<br /><br />开局时在棋盘上随机洞（数量约为棋盘总点数的8.3%），洞内不能落子且不提供气。<br /><br /><br /><br /><i>老家的旧棋盘破了几个窟窿！</i><br /><br />",
-        "defaultKomiText": "黑贴白3.75点",
+        "defaultKomiText": "黑贴白4.25点",
         "boardSizeMin": 7,
         "boardSizeMax": 31,
-        "defaultBoardSize": 9,
+        "defaultBoardSize": 19,
         "minLib": 1,
         "recordDownloadPrefix": "洞围棋",
         "standardWeiqiMatchTime": true,
@@ -45,9 +45,15 @@ window.RoomPlugins['hole-weiqi'] = {
         var standardWeiqiMatchTime = config.standardWeiqiMatchTime != null ? config.standardWeiqiMatchTime : true;
 
         (function () {
-const ps = {
-            BOARD_SIZE: 9,
-            KOMI: 3.75,
+        /** 洞围棋贴目（按路数，与服务端 komiForSizeHole 一致）：7 路 4.75，其余（含默认 19 路）4.25 */
+        function komiForSizeHole(boardSize) {
+            if (boardSize === 7) return 4.75;
+            return 4.25;
+        }
+
+		const ps = {
+            BOARD_SIZE: 19,
+            KOMI: komiForSizeHole(19),
             PADDING: 0,
             CELL_SIZE: 0,
             numberOfHands: 1,
@@ -63,7 +69,7 @@ const ps = {
             iRejected: false,
             ws: null,
             isMyTurn: false,
-            slots: { black: false, white: false },
+            slots: { player1: false, player2: false },
             reconnectTimer: null,
             replayMode: false,
             replayBoards: [],
@@ -343,6 +349,43 @@ const scoreTitle = document.getElementById('scoreTitle');
         };
 
         const pageHolder = {};
+        // 洞围棋形势判断：Benson（洞版）加成——洞不可落子/无气/不连通，不参与分析
+        function holeBensonRemoveDead(srcBoard) {
+            const RT = window.QiWeiqiSquarePageRuntime;
+            const size = ps.BOARD_SIZE;
+            const copy = (b) => QiSquareWeiqiCanvas.deepCopyBoard(b);
+            const benson = RT.bensonAliveWithHoles(srcBoard, size, (r, c) => srcBoard[r][c] === -1);
+            let live = copy(srcBoard);
+            let changed = true;
+            while (changed) {
+                changed = false;
+                const cleaned = RT.removeDeadAndDying(live, size, copy, 2);
+                for (let r = 0; r < size; r++) {
+                    for (let c = 0; c < size; c++) {
+                        const v = srcBoard[r][c];
+                        if (benson.alive[r][c] && (v === 1 || v === 2) && cleaned[r][c] !== v) {
+                            cleaned[r][c] = v;
+                            changed = true;
+                        }
+                    }
+                }
+                live = cleaned;
+            }
+            return live;
+        }
+        function holeBensonTerritory(liveBoard) {
+            const RT = window.QiWeiqiSquarePageRuntime;
+            const size = ps.BOARD_SIZE;
+            const territory = RT.assignTerritoryWithRange(liveBoard, size);
+            const secure = RT.bensonAliveWithHoles(liveBoard, size, (r, c) => liveBoard[r][c] === -1);
+            for (let r = 0; r < size; r++) {
+                for (let c = 0; c < size; c++) {
+                    if (liveBoard[r][c] === 0 && secure.territory[r][c]) territory[r][c] = secure.territory[r][c];
+                }
+            }
+            return territory;
+        }
+
         const page = QiWeiqiSquarePageRuntime.create(ps, domPage, {
             enableEditBoard: true,
             editTools: config.editTools,
@@ -357,8 +400,8 @@ const scoreTitle = document.getElementById('scoreTitle');
             totalPoints: (p) => p.BOARD_SIZE * p.BOARD_SIZE - Math.floor(0.083 * p.BOARD_SIZE * p.BOARD_SIZE),
             tryPlaceStone: holeTryPlaceStone,
             drawBoard: holeDrawBoard,
-            removeDeadAndDying: (src) => R().removeDeadAndDying(src, ps.BOARD_SIZE, (b) => QiSquareWeiqiCanvas.deepCopyBoard(b), 2),
-            assignTerritoryWithRange: (live) => R().assignTerritoryWithRange(live, ps.BOARD_SIZE),
+            removeDeadAndDying: holeBensonRemoveDead,
+            assignTerritoryWithRange: holeBensonTerritory,
             rebuildLiveReplayFromMoveCoords(moveCoords) {
                 const syncedLen = ps.liveReplayBoards.length - 1;
                 const mcs = moveCoords || [];

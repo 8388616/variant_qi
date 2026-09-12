@@ -320,7 +320,7 @@ window.RoomPlugins["continuous-weiqi"] = {
     let openingStones = [];
     let currentPlayer = 1;
     let mySlot = null;
-    let slots = { black: false, white: false };
+    let slots = { player1: false, player2: false };
     let numberOfHands = 1;
     let gameOver = false;
     let winner = null;
@@ -575,6 +575,16 @@ const scoreTitle = document.getElementById('scoreTitle');
             ctx.fill();
             ctx.globalAlpha = 1;
         }
+        // 编辑模式悬停预览：落点吸附到格点，颜色随当前工具（空工具不预览）
+        if (editModeEnabled && isHoverValid && hoverGx >= 0 && (editTool === 'black' || editTool === 'white')) {
+            const [px, py] = gameToPx(ixToX(toIx(hoverGx)), iyToY(toIy(hoverGy)));
+            ctx.globalAlpha = 0.45;
+            ctx.fillStyle = editTool === 'black' ? '#1a1a1a' : '#f4f1ea';
+            ctx.beginPath();
+            ctx.arc(px, py, radius, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.globalAlpha = 1;
+        }
         for (const key of Object.keys(userBoardMarks)) {
             if (showEstimateActive) continue;
             const [ixs, iys] = key.split(',').map(Number);
@@ -590,7 +600,7 @@ const scoreTitle = document.getElementById('scoreTitle');
 
     function isMyTurn() {
         if (!matchStarted || !mySlot || gameOver) return false;
-        return (mySlot === 'black' && currentPlayer === 1) || (mySlot === 'white' && currentPlayer === 2);
+        return (mySlot === 'player1' && currentPlayer === 1) || (mySlot === 'player2' && currentPlayer === 2);
     }
 
     function updateEstimate() {
@@ -608,7 +618,7 @@ const scoreTitle = document.getElementById('scoreTitle');
 
     function updateTurn() {
         if (matchStarted) matchStartedOnce = true;
-        const both = slots.black && slots.white;
+        const both = slots.player1 && slots.player2;
         if (!matchStarted) turnDisplay.innerText = QiWeiqiSquarePageRuntime.waitingSeatTurnText(slots, mySlot);
         else if (numberOfHands <= 1) turnDisplay.innerText = '初始局面';
         else {
@@ -664,7 +674,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                 const b = makeBoardFromStones(cur);
                 b.stateHistory = [];
                 b.graphHistory = [makeGraph(b)];
-                const pv = m.player === 'black' ? 1 : 2;
+                const pv = m.player === 'player1' ? 1 : 2;
                 const r = tryPlaceOnBoard(b, pv, ixToX(m.ix), iyToY(m.iy));
                 if (r.ok) cur = b.pieces.map(p => ({ ix: p.ix, iy: p.iy, color: p.color }));
                 liveReplayMarkers.push([{ ix: m.ix, iy: m.iy, color: pv }]);
@@ -686,7 +696,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                 const b = makeBoardFromStones(cur);
                 b.stateHistory = [];
                 b.graphHistory = [makeGraph(b)];
-                const pv = m.player === 'black' ? 1 : 2;
+                const pv = m.player === 'player1' ? 1 : 2;
                 const r = tryPlaceOnBoard(b, pv, ixToX(m.ix), iyToY(m.iy));
                 if (r.ok) cur = b.pieces.map(p => ({ ix: p.ix, iy: p.iy, color: p.color }));
                 liveReplayMarkers.push([{ ix: m.ix, iy: m.iy, color: pv }]);
@@ -787,6 +797,27 @@ const scoreTitle = document.getElementById('scoreTitle');
         return true;
     }
 
+    /** 试下：虚着一手（棋盘不变、本步无落子标记），供公共的「虚着」按钮调用 */
+    function tryPlayPass() {
+        if (!tryPlayMode) return false;
+        if (tryPlayStep < tryPlayTotalSteps) {
+            tryPlaySeq.length = tryPlayStep + 1;
+            tryPlayMarkersSeq.length = tryPlayStep + 1;
+        }
+        tryPlaySeq.push(deepCopyStones(stones));
+        tryPlayMarkersSeq.push([]);
+        tryPlayTotalSteps = tryPlaySeq.length - 1;
+        tryPlayStep = tryPlayTotalSteps;
+        tryPlayPlayer = 3 - tryPlayPlayer;
+
+        // 本步无落子：与 setTryPlayStep 落到该步时的效果一致
+        lastMoveMarkers = [];
+
+        updateTryPlayDisplay();
+        drawBoard();
+        return true;
+    }
+
     function setTryPlayStep(step) {
         if (!tryPlayMode) return;
         if (step < 0) step = 0;
@@ -880,13 +911,13 @@ const scoreTitle = document.getElementById('scoreTitle');
                 const b = makeBoardFromStones(cur);
                 b.stateHistory = [];
                 b.graphHistory = [makeGraph(b)];
-                const pv = m.player === 'black' ? 1 : 2;
+                const pv = m.player === 'player1' ? 1 : 2;
                 tryPlaceOnBoard(b, pv, ixToX(m.ix), iyToY(m.iy));
                 cur = b.pieces.map(p => ({ ix: p.ix, iy: p.iy, color: p.color }));
                 replayMarkersSeq.push([{ ix: m.ix, iy: m.iy, color: pv }]);
             } else replayMarkersSeq.push([]);
             replayStonesSeq.push(deepCopyStones(cur));
-            replayStepPlayers.push(m.player === 'black' ? 1 : 2);
+            replayStepPlayers.push(m.player === 'player1' ? 1 : 2);
         }
         replayTotalSteps = replayStonesSeq.length - 1;
         replayMode = true;
@@ -901,7 +932,7 @@ const scoreTitle = document.getElementById('scoreTitle');
     function hideScoreConfirm() { scoreConfirmPanel.style.display = 'none'; }
     function showScoreConfirm(lead) {
         const abs = Math.abs(lead);
-        const t = lead > 0 ? `黑胜${formatScore(abs)}点` : (lead < 0 ? `白胜${formatScore(abs)}点` : '平局');
+        const t = lead > 0 ? `黑胜${formatScore(abs)}点` : (lead < 0 ? `白胜${formatScore(abs)}点` : '和棋');
         scoreConfirmText.innerText = `${t}，是否同意该结果？`;
         scoreConfirmPanel.style.display = 'block';
     }
@@ -944,14 +975,14 @@ const scoreTitle = document.getElementById('scoreTitle');
             get showEstimateActive() { return showEstimateActive; }, set showEstimateActive(v) { showEstimateActive = !!v; },
             get waitingScoreConfirm() { return waitingScoreConfirm; }, set waitingScoreConfirm(v) { waitingScoreConfirm = !!v; },
             get iRejected() { return iRejected; }, set iRejected(v) { iRejected = !!v; },
-            get slots() { return slots; }, set slots(v) { slots = v || { black: false, white: false }; },
+            get slots() { return slots; }, set slots(v) { slots = v || { player1: false, player2: false }; },
             get ws() { return ws; }, set ws(v) { ws = v; },
             get replayMode() { return replayMode; }, set replayMode(v) { replayMode = !!v; },
             get tryPlayMode() { return tryPlayMode; }, set tryPlayMode(v) { tryPlayMode = !!v; },
             get tryPlayStep() { return tryPlayStep; }, set tryPlayStep(v) { tryPlayStep = v; },
             get tryPlayTotalSteps() { return tryPlayTotalSteps; }, set tryPlayTotalSteps(v) { tryPlayTotalSteps = v; }
         },
-        drawBoard, exitTryPlay, enterTryPlay, setTryPlayStep, updateTryPlayDisplay,
+        drawBoard, exitTryPlay, enterTryPlay, tryPlayPass, setTryPlayStep, updateTryPlayDisplay,
         setReplayStep, setLiveViewStep,
         getWs: () => ws,
         getBoardSize: () => boardLength,
@@ -1087,11 +1118,24 @@ const scoreTitle = document.getElementById('scoreTitle');
         applyUserBoardMarkAt(toIx(gx), toIy(gy));
     });
 
+    /** 编辑模式悬停是否可用：与点击落子同一规则（同色子太近则不可放；同格可覆盖） */
+    function editHoverAllowed(gx, gy) {
+        if (editTool !== 'black' && editTool !== 'white') return false;
+        const color = editTool === 'black' ? 1 : 2;
+        const ix = toIx(gx), iy = toIy(gy);
+        for (const s of stones) {
+            if (s.color !== color) continue;
+            if (s.ix === ix && s.iy === iy) continue;
+            if (dist(gx, gy, ixToX(s.ix), iyToY(s.iy)) < MIN_DISTANCE - EPS) return false;
+        }
+        return true;
+    }
+
     canvas.addEventListener('mousemove', (e) => {
         const { x, y } = canvasCoordsFromClient(e.clientX, e.clientY);
         const [gx, gy] = pxToGame(x, y);
         hoverGx = gx; hoverGy = gy;
-        isHoverValid = !editModeEnabled && isLegalHover(gx, gy);
+        isHoverValid = editModeEnabled ? editHoverAllowed(gx, gy) : isLegalHover(gx, gy);
         drawBoard();
         if (showEstimateActive) updateEstimate();
     });

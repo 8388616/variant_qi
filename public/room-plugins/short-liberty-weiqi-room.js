@@ -105,7 +105,7 @@ window.RoomPlugins['short-liberty-weiqi'] = {
             iRejected: false,
             ws: null,
             isMyTurn: false,
-            slots: { black: false, white: false },
+            slots: { player1: false, player2: false },
             reconnectTimer: null,
             replayMode: false,
             replayBoards: [],
@@ -292,7 +292,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             const sel = document.getElementById('subGameSelect');
             if (!sel) return;
             const hasAnyStone = ps.board.some(row => row.some(v => v !== 0));
-            const hasPlayer = ps.slots.black || ps.slots.white;
+            const hasPlayer = ps.slots.player1 || ps.slots.player2;
             // 有子棋类：始终显示；开局（有子/有人入座/对局结束）后锁定不可改，新局时恢复可用
             sel.style.display = 'inline-block';
             sel.disabled = hasAnyStone || hasPlayer || ps.gameOver;

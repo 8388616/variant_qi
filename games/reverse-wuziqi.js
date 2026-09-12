@@ -14,7 +14,7 @@ class ReverseWuziqiRoom extends QiTwoPlayerRoomBase {
         this.pendingNewGame = null;
         this.pendingUndo = null;
         this.pendingDraw = null;
-        this.slotJoinedAt = { black: null, white: null };
+        this.slotJoinedAt = { player1: null, player2: null };
         this.tcNego = null;
         this.tcSettings = null;
         this.tcClock = null;
@@ -73,14 +73,14 @@ class ReverseWuziqiRoom extends QiTwoPlayerRoomBase {
 
     _syncClockAfterTurnChange() {
         if (!this.tcClock || !this.tcClock.timed || this.gameOver) return;
-        const activeSlot = this.currentPlayer === 1 ? 'black' : 'white';
+        const activeSlot = this.currentPlayer === 1 ? 'player1' : 'player2';
         qiMatchTimeControl.setActiveSlot(this.tcClock, activeSlot, Date.now());
         this._broadcastClock();
     }
 
     _drainClockBeforeMove(slot) {
         if (!this.tcClock || !this.tcClock.timed || this.gameOver) return true;
-        const expected = this.currentPlayer === 1 ? 'black' : 'white';
+        const expected = this.currentPlayer === 1 ? 'player1' : 'player2';
         if (slot !== expected) return true;
         const { lostSlot, winnerSlot } = qiMatchTimeControl.drain(this.tcClock, Date.now());
         if (!lostSlot) return true;
@@ -92,21 +92,21 @@ class ReverseWuziqiRoom extends QiTwoPlayerRoomBase {
     }
 
     _firstPickerSlot() {
-        const tb = this.slotJoinedAt.black;
-        const tw = this.slotJoinedAt.white;
-        if (tb == null || tw == null) return 'black';
-        return tb <= tw ? 'black' : 'white';
+        const tb = this.slotJoinedAt.player1;
+        const tw = this.slotJoinedAt.player2;
+        if (tb == null || tw == null) return 'player1';
+        return tb <= tw ? 'player1' : 'player2';
     }
 
     _maybeBeginTimeNegotiation() {
         if (this.moveHistory.length > 0 || this.gameOver) return;
-        if (!this.room.getPlayerBySlot('black') || !this.room.getPlayerBySlot('white')) return;
+        if (!this.room.getPlayerBySlot('player1') || !this.room.getPlayerBySlot('player2')) return;
         if (this.tcNego !== null || this.tcSettings !== null) return;
         const first = this._firstPickerSlot();
         this.tcNego = { phase: 'propose', proposal: null, waitingSlot: first, lastProposerSlot: null };
         const firstWs = this.room.getPlayerBySlot(first);
         if (firstWs) firstWs.send(JSON.stringify({ type: 'timeControlNegotiation', mode: 'propose' }));
-        const other = first === 'black' ? 'white' : 'black';
+        const other = first === 'player1' ? 'player2' : 'player1';
         const otherWs = this.room.getPlayerBySlot(other);
         if (otherWs) otherWs.send(JSON.stringify({ type: 'timeControlWaitPeer', text: '对方正在选择限时规则…' }));
     }
@@ -145,7 +145,7 @@ class ReverseWuziqiRoom extends QiTwoPlayerRoomBase {
         this.matchStarted = true;
         this.tcClock = qiMatchTimeControl.createClock(this.tcSettings, Date.now());
         if (this.tcClock && this.tcClock.timed) {
-            qiMatchTimeControl.setActiveSlot(this.tcClock, this.currentPlayer === 1 ? 'black' : 'white', Date.now());
+            qiMatchTimeControl.setActiveSlot(this.tcClock, this.currentPlayer === 1 ? 'player1' : 'player2', Date.now());
             this._startClockTicker();
             this._broadcastClock();
         } else {
@@ -170,7 +170,7 @@ class ReverseWuziqiRoom extends QiTwoPlayerRoomBase {
         this.tcNego.proposal = valid;
         this.tcNego.lastProposerSlot = slot;
         this.tcNego.phase = 'respond';
-        const other = slot === 'black' ? 'white' : 'black';
+        const other = slot === 'player1' ? 'player2' : 'player1';
         this.tcNego.waitingSlot = other;
         const me = this.room.getPlayerBySlot(slot);
         if (me) me.send(JSON.stringify({ type: 'timeControlWaitPeer', text: '正在等对方确认' }));
@@ -198,8 +198,8 @@ class ReverseWuziqiRoom extends QiTwoPlayerRoomBase {
             moveHistory: this.moveHistory.map(m => ({ player: m.player, row: m.row, col: m.col })),
             moveCoords: this.wireMoveCoords(),
             slots: {
-                black: !!this.room.getPlayerBySlot('black'),
-                white: !!this.room.getPlayerBySlot('white')
+                player1: !!this.room.getPlayerBySlot('player1'),
+                player2: !!this.room.getPlayerBySlot('player2')
             },
             matchTime: {
                 negotiation: this.tcNego,
@@ -223,7 +223,7 @@ class ReverseWuziqiRoom extends QiTwoPlayerRoomBase {
             gameType: '反五子棋',
             gameId: 'reverse-wuziqi',
             boardSize: this.BOARD_SIZE,
-            moves: this.moveHistory.map(m => `${m.player[0].toUpperCase()}${m.row},${m.col}`),
+            moves: this.moveHistory.map(m => `${(m.player === 'player1' ? 'B' : 'W')}${m.row},${m.col}`),
             result: this.gameOver ? this.winner : null
         };
     }
@@ -239,7 +239,7 @@ class ReverseWuziqiRoom extends QiTwoPlayerRoomBase {
         this.pendingNewGame = null;
         this.pendingUndo = null;
         this.pendingDraw = null;
-        this.slotJoinedAt = { black: null, white: null };
+        this.slotJoinedAt = { player1: null, player2: null };
         this.tcNego = null;
         this.tcSettings = null;
         this.tcClock = null;
@@ -253,7 +253,7 @@ class ReverseWuziqiRoom extends QiTwoPlayerRoomBase {
             return false;
         }
         const hasAnyStone = this.board.some(row => row.some(v => v !== 0));
-        const hasPlayer = this.room.getPlayerBySlot('black') || this.room.getPlayerBySlot('white');
+        const hasPlayer = this.room.getPlayerBySlot('player1') || this.room.getPlayerBySlot('player2');
         if (hasAnyStone || hasPlayer) {
             requesterWs.send(JSON.stringify({ type: 'error', message: '已有棋子或玩家，不能改变路数。' }));
             return false;
@@ -283,7 +283,7 @@ class ReverseWuziqiRoom extends QiTwoPlayerRoomBase {
         for (let i = 0; i < rawMoves.length; i++) {
             let entry = rawMoves[i];
             if (typeof entry === 'string') {
-                const player = entry[0] === 'B' ? 'black' : 'white';
+                const player = entry[0] === 'B' ? 'player1' : 'player2';
                 const coords = entry.substring(1).split(',').map(Number);
                 entry = { player, row: coords[0], col: coords[1] };
             }
@@ -295,7 +295,7 @@ class ReverseWuziqiRoom extends QiTwoPlayerRoomBase {
                 this.broadcast({ type: 'roomReset', ...this.getState() });
                 return;
             }
-            const expect = this.currentPlayer === 1 ? 'black' : 'white';
+            const expect = this.currentPlayer === 1 ? 'player1' : 'player2';
             if (slot !== expect) {
                 this.resetToEmpty();
                 requesterWs.send(JSON.stringify({ type: 'error', message: `棋谱回放失败：第${i + 1}手行棋方与局面不符。` }));
@@ -308,7 +308,7 @@ class ReverseWuziqiRoom extends QiTwoPlayerRoomBase {
                 this.broadcast({ type: 'roomReset', ...this.getState() });
                 return;
             }
-            const playerVal = slot === 'black' ? 1 : 2;
+            const playerVal = slot === 'player1' ? 1 : 2;
             this.board[row][col] = playerVal;
             this.lastMoveMarkers = [{ row, col, color: playerVal }];
             this.moveHistory.push({ player: slot, row, col });
@@ -316,7 +316,7 @@ class ReverseWuziqiRoom extends QiTwoPlayerRoomBase {
 
             if (this.checkWin(row, col, playerVal)) {
                 this.gameOver = true;
-                this.winner = slot === 'black' ? 'white' : 'black';
+                this.winner = slot === 'player1' ? 'player2' : 'player1';
                 break;
             }
             if (this.isBoardFull()) {
@@ -338,7 +338,7 @@ class ReverseWuziqiRoom extends QiTwoPlayerRoomBase {
             boardSize: this.BOARD_SIZE,
             replayData: {
                 boardSize: this.BOARD_SIZE,
-                moves: this.moveHistory.map(m => `${m.player[0].toUpperCase()}${m.row},${m.col}`)
+                moves: this.moveHistory.map(m => `${(m.player === 'player1' ? 'B' : 'W')}${m.row},${m.col}`)
             }
         });
     }
@@ -377,7 +377,7 @@ class ReverseWuziqiRoom extends QiTwoPlayerRoomBase {
             case 'move':
                 if (this.gameOver) return;
                 if (!this.matchStarted || this.tcSettings === null || this.tcNego) return;
-                if (!slot || slot !== (this.currentPlayer === 1 ? 'black' : 'white')) return;
+                if (!slot || slot !== (this.currentPlayer === 1 ? 'player1' : 'player2')) return;
                 if (!this._drainClockBeforeMove(slot)) return;
                 const { row, col } = msg;
                 if (row < 0 || row >= this.BOARD_SIZE || col < 0 || col >= this.BOARD_SIZE) return;
@@ -391,7 +391,7 @@ class ReverseWuziqiRoom extends QiTwoPlayerRoomBase {
 
                 if (this.checkWin(row, col, playerVal)) {
                     this.gameOver = true;
-                    this.winner = (slot === 'black') ? 'white' : 'black';
+                    this.winner = (slot === 'player1') ? 'player2' : 'player1';
                     this._stopClockTicker();
                     this.broadcast({ type: 'broadcast', action: 'move', ...this.getState() });
                     return;
@@ -455,7 +455,7 @@ class ReverseWuziqiRoom extends QiTwoPlayerRoomBase {
         this.moveHistory = [];
         this.gameOver = false;
         this.winner = null;
-        this.slotJoinedAt = { black: null, white: null };
+        this.slotJoinedAt = { player1: null, player2: null };
         this.tcNego = null;
         this.tcSettings = null;
         this.tcClock = null;
@@ -467,7 +467,7 @@ class ReverseWuziqiRoom extends QiTwoPlayerRoomBase {
             this.room.observers.add(client);
             client.send(JSON.stringify({ type: 'slotReleased', slot }));
         }
-        this.broadcast({ type: 'newGameStarted', ...this.getState(), slots: { black: false, white: false } });
+        this.broadcast({ type: 'newGameStarted', ...this.getState(), slots: { player1: false, player2: false } });
     }
 
     onPlayerLeave(ws) {

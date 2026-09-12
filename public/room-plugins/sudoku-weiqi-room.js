@@ -332,7 +332,7 @@ window.RoomPlugins['sudoku-weiqi'] = {
 
         function parseMoveString(s) {
             if (typeof s !== 'string' || s.length < 2) return null;
-            const player = s[0] === 'B' ? 'black' : 'white';
+            const player = s[0] === 'B' ? 'player1' : 'player2';
             if (s[1] === 'p') return { type: 'pass', player };
             if (s[1] === '!') {
                 const parts = s.slice(2).split(',');
@@ -415,8 +415,8 @@ window.RoomPlugins['sudoku-weiqi'] = {
             const moves = (movesRaw || []).map(normalizeMove).filter(Boolean);
             let moveCount = 0;
             for (const move of moves) {
-                const playerVal = move.player === 'black' ? 1 : 2;
-                const myBag = move.player === 'black' ? blackBag : whiteBag;
+                const playerVal = move.player === 'player1' ? 1 : 2;
+                const myBag = move.player === 'player1' ? blackBag : whiteBag;
                 moveCount++;
                 if (move.type === 'pass' || move.type === 'invalid') {
                     maybeRefreshBags(blackBag, whiteBag, moveCount, boardSize);
@@ -466,7 +466,7 @@ window.RoomPlugins['sudoku-weiqi'] = {
             iRejected: false,
             ws: null,
             isMyTurn: false,
-            slots: { black: false, white: false },
+            slots: { player1: false, player2: false },
             reconnectTimer: null,
             replayMode: false,
             replayBoards: [],
@@ -546,7 +546,7 @@ window.RoomPlugins['sudoku-weiqi'] = {
         };
 
         function myBagAvail() {
-            if (ps.mySlot === 'white') return ps.whiteBagAvail;
+            if (ps.mySlot === 'player2') return ps.whiteBagAvail;
             return ps.blackBagAvail;
         }
 
@@ -612,8 +612,8 @@ window.RoomPlugins['sudoku-weiqi'] = {
                 }
             }
 
-            fillRow(whiteRow, ps.whiteBagAvail, 'white', ps.mySlot === 'white');
-            fillRow(blackRow, ps.blackBagAvail, 'black', ps.mySlot === 'black');
+            fillRow(whiteRow, ps.whiteBagAvail, 'player2', ps.mySlot === 'player2');
+            fillRow(blackRow, ps.blackBagAvail, 'player1', ps.mySlot === 'player1');
         }
 
         function rebuildLiveReplayFromMoveCoords(moveCoords) {
@@ -643,8 +643,8 @@ window.RoomPlugins['sudoku-weiqi'] = {
             let moveCount = startLen;
             for (let i = startLen; i < mcs.length; i++) {
                 const move = mcs[i];
-                const playerVal = move.player === 'black' ? 1 : 2;
-                const myBag = move.player === 'black' ? blackBag : whiteBag;
+                const playerVal = move.player === 'player1' ? 1 : 2;
+                const myBag = move.player === 'player1' ? blackBag : whiteBag;
                 moveCount++;
                 if (move.type === 'pass' || move.type === 'invalid') {
                     maybeRefreshBags(blackBag, whiteBag, moveCount, boardSize);
@@ -871,8 +871,8 @@ window.RoomPlugins['sudoku-weiqi'] = {
                 if (canHover && ps.board[ps.hoverRow][ps.hoverCol] === 0) {
                     const { x, y } = cellCenter(padding, cellSize, ps.hoverRow, ps.hoverCol, ps.BOARD_SIZE);
                     const hoverColor = ps.tryPlayMode
-                        ? (ps.tryPlayCurrentPlayer === 1 ? '#222' : '#ddd')
-                        : (ps.mySlot === 'black' ? '#222' : '#ddd');
+                        ? (ps.tryPlayCurrentPlayer === 1 ? '#222' : '#fff')
+                        : (ps.mySlot === 'player1' ? '#222' : '#fff');
                     ctx.globalAlpha = 0.45;
                     ctx.beginPath();
                     ctx.arc(x, y, stoneRadius, 0, 2 * Math.PI);
@@ -883,7 +883,7 @@ window.RoomPlugins['sudoku-weiqi'] = {
                         ctx.font = `bold ${fontPx}px Arial`;
                         ctx.textAlign = 'center';
                         ctx.textBaseline = 'middle';
-                        ctx.fillStyle = (ps.tryPlayMode ? ps.tryPlayCurrentPlayer === 1 : ps.mySlot !== 'white')
+                        ctx.fillStyle = (ps.tryPlayMode ? ps.tryPlayCurrentPlayer === 1 : ps.mySlot !== 'player2')
                             ? '#fff' : '#000';
                         ctx.fillText(
                             String(ps.selectedDigit),

@@ -52,7 +52,7 @@ const C = QiSquareWeiqiCanvas;
             iRejected: false,
             ws: null,
             isMyTurn: false,
-            slots: { black: false, white: false },
+            slots: { player1: false, player2: false },
             reconnectTimer: null,
             replayMode: false,
             replayBoards: [],
@@ -246,7 +246,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                     for (let r = 0; r < boardSize; r++) {
                         for (let c = 0; c < boardSize; c++) {
                             if (safeWeightAt(weights, r, c) > highWeightThresh) {
-                                ctx.fillStyle = '#c08d44';
+                                ctx.fillStyle = 'rgba(208, 144, 64, 0.8)';
                                 ctx.fillRect(1 + PADDING + c * CELL_SIZE, 1 + PADDING + (boardSize - 1 - r) * CELL_SIZE, CELL_SIZE - 2, CELL_SIZE - 2);
                             }
                         }
@@ -254,7 +254,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                 } 
 				else if (currentSubGame === 'biweight-weiqi' || currentSubGame === 'triweight-weiqi')
 				{
-                    const wc = { 2: '#ce7857', 3: '#ae3827'};
+                    const wc = { 2: 'rgba(224, 128, 96, 0.8)', 3: 'rgba(192, 48, 32, 0.8)'};
                     for (let r = 0; r < boardSize; r++) {
                         for (let c = 0; c < boardSize; c++) {
                             const w = safeWeightAt(weights, r, c);
@@ -267,7 +267,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                 }
 				else if (currentSubGame === 'quadriweight-weiqi')
 				{
-					const wc = { 2: '#ee9877', 3: '#c6503f', 4: '#9e2817' };
+					const wc = { 2: 'rgba(160, 224, 128, 0.8)', 3: 'rgba(80, 192, 80, 0.8)', 4: 'rgba(16, 128, 32, 0.8)' };
 					for (let r = 0; r < boardSize; r++) {
 						for (let c = 0; c < boardSize; c++) {
 							const w = safeWeightAt(weights, r, c);
@@ -280,7 +280,7 @@ const scoreTitle = document.getElementById('scoreTitle');
 				}
 				else if (currentSubGame === 'quintiweight-weiqi')
 				{
-					const wc = { 2: '#ee9877', 3: '#c6503f', 4: '#9e2817', 5: '#6e1807' };
+					const wc = { 2: 'rgba(144, 176, 240, 0.8)', 3: 'rgba(96, 128, 208, 0.8)', 4: 'rgba(32, 64, 160, 0.8)', 5: 'rgba(0, 16, 128, 0.8)' };
 					for (let r = 0; r < boardSize; r++) {
 						for (let c = 0; c < boardSize; c++) {
 							const w = safeWeightAt(weights, r, c);
@@ -323,7 +323,8 @@ const scoreTitle = document.getElementById('scoreTitle');
                 ctx.fillText(letter, x, y);
             }
             for (let r = 0; r < boardSize; r++) {
-                const number = (boardSize - r).toString();
+                // 左侧坐标自下而上递增：底部为 1、顶部为 boardSize
+                const number = (r + 1).toString();
                 const x = 0.5 * PADDING;
                 const y = PADDING + (boardSize - 1 - r) * CELL_SIZE + CELL_SIZE / 2;
                 ctx.fillText(number, x, y);
@@ -443,17 +444,31 @@ const scoreTitle = document.getElementById('scoreTitle');
                 }
             }
 
-            const canHover = ps.tryPlayMode || (!ps.gameOver && ps.isMyTurn);
-            if (canHover && ps.isHoverValid && ps.hoverRow >= 0 && ps.hoverCol >= 0 && board[ps.hoverRow][ps.hoverCol] === 0) {
-                ctx.globalAlpha = 0.45;
-                const x = PADDING + ps.hoverCol * CELL_SIZE + CELL_SIZE / 2;
-                const y = PADDING + ps.hoverRow * CELL_SIZE + CELL_SIZE / 2;
-                ctx.beginPath();
-                ctx.arc(x, y, CELL_SIZE * 0.38, 0, 2 * Math.PI);
-                const hoverColor = ps.tryPlayMode ? (ps.tryPlayCurrentPlayer === 1 ? '#222' : '#ddd') : (ps.mySlot === 'black' ? '#222' : '#ddd');
-                ctx.fillStyle = hoverColor;
-                ctx.fill();
-                ctx.globalAlpha = 1.0;
+            const editing = !!ps.editModeEnabled;
+            const canHover = editing || ps.tryPlayMode || (!ps.gameOver && ps.isMyTurn);
+            if (canHover && ps.isHoverValid && ps.hoverRow >= 0 && ps.hoverCol >= 0
+                && (editing || board[ps.hoverRow][ps.hoverCol] === 0)) {
+                let hoverColor = null;
+                if (editing) {
+                    const t = ps.editTool || 'empty';
+                    if (t === 'white') hoverColor = '#fff';
+                    else if (t === 'black') hoverColor = '#222';
+                    else if (t !== 'empty') hoverColor = '#666';
+                } else {
+                    hoverColor = ps.tryPlayMode ? (ps.tryPlayCurrentPlayer === 1 ? '#222' : '#ddd')
+                        : (ps.mySlot === 'player1' ? '#222' : '#ddd');
+                }
+                if (hoverColor) {
+                    ctx.globalAlpha = 0.45;
+                    const x = PADDING + ps.hoverCol * CELL_SIZE + CELL_SIZE / 2;
+                    // 行 0 在底：悬停 y 需与落子/棋子绘制同一反转，否则悬停显示到上下对称格
+                    const y = PADDING + (ps.BOARD_SIZE - 1 - ps.hoverRow) * CELL_SIZE + CELL_SIZE / 2;
+                    ctx.beginPath();
+                    ctx.arc(x, y, CELL_SIZE * 0.38, 0, 2 * Math.PI);
+                    ctx.fillStyle = hoverColor;
+                    ctx.fill();
+                    ctx.globalAlpha = 1.0;
+                }
             }
 
             if (ps.showEstimateActive && ps.cachedLiveBoard && ps.cachedTerritory) {
@@ -559,11 +574,51 @@ const scoreTitle = document.getElementById('scoreTitle');
         }
         ps.KOMI = weightKomiForSize(ps.BOARD_SIZE);
 
-        const page = QiWeiqiSquarePageRuntime.create(ps, domPage, {
+                // 标准/变体围棋形势判断：Benson 无条件活加成（保活 + 确定领地覆盖）
+        function bensonRemoveDead(srcBoard) {
+            const RT = window.QiWeiqiSquarePageRuntime;
+            const size = ps.BOARD_SIZE;
+            const copy = (b) => QiSquareWeiqiCanvas.deepCopyBoard(b);
+            const benson = RT.bensonAlive(srcBoard, size);
+            let live = copy(srcBoard);
+            let changed = true;
+            while (changed) {
+                changed = false;
+                const cleaned = RT.removeDeadAndDying(live, size, copy, 2);
+                for (let r = 0; r < size; r++) {
+                    for (let c = 0; c < size; c++) {
+                        const v = srcBoard[r][c];
+                        if (benson.alive[r][c] && (v === 1 || v === 2) && cleaned[r][c] !== v) {
+                            cleaned[r][c] = v;
+                            changed = true;
+                        }
+                    }
+                }
+                live = cleaned;
+            }
+            return live;
+        }
+        function bensonTerritory(liveBoard) {
+            const RT = window.QiWeiqiSquarePageRuntime;
+            const size = ps.BOARD_SIZE;
+            const territory = RT.assignTerritoryWithRange(liveBoard, size);
+            const secure = RT.bensonAlive(liveBoard, size);
+            for (let r = 0; r < size; r++) {
+                for (let c = 0; c < size; c++) {
+                    if (liveBoard[r][c] === 0 && secure.territory[r][c]) territory[r][c] = secure.territory[r][c];
+                }
+            }
+            return territory;
+        }
+
+const page = QiWeiqiSquarePageRuntime.create(ps, domPage, {
             enableEditBoard: true,
             recordDownloadPrefix,
             minLib,
             maxWeakLiberties: 2,
+            removeDeadAndDying: bensonRemoveDead,
+            editPickCell: true,   // 棋子落在格内：编辑点击/悬停按格子命中（公共运行时据此处理）
+            assignTerritoryWithRange: bensonTerritory,
             gameType,
             roomId,
             roomPassword,
@@ -575,6 +630,7 @@ const scoreTitle = document.getElementById('scoreTitle');
         function applyWeightSyncExtras(state) {
             const n = ps.BOARD_SIZE;
             if (state && WEIGHT_SUB_POOLS[state.subGameId] !== undefined) currentSubGame = state.subGameId;
+            else if (state && state.subGameId === 'weight-weiqi') currentSubGame = 'weight-weiqi';
             ps.weights = normalizeWeightMatrix(state.weights || ps.weights, n);
             if (state && typeof state.komi === 'number' && Number.isFinite(state.komi)) ps.KOMI = state.komi;
             else ps.KOMI = weightKomiForSize(n);
@@ -612,12 +668,12 @@ const scoreTitle = document.getElementById('scoreTitle');
                 ps.ws.send(JSON.stringify({ type: 'estimate' }));
                 return;
             }
-            const r = C().computeWeiqiEstimateCaches(
+            const r = C.computeWeiqiEstimateCaches(
                 ps.board, page.removeDeadAndDying, page.assignTerritoryWithRange, weightedComputeScore, ps.KOMI
             );
             ps.cachedLiveBoard = r.cachedLiveBoard;
             ps.cachedTerritory = r.cachedTerritory;
-            C().fillWeiqiEstimatePanel(scoreTitle, scoreBoard, leadInfo, r.blackTotal, r.whiteTotal, r.lead);
+            C.fillWeiqiEstimatePanel(scoreTitle, scoreBoard, leadInfo, r.blackTotal, r.whiteTotal, r.lead);
             page.drawBoard();
         };
 
@@ -880,7 +936,8 @@ syncState,
                 const y = (e.clientY - rect.top) * scale;
                 const { row, col } = getClosestCell(x, y);
                 ps.hoverRow = row; ps.hoverCol = col;
-                ps.isHoverValid = (row >= 0 && col >= 0 && ps.board[row][col] === 0);
+                ps.isHoverValid = (row >= 0 && col >= 0
+                    && (ps.editModeEnabled || ps.board[row][col] === 0));
                 drawBoard();
             });
             canvas.addEventListener('mouseleave', () => {

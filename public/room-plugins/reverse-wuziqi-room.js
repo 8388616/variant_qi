@@ -48,7 +48,7 @@ const ps = {
             iRejected: false,
             ws: null,
             isMyTurn: false,
-            slots: { black: false, white: false },
+            slots: { player1: false, player2: false },
             reconnectTimer: null,
             replayMode: false,
             replayBoards: [],
@@ -180,7 +180,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                 ps.winner = null;
                 if (QiWeiqiSquarePageRuntime.checkWuziqiFiveInRow(ps.board, row, col, playerVal, ps.BOARD_SIZE)) {
                     ps.gameOver = true;
-                    ps.winner = playerVal === 1 ? 'white' : 'black';
+                    ps.winner = playerVal === 1 ? 'player2' : 'player1';
                 }
                 const slider = document.getElementById('replaySlider');
                 slider.max = ps.tryPlayTotalSteps;

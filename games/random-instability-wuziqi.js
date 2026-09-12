@@ -6,7 +6,7 @@ class RandomInstabilityWuziqiRoom extends QiTwoPlayerRoomBase {
         this.board = Array(this.BOARD_SIZE).fill().map(() => Array(this.BOARD_SIZE).fill(0));
         if (this.openingBoard === undefined) this.openingBoard = (typeof this.copyBoard === 'function' ? this.copyBoard(this.board) : (Array.isArray(this.board[0]) ? this.board.map(r => r.slice()) : this.board.slice()));
         this.lifetimes = Array(this.BOARD_SIZE).fill().map(() => Array(this.BOARD_SIZE).fill(0));
-        this.currentPlayer = 'black';
+        this.currentPlayer = 'player1';
         this.moveCount = 0;
         this.nextLifetimePreview = 0;
         this.gameOver = false;
@@ -19,7 +19,7 @@ class RandomInstabilityWuziqiRoom extends QiTwoPlayerRoomBase {
         this.pendingUndo = null;
         this.pendingDraw = null;
         this.matchStarted = false;
-        this.slotJoinedAt = { black: null, white: null };
+        this.slotJoinedAt = { player1: null, player2: null };
         this.tcNego = null;
         this.tcSettings = null;
         this.tcClock = null;
@@ -78,21 +78,21 @@ class RandomInstabilityWuziqiRoom extends QiTwoPlayerRoomBase {
     }
 
     _firstPickerSlot() {
-        const tb = this.slotJoinedAt.black;
-        const tw = this.slotJoinedAt.white;
-        if (tb == null || tw == null) return 'black';
-        return tb <= tw ? 'black' : 'white';
+        const tb = this.slotJoinedAt.player1;
+        const tw = this.slotJoinedAt.player2;
+        if (tb == null || tw == null) return 'player1';
+        return tb <= tw ? 'player1' : 'player2';
     }
 
     _maybeBeginTimeNegotiation() {
         if (this.moveLog.length > 0 || this.gameOver) return;
-        if (!this.room.getPlayerBySlot('black') || !this.room.getPlayerBySlot('white')) return;
+        if (!this.room.getPlayerBySlot('player1') || !this.room.getPlayerBySlot('player2')) return;
         if (this.tcNego || this.tcSettings) return;
         const first = this._firstPickerSlot();
         this.tcNego = { phase: 'propose', proposal: null, waitingSlot: first };
         const ws = this.room.getPlayerBySlot(first);
         if (ws) ws.send(JSON.stringify({ type: 'timeControlNegotiation', mode: 'propose' }));
-        const other = first === 'black' ? 'white' : 'black';
+        const other = first === 'player1' ? 'player2' : 'player1';
         const ws2 = this.room.getPlayerBySlot(other);
         if (ws2) ws2.send(JSON.stringify({ type: 'timeControlWaitPeer', text: '对方正在选择限时规则…' }));
     }
@@ -112,7 +112,7 @@ class RandomInstabilityWuziqiRoom extends QiTwoPlayerRoomBase {
         }
         this.tcNego.proposal = v;
         this.tcNego.phase = 'respond';
-        const other = slot === 'black' ? 'white' : 'black';
+        const other = slot === 'player1' ? 'player2' : 'player1';
         this.tcNego.waitingSlot = other;
         ws.send(JSON.stringify({ type: 'timeControlWaitPeer', text: '正在等对方确认' }));
         const otherWs = this.room.getPlayerBySlot(other);
@@ -196,8 +196,8 @@ class RandomInstabilityWuziqiRoom extends QiTwoPlayerRoomBase {
                     : (this.tcSettings && this.tcSettings.timed === false ? { timed: false, ruleLine: '本局不限时' } : null)
             },
             slots: {
-                black: !!this.room.getPlayerBySlot('black'),
-                white: !!this.room.getPlayerBySlot('white')
+                player1: !!this.room.getPlayerBySlot('player1'),
+                player2: !!this.room.getPlayerBySlot('player2')
             }
         };
     }
@@ -207,7 +207,7 @@ class RandomInstabilityWuziqiRoom extends QiTwoPlayerRoomBase {
     }
 
     static encodeMove(m) {
-        const h = m.player === 'black' ? 'B' : 'W';
+        const h = m.player === 'player1' ? 'B' : 'W';
         if (m.type === 'pass') {
             return m.nextPreview != null ? `${h}p,${m.nextPreview}` : `${h}p`;
         }
@@ -235,7 +235,7 @@ class RandomInstabilityWuziqiRoom extends QiTwoPlayerRoomBase {
         if (typeof entry !== 'string' || entry.length < 2) return null;
         const head = entry[0];
         if (head !== 'B' && head !== 'W') return null;
-        const player = head === 'B' ? 'black' : 'white';
+        const player = head === 'B' ? 'player1' : 'player2';
         if (entry[1] === 'p') {
             let nextPreview = null;
             if (entry.length > 2 && entry[2] === ',') {
@@ -268,7 +268,7 @@ class RandomInstabilityWuziqiRoom extends QiTwoPlayerRoomBase {
         const snapshots = [];
         let board = Array(size).fill().map(() => Array(size).fill(0));
         let lifetimes = Array(size).fill().map(() => Array(size).fill(0));
-        let currentPlayer = 'black';
+        let currentPlayer = 'player1';
         let moveCount = 0;
         const norm = (e) => RandomInstabilityWuziqiRoom.parseMoveEntry(e);
         let nextPreview;
@@ -341,7 +341,7 @@ class RandomInstabilityWuziqiRoom extends QiTwoPlayerRoomBase {
                     });
                     break;
                 }
-                currentPlayer = currentPlayer === 'black' ? 'white' : 'black';
+                currentPlayer = currentPlayer === 'player1' ? 'player2' : 'player1';
                 moveCount++;
                 snapshots.push({
                     board: board.map(r => r.slice()),
@@ -359,7 +359,7 @@ class RandomInstabilityWuziqiRoom extends QiTwoPlayerRoomBase {
             const lifetimePlaced = m.lifetime;
             if (lifetimePlaced !== nextPreview) return null;
 
-            const playerVal = slot === 'black' ? 1 : 2;
+            const playerVal = slot === 'player1' ? 1 : 2;
             board[m.row][m.col] = playerVal;
             lifetimes[m.row][m.col] = lifetimePlaced;
             lastMoveMarkers = [{ row: m.row, col: m.col, color: playerVal }];
@@ -394,7 +394,7 @@ class RandomInstabilityWuziqiRoom extends QiTwoPlayerRoomBase {
                 break;
             }
 
-            currentPlayer = currentPlayer === 'black' ? 'white' : 'black';
+            currentPlayer = currentPlayer === 'player1' ? 'player2' : 'player1';
             moveCount++;
             if (i + 1 < moves.length) {
                 const mn = norm(moves[i + 1]);
@@ -440,7 +440,7 @@ class RandomInstabilityWuziqiRoom extends QiTwoPlayerRoomBase {
     resetToEmpty() {
         this.board = Array(this.BOARD_SIZE).fill().map(() => Array(this.BOARD_SIZE).fill(0));
         this.lifetimes = Array(this.BOARD_SIZE).fill().map(() => Array(this.BOARD_SIZE).fill(0));
-        this.currentPlayer = 'black';
+        this.currentPlayer = 'player1';
         this.moveCount = 0;
         this.gameOver = false;
         this.winner = null;
@@ -452,7 +452,7 @@ class RandomInstabilityWuziqiRoom extends QiTwoPlayerRoomBase {
         this.pendingUndo = null;
         this.pendingDraw = null;
         this.matchStarted = false;
-        this.slotJoinedAt = { black: null, white: null };
+        this.slotJoinedAt = { player1: null, player2: null };
         this.tcNego = null;
         this.tcSettings = null;
         this.tcClock = null;
@@ -466,7 +466,7 @@ class RandomInstabilityWuziqiRoom extends QiTwoPlayerRoomBase {
             return false;
         }
         const hasAnyStone = this.board.some(row => row.some(v => v !== 0));
-        const hasPlayer = this.room.getPlayerBySlot('black') || this.room.getPlayerBySlot('white');
+        const hasPlayer = this.room.getPlayerBySlot('player1') || this.room.getPlayerBySlot('player2');
         if (hasAnyStone || hasPlayer) {
             requesterWs.send(JSON.stringify({ type: 'error', message: '已有棋子或玩家，不能改变棋盘大小。' }));
             return false;
@@ -493,7 +493,7 @@ class RandomInstabilityWuziqiRoom extends QiTwoPlayerRoomBase {
         this.BOARD_SIZE = newSize;
         this.board = Array(this.BOARD_SIZE).fill().map(() => Array(this.BOARD_SIZE).fill(0));
         this.lifetimes = Array(this.BOARD_SIZE).fill().map(() => Array(this.BOARD_SIZE).fill(0));
-        this.currentPlayer = 'black';
+        this.currentPlayer = 'player1';
         this.moveCount = 0;
         this.gameOver = false;
         this.winner = null;
@@ -562,7 +562,7 @@ class RandomInstabilityWuziqiRoom extends QiTwoPlayerRoomBase {
                     previewBefore,
                     nextPreview: this.nextLifetimePreview
                 });
-                this.currentPlayer = this.currentPlayer === 'black' ? 'white' : 'black';
+                this.currentPlayer = this.currentPlayer === 'player1' ? 'player2' : 'player1';
                 this.moveCount++;
                 if (this._trailingPassCount() >= 2) {
                     this.gameOver = true;
@@ -587,7 +587,7 @@ class RandomInstabilityWuziqiRoom extends QiTwoPlayerRoomBase {
                 return;
             }
 
-            const playerVal = slot === 'black' ? 1 : 2;
+            const playerVal = slot === 'player1' ? 1 : 2;
             this.board[row][col] = playerVal;
             this.lifetimes[row][col] = this.nextLifetimePreview;
             this.lastMoveMarkers = [{ row, col, color: playerVal }];
@@ -621,7 +621,7 @@ class RandomInstabilityWuziqiRoom extends QiTwoPlayerRoomBase {
                 break;
             }
 
-            this.currentPlayer = this.currentPlayer === 'black' ? 'white' : 'black';
+            this.currentPlayer = this.currentPlayer === 'player1' ? 'player2' : 'player1';
             this.moveCount++;
 
             let np = null;
@@ -690,7 +690,7 @@ class RandomInstabilityWuziqiRoom extends QiTwoPlayerRoomBase {
         this.lifetimes = this.copyLifetimes(this.historyLifetimes.pop());
         this.moveLog.pop();
         this.lastMoveMarkers = [];
-        this.currentPlayer = (this.currentPlayer === 'black') ? 'white' : 'black';
+        this.currentPlayer = (this.currentPlayer === 'player1') ? 'player2' : 'player1';
         this.moveCount--;
         this.generateNextPreview();
         this.broadcast({ type: 'broadcast', action: 'undoAccept', ...this.getState() });
@@ -744,7 +744,7 @@ class RandomInstabilityWuziqiRoom extends QiTwoPlayerRoomBase {
 
                 this.decrementLifetimesAndRemove();
 
-                const playerVal = slot === 'black' ? 1 : 2;
+                const playerVal = slot === 'player1' ? 1 : 2;
                 this.board[row][col] = playerVal;
                 this.lifetimes[row][col] = this.nextLifetimePreview;
                 this.lastMoveMarkers = [{ row, col, color: playerVal }];
@@ -805,7 +805,7 @@ class RandomInstabilityWuziqiRoom extends QiTwoPlayerRoomBase {
                     return;
                 }
 
-                this.currentPlayer = (this.currentPlayer === 'black') ? 'white' : 'black';
+                this.currentPlayer = (this.currentPlayer === 'player1') ? 'player2' : 'player1';
                 this.moveCount++;
                 this.generateNextPreview();
                 this._syncClockAfterTurnChange();
@@ -852,7 +852,7 @@ class RandomInstabilityWuziqiRoom extends QiTwoPlayerRoomBase {
                         previewBefore,
                         nextPreview: this.nextLifetimePreview
                     });
-                    this.currentPlayer = (this.currentPlayer === 'black') ? 'white' : 'black';
+                    this.currentPlayer = (this.currentPlayer === 'player1') ? 'player2' : 'player1';
                     this.moveCount++;
                     if (this._trailingPassCount() >= 2) {
                         this.gameOver = true;
@@ -928,7 +928,7 @@ class RandomInstabilityWuziqiRoom extends QiTwoPlayerRoomBase {
         this._stopClockTicker();
         this.board = Array(this.BOARD_SIZE).fill().map(() => Array(this.BOARD_SIZE).fill(0));
         this.lifetimes = Array(this.BOARD_SIZE).fill().map(() => Array(this.BOARD_SIZE).fill(0));
-        this.currentPlayer = 'black';
+        this.currentPlayer = 'player1';
         this.moveCount = 0;
         this.gameOver = false;
         this.winner = null;
@@ -937,7 +937,7 @@ class RandomInstabilityWuziqiRoom extends QiTwoPlayerRoomBase {
         this.lastMoveMarkers = [];
         this.moveLog = [];
         this.matchStarted = false;
-        this.slotJoinedAt = { black: null, white: null };
+        this.slotJoinedAt = { player1: null, player2: null };
         this.tcNego = null;
         this.tcSettings = null;
         this.tcClock = null;
@@ -958,7 +958,7 @@ class RandomInstabilityWuziqiRoom extends QiTwoPlayerRoomBase {
             currentPlayer: this.currentPlayer,
             moveCount: this.moveCount,
             nextLifetimePreview: this.nextLifetimePreview,
-            slots: { black: false, white: false }
+            slots: { player1: false, player2: false }
         });
     }
 

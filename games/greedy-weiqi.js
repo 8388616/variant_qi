@@ -36,7 +36,7 @@ class GreedyWeiqiRoom extends QiTwoPlayerRoomBase
         this.moveCoords = [];
         this.recordResultText = null;
         /** @type {{ black: number|null, white: number|null }} */
-        this.slotJoinedAt = { black: null, white: null };
+        this.slotJoinedAt = { player1: null, player2: null };
         this.tcNego = null;
         /** @type {{ timed: boolean, mainMinutes?: number, byoyomiSeconds?: number, maxTimeouts?: number }|null} */
         this.tcSettings = null;
@@ -88,16 +88,16 @@ class GreedyWeiqiRoom extends QiTwoPlayerRoomBase
     }
 
     _firstPickerSlot() {
-        const tb = this.slotJoinedAt.black;
-        const tw = this.slotJoinedAt.white;
-        if (tb == null || tw == null) return 'black';
-        return tb <= tw ? 'black' : 'white';
+        const tb = this.slotJoinedAt.player1;
+        const tw = this.slotJoinedAt.player2;
+        if (tb == null || tw == null) return 'player1';
+        return tb <= tw ? 'player1' : 'player2';
     }
 
     _maybeBeginTimeNegotiation() {
         if (this.moveHistory.length > 0 || this.gameOver) return;
         const room = this.room;
-        if (!room.getPlayerBySlot('black') || !room.getPlayerBySlot('white')) return;
+        if (!room.getPlayerBySlot('player1') || !room.getPlayerBySlot('player2')) return;
         if (this.tcNego !== null) return;
         if (this.tcSettings !== null) return;
         const first = this._firstPickerSlot();
@@ -109,7 +109,7 @@ class GreedyWeiqiRoom extends QiTwoPlayerRoomBase
         };
         const ws = room.getPlayerBySlot(first);
         if (ws) ws.send(JSON.stringify({ type: 'timeControlNegotiation', mode: 'propose' }));
-        const other = first === 'black' ? 'white' : 'black';
+        const other = first === 'player1' ? 'player2' : 'player1';
         const ws2 = room.getPlayerBySlot(other);
         if (ws2) ws2.send(JSON.stringify({ type: 'timeControlWaitPeer', text: '等待对方设置限时规则...' }));
     }
@@ -133,7 +133,7 @@ class GreedyWeiqiRoom extends QiTwoPlayerRoomBase
         const now = Date.now();
         this.tcClock = qiMatchTimeControl.createClock(this.tcSettings, now);
         if (this.tcClock.timed) {
-            qiMatchTimeControl.setActiveSlot(this.tcClock, this.currentPlayer === 1 ? 'black' : 'white', now);
+            qiMatchTimeControl.setActiveSlot(this.tcClock, this.currentPlayer === 1 ? 'player1' : 'player2', now);
             this._startClockTicker();
             this._broadcastClock();
         } else {
@@ -177,7 +177,7 @@ class GreedyWeiqiRoom extends QiTwoPlayerRoomBase
             this.tcNego.proposal = v;
             this.tcNego.lastProposerSlot = slot;
             this.tcNego.phase = 'respond';
-            const other = slot === 'black' ? 'white' : 'black';
+            const other = slot === 'player1' ? 'player2' : 'player1';
             this.tcNego.waitingSlot = other;
             room.getPlayerBySlot(slot).send(JSON.stringify({ type: 'timeControlWaitPeer', text: '等待对方确认...' }));
             this._sendRespondDialog(other, v);
@@ -187,7 +187,7 @@ class GreedyWeiqiRoom extends QiTwoPlayerRoomBase
             if (slot !== this.tcNego.waitingSlot) return;
             this.tcNego.proposal = v;
             this.tcNego.lastProposerSlot = slot;
-            const other = slot === 'black' ? 'white' : 'black';
+            const other = slot === 'player1' ? 'player2' : 'player1';
             this.tcNego.waitingSlot = other;
             this.tcNego.phase = 'respond';
             room.getPlayerBySlot(slot).send(JSON.stringify({ type: 'timeControlWaitPeer', text: '等待对方确认...' }));
@@ -209,13 +209,13 @@ class GreedyWeiqiRoom extends QiTwoPlayerRoomBase
         if (!this.matchStarted) return false;
         if (this.tcNego || this.tcSettings === null) return false;
         if (!this.tcClock || !this.tcClock.timed) return true;
-        const expect = this.currentPlayer === 1 ? 'black' : 'white';
+        const expect = this.currentPlayer === 1 ? 'player1' : 'player2';
         return slot === expect;
     }
 
     _drainClockBeforeMove(slot) {
         if (!this.tcClock || !this.tcClock.timed || this.gameOver) return true;
-        const expect = this.currentPlayer === 1 ? 'black' : 'white';
+        const expect = this.currentPlayer === 1 ? 'player1' : 'player2';
         if (slot !== expect) return true;
         const { lostSlot, winnerSlot } = qiMatchTimeControl.drain(this.tcClock, Date.now());
         if (lostSlot) {
@@ -237,7 +237,7 @@ class GreedyWeiqiRoom extends QiTwoPlayerRoomBase
 
     _syncClockAfterTurnChange() {
         if (!this.tcClock || !this.tcClock.timed || this.gameOver) return;
-        const slot = this.currentPlayer === 1 ? 'black' : 'white';
+        const slot = this.currentPlayer === 1 ? 'player1' : 'player2';
         qiMatchTimeControl.setActiveSlot(this.tcClock, slot, Date.now());
         this._broadcastClock();
     }
@@ -351,24 +351,48 @@ class GreedyWeiqiRoom extends QiTwoPlayerRoomBase
 
     computeLead()
     {
-        const liveBoard = this.removeDeadAndDying(this.board);
+        // Benson 加成：保活无条件活棋链 + 确定领地覆盖（其余保持原启发式）
+        const size = this.boardSize;
+        const benson = squareWeiqiRules.bensonAlive(this.board, size);
+        let liveBoard = this.board.map((row) => row.slice());
+        let changed = true;
+        while (changed) {
+            changed = false;
+            const cleaned = this.removeDeadAndDying(liveBoard);
+            for (let r = 0; r < size; r++) {
+                for (let c = 0; c < size; c++) {
+                    const v = this.board[r][c];
+                    if (benson.alive[r][c] && (v === 1 || v === 2) && cleaned[r][c] !== v) {
+                        cleaned[r][c] = v;
+                        changed = true;
+                    }
+                }
+            }
+            liveBoard = cleaned;
+        }
         const territory = this.assignTerritoryWithRange(liveBoard);
+        const secure = squareWeiqiRules.bensonAlive(liveBoard, size);
+        for (let r = 0; r < size; r++) {
+            for (let c = 0; c < size; c++) {
+                if (liveBoard[r][c] === 0 && secure.territory[r][c]) territory[r][c] = secure.territory[r][c];
+            }
+        }
         const { blackTotal, whiteTotal } = this.computeScore(liveBoard, territory);
         const KOMI = komiForSize(this.boardSize);
         return blackTotal - whiteTotal - 2 * KOMI;
     }
 
     onResignResolved(resignSlot) {
-        this.recordResultText = resignSlot === 'black' ? '白中盘胜' : '黑中盘胜';
+        this.recordResultText = resignSlot === 'player1' ? '白中盘胜' : '黑中盘胜';
     }
 
     onDrawResolved() {
-        this.recordResultText = '和胜';
+        this.recordResultText = '和棋';
     }
 
     setScoreResultTextByLead(lead) {
         if (!Number.isFinite(lead) || lead === 0) {
-            this.recordResultText = '和胜';
+            this.recordResultText = '和棋';
             return;
         }
         const winnerSide = lead > 0 ? '黑' : '白';
@@ -376,16 +400,16 @@ class GreedyWeiqiRoom extends QiTwoPlayerRoomBase
     }
 
     setTimeLossResultText(lostSlot) {
-        if (lostSlot === 'black') this.recordResultText = '黑超时白胜';
-        else if (lostSlot === 'white') this.recordResultText = '白超时黑胜';
+        if (lostSlot === 'player1') this.recordResultText = '黑方超时，白胜';
+        else if (lostSlot === 'player2') this.recordResultText = '白方超时，黑胜';
     }
 
     static parseResultTextToWinner(resultText) {
         if (!resultText || typeof resultText !== 'string') return null;
-        if (resultText === '和胜' || resultText === 'draw' || resultText === '平局') return 'draw';
-        if (resultText.includes('白胜')) return 'white';
-        if (resultText.includes('黑胜')) return 'black';
-        if (resultText === 'black' || resultText === 'white' || resultText === 'draw') return resultText;
+        if (resultText === '和棋' || resultText === 'draw') return 'draw';
+        if (resultText.includes('白胜')) return 'player2';
+        if (resultText.includes('黑胜')) return 'player1';
+        if (resultText === 'player1' || resultText === 'player2' || resultText === 'draw') return resultText;
         return null;
     }
 
@@ -407,8 +431,8 @@ class GreedyWeiqiRoom extends QiTwoPlayerRoomBase
             moveCoords: this.moveCoords,
             candidates: this.collectMaxCaptureCandidates(),
             slots: {
-                black: !!this.room.getPlayerBySlot('black'),
-                white: !!this.room.getPlayerBySlot('white')
+                player1: !!this.room.getPlayerBySlot('player1'),
+                player2: !!this.room.getPlayerBySlot('player2')
             },
             matchTime: {
                 negotiation: this.tcNego,
@@ -439,8 +463,8 @@ class GreedyWeiqiRoom extends QiTwoPlayerRoomBase
             winner: this.winner,
             moveCoords: [],
             slots: {
-                black: !!this.room.getPlayerBySlot('black'),
-                white: !!this.room.getPlayerBySlot('white')
+                player1: !!this.room.getPlayerBySlot('player1'),
+                player2: !!this.room.getPlayerBySlot('player2')
             },
             matchTime: {
                 negotiation: this.tcNego,
@@ -495,7 +519,7 @@ class GreedyWeiqiRoom extends QiTwoPlayerRoomBase
                     return;
                 }
                 if (this.gameOver) break;
-                if (!moveSlot || moveSlot !== (this.currentPlayer === 1 ? 'black' : 'white')) break;
+                if (!moveSlot || moveSlot !== (this.currentPlayer === 1 ? 'player1' : 'player2')) break;
                 const { row, col } = msg;
                 if (Number.isInteger(row) && Number.isInteger(col)
                     && row >= 0 && row < this.boardSize && col >= 0 && col < this.boardSize
@@ -563,7 +587,7 @@ class GreedyWeiqiRoom extends QiTwoPlayerRoomBase
 
             case 'requestEnd':
                 if (!slot) return;
-                const endOpponent = room.getPlayerBySlot(slot === 'black' ? 'white' : 'black');
+                const endOpponent = room.getPlayerBySlot(slot === 'player1' ? 'player2' : 'player1');
                 if (!endOpponent) {
                     this.startScoreCounting(ws, ws);
                 } else {
@@ -589,7 +613,7 @@ class GreedyWeiqiRoom extends QiTwoPlayerRoomBase
                         if (this.pendingScore.agreed.size === 2) {
                             const lead = this.scoreProposalData.lead;
                             this.gameOver = true;
-                            this.winner = lead > 0 ? 'black' : (lead < 0 ? 'white' : 'draw');
+                            this.winner = lead > 0 ? 'player1' : (lead < 0 ? 'player2' : 'draw');
                             this.setScoreResultTextByLead(lead);
                             this.broadcast({ type: 'scoreAgreed', winner: this.winner, lead });
                             this.pendingScore = null;
@@ -658,7 +682,7 @@ class GreedyWeiqiRoom extends QiTwoPlayerRoomBase
     resetGame()
     {
         this._stopClockTicker();
-        this.slotJoinedAt = { black: null, white: null };
+        this.slotJoinedAt = { player1: null, player2: null };
         this.tcNego = null;
         this.tcSettings = null;
         this.tcClock = null;
@@ -684,7 +708,7 @@ class GreedyWeiqiRoom extends QiTwoPlayerRoomBase
             this.room.observers.add(client);
             client.send(JSON.stringify({ type: 'slotReleased', slot }));
         }
-        this.broadcast({ type: 'newGameStarted', ...this.getState(), slots: { black: false, white: false } });
+        this.broadcast({ type: 'newGameStarted', ...this.getState(), slots: { player1: false, player2: false } });
     }
 
     setBoardSize(newSize, requesterWs)
@@ -694,7 +718,7 @@ class GreedyWeiqiRoom extends QiTwoPlayerRoomBase
             return false;
         }
         const hasAnyStone = this.board.some(row => row.some(v => v !== 0));
-        const hasPlayer = this.room.getPlayerBySlot('black') || this.room.getPlayerBySlot('white');
+        const hasPlayer = this.room.getPlayerBySlot('player1') || this.room.getPlayerBySlot('player2');
         if (hasAnyStone || hasPlayer) {
 
             return false;
@@ -710,9 +734,9 @@ class GreedyWeiqiRoom extends QiTwoPlayerRoomBase
         let resultText = null;
         if (this.gameOver) {
             if (this.recordResultText) resultText = this.recordResultText;
-            else if (this.winner === 'draw') resultText = '和胜';
-            else if (this.winner === 'black') resultText = '黑胜';
-            else if (this.winner === 'white') resultText = '白胜';
+            else if (this.winner === 'draw') resultText = '和棋';
+            else if (this.winner === 'player1') resultText = '黑胜';
+            else if (this.winner === 'player2') resultText = '白胜';
         }
         return {
             format: 'muzei',
@@ -721,10 +745,10 @@ class GreedyWeiqiRoom extends QiTwoPlayerRoomBase
             gameId: 'greedy-weiqi',
             boardSize: this.boardSize,
             komi: komiForSize(this.boardSize),
-            players: { black: null, white: null },
+            players: { player1: null, player2: null },
             initialPosition: encodeOpeningPositionCompact(this),
             moves: this.moveCoords.map(m => {
-                const p = m.player === 'black' ? 'B' : 'W';
+                const p = m.player === 'player1' ? 'B' : 'W';
                 return m.type === 'pass' ? p + 'p' : p + m.row + ',' + m.col;
             }),
             timeControl: (this.tcSettings && this.tcSettings.timed) ? `S${this.tcSettings.mainMinutes || 0},${this.tcSettings.byoyomiSeconds || 0},${this.tcSettings.maxTimeouts || 0}` : null,
@@ -734,7 +758,7 @@ class GreedyWeiqiRoom extends QiTwoPlayerRoomBase
 
     resetToEmpty() {
         this._stopClockTicker();
-        this.slotJoinedAt = { black: null, white: null };
+        this.slotJoinedAt = { player1: null, player2: null };
         this.tcNego = null;
         this.tcSettings = null;
         this.tcClock = null;
@@ -763,7 +787,7 @@ class GreedyWeiqiRoom extends QiTwoPlayerRoomBase
 
     static parseMove(entry) {
         if (typeof entry === 'string') {
-            const player = entry[0] === 'B' ? 'black' : 'white';
+            const player = entry[0] === 'B' ? 'player1' : 'player2';
             if (entry[1] === 'p') return { type: 'pass', player };
             const coords = entry.substring(1).split(',').map(Number);
             return { type: 'move', player, row: coords[0], col: coords[1] };
@@ -793,7 +817,7 @@ class GreedyWeiqiRoom extends QiTwoPlayerRoomBase
         for (let i = 0; i < moves.length; i++) {
             const move = moves[i];
             const slot = move.player;
-            const playerVal = slot === 'black' ? 1 : 2;
+            const playerVal = slot === 'player1' ? 1 : 2;
             if (move.type === 'move') {
                 const { row, col } = move;
                 if (row < 0 || row >= this.boardSize || col < 0 || col >= this.boardSize) {
@@ -850,7 +874,7 @@ class GreedyWeiqiRoom extends QiTwoPlayerRoomBase
             const importedResultText = data.resultText != null ? String(data.resultText) : String(data.result);
             this.recordResultText = importedResultText;
             this.winner = GreedyWeiqiRoom.parseResultTextToWinner(importedResultText);
-            if (!this.winner && (data.result === 'black' || data.result === 'white' || data.result === 'draw'))
+            if (!this.winner && (data.result === 'player1' || data.result === 'player2' || data.result === 'draw'))
                 this.winner = data.result;
         }
 

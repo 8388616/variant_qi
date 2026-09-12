@@ -70,7 +70,7 @@ function checkTenInRow(board, row, col, colorVal, boardSize) {
                 winner: null
             });
             for (const m of history) {
-                const pv = m.player === 'black' ? 1 : 2;
+                const pv = m.player === 'player1' ? 1 : 2;
                 const placed = deepCopyBoard(board);
                 placed[m.row][m.col] = pv;
                 let finalBoard = placed;
@@ -126,7 +126,7 @@ function checkTenInRow(board, row, col, colorVal, boardSize) {
             iRejected: false,
             ws: null,
             isMyTurn: false,
-            slots: { black: false, white: false },
+            slots: { player1: false, player2: false },
             reconnectTimer: null,
             replayMode: false,
             replayBoards: [],
@@ -263,7 +263,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                 ps.winner = null;
                 if (checkTenInRow(placed, row, col, playerVal, ps.BOARD_SIZE)) {
                     ps.gameOver = true;
-                    ps.winner = playerVal === 1 ? 'black' : 'white';
+                    ps.winner = playerVal === 1 ? 'player1' : 'player2';
                 }
                 const slider = document.getElementById('replaySlider');
                 slider.max = ps.tryPlayTotalSteps;

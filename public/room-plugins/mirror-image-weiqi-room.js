@@ -44,7 +44,7 @@ const C = QiSquareWeiqiCanvas, R = QiWeiqiSquarePageRuntime;
         var ps = {
             BOARD_SIZE: 19, KOMI: 4.25, PADDING: 0, CELL_SIZE: 0, numberOfHands: 1, currentPlayer: 1, mySlot: null, gameOver: false, winner: null,
             lastMoveMarkers: [], showEstimateActive: false, cachedLiveBoard: null, cachedTerritory: null, waitingScoreConfirm: false, iRejected: false,
-            ws: null, isMyTurn: false, slots: { black: false, white: false }, reconnectTimer: null,
+            ws: null, isMyTurn: false, slots: { player1: false, player2: false }, reconnectTimer: null,
             replayMode: false, replayBoards: [], replayMarkers: [], replayStepPlayers: [], replayMirrorAxes: [], replayStep: 0, replayTotalSteps: 0,
             showMoveNumbers: false, moveLog: [],
             tryPlayMode: false, tryPlayBaseStep: 0, tryPlayBoards: [], tryPlayMarkers: [], tryPlayCurrentPlayer: 1, tryPlayMirrorAxis: 'diag1',
@@ -115,7 +115,7 @@ const scoreTitle = document.getElementById('scoreTitle'), scoreBoard = document.
             ps.liveReplayBoards.push(dc(cur)); ps.liveReplayMarkers.push([]);
             let curAx = 'diag1';
             for (const mv of (mc || [])) {
-                const pv = mv.player === 'black' ? 1 : 2;
+                const pv = mv.player === 'player1' ? 1 : 2;
                 ps.liveReplayStepPlayers.push(pv);
                 if (mv.type === 'move') {
                     const ax = mv.mirrorAxis || curAx;
@@ -146,7 +146,7 @@ const scoreTitle = document.getElementById('scoreTitle'), scoreBoard = document.
             if (lastAx) curAx = nextAxis(ps.liveReplayBoards.length);
             for (let i = startLen; i < mcs.length; i++) {
                 const mv = mcs[i];
-                const pv = mv.player === 'black' ? 1 : 2;
+                const pv = mv.player === 'player1' ? 1 : 2;
                 ps.liveReplayStepPlayers.push(pv);
                 if (mv.type === 'move') {
                     const ax = mv.mirrorAxis || curAx;
@@ -328,7 +328,7 @@ const scoreTitle = document.getElementById('scoreTitle'), scoreBoard = document.
             } else if (!ps.tryPlayMode) {
                 ps.board = state.board; ps.lastMoveMarkers = state.lastMoveMarkers || []; ps.mirrorAxis = state.mirrorAxis || 'diag1';
             }
-            const hasS = ps.board.some(row => row.some(v => v !== 0)), hasP = ps.slots.black || ps.slots.white;
+            const hasS = ps.board.some(row => row.some(v => v !== 0)), hasP = ps.slots.player1 || ps.slots.player2;
             const sel = document.getElementById('boardSizeSelect');
             if (!hasS && !hasP && !ps.gameOver && ps.mySlot === null) sel.style.display = 'inline-block'; else sel.style.display = 'none';
             if (ps.showEstimateActive) { ps.cachedLiveBoard = page.removeDeadAndDying(ps.board); ps.cachedTerritory = page.assignTerritoryWithRange(ps.cachedLiveBoard); page.showEstimate(); }
@@ -336,8 +336,46 @@ const scoreTitle = document.getElementById('scoreTitle'), scoreBoard = document.
             page.updateReplayUI();
         }
 
+        // 标准/变体围棋形势判断：Benson 无条件活加成（保活 + 确定领地覆盖）
+        function bensonRemoveDead(srcBoard) {
+            const RT = window.QiWeiqiSquarePageRuntime;
+            const size = ps.BOARD_SIZE;
+            const copy = (b) => QiSquareWeiqiCanvas.deepCopyBoard(b);
+            const benson = RT.bensonAlive(srcBoard, size);
+            let live = copy(srcBoard);
+            let changed = true;
+            while (changed) {
+                changed = false;
+                const cleaned = RT.removeDeadAndDying(live, size, copy, 2);
+                for (let r = 0; r < size; r++) {
+                    for (let c = 0; c < size; c++) {
+                        const v = srcBoard[r][c];
+                        if (benson.alive[r][c] && (v === 1 || v === 2) && cleaned[r][c] !== v) {
+                            cleaned[r][c] = v;
+                            changed = true;
+                        }
+                    }
+                }
+                live = cleaned;
+            }
+            return live;
+        }
+        function bensonTerritory(liveBoard) {
+            const RT = window.QiWeiqiSquarePageRuntime;
+            const size = ps.BOARD_SIZE;
+            const territory = RT.assignTerritoryWithRange(liveBoard, size);
+            const secure = RT.bensonAlive(liveBoard, size);
+            for (let r = 0; r < size; r++) {
+                for (let c = 0; c < size; c++) {
+                    if (liveBoard[r][c] === 0 && secure.territory[r][c]) territory[r][c] = secure.territory[r][c];
+                }
+            }
+            return territory;
+        }
+
         page = R.create(ps, domPage, {
             recordDownloadPrefix, minLib, maxWeakLiberties: 2, gameType, roomId, roomPassword, isMouseDevice,
+            removeDeadAndDying: bensonRemoveDead, assignTerritoryWithRange: bensonTerritory,
             enableEditBoard: true,
             drawBoard: drawBoardMirror, syncState: mirrorSync,
             rebuildLiveReplayFromMoveCoords: rebuildLive, applyLiveViewBoard: applyLiveView,
@@ -355,7 +393,7 @@ const scoreTitle = document.getElementById('scoreTitle'), scoreBoard = document.
                 ps.replayBoards.push(dc(cur)); ps.replayMarkers.push([]);
                 let curAx = 'diag1';
                 for (const mv of (data.moves || [])) {
-                    const pv = mv.player === 'black' ? 1 : 2;
+                    const pv = mv.player === 'player1' ? 1 : 2;
                     ps.replayStepPlayers.push(pv);
                     if (mv.type === 'move') {
                         const ax = mv.mirrorAxis || curAx;

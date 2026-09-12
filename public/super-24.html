@@ -378,6 +378,8 @@
     <div class="game-wrapper">
         <div class="top-panel">
             <div class="left-group">
+                <div class="komi-info" id="gameTitleInfo">超级24点</div>
+                <select id="subGameSelect" class="board-size-select" style="display:none;" title="子游戏"></select>
                 <div class="s24-player-id-box" id="playerIdBox" hidden>
                     ID：<span id="playerIdText"></span>
                 </div>
@@ -392,13 +394,8 @@
         <div id="rulesModal" class="rules-modal">
             <div class="rules-content">
                 <span class="close-rules" id="closeRulesBtn">&times;</span>
-                <h3>超级24点</h3>
-                <p>
-                    每局随机给出10个1~100的整数，以及一个十位数的目标整数。<br /><br />
-                    用加、减、乘、除和括号，将10个整数各用恰好一次，得到尽可能接近目标的数值。<br /><br />
-                    共若干局，每局限时由房主设定，全员共用同一倒计时。<br />
-                    每局得分为 max(0, (1 − (log(1 + 误差) / log(1 + 目标)) ** 4) × 100)，误差为最接近结果与目标之差的绝对值；多次提交取本局最佳。得分与平均误差均为已完成各局的均值，得分最高者获胜。
-                </p>
+                <h3 id="rulesTitle">24点</h3>
+                <p id="rulesDesc"></p>
             </div>
         </div>
 
@@ -446,7 +443,12 @@
         const gameType = 'super-24';
         const roomId = pathParts[pathParts.length - 1];
         const ROUND_COUNT_DEFAULT = 8;
-        const ALLOWED_CHARS = /^[0-9+\-*/().]*$/;
+        const ALLOWED_CHARS = /^[0-9+\-*/()]*$/;  // 与输入过滤一致：无小数点/空格
+        const SUB_GAMES = [
+            { value: 'ultimate-24', label: '究级24点' },
+            { value: 'super-24', label: '超级24点' }
+        ];
+        const subGameLabel = (v) => (SUB_GAMES.find(g => g.value === v) || SUB_GAMES[0]).label;
 
         const ps = {
             ws: null,
@@ -462,8 +464,10 @@
             puzzle: null,
             players: [],
             ranking: [],
-            clock: null
+            clock: null,
+            subGameId: null
         };
+        let currentSubGame = 'super-24';
 
         const playerIdBox = document.getElementById('playerIdBox');
         const playerIdText = document.getElementById('playerIdText');
@@ -491,6 +495,10 @@
         const backToLobbyBtn = document.getElementById('backToLobbyBtn');
         const rulesModal = document.getElementById('rulesModal');
         const closeRulesBtn = document.getElementById('closeRulesBtn');
+        const subGameSelectEl = document.getElementById('subGameSelect');
+        const rulesDesc = document.getElementById('rulesDesc');
+        const rulesTitle = document.getElementById('rulesTitle');
+        const gameTitleInfoEl = document.getElementById('gameTitleInfo');
 
         let previewTimer = null;
         let rafId = 0;
@@ -783,6 +791,32 @@
             return text.slice(0, dot) + '<span class="s24-decimal-part">' + text.slice(dot) + '</span>';
         }
 
+        function buildRulesHtml(subId) {
+            const isUltimate = subId === 'ultimate-24';
+            const head = isUltimate
+                ? '每局随机给出 <b>10</b> 个 <b>1~100</b> 的整数，以及一个 <b>十位数</b> 的目标整数。<br /><br />'
+                : '每局随机给出 <b>6</b> 个 <b>1~16</b> 的整数，以及一个 <b>三位数(100~999)</b> 的目标整数。<br /><br />';
+            const count = isUltimate ? '10' : '6';
+            const preview = isUltimate
+                ? '究级24点：输入算式时结果框实时预览结果；'
+                : '超级24点：输入时不显示结果，点击「提交」后才显示结果。';
+            return head
+                + `用加、减、乘、除和括号，将${count}个整数各用恰好一次，得到尽可能接近目标的数值。<br /><br />`
+                + `每局得分为 max(0, (1 − (log(1 + 误差) / log(1 + 目标)) ** ${isUltimate ? 4 : 2}) × 100)，误差为最接近结果与目标之差的绝对值；多次提交取本局最佳。得分与平均误差均为已完成各局的均值，得分最高者获胜。<br /><br />`
+                + preview;
+        }
+
+        function syncSubGameUi(subId) {
+            if (!SUB_GAMES.some(g => g.value === subId)) return;
+            currentSubGame = subId;
+            ps.subGameId = subId;
+            const label = subGameLabel(subId);
+            if (gameTitleInfoEl) gameTitleInfoEl.textContent = label;
+            if (rulesTitle) rulesTitle.textContent = label;
+            if (rulesDesc) rulesDesc.innerHTML = buildRulesHtml(subId);
+            if (subGameSelectEl && subGameSelectEl.value !== subId) subGameSelectEl.value = subId;
+        }
+
         function applyState(state) {
             if (!state) return;
             ps.phase = state.phase || ps.phase;
@@ -793,6 +827,7 @@
             if (state.roundCount != null) ps.roundCount = state.roundCount;
             if (state.roundMinutes != null) ps.roundMinutes = state.roundMinutes;
             ps.puzzle = state.puzzle;
+            if (state.subGameId && state.subGameId !== currentSubGame) syncSubGameUi(state.subGameId);
             ps.players = state.players || [];
             ps.ranking = state.ranking || ps.players;
             if (state.myPlayerId !== undefined) ps.myPlayerId = state.myPlayerId;
@@ -846,6 +881,7 @@
             const isPlayer = !!ps.myPlayerId;
             const inActiveGame = ps.gameStarted && !ps.finished;
             const inPreGameLobby = !ps.gameStarted && !ps.finished;
+            if (subGameSelectEl) subGameSelectEl.hidden = !(isHost && !inActiveGame);
             const showRestart = ps.finished && isHost;
             const showJoinAfterFinish = ps.finished && !isPlayer;
 
@@ -961,7 +997,12 @@
                 return;
             }
             const ev = evaluateExpression(cleaned);
-            resultDisplay.value = ev.ok ? formatDisplayNumber(ev.value) : '';
+            // 究级24点：输入时实时显示结果；超级24点：仅在点击提交后显示
+            if (currentSubGame === 'ultimate-24') {
+                resultDisplay.value = ev.ok ? formatDisplayNumber(ev.value) : '';
+            } else {
+                resultDisplay.value = '';
+            }
             updateNumberButtonUsedState();
         }
 
@@ -1040,7 +1081,12 @@
                     renderScoreTable();
                     break;
                 case 'submitAccepted':
+                    resultDisplay.value = formatDisplayNumber(msg.value);
                     setPlayStatus(`已提交：结果 ${formatDisplayNumber(msg.value)}，本局误差 ${formatScore(msg.diff)}（最佳 ${formatScore(msg.bestThisRound)}）`, false);
+                    break;
+                case 'subGameChanged':
+                    syncSubGameUi(msg.subGameId);
+                    applyState(msg);
                     break;
                 case 'submitRejected':
                     setPlayStatus(msg.reason || '提交被拒绝', true);
@@ -1125,6 +1171,29 @@
             clearTimeout(stageResizeTimer);
             stageResizeTimer = setTimeout(updateGameStageHeight, 100);
         });
+
+        if (subGameSelectEl) {
+            for (const g of SUB_GAMES) {
+                const opt = document.createElement('option');
+                opt.value = g.value;
+                opt.textContent = g.label;
+                subGameSelectEl.appendChild(opt);
+            }
+            subGameSelectEl.style.display = '';
+            subGameSelectEl.addEventListener('change', () => {
+                const v = subGameSelectEl.value;
+                if (!v || v === currentSubGame) return;
+                if (ps.gameStarted && !ps.finished) {
+                    subGameSelectEl.value = currentSubGame; // 对局中禁止切换
+                    return;
+                }
+                syncSubGameUi(v);
+                if (ps.ws && ps.ws.readyState === WebSocket.OPEN) {
+                    ps.ws.send(JSON.stringify({ type: 'setSubGame', subGameId: v }));
+                }
+            });
+        }
+        syncSubGameUi(currentSubGame);
 
         connectWebSocket();
         updateGameStageHeight();

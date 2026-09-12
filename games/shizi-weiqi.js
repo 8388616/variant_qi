@@ -11,7 +11,7 @@ class ShiziWeiqiRoom extends WeiqiRoom {
     _applyTenInRowWin(slot) {
         this.gameOver = true;
         this.winner = slot;
-        this.recordResultText = slot === 'black' ? '黑胜（连成十子）' : '白胜（连成十子）';
+        this.recordResultText = slot === 'player1' ? '黑胜（连成十子）' : '白胜（连成十子）';
         this._stopClockTicker();
     }
 
@@ -68,7 +68,7 @@ class ShiziWeiqiRoom extends WeiqiRoom {
         for (let i = 0; i < moves.length; i++) {
             const move = moves[i];
             const slot = move.player;
-            const playerVal = slot === 'black' ? 1 : 2;
+            const playerVal = slot === 'player1' ? 1 : 2;
             if (move.type === 'move') {
                 const { row, col } = move;
                 if (row < 0 || row >= this.boardSize || col < 0 || col >= this.boardSize) {
@@ -96,7 +96,7 @@ class ShiziWeiqiRoom extends WeiqiRoom {
                 if (this.checkTenInRow(this.board, row, col, playerVal)) {
                     this.gameOver = true;
                     this.winner = slot;
-                    this.recordResultText = slot === 'black' ? '黑胜（连成十子）' : '白胜（连成十子）';
+                    this.recordResultText = slot === 'player1' ? '黑胜（连成十子）' : '白胜（连成十子）';
                     wonByTen = true;
                     break;
                 }
@@ -132,7 +132,7 @@ class ShiziWeiqiRoom extends WeiqiRoom {
             const importedResultText = data.resultText != null ? String(data.resultText) : String(data.result);
             this.recordResultText = importedResultText;
             this.winner = WeiqiRoom.parseResultTextToWinner(importedResultText);
-            if (!this.winner && (data.result === 'black' || data.result === 'white' || data.result === 'draw'))
+            if (!this.winner && (data.result === 'player1' || data.result === 'player2' || data.result === 'draw'))
                 this.winner = data.result;
         }
 

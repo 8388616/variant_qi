@@ -269,7 +269,7 @@ window.RoomPlugins['torus-weiqi'] = {
             iRejected: false,
             ws: null,
             isMyTurn: false,
-            slots: { black: false, white: false },
+            slots: { player1: false, player2: false },
             reconnectTimer: null,
             replayMode: false,
             replayBoards: [],
@@ -669,7 +669,7 @@ const BOARD_MARK_CHAR_LIST = (() => {
                 } else if (ps.board[hr][hc] === 0 && !ps.hoverCapture) {
                     hoverColor = ps.tryPlayMode
                         ? (ps.tryPlayCurrentPlayer === 1 ? '#222' : '#fff')
-                        : (ps.mySlot === 'black' ? '#222' : '#fff');
+                        : (ps.mySlot === 'player1' ? '#222' : '#fff');
                 }
                 if (hoverColor) {
                     ctx.globalAlpha = 0.45;
@@ -744,6 +744,50 @@ const BOARD_MARK_CHAR_LIST = (() => {
             boardMarkSelect,
             colorStatus
         };
+        // 形势判断：Benson 加成（环面邻接）
+        function bensonTorusInfo(bd) {
+            const RT = window.QiWeiqiSquarePageRuntime;
+            const size = ps.BOARD_SIZE;
+            return RT.bensonAliveGrid({
+                width: size, height: size,
+                getNeighbors: (r, c) => torusRules.neighbors(r, c, size),
+                isValid: () => true,
+                get: (r, c) => bd[r][c]
+            });
+        }
+        function bensonTorusLive(srcBoard) {
+            const size = ps.BOARD_SIZE;
+            const benson = bensonTorusInfo(srcBoard);
+            let live = srcBoard.map((row) => row.slice());
+            let changed = true;
+            while (changed) {
+                changed = false;
+                const cleaned = torusRules.removeDeadAndDying(live, size, 2);
+                for (let r = 0; r < size; r++) {
+                    for (let c = 0; c < size; c++) {
+                        const v = srcBoard[r][c];
+                        if (benson.alive[r][c] && (v === 1 || v === 2) && cleaned[r][c] !== v) {
+                            cleaned[r][c] = v;
+                            changed = true;
+                        }
+                    }
+                }
+                live = cleaned;
+            }
+            return live;
+        }
+        function bensonTorusTerritory(liveBoard) {
+            const size = ps.BOARD_SIZE;
+            const territory = torusRules.assignTerritoryWithRange(liveBoard, size);
+            const secure = bensonTorusInfo(liveBoard);
+            for (let r = 0; r < size; r++) {
+                for (let c = 0; c < size; c++) {
+                    if (liveBoard[r][c] === 0 && secure.territory[r][c]) territory[r][c] = secure.territory[r][c];
+                }
+            }
+            return territory;
+        }
+        
         const page = QiWeiqiSquarePageRuntime.create(ps, domPage, {
             enableEditBoard: false,
             recordDownloadPrefix,
@@ -754,8 +798,8 @@ const BOARD_MARK_CHAR_LIST = (() => {
             roomPassword,
             isMouseDevice,
             tryPlaceStone: (b, r, c, v) => torusRules.tryPlaceStone(b, r, c, v, ps.BOARD_SIZE),
-            removeDeadAndDying: (b) => torusRules.removeDeadAndDying(b, ps.BOARD_SIZE, 2),
-            assignTerritoryWithRange: (b) => torusRules.assignTerritoryWithRange(b, ps.BOARD_SIZE),
+            removeDeadAndDying: bensonTorusLive,
+            assignTerritoryWithRange: bensonTorusTerritory,
             drawBoard
         });
         const {
@@ -937,7 +981,7 @@ const BOARD_MARK_CHAR_LIST = (() => {
             const m = ps.lastMoveMarkers && ps.lastMoveMarkers[0];
             if (!m || m.row < 0 || m.col < 0) return;
             if (lastMoveMarkerKey() === keyBefore) return;
-            const oppColor = ps.mySlot === 'black' ? 2 : 1;
+            const oppColor = ps.mySlot === 'player1' ? 2 : 1;
             if (m.color !== oppColor) return;
             const g = ensureTorusGeometry();
             // 以主棋盘位置为中心（等价位置在主棋盘 ±n 处）

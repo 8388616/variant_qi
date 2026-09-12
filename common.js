@@ -105,11 +105,18 @@ const qiMatchTimeControl = {
             };
         }
         if (msg.colorChoice != null && msg.colorChoice !== '') {
+            // 执子选项就是座位名（player1 = 先手）；random 表示猜先。
+            // 兼容旧颜色写法：black→player1、white→player2（新客户端不再发送）。
             const cc = String(msg.colorChoice);
-            if (cc !== 'hostBlack' && cc !== 'hostWhite' && cc !== 'random'
-                && cc !== 'black' && cc !== 'white')
+            if (cc === 'player1' || cc === 'player2' || cc === 'random') {
+                result.colorChoice = cc;
+            } else if (cc === 'black' || cc === 'hostBlack') {
+                result.colorChoice = 'player1';
+            } else if (cc === 'white' || cc === 'hostWhite') {
+                result.colorChoice = 'player2';
+            } else {
                 return { ok: false, error: '执子选项无效。' };
-            result.colorChoice = cc === 'hostBlack' ? 'black' : (cc === 'hostWhite' ? 'white' : cc);
+            }
         }
         return result;
     },
@@ -122,10 +129,10 @@ const qiMatchTimeControl = {
         if (!settings || !settings.timed) {
             return {
                 timed: false,
-                activeSlot: 'black',
+                activeSlot: 'player1',
                 lastUpdateMs: t,
-                black: { mainMs: 0, inByo: false, byoMs: 0, timeoutsUsed: 0 },
-                white: { mainMs: 0, inByo: false, byoMs: 0, timeoutsUsed: 0 },
+                player1: { mainMs: 0, inByo: false, byoMs: 0, timeoutsUsed: 0 },
+                player2: { mainMs: 0, inByo: false, byoMs: 0, timeoutsUsed: 0 },
                 mainMinutes: 0,
                 byoyomiSeconds: 0,
                 maxTimeouts: 0
@@ -134,18 +141,18 @@ const qiMatchTimeControl = {
         const mainMs = settings.mainMinutes * 60 * 1000;
         return {
             timed: true,
-            activeSlot: 'black',
+            activeSlot: 'player1',
             lastUpdateMs: t,
             mainMinutes: settings.mainMinutes,
             byoyomiSeconds: settings.byoyomiSeconds,
             maxTimeouts: settings.maxTimeouts,
-            black: { mainMs, inByo: false, byoMs: 0, timeoutsUsed: 0 },
-            white: { mainMs, inByo: false, byoMs: 0, timeoutsUsed: 0 }
+            player1: { mainMs, inByo: false, byoMs: 0, timeoutsUsed: 0 },
+            player2: { mainMs, inByo: false, byoMs: 0, timeoutsUsed: 0 }
         };
     },
 
     /**
-     * 将 elapsed 毫秒扣在 clock[slot]（黑/白）上；可能触发判负。
+     * 将 elapsed 毫秒扣在 clock[slot]（player1/player2 座位）上；可能触发判负。
      * @returns {{ lostSlot: string|null, winnerSlot: string|null }}
      */
     applyElapsedToSlot(clock, slot, elapsed) {
@@ -165,7 +172,7 @@ const qiMatchTimeControl = {
                 p.inByo = true;
                 p.mainMs = 0;
                 if (clock.byoyomiSeconds <= 0) {
-                    return { lostSlot: slot, winnerSlot: slot === 'black' ? 'white' : 'black' };
+                    return { lostSlot: slot, winnerSlot: slot === 'player1' ? 'player2' : 'player1' };
                 }
                 p.byoMs = byoMsFull;
                 continue;
@@ -181,7 +188,7 @@ const qiMatchTimeControl = {
                     p.byoMs = byoMsFull;
                     continue;
                 }
-                return { lostSlot: slot, winnerSlot: slot === 'black' ? 'white' : 'black' };
+                return { lostSlot: slot, winnerSlot: slot === 'player1' ? 'player2' : 'player1' };
             }
             break;
         }
@@ -203,15 +210,15 @@ const qiMatchTimeControl = {
         }
         let elapsed = nowMs - clock.lastUpdateMs;
         if (elapsed < 0) elapsed = 0;
-        if (clock.blackRunning) {
-            const r = this.applyElapsedToSlot(clock, 'black', elapsed);
+        if (clock.player1Running) {
+            const r = this.applyElapsedToSlot(clock, 'player1', elapsed);
             if (r.lostSlot) {
                 clock.lastUpdateMs = nowMs;
                 return r;
             }
         }
-        if (clock.whiteRunning) {
-            const r = this.applyElapsedToSlot(clock, 'white', elapsed);
+        if (clock.player2Running) {
+            const r = this.applyElapsedToSlot(clock, 'player2', elapsed);
             if (r.lostSlot) {
                 clock.lastUpdateMs = nowMs;
                 return r;
@@ -227,8 +234,8 @@ const qiMatchTimeControl = {
         if (!clock || !clock.timed || !clock.syncMode) return { lostSlot: null, winnerSlot: null };
         const r = this.drainSyncClock(clock, t);
         if (r.lostSlot) return r;
-        if (slot === 'black') clock.blackRunning = false;
-        else if (slot === 'white') clock.whiteRunning = false;
+        if (slot === 'player1') clock.player1Running = false;
+        else if (slot === 'player2') clock.player2Running = false;
         clock.lastUpdateMs = t;
         return { lostSlot: null, winnerSlot: null };
     },
@@ -239,11 +246,11 @@ const qiMatchTimeControl = {
         const t = nowMs != null ? nowMs : Date.now();
         if (clock.byoyomiSeconds > 0) {
             const full = clock.byoyomiSeconds * 1000;
-            if (clock.black && clock.black.inByo) clock.black.byoMs = full;
-            if (clock.white && clock.white.inByo) clock.white.byoMs = full;
+            if (clock.player1 && clock.player1.inByo) clock.player1.byoMs = full;
+            if (clock.player2 && clock.player2.inByo) clock.player2.byoMs = full;
         }
-        clock.blackRunning = true;
-        clock.whiteRunning = true;
+        clock.player1Running = true;
+        clock.player2Running = true;
         clock.lastUpdateMs = t;
     },
 
@@ -251,8 +258,8 @@ const qiMatchTimeControl = {
         const c = this.createClock(settings, nowMs);
         if (!c.timed) return c;
         c.syncMode = true;
-        c.blackRunning = true;
-        c.whiteRunning = true;
+        c.player1Running = true;
+        c.player2Running = true;
         return c;
     },
 
@@ -288,8 +295,8 @@ const qiMatchTimeControl = {
         if (!clock) return;
         if (clock.timed && clock.byoyomiSeconds > 0) {
             const full = clock.byoyomiSeconds * 1000;
-            if (clock.black && clock.black.inByo) clock.black.byoMs = full;
-            if (clock.white && clock.white.inByo) clock.white.byoMs = full;
+            if (clock.player1 && clock.player1.inByo) clock.player1.byoMs = full;
+            if (clock.player2 && clock.player2.inByo) clock.player2.byoMs = full;
         }
         clock.activeSlot = slot;
         clock.lastUpdateMs = nowMs != null ? nowMs : Date.now();
@@ -307,12 +314,12 @@ const qiMatchTimeControl = {
     },
 
     /**
-     * 客户端展示用快照（当前思考方剩余显示）
-     * @returns {{ serverNow: number, timed: boolean, activeSlot: string, black: object, white: object, ruleLine: string }}
+     * 客户端展示用快照（当前思考方剩余显示；键为座位 player1/player2）
+     * @returns {{ serverNow: number, timed: boolean, activeSlot: string, player1: object, player2: object, ruleLine: string }}
      */
     snapshotForClient(clock) {
         if (!clock) {
-            return { serverNow: Date.now(), timed: false, activeSlot: 'black', black: null, white: null, ruleLine: '' };
+            return { serverNow: Date.now(), timed: false, activeSlot: 'player1', player1: null, player2: null, ruleLine: '' };
         }
         const now = Date.now();
         const c = {
@@ -322,23 +329,23 @@ const qiMatchTimeControl = {
             byoyomiSeconds: clock.byoyomiSeconds,
             maxTimeouts: clock.maxTimeouts,
             serverNow: now,
-            black: clock.black ? { ...clock.black } : null,
-            white: clock.white ? { ...clock.white } : null,
+            player1: clock.player1 ? { ...clock.player1 } : null,
+            player2: clock.player2 ? { ...clock.player2 } : null,
             ruleLine: this.formatRuleLine(clock)
         };
         if (!clock.timed) return c;
         if (clock.syncMode) {
             c.syncMode = true;
-            c.blackRunning = !!clock.blackRunning;
-            c.whiteRunning = !!clock.whiteRunning;
-            const b = clock.black;
-            const w = clock.white;
+            c.player1Running = !!clock.player1Running;
+            c.player2Running = !!clock.player2Running;
+            const b = clock.player1;
+            const w = clock.player2;
             c.display = {
                 syncMode: true,
-                blackLive: c.blackRunning,
-                whiteLive: c.whiteRunning,
-                blackCountdownMs: b.inByo ? b.byoMs : b.mainMs,
-                whiteCountdownMs: w.inByo ? w.byoMs : w.mainMs
+                player1Live: c.player1Running,
+                player2Live: c.player2Running,
+                player1CountdownMs: b.inByo ? b.byoMs : b.mainMs,
+                player2CountdownMs: w.inByo ? w.byoMs : w.mainMs
             };
             return c;
         }
@@ -378,21 +385,21 @@ const qiMatchTimeControl = {
 };
 
 function assignBlackWhiteSlot(room, requestedSlot) {
-    if (requestedSlot === 'black' && !room.getPlayerBySlot('black')) return 'black';
-    if (requestedSlot === 'white' && !room.getPlayerBySlot('white')) return 'white';
+    if (requestedSlot === 'player1' && !room.getPlayerBySlot('player1')) return 'player1';
+    if (requestedSlot === 'player2' && !room.getPlayerBySlot('player2')) return 'player2';
     return null;
 }
 
 /** 房主执子选项 → 房主最终执黑/白 */
 function resolveHostTargetColor(colorChoice) {
-    if (colorChoice === 'hostWhite') return 'white';
-    if (colorChoice === 'random') return Math.random() < 0.5 ? 'black' : 'white';
-    return 'black';
+    if (colorChoice === 'hostWhite') return 'player2';
+    if (colorChoice === 'random') return Math.random() < 0.5 ? 'player1' : 'player2';
+    return 'player1';
 }
 
 /**
- * 按房主执子选项交换黑白座位（双方均已入座时）。
- * @returns {'black'|'white'|null} 房主最终颜色
+ * 按房主执子选项交换两个座位（双方均已入座时）。
+ * @returns {'player1'|'player2'|null} 房主最终座位
  */
 function applyHostColorChoice(room, hostWs, colorChoice) {
     if (!hostWs || !room) return null;
@@ -401,30 +408,53 @@ function applyHostColorChoice(room, hostWs, colorChoice) {
     const target = resolveHostTargetColor(colorChoice);
     if (hostSlot === target) return target;
     if (typeof room.swapSlots === 'function')
-        room.swapSlots('black', 'white');
+        room.swapSlots('player1', 'player2');
     else {
-        const a = room.slotOccupancy.get('black') || null;
-        const b = room.slotOccupancy.get('white') || null;
-        room.slotOccupancy.delete('black');
-        room.slotOccupancy.delete('white');
+        const a = room.slotOccupancy.get('player1') || null;
+        const b = room.slotOccupancy.get('player2') || null;
+        room.slotOccupancy.delete('player1');
+        room.slotOccupancy.delete('player2');
         if (a) {
-            room.players.set(a, 'white');
-            room.slotOccupancy.set('white', a);
+            room.players.set(a, 'player2');
+            room.slotOccupancy.set('player2', a);
         }
         if (b) {
-            room.players.set(b, 'black');
-            room.slotOccupancy.set('black', b);
+            room.players.set(b, 'player1');
+            room.slotOccupancy.set('player1', b);
         }
     }
     return target;
 }
 
+/**
+ * 座位 → 该棋种执方名（黑方/白方/红方…）。棋种实现 getChatSideLabel 时优先用它，
+ * 否则按默认约定 player1=黑方、player2=白方。
+ */
+function qiSideLabelOfSlot(self, slot) {
+    if (!slot) return '';
+    if (self && typeof self.getChatSideLabel === 'function') {
+        try {
+            const custom = self.getChatSideLabel(slot);
+            if (custom) return String(custom);
+        } catch (_) { /* ignore */ }
+    }
+    if (slot === 'player1') return '黑方';
+    if (slot === 'player2') return '白方';
+    return String(slot);
+}
+
+/** 胜方座位 → 「黑胜/白胜/红胜…」（导出棋谱用实际行棋方） */
+function qiWinnerResultText(self, slot) {
+    const label = qiSideLabelOfSlot(self, slot);
+    return label.replace(/方$/, '') + '胜';
+}
+
 function parseQiRecordResultWinner(resultText) {
     if (typeof resultText !== 'string') return null;
     if (resultText === 'black' || resultText === 'white' || resultText === 'draw') return resultText;
-    if (resultText === '和胜' || resultText === '平局') return 'draw';
-    if (resultText.includes('白胜')) return 'white';
-    if (resultText.includes('黑胜')) return 'black';
+    if (resultText === '和棋') return 'draw';
+    if (resultText.includes('白胜')) return 'player2';
+    if (resultText.includes('黑胜')) return 'player1';
     return null;
 }
 
@@ -474,12 +504,13 @@ function normalizeQiRecordForExport(self, record) {
             return out;
         }
         const winner = self.winner;
-        if (winner === 'draw') out.result = '和胜';
+        if (winner === 'draw') out.result = '和棋';
+        else if (winner === 'player1' || winner === 'player2') out.result = qiWinnerResultText(self, winner);
         else if (winner === 'black') out.result = '黑胜';
         else if (winner === 'white') out.result = '白胜';
         else if (typeof rawResult === 'string') {
             const parsed = parseQiRecordResultWinner(rawResult);
-            if (parsed === 'draw') out.result = '和胜';
+            if (parsed === 'draw') out.result = '和棋';
             else if (parsed === 'black') out.result = '黑胜';
             else if (parsed === 'white') out.result = '白胜';
         }
@@ -487,7 +518,7 @@ function normalizeQiRecordForExport(self, record) {
     }
     if (typeof rawResult === 'string') {
         const parsed = parseQiRecordResultWinner(rawResult);
-        if (parsed === 'draw') out.result = '和胜';
+        if (parsed === 'draw') out.result = '和棋';
         else if (parsed === 'black') out.result = '黑胜';
         else if (parsed === 'white') out.result = '白胜';
     }
@@ -616,7 +647,7 @@ const qiProtocol = {
 
         let color = null;
         if (self.matchStarted) {
-            color = msg && (msg.color === 'black' || msg.color === 'white') ? msg.color : null;
+            color = msg && (msg.color === 'player1' || msg.color === 'player2') ? msg.color : null;
             if (!color) {
                 ws.send(JSON.stringify({ type: 'error', message: '请选择继续执黑或执白。' }));
                 return;
@@ -626,9 +657,9 @@ const qiProtocol = {
                 return;
             }
         } else {
-            // 开局前不采纳客户端 color，按空位依次分配，避免两人同时点落座都抢黑
-            if (seatFree('black')) color = 'black';
-            else if (seatFree('white')) color = 'white';
+            // 开局前不采纳客户端 color，按空位依次分配，避免两人同时点落座都抢 player1
+            if (seatFree('player1')) color = 'player1';
+            else if (seatFree('player2')) color = 'player2';
             else {
                 // 座位已满：静默忽略，不弹错误
                 return;
@@ -647,7 +678,7 @@ const qiProtocol = {
 
     importRecord(self, ws, msg, opts = {}) {
         const blockedMsg = opts.importBlockedMsg ?? '已有玩家入座，无法导入棋谱。';
-        if (self.room.getPlayerBySlot('black') || self.room.getPlayerBySlot('white')) {
+        if (self.room.getPlayerBySlot('player1') || self.room.getPlayerBySlot('player2')) {
             ws.send(JSON.stringify({ type: 'error', message: blockedMsg }));
             return;
         }
@@ -656,7 +687,7 @@ const qiProtocol = {
 
     /** 观战且无人入座时清空房间（需实现 resetToEmpty） */
     resetRoomToEmpty(self, ws) {
-        if (self.room.getPlayerBySlot('black') || self.room.getPlayerBySlot('white')) return;
+        if (self.room.getPlayerBySlot('player1') || self.room.getPlayerBySlot('player2')) return;
         self.resetToEmpty();
         self.broadcast({ type: 'roomReset', ...self.getState() });
     },
@@ -693,9 +724,9 @@ const qiProtocol = {
             self.slotJoinedAt[slot] = null;
         }
         if (self.hostWs === ws) {
-            const other = slot === 'black'
-                ? room.getPlayerBySlot('white')
-                : room.getPlayerBySlot('black');
+            const other = slot === 'player1'
+                ? room.getPlayerBySlot('player2')
+                : room.getPlayerBySlot('player1');
             self.hostWs = other || null;
         }
         if (self.tcNego) self.tcNego = null;
@@ -713,7 +744,7 @@ const qiProtocol = {
     resign(self, ws, slot, opts = {}) {
         if (!slot || self.gameOver) return;
         self.gameOver = true;
-        self.winner = slot === 'black' ? 'white' : 'black';
+        self.winner = slot === 'player1' ? 'player2' : 'player1';
         if (typeof self.onResignResolved === 'function') self.onResignResolved(slot, self.winner);
         if (typeof opts.broadcastPerClient === 'function') {
             opts.broadcastPerClient('resign', { player: slot, winner: self.winner });
@@ -724,12 +755,12 @@ const qiProtocol = {
 
     requestNewGame(self, ws, slot) {
         const room = self.room;
-        if (!room.getPlayerBySlot('black') && !room.getPlayerBySlot('white')) {
+        if (!room.getPlayerBySlot('player1') && !room.getPlayerBySlot('player2')) {
             self.resetGame();
             return;
         }
         if (!slot) return;
-        const newGameOpponent = room.getPlayerBySlot(slot === 'black' ? 'white' : 'black');
+        const newGameOpponent = room.getPlayerBySlot(slot === 'player1' ? 'player2' : 'player1');
         if (!newGameOpponent) {
             self.resetGame();
         } else {
@@ -751,7 +782,7 @@ const qiProtocol = {
     requestDraw(self, ws, slot, opts = {}) {
         if (!slot || self.gameOver) return;
         const room = self.room;
-        const drawOpponent = room.getPlayerBySlot(slot === 'black' ? 'white' : 'black');
+        const drawOpponent = room.getPlayerBySlot(slot === 'player1' ? 'player2' : 'player1');
         if (!drawOpponent) {
             self.gameOver = true;
             self.winner = 'draw';
@@ -786,7 +817,7 @@ const qiProtocol = {
     requestEnd(self, ws, slot) {
         if (!slot) return;
         const room = self.room;
-        const endOpponent = room.getPlayerBySlot(slot === 'black' ? 'white' : 'black');
+        const endOpponent = room.getPlayerBySlot(slot === 'player1' ? 'player2' : 'player1');
         if (!endOpponent) {
             self.startScoreCounting(ws, ws);
         } else {
@@ -816,7 +847,7 @@ const qiProtocol = {
         if (!slot || self.gameOver) return;
         const room = self.room;
         const numeric = typeof self.currentPlayer === 'number';
-        const myColor = numeric ? (slot === 'black' ? 1 : 2) : (slot === 'black' ? 'black' : 'white');
+        const myColor = numeric ? (slot === 'player1' ? 1 : 2) : (slot === 'player1' ? 'player1' : 'player2');
         const isMyTurn = self.currentPlayer === myColor;
         const steps = typeof self.undoStepsFor === 'function'
             ? self.undoStepsFor(slot, isMyTurn)
@@ -825,7 +856,7 @@ const qiProtocol = {
             ws.send(JSON.stringify({ type: 'error', message: '无法悔棋。' }));
             return;
         }
-        const opponentSlot = slot === 'black' ? 'white' : 'black';
+        const opponentSlot = slot === 'player1' ? 'player2' : 'player1';
         const opponent = room.getPlayerBySlot(opponentSlot);
         if (!opponent) {
             qiProtocol.performWuziqiUndo(self, steps);
@@ -863,7 +894,7 @@ const qiProtocol = {
         }
         let newPlayer = self.currentPlayer;
         for (let i = 0; i < steps; i++) {
-            newPlayer = newPlayer === 1 ? 2 : (newPlayer === 2 ? 1 : (newPlayer === 'black' ? 'white' : 'black'));
+            newPlayer = newPlayer === 1 ? 2 : (newPlayer === 2 ? 1 : (newPlayer === 'player1' ? 'player2' : 'player1'));
         }
         self.currentPlayer = newPlayer;
         self.lastMoveMarkers = [];
@@ -1185,7 +1216,7 @@ const qiProtocol = {
      */
     weiqiMove(self, ws, msg, slot, opts = {}) {
         if (self.gameOver) return;
-        if (!slot || slot !== (self.currentPlayer === 1 ? 'black' : 'white')) return;
+        if (!slot || slot !== (self.currentPlayer === 1 ? 'player1' : 'player2')) return;
         const { row, col } = msg;
         if (row < 0 || row >= self.boardSize || col < 0 || col >= self.boardSize) return;
         if (self.board[row][col] !== 0) return;
@@ -1222,7 +1253,7 @@ const qiProtocol = {
     weiqiPass(self, ws, slot, opts = {}) {
         const room = self.room;
         if (self.gameOver) return;
-        if (!slot || slot !== (self.currentPlayer === 1 ? 'black' : 'white')) return;
+        if (!slot || slot !== (self.currentPlayer === 1 ? 'player1' : 'player2')) return;
         if (typeof opts.beforeCommit === 'function' && opts.beforeCommit() === false) return;
         self.historyBoards.push(self.copyBoard(self.board));
         self.historyMarkers.push(self.copyMarkers(self.lastMoveMarkers));
@@ -1235,8 +1266,8 @@ const qiProtocol = {
         if (typeof opts.afterBroadcast === 'function') opts.afterBroadcast();
         if (self.passCounter >= 2) {
             self.passCounter = 0;
-            const blackPlayer = room.getPlayerBySlot('black');
-            const whitePlayer = room.getPlayerBySlot('white');
+            const blackPlayer = room.getPlayerBySlot('player1');
+            const whitePlayer = room.getPlayerBySlot('player2');
             if (blackPlayer && whitePlayer) {
                 self.startScoreCounting(blackPlayer, whitePlayer);
             } else {
@@ -1259,7 +1290,7 @@ const qiProtocol = {
             ws.send(JSON.stringify({ type: 'error', message: cannotMsg }));
             return;
         }
-        const opponentSlot = slot === 'black' ? 'white' : 'black';
+        const opponentSlot = slot === 'player1' ? 'player2' : 'player1';
         const opponent = room.getPlayerBySlot(opponentSlot);
         if (!opponent) self.performUndo(steps, ws);
         else {
@@ -1306,6 +1337,214 @@ const qiMessageBoxOptions = {
         };
     }
 };
+
+/**
+ * Benson 无条件活（通用 2D 网格版，供方格 / 带洞 / 网格图 / 桥 等复用）。
+ * opts: { width, height, getNeighbors(r,c)->[[r,c],..], isValid(r,c), get(r,c)->0/1/2 }
+ * @returns {{ alive: boolean[][], territory: number[][] }}
+ */
+function bensonCoreGrid(opts) {
+    const width = opts.width, height = opts.height;
+    const getNeighbors = opts.getNeighbors, isValid = opts.isValid, get = opts.get;
+    const nb = Array(height).fill().map(() => Array(width).fill(null));
+    for (let r = 0; r < height; r++) {
+        for (let c = 0; c < width; c++) {
+            if (!isValid(r, c)) continue;
+            nb[r][c] = getNeighbors(r, c).filter((p) =>
+                p[0] >= 0 && p[0] < height && p[1] >= 0 && p[1] < width && isValid(p[0], p[1]));
+        }
+    }
+    const chainOf = Array(height).fill().map(() => Array(width).fill(-1));
+    const chains = [];
+    for (let r = 0; r < height; r++) {
+        for (let c = 0; c < width; c++) {
+            if (!nb[r][c]) continue;
+            const v = get(r, c);
+            if ((v !== 1 && v !== 2) || chainOf[r][c] >= 0) continue;
+            const id = chains.length;
+            const stones = [[r, c]];
+            chainOf[r][c] = id;
+            const queue = [[r, c]];
+            for (let qi = 0; qi < queue.length; qi++) {
+                const rr = queue[qi][0], cc = queue[qi][1];
+                for (const p of nb[rr][cc]) {
+                    const nr = p[0], nc = p[1];
+                    if (get(nr, nc) === v && chainOf[nr][nc] < 0) {
+                        chainOf[nr][nc] = id;
+                        stones.push([nr, nc]);
+                        queue.push([nr, nc]);
+                    }
+                }
+            }
+            chains.push({ color: v, stones });
+        }
+    }
+    const regionOf = Array(height).fill().map(() => Array(width).fill(-1));
+    const regions = [];
+    for (let r = 0; r < height; r++) {
+        for (let c = 0; c < width; c++) {
+            if (!nb[r][c] || get(r, c) !== 0 || regionOf[r][c] >= 0) continue;
+            const id = regions.length;
+            const points = [[r, c]];
+            const adj = new Set();
+            regionOf[r][c] = id;
+            const queue = [[r, c]];
+            for (let qi = 0; qi < queue.length; qi++) {
+                const rr = queue[qi][0], cc = queue[qi][1];
+                for (const p of nb[rr][cc]) {
+                    const nr = p[0], nc = p[1];
+                    const nv = get(nr, nc);
+                    if (nv === 0) {
+                        if (regionOf[nr][nc] < 0) {
+                            regionOf[nr][nc] = id;
+                            points.push([nr, nc]);
+                            queue.push([nr, nc]);
+                        }
+                    } else if (chainOf[nr][nc] >= 0) {
+                        adj.add(chainOf[nr][nc]);
+                    }
+                }
+            }
+            regions.push({ points, adj });
+        }
+    }
+    const chainRegions = chains.map(() => new Set());
+    regions.forEach((reg, ri) => { reg.adj.forEach((ci) => chainRegions[ci].add(ri)); });
+    // 最大不动点：先全部存活，反复剔除不足两个要害区域（邻接链均存活且同色）的链
+    const alive = new Array(chains.length).fill(true);
+    let changed = true;
+    while (changed) {
+        changed = false;
+        for (let ci = 0; ci < chains.length; ci++) {
+            if (!alive[ci]) continue;
+            const color = chains[ci].color;
+            let vital = 0;
+            for (const ri of chainRegions[ci]) {
+                let ok = true;
+                for (const aj of regions[ri].adj) {
+                    if (!alive[aj] || chains[aj].color !== color) { ok = false; break; }
+                }
+                if (ok && ++vital >= 2) break;
+            }
+            if (vital < 2) { alive[ci] = false; changed = true; }
+        }
+    }
+    const aliveGrid = Array(height).fill().map(() => Array(width).fill(false));
+    chains.forEach((ch, ci) => {
+        if (!alive[ci]) return;
+        for (const p of ch.stones) aliveGrid[p[0]][p[1]] = true;
+    });
+    const territory = Array(height).fill().map(() => Array(width).fill(0));
+    for (const reg of regions) {
+        if (!reg.adj.size) continue;
+        let owner = 0;
+        let ok = true;
+        for (const aj of reg.adj) {
+            if (!alive[aj]) { ok = false; break; }
+            const cc2 = chains[aj].color;
+            if (owner === 0) owner = cc2;
+            else if (owner !== cc2) { ok = false; break; }
+        }
+        if (ok && owner) {
+            for (const p of reg.points) territory[p[0]][p[1]] = owner;
+        }
+    }
+    return { alive: aliveGrid, territory };
+}
+
+/**
+ * Benson 无条件活（通用扁平图版）。
+ * opts: { n, neighbors(id)->number[], get(id)->0/1/2 }
+ * @returns {{ alive: boolean[], territory: number[] }}
+ */
+function bensonCoreGraph(opts) {
+    const n = opts.n, neighbors = opts.neighbors, get = opts.get;
+    const nb = new Array(n).fill(null);
+    for (let i = 0; i < n; i++) {
+        nb[i] = (neighbors(i) || []).filter((j) => Number.isInteger(j) && j >= 0 && j < n);
+    }
+    const chainOf = new Array(n).fill(-1);
+    const chains = [];
+    for (let i = 0; i < n; i++) {
+        const v = get(i);
+        if ((v !== 1 && v !== 2) || chainOf[i] >= 0) continue;
+        const id = chains.length;
+        const stones = [i];
+        chainOf[i] = id;
+        const queue = [i];
+        for (let qi = 0; qi < queue.length; qi++) {
+            for (const j of nb[queue[qi]]) {
+                if (get(j) === v && chainOf[j] < 0) {
+                    chainOf[j] = id;
+                    stones.push(j);
+                    queue.push(j);
+                }
+            }
+        }
+        chains.push({ color: v, stones });
+    }
+    const regionOf = new Array(n).fill(-1);
+    const regions = [];
+    for (let i = 0; i < n; i++) {
+        if (get(i) !== 0 || regionOf[i] >= 0) continue;
+        const id = regions.length;
+        const points = [i];
+        const adj = new Set();
+        regionOf[i] = id;
+        const queue = [i];
+        for (let qi = 0; qi < queue.length; qi++) {
+            for (const j of nb[queue[qi]]) {
+                const nv = get(j);
+                if (nv === 0) {
+                    if (regionOf[j] < 0) {
+                        regionOf[j] = id;
+                        points.push(j);
+                        queue.push(j);
+                    }
+                } else if (chainOf[j] >= 0) {
+                    adj.add(chainOf[j]);
+                }
+            }
+        }
+        regions.push({ points, adj });
+    }
+    const chainRegions = chains.map(() => new Set());
+    regions.forEach((reg, ri) => { reg.adj.forEach((ci) => chainRegions[ci].add(ri)); });
+    const alive = new Array(chains.length).fill(true);
+    let changed = true;
+    while (changed) {
+        changed = false;
+        for (let ci = 0; ci < chains.length; ci++) {
+            if (!alive[ci]) continue;
+            const color = chains[ci].color;
+            let vital = 0;
+            for (const ri of chainRegions[ci]) {
+                let ok = true;
+                for (const aj of regions[ri].adj) {
+                    if (!alive[aj] || chains[aj].color !== color) { ok = false; break; }
+                }
+                if (ok && ++vital >= 2) break;
+            }
+            if (vital < 2) { alive[ci] = false; changed = true; }
+        }
+    }
+    const aliveArr = new Array(n).fill(false);
+    chains.forEach((ch, ci) => { if (alive[ci]) for (const i of ch.stones) aliveArr[i] = true; });
+    const territory = new Array(n).fill(0);
+    for (const reg of regions) {
+        if (!reg.adj.size) continue;
+        let owner = 0;
+        let ok = true;
+        for (const aj of reg.adj) {
+            if (!alive[aj]) { ok = false; break; }
+            const cc2 = chains[aj].color;
+            if (owner === 0) owner = cc2;
+            else if (owner !== cc2) { ok = false; break; }
+        }
+        if (ok && owner) for (const i of reg.points) territory[i] = owner;
+    }
+    return { alive: aliveArr, territory };
+}
 
 const squareWeiqiRules = {
     countGroupLiberties(board, row, col, boardSize) {
@@ -1412,6 +1651,128 @@ const squareWeiqiRules = {
         }
 
         return newBoard;
+    },
+
+    /**
+     * Benson 无条件活（pass-alive）判定：四邻方格。
+     * @returns {{ alive: boolean[][], territory: number[][] }}
+     *   alive[r][c]=true 表示该子属于无条件活棋链；
+     *   territory[r][c]∈{0,1,2} 表示该空点所在的"确定领地"归属（0=不定）。
+     */
+    bensonAlive(board, boardSize) {
+        const dirs = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+        // 1) 棋链
+        const chainOf = Array(boardSize).fill().map(() => Array(boardSize).fill(-1));
+        const chains = [];
+        for (let r = 0; r < boardSize; r++) {
+            for (let c = 0; c < boardSize; c++) {
+                const v = board[r][c];
+                if ((v !== 1 && v !== 2) || chainOf[r][c] >= 0) continue;
+                const id = chains.length;
+                const stones = [[r, c]];
+                chainOf[r][c] = id;
+                const queue = [[r, c]];
+                for (let qi = 0; qi < queue.length; qi++) {
+                    const [rr, cc] = queue[qi];
+                    for (const [dr, dc] of dirs) {
+                        const nr = rr + dr, nc = cc + dc;
+                        if (nr < 0 || nr >= boardSize || nc < 0 || nc >= boardSize) continue;
+                        if (board[nr][nc] === v && chainOf[nr][nc] < 0) {
+                            chainOf[nr][nc] = id;
+                            stones.push([nr, nc]);
+                            queue.push([nr, nc]);
+                        }
+                    }
+                }
+                chains.push({ color: v, stones });
+            }
+        }
+        // 2) 空点区域与其邻接棋链
+        const regionOf = Array(boardSize).fill().map(() => Array(boardSize).fill(-1));
+        const regions = [];
+        for (let r = 0; r < boardSize; r++) {
+            for (let c = 0; c < boardSize; c++) {
+                if (board[r][c] !== 0 || regionOf[r][c] >= 0) continue;
+                const id = regions.length;
+                const points = [[r, c]];
+                const adj = new Set();
+                regionOf[r][c] = id;
+                const queue = [[r, c]];
+                for (let qi = 0; qi < queue.length; qi++) {
+                    const [rr, cc] = queue[qi];
+                    for (const [dr, dc] of dirs) {
+                        const nr = rr + dr, nc = cc + dc;
+                        if (nr < 0 || nr >= boardSize || nc < 0 || nc >= boardSize) continue;
+                        const nv = board[nr][nc];
+                        if (nv === 0) {
+                            if (regionOf[nr][nc] < 0) {
+                                regionOf[nr][nc] = id;
+                                points.push([nr, nc]);
+                                queue.push([nr, nc]);
+                            }
+                        } else if (chainOf[nr][nc] >= 0) {
+                            adj.add(chainOf[nr][nc]);
+                        }
+                    }
+                }
+                regions.push({ points, adj });
+            }
+        }
+        const chainRegions = chains.map(() => new Set());
+        regions.forEach((reg, ri) => { reg.adj.forEach((ci) => chainRegions[ci].add(ri)); });
+        // 3) 最大不动点：先假设全部链存活，反复剔除"不足两个要害区域"的链
+        //    （要害区域 = 其邻接的所有链当前均存活且同色）
+        const alive = new Array(chains.length).fill(true);
+        let changed = true;
+        while (changed) {
+            changed = false;
+            for (let ci = 0; ci < chains.length; ci++) {
+                if (!alive[ci]) continue;
+                const color = chains[ci].color;
+                let vital = 0;
+                for (const ri of chainRegions[ci]) {
+                    let ok = true;
+                    for (const aj of regions[ri].adj) {
+                        if (!alive[aj] || chains[aj].color !== color) { ok = false; break; }
+                    }
+                    if (ok && ++vital >= 2) break;
+                }
+                if (vital < 2) { alive[ci] = false; changed = true; }
+            }
+        }
+        // 4) 输出：活棋格与确定领地
+        const aliveGrid = Array(boardSize).fill().map(() => Array(boardSize).fill(false));
+        chains.forEach((ch, ci) => {
+            if (!alive[ci]) return;
+            for (const [r, c] of ch.stones) aliveGrid[r][c] = true;
+        });
+        const territory = Array(boardSize).fill().map(() => Array(boardSize).fill(0));
+        for (const reg of regions) {
+            if (!reg.adj.size) continue;
+            let owner = 0;
+            let ok = true;
+            for (const aj of reg.adj) {
+                if (!alive[aj]) { ok = false; break; }
+                const c = chains[aj].color;
+                if (owner === 0) owner = c;
+                else if (owner !== c) { ok = false; break; }
+            }
+            if (ok && owner) {
+                for (const [r, c] of reg.points) territory[r][c] = owner;
+            }
+        }
+        return { alive: aliveGrid, territory };
+    },
+
+    /** Benson 无条件活（带洞方格版）：洞不参与分析（不可落子/无气/不连通） */
+    bensonAliveWithHoles(board, boardSize, isHole) {
+        return bensonCoreGrid({
+            width: boardSize,
+            height: boardSize,
+            getNeighbors: function (r, c) { return [[r - 1, c], [r + 1, c], [r, c - 1], [r, c + 1]]; },
+            isValid: function (r, c) { return !isHole(r, c); },
+            get: function (r, c) { return board[r][c]; }
+        });
     },
 
     isLibertySurroundedByOpponent(board, libertyRow, libertyCol, opponentColor, boardSize) {
@@ -1684,6 +2045,17 @@ const squareWeiqiRules = {
  * board[r][c]：0 空，1 黑，2 白；-1 可表示无效格（仅不参与落子，形势 BFS 不可穿）。
  */
 const gridGraphWeiqiRules = {
+    /** Benson 无条件活（通用网格图版）：按各棋类自身的邻接与有效点 */
+    bensonAlive(board, gridW, gridH, getNeighbors, isIntersection) {
+        return bensonCoreGrid({
+            width: gridH,
+            height: gridW,
+            getNeighbors: function (r, c) { return getNeighbors(r, c); },
+            isValid: function (r, c) { return r >= 0 && r < gridW && c >= 0 && c < gridH && isIntersection(r, c); },
+            get: function (r, c) { return board[r] ? board[r][c] : undefined; }
+        });
+    },
+
     countGroupLiberties(board, row, col, getNeighbors) {
         const color = board[row][col];
         if (color === 0) 
@@ -1872,6 +2244,15 @@ const gridGraphWeiqiRules = {
  * 一维顶点棋盘 + 邻接表 neighbors[v]（六角、五角围棋等）。
  */
 const vertexGraphWeiqiRules = {
+    /** Benson 无条件活（扁平顶点图版）：neighbors 为按顶点 id 的邻接数组 */
+    bensonAlive(boardState, neighbors) {
+        return bensonCoreGraph({
+            n: boardState.length,
+            neighbors: function (i) { return neighbors[i] || []; },
+            get: function (i) { return boardState[i]; }
+        });
+    },
+
     hasLiberty(boardState, start, neighbors) {
         const color = boardState[start];
         if (color === 0) return false;
@@ -1992,54 +2373,54 @@ const qiBoardSeatOverlay = {
         self._qiBoardSeatOverlayInstalled = true;
         self.boardSeatOverlay = true;
         if (self.hostWs === undefined) self.hostWs = null;
-        if (!self.slotJoinedAt) self.slotJoinedAt = { black: null, white: null };
+        if (!self.slotJoinedAt) self.slotJoinedAt = { player1: null, player2: null };
 
         self._qiApplyChooserColorChoice = function (colorChoice, chooserSlot) {
             if (!chooserSlot) return null;
             const room = this.room;
             if (!room.getPlayerBySlot(chooserSlot)) return null;
             let raw = colorChoice;
-            if (raw === 'hostWhite') raw = 'white';
-            if (raw === 'hostBlack') raw = 'black';
-            let target = 'black';
-            if (raw === 'white') target = 'white';
-            else if (raw === 'random') target = Math.random() < 0.5 ? 'black' : 'white';
+            if (raw === 'hostWhite') raw = 'player2';
+            if (raw === 'hostBlack') raw = 'player1';
+            let target = 'player1';
+            if (raw === 'player2') target = 'player2';
+            else if (raw === 'random') target = Math.random() < 0.5 ? 'player1' : 'player2';
             if (chooserSlot === target) return target;
             if (typeof room.swapSlots === 'function') {
-                room.swapSlots('black', 'white');
+                room.swapSlots('player1', 'player2');
             } else {
-                const a = room.slotOccupancy.get('black') || null;
-                const b = room.slotOccupancy.get('white') || null;
-                room.slotOccupancy.delete('black');
-                room.slotOccupancy.delete('white');
+                const a = room.slotOccupancy.get('player1') || null;
+                const b = room.slotOccupancy.get('player2') || null;
+                room.slotOccupancy.delete('player1');
+                room.slotOccupancy.delete('player2');
                 if (a) {
-                    room.players.set(a, 'white');
-                    room.slotOccupancy.set('white', a);
+                    room.players.set(a, 'player2');
+                    room.slotOccupancy.set('player2', a);
                 }
                 if (b) {
-                    room.players.set(b, 'black');
-                    room.slotOccupancy.set('black', b);
+                    room.players.set(b, 'player1');
+                    room.slotOccupancy.set('player1', b);
                 }
             }
             if (this.slotJoinedAt) {
-                const tb = this.slotJoinedAt.black;
-                const tw = this.slotJoinedAt.white;
-                this.slotJoinedAt.black = tw;
-                this.slotJoinedAt.white = tb;
+                const tb = this.slotJoinedAt.player1;
+                const tw = this.slotJoinedAt.player2;
+                this.slotJoinedAt.player1 = tw;
+                this.slotJoinedAt.player2 = tb;
             }
             return target;
         };
 
         self._qiNotifyColorsFinalized = function () {
             const room = this.room;
-            const b = room.getPlayerBySlot('black');
-            const w = room.getPlayerBySlot('white');
+            const b = room.getPlayerBySlot('player1');
+            const w = room.getPlayerBySlot('player2');
             const hostSlot = this.hostWs ? room.getSlotByWs(this.hostWs) : null;
-            if (b) b.send(JSON.stringify({ type: 'colorAssigned', color: 'black', finalized: true, isHost: b === this.hostWs }));
-            if (w) w.send(JSON.stringify({ type: 'colorAssigned', color: 'white', finalized: true, isHost: w === this.hostWs }));
+            if (b) b.send(JSON.stringify({ type: 'colorAssigned', color: 'player1', finalized: true, isHost: b === this.hostWs }));
+            if (w) w.send(JSON.stringify({ type: 'colorAssigned', color: 'player2', finalized: true, isHost: w === this.hostWs }));
             this.broadcast({
                 type: 'colorsFinalized',
-                slots: { black: !!b, white: !!w },
+                slots: { player1: !!b, player2: !!w },
                 hostSlot
             });
         };
@@ -2084,9 +2465,9 @@ const qiBoardSeatOverlay = {
 
         self._qiParseColorChoice = function (msg, slot) {
             const raw = msg && msg.colorChoice;
-            let colorChoice = 'black';
-            if (raw === 'black' || raw === 'hostBlack') colorChoice = 'black';
-            else if (raw === 'white' || raw === 'hostWhite') colorChoice = 'white';
+            let colorChoice = 'player1';
+            if (raw === 'black' || raw === 'hostBlack') colorChoice = 'player1';
+            else if (raw === 'white' || raw === 'hostWhite') colorChoice = 'player2';
             else if (raw === 'random') colorChoice = 'random';
             return { colorChoice, colorChooserSlot: slot };
         };
@@ -2110,7 +2491,7 @@ const qiBoardSeatOverlay = {
             if (this.moveHistory && this.moveHistory.length > 0) return;
             if (this.gameOver) return;
             const room = this.room;
-            if (!room.getPlayerBySlot('black') || !room.getPlayerBySlot('white')) return;
+            if (!room.getPlayerBySlot('player1') || !room.getPlayerBySlot('player2')) return;
             if (this.tcNego !== null) return;
             if (this.tcSettings !== null) return;
             const first = this._firstPickerSlot();
@@ -2128,7 +2509,7 @@ const qiBoardSeatOverlay = {
                     boardSeatOverlay: true
                 }));
             }
-            const other = first === 'black' ? 'white' : 'black';
+            const other = first === 'player1' ? 'player2' : 'player1';
             const ws2 = room.getPlayerBySlot(other);
             if (ws2) ws2.send(JSON.stringify({ type: 'timeControlWaitPeer', text: '等待对方设置限时规则...' }));
             void origMaybe;
@@ -2149,8 +2530,8 @@ const qiBoardSeatOverlay = {
             this._maybeBeginTimeNegotiation();
             // 无限时协商玩法：双方入座即开始，便于客户端收起蒙版
             if (this.tcNego === undefined) {
-                const b = this.room.getPlayerBySlot('black');
-                const w = this.room.getPlayerBySlot('white');
+                const b = this.room.getPlayerBySlot('player1');
+                const w = this.room.getPlayerBySlot('player2');
                 if (b && w) {
                     this.matchStarted = true;
                     // 开局即判定：编辑盘面某方无将/帅/王则直接判负，行棋方无子可动则判和（象棋/国际象棋等实现 onMatchStarted）
@@ -2199,7 +2580,7 @@ const qiBoardSeatOverlay = {
             this.tcNego.proposal = v;
             this.tcNego.lastProposerSlot = slot;
             this.tcNego.phase = 'respond';
-            const other = slot === 'black' ? 'white' : 'black';
+            const other = slot === 'player1' ? 'player2' : 'player1';
             this.tcNego.waitingSlot = other;
             const me = room.getPlayerBySlot(slot);
             if (me) me.send(JSON.stringify({ type: 'timeControlWaitPeer', text: '等待对方确认...' }));
@@ -2250,11 +2631,18 @@ const qiBoardSeatOverlay = {
             const now = Date.now();
             this.tcClock = qiMatchTimeControl.createClock(this.tcSettings, now);
             if (this.tcClock.timed) {
-                // 象棋等：sideToMove 为 red/black；围棋等：currentPlayer 1/2 → 座位 black/white
-                let activeSlot = 'black';
-                if (this.sideToMove === 'red') activeSlot = 'black';
-                else if (this.sideToMove === 'black') activeSlot = 'white';
-                else if (this.currentPlayer === 2) activeSlot = 'white';
+                // 起始扣时方 = 先手方所在座位：棋种导出 slotFromSide 时按执方换算，
+                // 否则退回 sideToMove='red' / currentPlayer 记法（player1 座先手）。
+                let activeSlot = 'player1';
+                const sideToMove = this.sideToMove != null ? this.sideToMove : null;
+                if (typeof this.slotFromSide === 'function' && sideToMove != null) {
+                    const mapped = this.slotFromSide(sideToMove);
+                    if (mapped === 'player1' || mapped === 'player2') activeSlot = mapped;
+                } else if (sideToMove === 'white') {
+                    activeSlot = 'player2';
+                } else if (this.currentPlayer === 2) {
+                    activeSlot = 'player2';
+                }
                 qiMatchTimeControl.setActiveSlot(this.tcClock, activeSlot, now);
                 if (typeof this._startClockTicker === 'function') this._startClockTicker();
                 if (typeof this._broadcastClock === 'function') this._broadcastClock();
@@ -2268,8 +2656,8 @@ const qiBoardSeatOverlay = {
                     ? qiMatchTimeControl.snapshotForClient(this.tcClock)
                     : null,
                 slots: {
-                    black: !!this.room.getPlayerBySlot('black'),
-                    white: !!this.room.getPlayerBySlot('white')
+                    player1: !!this.room.getPlayerBySlot('player1'),
+                    player2: !!this.room.getPlayerBySlot('player2')
                 },
                 hostSlot: this.hostWs ? this.room.getSlotByWs(this.hostWs) : null
             });
@@ -2295,6 +2683,12 @@ const qiBoardSeatOverlay = {
             state.hostSlot = self.hostWs ? self.room.getSlotByWs(self.hostWs) : null;
             state.boardSeatOverlay = true;
             if (self.matchStarted !== undefined) state.matchStarted = !!self.matchStarted;
+            if (!state.sideLabels) {
+                state.sideLabels = {
+                    player1: qiSideLabelOfSlot(self, 'player1'),
+                    player2: qiSideLabelOfSlot(self, 'player2')
+                };
+            }
             return state;
         };
         if (typeof self.getState === 'function') {
@@ -2333,9 +2727,9 @@ const qiBoardSeatOverlay = {
                 const slot = this.room.getSlotByWs(ws);
                 if (slot) this.room.broadcast({ type: 'playerLeft', slot, matchStarted: !!this.matchStarted });
                 if (this.hostWs === ws) {
-                    const other = slot === 'black'
-                        ? this.room.getPlayerBySlot('white')
-                        : this.room.getPlayerBySlot('black');
+                    const other = slot === 'player1'
+                        ? this.room.getPlayerBySlot('player2')
+                        : this.room.getPlayerBySlot('player1');
                     this.hostWs = other || null;
                 }
                 // 原 onPlayerLeave 可能再次 broadcast playerLeft；先清 slotJoinedAt / nego
@@ -2368,9 +2762,9 @@ const qiBoardSeatOverlay = {
                 const slot = this.room.getSlotByWs(ws);
                 if (slot) this.room.broadcast({ type: 'playerLeft', slot, matchStarted: !!this.matchStarted });
                 if (this.hostWs === ws) {
-                    const other = slot === 'black'
-                        ? this.room.getPlayerBySlot('white')
-                        : this.room.getPlayerBySlot('black');
+                    const other = slot === 'player1'
+                        ? this.room.getPlayerBySlot('player2')
+                        : this.room.getPlayerBySlot('player1');
                     this.hostWs = other || null;
                 }
                 if (this.tcNego) {

@@ -3,7 +3,7 @@ window.RoomPlugins['bridge-weiqi'] = {
     shell: {
         "title": "桥围棋",
         "rulesHtml": "基本规则同围棋。<br /><br />开局时棋盘随机生成若干桥（数量约为总点数的8.3%）。桥上不能落子，也不会被提。<br /><br />桥会把左右和上下两侧分别连接。<br />",
-        "defaultKomiText": "黑贴白4.75点",
+        "defaultKomiText": "黑贴白3.75点",
         "boardSizeMin": 7,
         "boardSizeMax": 21,
         "defaultBoardSize": 19,
@@ -44,11 +44,18 @@ window.RoomPlugins['bridge-weiqi'] = {
         var standardWeiqiMatchTime = config.standardWeiqiMatchTime != null ? config.standardWeiqiMatchTime : true;
 
         (function () {
+        /** 桥围棋贴目（按路数，与服务端 komiForSizeBridge 一致）：7 路 4.75、8/9 路 4.25，其余 3.75 */
+        function komiForSizeBridge(boardSize) {
+            if (boardSize === 7) return 4.75;
+            if (boardSize === 8 || boardSize === 9) return 4.25;
+            return 3.75;
+        }
+
 const ps = {
-            BOARD_SIZE: 19, KOMI: 4.75, PADDING: 0, CELL_SIZE: 0, numberOfHands: 1, currentPlayer: 1,
+            BOARD_SIZE: 19, KOMI: komiForSizeBridge(19), PADDING: 0, CELL_SIZE: 0, numberOfHands: 1, currentPlayer: 1,
             mySlot: null, gameOver: false, winner: null, lastMoveMarkers: [], showEstimateActive: false,
             cachedLiveBoard: null, cachedTerritory: null, waitingScoreConfirm: false, iRejected: false,
-            ws: null, isMyTurn: false, slots: { black: false, white: false }, reconnectTimer: null,
+            ws: null, isMyTurn: false, slots: { player1: false, player2: false }, reconnectTimer: null,
             replayMode: false, replayBoards: [], replayMarkers: [], replayStepPlayers: [], replayStep: 0, replayTotalSteps: 0,
             showMoveNumbers: false, moveLog: [], tryPlayMode: false, tryPlayBaseStep: 0, tryPlayBoards: [], tryPlayMarkers: [],
             tryPlayCurrentPlayer: 1, tryPlayStep: 0, tryPlayTotalSteps: 0, liveReplayBoards: [], liveReplayMarkers: [],
@@ -287,6 +294,52 @@ const scoreTitle = document.getElementById('scoreTitle');
 
         const domPage = { turnDisplay, scoreTitle, scoreBoard, leadInfo, scoreConfirmPanel, scoreConfirmText, komiInfo: document.getElementById('komiInfo'), canvas, ctx, boardMarkSelect, colorStatus };
         const pageHolder = {};
+        // 桥围棋形势判断：Benson（桥版）加成——桥不可落子/无气；邻接按“桥缩短”图邻接（上下互通、左右互通）
+        function bridgeBensonInfo(bd) {
+            const RT = window.QiWeiqiSquarePageRuntime;
+            const size = ps.BOARD_SIZE;
+            return RT.bensonAliveGrid({
+                width: size,
+                height: size,
+                getNeighbors: (r, c) => getBridgeNeighbors(bd, r, c),
+                isValid: (r, c) => bd[r][c] !== BRIDGE,
+                get: (r, c) => bd[r][c]
+            });
+        }
+        function bridgeBensonRemoveDead(srcBoard) {
+            const size = ps.BOARD_SIZE;
+            const copy = (b) => QiSquareWeiqiCanvas.deepCopyBoard(b);
+            const benson = bridgeBensonInfo(srcBoard);
+            let live = copy(srcBoard);
+            let changed = true;
+            while (changed) {
+                changed = false;
+                const cleaned = bridgeRemoveDeadAndDying(live);
+                for (let r = 0; r < size; r++) {
+                    for (let c = 0; c < size; c++) {
+                        const v = srcBoard[r][c];
+                        if (benson.alive[r][c] && (v === 1 || v === 2) && cleaned[r][c] !== v) {
+                            cleaned[r][c] = v;
+                            changed = true;
+                        }
+                    }
+                }
+                live = cleaned;
+            }
+            return live;
+        }
+        function bridgeBensonTerritory(liveBoard) {
+            const size = ps.BOARD_SIZE;
+            const territory = assignTerritoryWithBridgeGraph(liveBoard, size);
+            const secure = bridgeBensonInfo(liveBoard);
+            for (let r = 0; r < size; r++) {
+                for (let c = 0; c < size; c++) {
+                    if (liveBoard[r][c] === 0 && secure.territory[r][c]) territory[r][c] = secure.territory[r][c];
+                }
+            }
+            return territory;
+        }
+
         const page = QiWeiqiSquarePageRuntime.create(ps, domPage, {
             enableEditBoard: true,
             editTools: config.editTools,
@@ -294,8 +347,8 @@ const scoreTitle = document.getElementById('scoreTitle');
             // 桥围棋总点数 = N² − 桥数；每盘桥数恰为 floor(0.083N²)（服务端 BRIDGE_COUNT）
             totalPoints: (p) => p.BOARD_SIZE * p.BOARD_SIZE - Math.floor(0.083 * p.BOARD_SIZE * p.BOARD_SIZE),
             tryPlaceStone: bridgeTryPlaceStone, drawBoard: bridgeDrawBoard,
-            removeDeadAndDying: (src) => bridgeRemoveDeadAndDying(src),
-            assignTerritoryWithRange: (live) => assignTerritoryWithBridgeGraph(live, ps.BOARD_SIZE),
+            removeDeadAndDying: bridgeBensonRemoveDead,
+            assignTerritoryWithRange: bridgeBensonTerritory,
             rebuildLiveReplayFromMoveCoords(moveCoords) {
                 const syncedLen = ps.liveReplayBoards.length - 1;
                 const mcs = moveCoords || [];

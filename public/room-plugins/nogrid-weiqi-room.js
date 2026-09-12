@@ -92,7 +92,7 @@ window.RoomPlugins["nogrid-weiqi"] = {
     let stones = [];
     let currentPlayer = 1;
     let mySlot = null;
-    let slots = { black: false, white: false };
+    let slots = { player1: false, player2: false };
     let numberOfHands = 1;
     let gameOver = false;
     let winner = null;
@@ -449,7 +449,7 @@ const scoreTitle = document.getElementById('scoreTitle');
         if (isMyTurn() && isHoverValid) {
             const x = ixToX(hoverIx), y = iyToY(hoverIy);
             if (isPointInBoard(x, y) && !isOverlapWithStonesXY(x, y, stones, diameter, null))
-                previewStone = { ix: hoverIx, iy: hoverIy, color: mySlot === 'black' ? 1 : 2 };
+                previewStone = { ix: hoverIx, iy: hoverIy, color: mySlot === 'player1' ? 1 : 2 };
         }
 
         if (showAdjacentLinesCheckbox.checked && stones.length > 0)
@@ -515,7 +515,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             ctx.globalAlpha = 0.45;
             ctx.beginPath();
             ctx.arc(px, py, radius, 0, 2 * Math.PI);
-            ctx.fillStyle = previewStone.color === 1 ? '#222' : '#ddd';
+            ctx.fillStyle = previewStone.color === 1 ? '#222' : '#fff';
             ctx.fill();
             ctx.globalAlpha = 1;
         }
@@ -564,7 +564,7 @@ const scoreTitle = document.getElementById('scoreTitle');
 
     function isMyTurn() {
         if (!matchStarted || !mySlot || gameOver) return false;
-        return (mySlot === 'black' && currentPlayer === 1) || (mySlot === 'white' && currentPlayer === 2);
+        return (mySlot === 'player1' && currentPlayer === 1) || (mySlot === 'player2' && currentPlayer === 2);
     }
 
     function updateEstimate() {
@@ -585,7 +585,7 @@ const scoreTitle = document.getElementById('scoreTitle');
     function updateTurn() {
         if (matchStartedOnce === undefined) matchStartedOnce = false;
         if (matchStarted) matchStartedOnce = true;
-        const bothSelected = !!(slots && slots.black && slots.white);
+        const bothSelected = !!(slots && slots.player1 && slots.player2);
         const hasStoneOnBoard = stones.length > 0 || (moveCoords && moveCoords.some(m => m.type === 'move'));
         const matchReady = !!(matchStarted || matchStartedOnce);
         if (bothSelected && matchReady) matchStartedOnce = true;
@@ -628,7 +628,7 @@ const scoreTitle = document.getElementById('scoreTitle');
         replayMarkersSeq = [[]];
         replayStepPlayers = [0];
         for (const move of (data.moves || [])) {
-            const playerVal = move.player === 'black' ? 1 : 2;
+            const playerVal = move.player === 'player1' ? 1 : 2;
             replayStepPlayers.push(playerVal);
             if (move.type === 'move') {
                 cur = applyMoveClient(cur, { ix: move.ix, iy: move.iy, color: playerVal }, diameter);
@@ -702,7 +702,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             exportBtn.style.display = 'none';
             return;
         }
-        const noPlayers = !slots.black && !slots.white;
+        const noPlayers = !slots.player1 && !slots.player2;
         const hasStoneOnBoard = stones.length > 0;
         const hasMovesInRecord = moveCoords && moveCoords.some(m => m.type === 'move');
         const hasAnyStone = hasStoneOnBoard || hasMovesInRecord;
@@ -721,7 +721,7 @@ const scoreTitle = document.getElementById('scoreTitle');
         liveReplayStonesSeq = [deepCopyStones(cur)];
         liveReplayMarkers = [[]];
         for (const m of coords || []) {
-            const pv = m.player === 'black' ? 1 : 2;
+            const pv = m.player === 'player1' ? 1 : 2;
             if (m.type === 'move') {
                 cur = applyMoveClient(cur, { ix: m.ix, iy: m.iy, color: pv }, diameter);
                 liveReplayStonesSeq.push(deepCopyStones(cur));
@@ -740,7 +740,7 @@ const scoreTitle = document.getElementById('scoreTitle');
         let cur = deepCopyStones(liveReplayStonesSeq[liveReplayStonesSeq.length - 1]);
         for (let i = startLen; i < mcs.length; i++) {
             const m = mcs[i];
-            const pv = m.player === 'black' ? 1 : 2;
+            const pv = m.player === 'player1' ? 1 : 2;
             if (m.type === 'move') {
                 cur = applyMoveClient(cur, { ix: m.ix, iy: m.iy, color: pv }, diameter);
                 liveReplayStonesSeq.push(deepCopyStones(cur));
@@ -834,7 +834,7 @@ const scoreTitle = document.getElementById('scoreTitle');
         const hasStoneOnBoard = stones.length > 0;
         const hasMovesInRecord = moveCoords && moveCoords.some(m => m.type === 'move');
         const hasAnyStone = hasStoneOnBoard || hasMovesInRecord;
-        const hasPlayer = slots.black || slots.white;
+        const hasPlayer = slots.player1 || slots.player2;
         roadCountSelect.style.display = (!replayMode && !hasAnyStone && !hasPlayer && !gameOver && mySlot === null) ? 'inline-block' : 'none';
 
         recomputeTerritory();
@@ -853,7 +853,7 @@ const scoreTitle = document.getElementById('scoreTitle');
     }
     function showScoreConfirm(lead) {
         const abs = Math.abs(lead);
-        const t = lead > 0 ? `黑胜${formatScore(abs)}点` : (lead < 0 ? `白胜${formatScore(abs)}点` : '平局');
+        const t = lead > 0 ? `黑胜${formatScore(abs)}点` : (lead < 0 ? `白胜${formatScore(abs)}点` : '和棋');
         scoreConfirmText.innerText = `${t}，是否同意该结果？`;
         scoreConfirmPanel.style.display = 'block';
     }
@@ -912,7 +912,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             get iRejected() { return iRejected; },
             set iRejected(v) { iRejected = !!v; },
             get slots() { return slots; },
-            set slots(v) { slots = v || { black: false, white: false }; },
+            set slots(v) { slots = v || { player1: false, player2: false }; },
             get ws() { return ws; },
             set ws(v) { ws = v; },
             get replayMode() { return replayMode; },
@@ -1132,7 +1132,7 @@ syncState,
             return;
         }
         if (!mySlot) { qiAlert('只有对局者可以开始新局'); return; }
-        const opp = mySlot === 'black' ? 'white' : 'black';
+        const opp = mySlot === 'player1' ? 'player2' : 'player1';
         if (slots[opp]) {
             qiConfirm('确定向对方申请开始新局吗？').then(ok => { if (ok) ws.send(JSON.stringify({ type: 'requestNewGame' })); });
         } else {
@@ -1152,7 +1152,7 @@ syncState,
     };
     document.getElementById('undoBtn').onclick = () => {
         if (!mySlot) { qiAlert('只有对局者可以悔棋'); return; }
-        const opp = mySlot === 'black' ? 'white' : 'black';
+        const opp = mySlot === 'player1' ? 'player2' : 'player1';
         if (slots[opp]) {
             qiConfirm('确定向对方申请悔棋吗？').then(ok => { if (ok) ws.send(JSON.stringify({ type: 'requestUndo' })); });
         } else {

@@ -37,13 +37,13 @@ window.RoomPlugins['bury-mine-weiqi'] = {
             var ps = {
                 BOARD_SIZE: 19, KOMI: 3.25, PADDING: 0, CELL_SIZE: 0, numberOfHands: 1, currentPlayer: 1, mySlot: null, gameOver: false, winner: null,
                 lastMoveMarkers: [], showEstimateActive: false, cachedLiveBoard: null, cachedTerritory: null, waitingScoreConfirm: false, iRejected: false,
-                ws: null, isMyTurn: false, slots: { black: false, white: false }, reconnectTimer: null,
+                ws: null, isMyTurn: false, slots: { player1: false, player2: false }, reconnectTimer: null,
                 replayMode: false, replayBoards: [], replayMarkers: [], replayStepPlayers: [], replayStep: 0, replayTotalSteps: 0,
                 showMoveNumbers: false, moveLog: [],
                 tryPlayMode: false, tryPlayBaseStep: 0, tryPlayBoards: [], tryPlayMarkers: [], tryPlayCurrentPlayer: 1, tryPlayStep: 0, tryPlayTotalSteps: 0,
                 liveReplayBoards: [], liveReplayMarkers: [], liveReplayStepPlayers: [], liveViewStep: 0, liveFollowLatest: true,
                 userBoardMarks: Object.create(null), hoverRow: -1, hoverCol: -1, isHoverValid: false,
-                phase: 'waiting', buryDone: { black: false, white: false }, mineQuota: { black: 0, white: 0 },
+                phase: 'waiting', buryDone: { player1: false, player2: false }, mineQuota: { player1: 0, player2: 0 },
                 myMines: [], myLockedMines: [], myMineCount: 0, myMineQuota: 0, myBuryDone: true,
                 minesRevealedPublicly: false, allMines: null, isInitialBury: false,
                 gameStarted: false, editModeEnabled: false, editTool: 'empty',
@@ -209,12 +209,29 @@ window.RoomPlugins['bury-mine-weiqi'] = {
                 if (ps.showMoveNumbers) {
                     d.moveNumbersOnStones(ctx, numsOnBoard(), ps.board, ps.BOARD_SIZE, ps.PADDING, ps.CELL_SIZE);
                 }
-                const canHover = ps.tryPlayMode || canIBury() || (!ps.gameOver && !ps.waitingScoreConfirm && ps.isMyTurn && ps.phase === 'playing');
-                if (canHover && ps.isHoverValid && ps.hoverRow >= 0 && ps.hoverCol >= 0 && ps.board[ps.hoverRow][ps.hoverCol] === 0) {
-                    ctx.globalAlpha = 0.45; ctx.beginPath();
-                    ctx.arc(ps.PADDING + ps.hoverCol * ps.CELL_SIZE, ps.PADDING + ps.hoverRow * ps.CELL_SIZE, ps.CELL_SIZE * 0.44, 0, 2 * Math.PI);
-                    ctx.fillStyle = ps.tryPlayMode ? (ps.tryPlayCurrentPlayer === 1 ? '#222' : '#ddd') : (ps.mySlot === 'black' ? '#222' : '#ddd');
-                    ctx.fill(); ctx.globalAlpha = 1;
+                const editing = !!ps.editModeEnabled;
+                const canHover = editing || ps.tryPlayMode || canIBury() || (!ps.gameOver && !ps.waitingScoreConfirm && ps.isMyTurn && ps.phase === 'playing');
+                if (canHover && ps.isHoverValid && ps.hoverRow >= 0 && ps.hoverCol >= 0
+                    && (editing || ps.board[ps.hoverRow][ps.hoverCol] === 0)) {
+                    let hoverColor = null;
+                    if (editing) {
+                        const t = ps.editTool || 'empty';
+                        if (t === 'white') hoverColor = '#fff';
+                        else if (t === 'black') hoverColor = '#222';
+                        else if (t !== 'empty') hoverColor = '#666';
+                    } else {
+                        hoverColor = ps.tryPlayMode ? (ps.tryPlayCurrentPlayer === 1 ? '#222' : '#ddd')
+                            : (ps.mySlot === 'player1' ? '#222' : '#ddd');
+                    }
+                    if (hoverColor) {
+                        ctx.globalAlpha = 0.45; ctx.beginPath();
+                        // 行 0 在底：悬停 y 与棋子绘制同一反转
+                        ctx.arc(ps.PADDING + ps.hoverCol * ps.CELL_SIZE,
+                            ps.PADDING + (ps.BOARD_SIZE - 1 - ps.hoverRow) * ps.CELL_SIZE,
+                            ps.CELL_SIZE * 0.44, 0, 2 * Math.PI);
+                        ctx.fillStyle = hoverColor;
+                        ctx.fill(); ctx.globalAlpha = 1;
+                    }
                 }
                 if (ps.showEstimateActive && ps.cachedLiveBoard && ps.cachedTerritory) {
                     const dr = ps.CELL_SIZE * 0.18;
@@ -237,7 +254,7 @@ window.RoomPlugins['bury-mine-weiqi'] = {
                 let cur = openingBoard ? dc(openingBoard) : Array(n).fill().map(() => Array(n).fill(0));
                 ps.liveReplayBoards.push(dc(cur)); ps.liveReplayMarkers.push([]);
                 for (const move of (moveCoords || [])) {
-                    const pv = move.player === 'black' ? 1 : 2;
+                    const pv = move.player === 'player1' ? 1 : 2;
                     if (move.type === 'move') {
                         const nb = tryPlace(cur, move.row, move.col, pv);
                         if (nb) cur = nb;
@@ -253,8 +270,8 @@ window.RoomPlugins['bury-mine-weiqi'] = {
             function applyMineState(state) {
                 if (!state) return;
                 if (state.phase) ps.phase = state.phase;
-                if (state.buryDone) ps.buryDone = { black: !!state.buryDone.black, white: !!state.buryDone.white };
-                if (state.mineQuota) ps.mineQuota = { black: state.mineQuota.black | 0, white: state.mineQuota.white | 0 };
+                if (state.buryDone) ps.buryDone = { player1: !!state.buryDone.player1, player2: !!state.buryDone.player2 };
+                if (state.mineQuota) ps.mineQuota = { player1: state.mineQuota.player1 | 0, player2: state.mineQuota.player2 | 0 };
                 if (state.myMines) ps.myMines = state.myMines.slice();
                 else if (state.myMines === null) ps.myMines = [];
                 if (state.myLockedMines) ps.myLockedMines = state.myLockedMines.slice();
@@ -352,7 +369,7 @@ window.RoomPlugins['bury-mine-weiqi'] = {
                 let cur = openingBoard ? dc(openingBoard) : Array(n).fill().map(() => Array(n).fill(0));
                 ps.replayBoards = [dc(cur)]; ps.replayMarkers = [[]];
                 for (const move of (moveCoords || [])) {
-                    const pv = move.player === 'black' ? 1 : 2;
+                    const pv = move.player === 'player1' ? 1 : 2;
                     if (move.type === 'move') {
                         const nb = tryPlace(cur, move.row, move.col, pv);
                         if (nb) cur = nb;
@@ -617,8 +634,9 @@ window.RoomPlugins['bury-mine-weiqi'] = {
                     const rect = canvas.getBoundingClientRect(), sc = 600 / rect.width;
                     const { row, col } = getClosestIntersection((e.clientX - rect.left) * sc, (e.clientY - rect.top) * sc);
                     ps.hoverRow = row; ps.hoverCol = col;
-                    const allow = canIBury() || ps.tryPlayMode || (!ps.gameOver && ps.isMyTurn && ps.phase === 'playing');
-                    ps.isHoverValid = !!(allow && row >= 0 && col >= 0 && ps.board[row][col] === 0);
+                    const allow = ps.editModeEnabled || canIBury() || ps.tryPlayMode || (!ps.gameOver && ps.isMyTurn && ps.phase === 'playing');
+                    ps.isHoverValid = !!(allow && row >= 0 && col >= 0
+                        && (ps.editModeEnabled || ps.board[row][col] === 0));
                     drawBoard();
                 });
                 canvas.addEventListener('mouseleave', () => {

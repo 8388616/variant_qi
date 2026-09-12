@@ -68,7 +68,7 @@ class SquareDiagonalFourRoom extends QiTwoPlayerRoomBase {
         this.pendingNewGame = null;
         this.pendingUndo = null;
         this.pendingDraw = null;
-        this.slotJoinedAt = { black: null, white: null };
+        this.slotJoinedAt = { player1: null, player2: null };
         this.tcNego = null;
         this.tcSettings = null;
         this.tcClock = null;
@@ -98,7 +98,7 @@ class SquareDiagonalFourRoom extends QiTwoPlayerRoomBase {
                 this._stopClockTicker();
                 this.gameOver = true;
                 this.winner = winnerSlot;
-                this.recordResultText = lostSlot === 'black' ? '黑超时白胜' : '白超时黑胜';
+                this.recordResultText = lostSlot === 'player1' ? '黑方超时，白胜' : '白方超时，黑胜';
                 this.broadcast({ type: 'broadcast', action: 'timeLoss', player: lostSlot, winner: winnerSlot, ...this.getState() });
                 return;
             }
@@ -107,21 +107,21 @@ class SquareDiagonalFourRoom extends QiTwoPlayerRoomBase {
     }
 
     _firstPickerSlot() {
-        const tb = this.slotJoinedAt.black;
-        const tw = this.slotJoinedAt.white;
-        if (tb == null || tw == null) return 'black';
-        return tb <= tw ? 'black' : 'white';
+        const tb = this.slotJoinedAt.player1;
+        const tw = this.slotJoinedAt.player2;
+        if (tb == null || tw == null) return 'player1';
+        return tb <= tw ? 'player1' : 'player2';
     }
 
     _maybeBeginTimeNegotiation() {
         if (this.getMoveCount() > 0 || this.gameOver) return;
-        if (!this.room.getPlayerBySlot('black') || !this.room.getPlayerBySlot('white')) return;
+        if (!this.room.getPlayerBySlot('player1') || !this.room.getPlayerBySlot('player2')) return;
         if (this.tcNego || this.tcSettings) return;
         const first = this._firstPickerSlot();
         this.tcNego = { phase: 'propose', proposal: null, waitingSlot: first };
         const ws = this.room.getPlayerBySlot(first);
         if (ws) ws.send(JSON.stringify({ type: 'timeControlNegotiation', mode: 'propose' }));
-        const other = first === 'black' ? 'white' : 'black';
+        const other = first === 'player1' ? 'player2' : 'player1';
         const ws2 = this.room.getPlayerBySlot(other);
         if (ws2) ws2.send(JSON.stringify({ type: 'timeControlWaitPeer', text: '对方正在选择限时规则…' }));
     }
@@ -142,7 +142,7 @@ class SquareDiagonalFourRoom extends QiTwoPlayerRoomBase {
         if (slot !== this.tcNego.waitingSlot) return;
         this.tcNego.proposal = v;
         this.tcNego.phase = 'respond';
-        const other = slot === 'black' ? 'white' : 'black';
+        const other = slot === 'player1' ? 'player2' : 'player1';
         this.tcNego.waitingSlot = other;
         ws.send(JSON.stringify({ type: 'timeControlWaitPeer', text: '正在等对方确认' }));
         const otherWs = this.room.getPlayerBySlot(other);
@@ -174,7 +174,7 @@ class SquareDiagonalFourRoom extends QiTwoPlayerRoomBase {
         this.matchStarted = true;
         this.tcClock = qiMatchTimeControl.createClock(this.tcSettings, Date.now());
         if (this.tcClock.timed) {
-            qiMatchTimeControl.setActiveSlot(this.tcClock, this.currentPlayer === 1 ? 'black' : 'white', Date.now());
+            qiMatchTimeControl.setActiveSlot(this.tcClock, this.currentPlayer === 1 ? 'player1' : 'player2', Date.now());
             this._startClockTicker();
             this._broadcastClock();
         } else {
@@ -189,20 +189,20 @@ class SquareDiagonalFourRoom extends QiTwoPlayerRoomBase {
 
     _timeAllowsPlay(slot) {
         if (this.gameOver || !this.matchStarted || this.tcNego || this.tcSettings === null) return false;
-        const expect = this.currentPlayer === 1 ? 'black' : 'white';
+        const expect = this.currentPlayer === 1 ? 'player1' : 'player2';
         return slot === expect;
     }
 
     _drainClockBeforeMove(slot) {
         if (!this.tcClock || !this.tcClock.timed || this.gameOver) return true;
-        const expect = this.currentPlayer === 1 ? 'black' : 'white';
+        const expect = this.currentPlayer === 1 ? 'player1' : 'player2';
         if (slot !== expect) return true;
         const { lostSlot, winnerSlot } = qiMatchTimeControl.drain(this.tcClock, Date.now());
         if (lostSlot) {
             this._stopClockTicker();
             this.gameOver = true;
             this.winner = winnerSlot;
-            this.recordResultText = lostSlot === 'black' ? '黑超时白胜' : '白超时黑胜';
+            this.recordResultText = lostSlot === 'player1' ? '黑方超时，白胜' : '白方超时，黑胜';
             this.broadcast({ type: 'broadcast', action: 'timeLoss', player: lostSlot, winner: winnerSlot, ...this.getState() });
             return false;
         }
@@ -211,7 +211,7 @@ class SquareDiagonalFourRoom extends QiTwoPlayerRoomBase {
 
     _syncClockAfterTurnChange() {
         if (!this.tcClock || !this.tcClock.timed || this.gameOver) return;
-        qiMatchTimeControl.setActiveSlot(this.tcClock, this.currentPlayer === 1 ? 'black' : 'white', Date.now());
+        qiMatchTimeControl.setActiveSlot(this.tcClock, this.currentPlayer === 1 ? 'player1' : 'player2', Date.now());
         this._broadcastClock();
     }
 
@@ -231,12 +231,12 @@ class SquareDiagonalFourRoom extends QiTwoPlayerRoomBase {
         const outcome = evaluateSquareDiagonalFour(nb, row, col, playerVal, this.BOARD_SIZE);
         if (outcome === 'lose') {
             this.gameOver = true;
-            this.winner = playerVal === 1 ? 'white' : 'black';
-            this.recordResultText = this.winner === 'black' ? '黑中盘胜' : '白中盘胜';
+            this.winner = playerVal === 1 ? 'player2' : 'player1';
+            this.recordResultText = this.winner === 'player1' ? '黑中盘胜' : '白中盘胜';
         } else if (outcome === 'win') {
             this.gameOver = true;
-            this.winner = playerVal === 1 ? 'black' : 'white';
-            this.recordResultText = this.winner === 'black' ? '黑中盘胜' : '白中盘胜';
+            this.winner = playerVal === 1 ? 'player1' : 'player2';
+            this.recordResultText = this.winner === 'player1' ? '黑中盘胜' : '白中盘胜';
         }
         return nb;
     }
@@ -257,14 +257,14 @@ class SquareDiagonalFourRoom extends QiTwoPlayerRoomBase {
     _applyOutcome(slot, outcome) {
         if (outcome === 'lose') {
             this.gameOver = true;
-            this.winner = slot === 'black' ? 'white' : 'black';
-            this.recordResultText = this.winner === 'black' ? '黑中盘胜' : '白中盘胜';
+            this.winner = slot === 'player1' ? 'player2' : 'player1';
+            this.recordResultText = this.winner === 'player1' ? '黑中盘胜' : '白中盘胜';
             return true;
         }
         if (outcome === 'win') {
             this.gameOver = true;
             this.winner = slot;
-            this.recordResultText = slot === 'black' ? '黑中盘胜' : '白中盘胜';
+            this.recordResultText = slot === 'player1' ? '黑中盘胜' : '白中盘胜';
             return true;
         }
         return false;
@@ -292,8 +292,8 @@ class SquareDiagonalFourRoom extends QiTwoPlayerRoomBase {
             },
             matchStarted: this.matchStarted,
             slots: {
-                black: !!this.room.getPlayerBySlot('black'),
-                white: !!this.room.getPlayerBySlot('white')
+                player1: !!this.room.getPlayerBySlot('player1'),
+                player2: !!this.room.getPlayerBySlot('player2')
             }
         };
     }
@@ -310,7 +310,7 @@ class SquareDiagonalFourRoom extends QiTwoPlayerRoomBase {
             gameId: 'square-diagonal-four',
             boardSize: this.BOARD_SIZE,
             moves: this.moveCoords.map(m => {
-                const p = m.player[0].toUpperCase();
+                const p = (m.player === 'player1' ? 'B' : 'W');
                 return m.type === 'pass' ? `${p}p` : `${p}${m.row},${m.col}`;
             }),
             result: this.gameOver ? this.winner : null,
@@ -337,7 +337,7 @@ class SquareDiagonalFourRoom extends QiTwoPlayerRoomBase {
         this.pendingNewGame = null;
         this.pendingUndo = null;
         this.pendingDraw = null;
-        this.slotJoinedAt = { black: null, white: null };
+        this.slotJoinedAt = { player1: null, player2: null };
         this.tcNego = null;
         this.tcSettings = null;
         this.tcClock = null;
@@ -351,7 +351,7 @@ class SquareDiagonalFourRoom extends QiTwoPlayerRoomBase {
             return false;
         }
         const hasAnyStone = this.board.some(row => row.some(v => v !== 0));
-        const hasPlayer = this.room.getPlayerBySlot('black') || this.room.getPlayerBySlot('white');
+        const hasPlayer = this.room.getPlayerBySlot('player1') || this.room.getPlayerBySlot('player2');
         if (hasAnyStone || hasPlayer) {
             requesterWs.send(JSON.stringify({ type: 'error', message: '已有棋子或玩家，不能改变路数。' }));
             return false;
@@ -383,7 +383,7 @@ class SquareDiagonalFourRoom extends QiTwoPlayerRoomBase {
         for (let i = 0; i < rawMoves.length; i++) {
             let entry = rawMoves[i];
             if (typeof entry === 'string') {
-                const player = entry[0] === 'B' ? 'black' : 'white';
+                const player = entry[0] === 'B' ? 'player1' : 'player2';
                 if (entry.length >= 2 && entry[1] === 'p') {
                     entry = { type: 'pass', player };
                 } else {
@@ -392,7 +392,7 @@ class SquareDiagonalFourRoom extends QiTwoPlayerRoomBase {
                 }
             }
             const slot = entry.player;
-            const expect = this.currentPlayer === 1 ? 'black' : 'white';
+            const expect = this.currentPlayer === 1 ? 'player1' : 'player2';
             if (slot !== expect) {
                 this.resetToEmpty();
                 requesterWs.send(JSON.stringify({ type: 'error', message: `棋谱回放失败：第${i + 1}手行棋方与局面不符。` }));
@@ -408,7 +408,7 @@ class SquareDiagonalFourRoom extends QiTwoPlayerRoomBase {
                 if (this._trailingPassCount() >= 2) {
                     this.gameOver = true;
                     this.winner = 'draw';
-                    this.recordResultText = '和胜';
+                    this.recordResultText = '和棋';
                     break;
                 }
                 continue;
@@ -426,7 +426,7 @@ class SquareDiagonalFourRoom extends QiTwoPlayerRoomBase {
                 this.broadcast({ type: 'roomReset', ...this.getState() });
                 return;
             }
-            const playerVal = slot === 'black' ? 1 : 2;
+            const playerVal = slot === 'player1' ? 1 : 2;
             this.board[row][col] = playerVal;
             this.lastMoveMarkers = [{ row, col, color: playerVal }];
             this.moveHistory.push(slot);
@@ -447,8 +447,8 @@ class SquareDiagonalFourRoom extends QiTwoPlayerRoomBase {
         if (data.result && !this.gameOver) {
             this.gameOver = true;
             this.recordResultText = data.result;
-            if (String(data.result).includes('白胜') || data.result === 'white') this.winner = 'white';
-            else if (String(data.result).includes('黑胜') || data.result === 'black') this.winner = 'black';
+            if (String(data.result).includes('白胜') || data.result === 'player2') this.winner = 'player2';
+            else if (String(data.result).includes('黑胜') || data.result === 'player1') this.winner = 'player1';
             else this.winner = 'draw';
         }
         if (!this.matchStarted && this.moveHistory.length > 0) {
@@ -463,7 +463,7 @@ class SquareDiagonalFourRoom extends QiTwoPlayerRoomBase {
             replayData: {
                 boardSize: this.BOARD_SIZE,
                 moves: this.moveCoords.map(m => {
-                    const p = m.player[0].toUpperCase();
+                    const p = (m.player === 'player1' ? 'B' : 'W');
                     return m.type === 'pass' ? `${p}p` : `${p}${m.row},${m.col}`;
                 })
             }
@@ -528,7 +528,7 @@ class SquareDiagonalFourRoom extends QiTwoPlayerRoomBase {
                 if (this.isBoardFull()) {
                     this.gameOver = true;
                     this.winner = 'draw';
-                    this.recordResultText = '和胜';
+                    this.recordResultText = '和棋';
                     this._stopClockTicker();
                     this.broadcast({ type: 'broadcast', action: 'move', ...this.getState() });
                     return;
@@ -549,7 +549,7 @@ class SquareDiagonalFourRoom extends QiTwoPlayerRoomBase {
                 if (this._trailingPassCount() >= 2) {
                     this.gameOver = true;
                     this.winner = 'draw';
-                    this.recordResultText = '和胜';
+                    this.recordResultText = '和棋';
                     this._stopClockTicker();
                     this.broadcast({ type: 'broadcast', action: 'pass', ...this.getState() });
                     return;
@@ -569,7 +569,7 @@ class SquareDiagonalFourRoom extends QiTwoPlayerRoomBase {
             case 'resign':
                 qiProtocol.resign(this, ws, slot, {
                     onResignResolved: (winnerSlot) => {
-                        this.recordResultText = winnerSlot === 'black' ? '黑中盘胜' : '白中盘胜';
+                        this.recordResultText = winnerSlot === 'player1' ? '黑中盘胜' : '白中盘胜';
                         this._stopClockTicker();
                     }
                 });
@@ -590,7 +590,7 @@ class SquareDiagonalFourRoom extends QiTwoPlayerRoomBase {
             case 'drawResponse':
                 qiProtocol.drawResponse(this, ws, msg, {
                     onDrawResolved: () => {
-                        this.recordResultText = '和胜';
+                        this.recordResultText = '和棋';
                         this._stopClockTicker();
                     }
                 });
@@ -611,7 +611,7 @@ class SquareDiagonalFourRoom extends QiTwoPlayerRoomBase {
         this.gameOver = false;
         this.winner = null;
         this.recordResultText = null;
-        this.slotJoinedAt = { black: null, white: null };
+        this.slotJoinedAt = { player1: null, player2: null };
         this.tcNego = null;
         this.tcSettings = null;
         this.tcClock = null;
@@ -623,7 +623,7 @@ class SquareDiagonalFourRoom extends QiTwoPlayerRoomBase {
             this.room.observers.add(client);
             client.send(JSON.stringify({ type: 'slotReleased', slot }));
         }
-        this.broadcast({ type: 'newGameStarted', ...this.getState(), slots: { black: false, white: false } });
+        this.broadcast({ type: 'newGameStarted', ...this.getState(), slots: { player1: false, player2: false } });
     }
 
     onPlayerLeave(ws) {

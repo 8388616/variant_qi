@@ -303,7 +303,10 @@
             }
             const scaleRaw = Number(ctx.timeControlMainByoScale);
             const scale = Number.isFinite(scaleRaw) && scaleRaw > 0 ? scaleRaw : 1;
-            const baseMain = Math.ceil(0.013 * points);
+            // 主用时系数：默认围棋口径 0.013，个别棋种可经 ctx.timeControlMainCoef 覆盖（读秒/次数不变）
+            const coefRaw = Number(ctx.timeControlMainCoef);
+            const mainCoef = Number.isFinite(coefRaw) && coefRaw > 0 ? coefRaw : 0.013;
+            const baseMain = Math.ceil(mainCoef * points);
             const baseByo = Math.ceil(0.24 * Math.pow(points, 0.75));
             return {
                 mainMinutes: Math.ceil(baseMain * scale),
@@ -338,8 +341,8 @@
     <label class="qi-time-control-field"><span>超时次数</span><input type="number" id="qiTcMaxT" min="0" max="100" value=""></label>
   </div>
   <div class="qi-time-control-row qi-time-control-color-row" id="qiTcColorRow" style="display:none;">
-    <label class="qi-time-control-radio"><input type="radio" name="qiColorChoice" value="black" checked> 执黑</label>
-    <label class="qi-time-control-radio"><input type="radio" name="qiColorChoice" value="white"> 执白</label>
+    <label class="qi-time-control-radio"><input type="radio" name="qiColorChoice" value="player1" checked> 执先手</label>
+    <label class="qi-time-control-radio"><input type="radio" name="qiColorChoice" value="player2"> 执后手</label>
     <label class="qi-time-control-radio"><input type="radio" name="qiColorChoice" value="random"> 猜先</label>
   </div>
   <p class="qi-time-control-hint" id="qiTcHint"></p>
@@ -377,8 +380,8 @@
                     ctx.setMySlot(null);
                     const slots = ctx.getSlots && ctx.getSlots();
                     if (slots) {
-                        if (my === 'black') slots.black = false;
-                        else if (my === 'white') slots.white = false;
+                        if (my === 'black') slots.player1 = false;
+                        else if (my === 'white') slots.player2 = false;
                     }
                 }
                 if (ctx.colorStatus) ctx.colorStatus.innerText = '观战';
@@ -401,11 +404,12 @@
                         maxTimeouts: parseInt(maxTIn.value, 10)
                     };
                 if (ctx.boardSeatOverlay || (colorRow && colorRow.style.display !== 'none')) {
+                    // player1/player2/random：座位，服务端按座位交换（左=先手）
                     const c = wrap.querySelector('input[name="qiColorChoice"]:checked');
-                    // black/white/random：表示「我方」执子，不是房主
-                    let v = c ? c.value : 'black';
-                    if (v === 'hostBlack') v = 'black';
-                    if (v === 'hostWhite') v = 'white';
+                    let v = c ? c.value : 'player1';
+                    if (v === 'hostBlack') v = 'player1';
+                    if (v === 'hostWhite') v = 'player2';
+                    if (v !== 'player1' && v !== 'player2' && v !== 'random') v = 'player1';
                     payload.colorChoice = v;
                 }
                 return payload;
@@ -435,9 +439,9 @@
             }
 
             function normalizeColorChoice(val) {
-                if (val === 'white' || val === 'hostWhite') return 'white';
+                if (val === 'player2' || val === 'white' || val === 'hostWhite') return 'player2';
                 if (val === 'random') return 'random';
-                return 'black';
+                return 'player1';
             }
 
             function setColorChoice(val) {
@@ -446,22 +450,30 @@
                 if (el) el.checked = true;
             }
 
+            /** 该座位的执方名（执红/执黑/执白/执黑蓝…） */
+            function seatChoiceText(slot, prefix) {
+                const ui = (ctx.slotUi && ctx.slotUi[slot]) || null;
+                if (prefix && ui && ui.youText) return ui.youText;
+                if (ui && ui.choiceText) return prefix ? '您' + String(ui.choiceText).replace(/^执/, '执') : ui.choiceText;
+                const S2 = (ctx.pageState) || {};
+                const name = (S2.sideLabels && S2.sideLabels[slot]) || (ctx.sideLabels && ctx.sideLabels[slot]) || '';
+                if (name) return (prefix ? '您执' : '执') + String(name).replace(/方$/, '');
+                return (prefix ? '您执' : '执') + (slot === 'player1' ? '先手' : '后手');
+            }
+
             /** 选项相对己方：直接显示您执X / 猜先 */
             function colorChoiceLabel(cc) {
                 const v = normalizeColorChoice(cc);
                 if (v === 'random') return '猜先';
-                const ui = (ctx.slotUi && ctx.slotUi[v]) || null;
-                if (ui && ui.youText) return ui.youText;
-                return v === 'white' ? '您执白' : '您执黑';
+                return seatChoiceText(v, true);
             }
 
             function applySlotUiColorLabels() {
-                if (!ctx.slotUi) return;
-                [['black', '执黑'], ['white', '执白']].forEach(([slot, fallback]) => {
+                [['player1', '执先手'], ['player2', '执后手']].forEach(([slot, fallback]) => {
                     const input = wrap.querySelector(`input[name="qiColorChoice"][value="${slot}"]`);
                     if (!input || !input.parentElement) return;
-                    const ui = ctx.slotUi[slot];
-                    const label = (ui && (ui.choiceText || ui.name)) || fallback;
+                    const has = (ctx.slotUi && ctx.slotUi[slot]) || (ctx.pageState && ctx.pageState.sideLabels && ctx.pageState.sideLabels[slot]);
+                    const label = has ? seatChoiceText(slot, false) : fallback;
                     const lab = input.parentElement;
                     lab.textContent = '';
                     lab.appendChild(input);
@@ -469,10 +481,11 @@
                 });
             }
             applySlotUiColorLabels();
+            S._refreshTcColorLabels = applySlotUiColorLabels;   // 状态到达后再刷新一次（sideLabels 可能晚到）
 
             function currentColorChoice() {
                 const c = wrap.querySelector('input[name="qiColorChoice"]:checked');
-                return normalizeColorChoice(c ? c.value : 'black');
+                return normalizeColorChoice(c ? c.value : 'player1');
             }
 
             /**
@@ -480,13 +493,13 @@
              * proposal.colorChoice: black|white|random；colorChooserSlot: 选择者座位。
              */
             function selfColorFromProposal(pr) {
-                if (!pr) return 'black';
-                const raw = normalizeColorChoice(pr.colorChoice || 'black');
+                if (!pr) return 'player1';
+                const raw = normalizeColorChoice(pr.colorChoice || 'player1');
                 if (raw === 'random') return 'random';
                 const chooser = pr.colorChooserSlot;
                 const my = ctx.getMySlot && ctx.getMySlot();
                 if (!chooser || !my || my === chooser) return raw;
-                return raw === 'white' ? 'black' : 'white';
+                return raw === 'player2' ? 'player1' : 'player2';
             }
 
             function refreshRespondHint(proposal) {
@@ -709,7 +722,7 @@
                 r.disabled = false;
                 r.onchange = () => {
                     if (ui.hint) ui.hint.textContent = ui.colorChoiceLabel(
-                        (ui.wrap.querySelector('input[name="qiColorChoice"]:checked') || {}).value || 'black'
+                        (ui.wrap.querySelector('input[name="qiColorChoice"]:checked') || {}).value || 'player1'
                     );
                 };
             });
@@ -796,7 +809,29 @@
             if (!panel) return;
             const mt = S.matchTime;
             if (!mt || !mt.settings) {
-                panel.hidden = true;
+                // 对局已开始但有人退出：时间框保持可见，把「已退出」写进 goTimerBlackTitle/goTimerWhiteTitle（与围棋一致）
+                const slotsNow = (ctx.getSlots && ctx.getSlots()) || S.slots || {};
+                const startedNow = !!(S.matchStarted || (mt && mt.settings));
+                const absentNow = startedNow && (!slotsNow.player1 || !slotsNow.player2);
+                if (absentNow && S._timerPanelUsed) {
+                    panel.hidden = false;
+                    ['black', 'white'].forEach((slot) => {
+                        const el = panel.querySelector('[data-go-timer="' + slot + '"]');
+                        if (!el) return;
+                        const left = !slotsNow[slot];
+                        const titleEl = el.querySelector('.go-timer-title');
+                        if (titleEl) {
+                            const ui = (ctx.slotUi && ctx.slotUi[slot]) || null;
+                            const base = ui
+                                ? `${ui.emoji || ''} ${ui.name || ''}`.trim()
+                                : (slot === 'player1' ? '⚫ 黑方' : '⚪ 白方');
+                            titleEl.textContent = left ? `${base}(已退出)` : base;
+                        }
+                        el.classList.toggle('is-player-left', left);
+                    });
+                } else {
+                    panel.hidden = true;
+                }
                 updateSeatAbsentNotice();
                 return;
             }
@@ -804,24 +839,25 @@
             const rule = mt.clock && mt.clock.ruleLine
                 ? `${mt.clock.ruleLine}`
                 : (mt.settings.timed === false ? '不限时' : '');
+            S._timerPanelUsed = true;   // 本局确实用过分边时间框
             const slots = (ctx.getSlots && ctx.getSlots()) || S.slots || {};
             const matchStarted = !!(S.matchStarted || mt.settings);
-            const absentBlack = !!(matchStarted && !slots.black);
-            const absentWhite = !!(matchStarted && !slots.white);
+            const absentBlack = !!(matchStarted && !slots.player1);
+            const absentWhite = !!(matchStarted && !slots.player2);
 
             function line(slot) {
                 const isTimed = mt.settings && mt.settings.timed;
                 const clk = mt.clock;
                 let countdown = '—';
                 let ox = '—';
-                if (isTimed && clk && clk.black && clk.white) {
+                if (isTimed && clk && clk.player1 && clk.player2) {
                     const serverSkew = (clk.serverNow != null) ? (Date.now() - clk.serverNow) : 0;
-                    const p = slot === 'black' ? clk.black : clk.white;
+                    const p = slot === 'player1' ? clk.player1 : clk.player2;
                     let ms = 0;
                     if (clk.display && clk.display.syncMode) {
-                        const live = slot === 'black' ? clk.display.blackLive : clk.display.whiteLive;
+                        const live = slot === 'player1' ? clk.display.player1Live : clk.display.player2Live;
                         if (live) {
-                            const base = slot === 'black' ? clk.display.blackCountdownMs : clk.display.whiteCountdownMs;
+                            const base = slot === 'player1' ? clk.display.player1CountdownMs : clk.display.player2CountdownMs;
                             ms = Math.max(0, (base || 0) - serverSkew);
                         } else {
                             ms = p.inByo ? p.byoMs : p.mainMs;
@@ -846,7 +882,7 @@
                     let activeClass = false;
                     if (mt.settings && mt.settings.timed && mt.clock) {
                         if (mt.clock.display && mt.clock.display.syncMode)
-                            activeClass = (slot === 'black' ? mt.clock.display.blackLive : mt.clock.display.whiteLive);
+                            activeClass = (slot === 'player1' ? mt.clock.display.player1Live : mt.clock.display.player2Live);
                         else
                             activeClass = mt.clock.activeSlot === slot;
                     }
@@ -861,15 +897,15 @@
                         const ui = (ctx.slotUi && ctx.slotUi[slot]) || null;
                         const base = ui
                             ? `${ui.emoji || ''} ${ui.name || ''}`.trim()
-                            : (slot === 'black' ? '⚫ 黑方' : '⚪ 白方');
-                        const left = slot === 'black' ? absentBlack : absentWhite;
+                            : (slot === 'player1' ? '⚫ 黑方' : '⚪ 白方');
+                        const left = slot === 'player1' ? absentBlack : absentWhite;
                         titleEl.textContent = left ? `${base}(已退出)` : base;
                     }
-                    el.classList.toggle('is-player-left', slot === 'black' ? absentBlack : absentWhite);
+                    el.classList.toggle('is-player-left', slot === 'player1' ? absentBlack : absentWhite);
                 }
             }
-            line('black');
-            line('white');
+            line('player1');
+            line('player2');
             updateSeatAbsentNotice();
         }
 
@@ -886,8 +922,8 @@
             }
             const slots = (ctx.getSlots && ctx.getSlots()) || S.slots || {};
             const matchStarted = !!(S.matchStarted || (S.matchTime && S.matchTime.settings));
-            const absentBlack = !!(matchStarted && !slots.black);
-            const absentWhite = !!(matchStarted && !slots.white);
+            const absentBlack = !!(matchStarted && !slots.player1);
+            const absentWhite = !!(matchStarted && !slots.player2);
             const panelVisible = panel && !panel.hidden;
             // 有分边时间框时用红框+(已退出)；无时间框或需补充文案时写在下方
             if (!matchStarted || (!absentBlack && !absentWhite)) {
@@ -895,14 +931,15 @@
                 notice.textContent = '';
                 return;
             }
-            if (panelVisible) {
+            if (panelVisible || (panel && S._timerPanelUsed)) {
+                // 分边时间框已能显示「已退出」时不再用提示条
                 notice.hidden = true;
                 notice.textContent = '';
                 return;
             }
             const parts = [];
-            if (absentBlack) parts.push(((ctx.slotUi && ctx.slotUi.black && ctx.slotUi.black.absentText) || '黑方已退出'));
-            if (absentWhite) parts.push(((ctx.slotUi && ctx.slotUi.white && ctx.slotUi.white.absentText) || '白方已退出'));
+            if (absentBlack) parts.push(((ctx.slotUi && ctx.slotUi.player1 && ctx.slotUi.player1.absentText) || '黑方已退出'));
+            if (absentWhite) parts.push(((ctx.slotUi && ctx.slotUi.player2 && ctx.slotUi.player2.absentText) || '白方已退出'));
             notice.textContent = parts.join('　');
             notice.hidden = !parts.length;
         }
@@ -924,7 +961,7 @@
                     const ui = (ctx.slotUi && ctx.slotUi[slot]) || null;
                     t.textContent = ui
                         ? `${ui.emoji || ''} ${ui.name || ''}`.trim()
-                        : (slot === 'white' ? '⚪ 白方' : '⚫ 黑方');
+                        : (slot === 'player2' ? '⚪ 白方' : '⚫ 黑方');
                 }
                 el.classList.remove('is-active', 'is-player-left');
             });
@@ -1073,11 +1110,92 @@
         };
     }
 
+    /**
+     * 试下模式的「虚着 / 悔棋」：实现在公共绘制模块里（QiWeiqiSquarePageRuntime），
+     * 这里只做转发——room.js 由多个 IIFE 组成，跨块调用必须走 global。
+     */
+    function qiRoomRuntime() {
+        return (typeof window !== 'undefined' ? window : global).QiWeiqiSquarePageRuntime;
+    }
+    function qiSyncTryPlayActionButtons(pageState) {
+        const rt = qiRoomRuntime();
+        if (rt && typeof rt.syncTryPlayActionButtons === 'function') rt.syncTryPlayActionButtons(pageState);
+    }
+    function qiTryPlayPassDefault(ctx) {
+        const rt = qiRoomRuntime();
+        return !!(rt && typeof rt.tryPlayPassDefault === 'function' && rt.tryPlayPassDefault(ctx));
+    }
+    function qiTryPlayUndoDefault(ctx) {
+        const rt = qiRoomRuntime();
+        return !!(rt && typeof rt.tryPlayUndoDefault === 'function' && rt.tryPlayUndoDefault(ctx));
+    }
+
+    /**
+     * 试下模式的「虚着 / 悔棋」按钮接管（在 createWeiqiMessageBindings 里统一安装）：
+     * - 显隐：进入试下给 body 加 qi-tryplay（CSS 用 !important 覆盖各棋种自己写的 display），退出即移除。
+     *   各棋种进入/退出试下的路径五花八门（还有 seatOverlayOnly 短路、自绘棋种自定义按钮），
+     *   所以这里用观察器跟随「试下 / 试下结束」按钮与步数显示的变化。
+     * - 点击：用 document 捕获阶段拦截，避免各棋种自己的对局处理器（如悔棋要给对手发申请）在试下里生效。
+     */
+    function qiInstallTryPlayActionControls(opts) {
+        if (typeof document === 'undefined') return;
+        const state = opts.pageState;
+        const inTryPlay = () => !!(state && state.tryPlayMode);
+        let lastTryPlayOn = null;
+        const syncTryPlayUi = () => {
+            const on = inTryPlay();
+            qiSyncTryPlayActionButtons(state);
+            if (on === lastTryPlayOn) return;
+            lastTryPlayOn = on;
+            // 试下要让出棋盘：座位浮层（qi-seat-overlay）会盖住棋盘、吃掉落子/悬停点击。
+            // 用公共「试下」按钮进入的棋种会自己设置这个标志，自带按钮的棋种（黑白棋/路墙棋等）不会。
+            state.seatOverlayForceHide = on;
+            if (typeof opts.refreshSeatOverlay === 'function') opts.refreshSeatOverlay();
+        };
+        syncTryPlayUi();
+        if (typeof MutationObserver !== 'undefined' && !state._qiTryPlayObserver) {
+            const observed = { attributes: true, attributeFilter: ['style', 'class'], childList: true, subtree: true, characterData: true };
+            const observer = new MutationObserver(syncTryPlayUi);
+            for (const id of ['tryPlayBtn', 'replayStepDisplay']) {
+                const el = document.getElementById(id);
+                if (el) observer.observe(el, observed);
+            }
+            state._qiTryPlayObserver = observer;
+        }
+        if (state._qiTryPlayClickHooked) return;
+        state._qiTryPlayClickHooked = true;
+        document.addEventListener('click', (e) => {
+            if (!inTryPlay()) return;
+            const target = e.target && e.target.closest ? e.target.closest('#passBtn, #undoBtn') : null;
+            if (!target) return;
+            // 拦下棋种自己的处理器：试下里虚着/悔棋直接生效，不需要对方同意，也不发任何消息
+            e.stopImmediatePropagation();
+            e.preventDefault();
+            if (target.id === 'passBtn') opts.runPass();
+            else opts.runUndo();
+        }, true);
+    }
+
     function createWeiqiMessageBindings(ctx) {
         const S = ctx.pageState;
         if (!S) throw new Error('createWeiqiMessageBindings requires ctx.pageState (page state object, e.g. ps)');
         let lastBusyAlertAt = 0;
         let mtCtl = ctx.standardWeiqiMatchTime ? qiCreateStandardWeiqiMatchTimeController(ctx) : null;
+        function runTryPlayPass() {
+            if (typeof ctx.tryPlayPass === 'function') return ctx.tryPlayPass();
+            return qiTryPlayPassDefault(ctx);
+        }
+        function runTryPlayUndo() {
+            if (typeof ctx.tryPlayUndo === 'function') return ctx.tryPlayUndo();
+            return qiTryPlayUndoDefault(ctx);
+        }
+        // 试下模式的虚着/悔棋：装在函数最前面，seatOverlayOnly 的棋种（黑白棋/路墙棋等）也会生效
+        qiInstallTryPlayActionControls({
+            pageState: S,
+            runPass: runTryPlayPass,
+            runUndo: runTryPlayUndo,
+            refreshSeatOverlay: () => { if (typeof updateSeatOverlay === 'function') updateSeatOverlay(); }
+        });
         function ensureMatchTimeCtl() {
             if (!mtCtl) mtCtl = qiCreateStandardWeiqiMatchTimeController(ctx);
             return mtCtl;
@@ -1093,7 +1211,7 @@
             if (!vsComputerBtn) return;
             const slots = (ctx.getSlots && ctx.getSlots()) || S.slots || {};
             const mySlot = ctx.getMySlot ? ctx.getMySlot() : S.mySlot;
-            const seatedCount = (slots.black ? 1 : 0) + (slots.white ? 1 : 0);
+            const seatedCount = (slots.player1 ? 1 : 0) + (slots.player2 ? 1 : 0);
             const matchStarted = !!(S.matchStarted || (S.matchTime && S.matchTime.settings));
             const canShow = !!S.katagoAvailable
                 && !matchStarted
@@ -1124,8 +1242,8 @@
 
         function vacantCount(slots) {
             let n = 0;
-            if (!slots || !slots.black) n++;
-            if (!slots || !slots.white) n++;
+            if (!slots || !slots.player1) n++;
+            if (!slots || !slots.player2) n++;
             return n;
         }
 
@@ -1184,7 +1302,7 @@
                 ctx.colorStatus.innerText = '已落座';
             else {
                 const ui = (ctx.slotUi && ctx.slotUi[mySlot]) || null;
-                const name = (ui && (ui.statusText || ui.name)) || (mySlot === 'black' ? '黑方' : '白方');
+                const name = (ui && (ui.statusText || ui.name)) || (mySlot === 'player1' ? '黑方' : '白方');
                 ctx.colorStatus.innerText = `已选择: ${name}`;
             }
         }
@@ -1381,13 +1499,13 @@
                     overlay = document.createElement('div');
                     overlay.className = 'qi-seat-overlay';
                     if (idx === 0) {
-                        const contB = (ctx.slotUi && ctx.slotUi.black && ctx.slotUi.black.continueText) || '继续执黑';
-                        const contW = (ctx.slotUi && ctx.slotUi.white && ctx.slotUi.white.continueText) || '继续执白';
+                        const contB = (ctx.slotUi && ctx.slotUi.player1 && ctx.slotUi.player1.continueText) || '继续执黑';
+                        const contW = (ctx.slotUi && ctx.slotUi.player2 && ctx.slotUi.player2.continueText) || '继续执白';
                         overlay.innerHTML =
                             '<div class="qi-seat-overlay-inner">' +
                             '<button type="button" class="qi-seat-overlay-btn" data-seat-action="sit">落座</button>' +
-                            `<button type="button" class="qi-seat-overlay-btn" data-seat-action="continue-black">${contB}</button>` +
-                            `<button type="button" class="qi-seat-overlay-btn" data-seat-action="continue-white">${contW}</button>` +
+                            `<button type="button" class="qi-seat-overlay-btn" data-seat-action="continue-player1">${contB}</button>` +
+                            `<button type="button" class="qi-seat-overlay-btn" data-seat-action="continue-player2">${contW}</button>` +
                             '<button type="button" class="qi-seat-overlay-btn qi-seat-overlay-btn--secondary" data-seat-action="cancel">取消</button>' +
                             '</div>';
                         overlay.addEventListener('click', (e) => {
@@ -1403,8 +1521,8 @@
                             if (!w || w.readyState !== WebSocket.OPEN) return;
                             const slots = ctx.getSlots();
                             if (action === 'sit') {
-                                if (slots.black && slots.white) return;
-                                const color = !slots.black ? 'black' : (!slots.white ? 'white' : null);
+                                if (slots.player1 && slots.player2) return;
+                                const color = !slots.player1 ? 'player1' : (!slots.player2 ? 'player2' : null);
                                 if (!color) return;
                                 // takeSeat：新协议由服务端分配；selectColor：兼容旧服务端
                                 w.send(JSON.stringify({ type: 'takeSeat' }));
@@ -1416,23 +1534,23 @@
                                 refreshColorStatus();
                                 updateSeatOverlay();
                                 if (typeof ctx.updateTurn === 'function') ctx.updateTurn();
-                            } else if (action === 'continue-black') {
-                                w.send(JSON.stringify({ type: 'takeSeat', color: 'black' }));
-                                w.send(JSON.stringify({ type: 'selectColor', color: 'black' }));
-                                S._optimisticSeat = 'black';
+                            } else if (action === 'continue-player1') {
+                                w.send(JSON.stringify({ type: 'takeSeat', color: 'player1' }));
+                                w.send(JSON.stringify({ type: 'selectColor', color: 'player1' }));
+                                S._optimisticSeat = 'player1';
                                 S._seatRetryOther = false;
-                                ctx.setMySlot('black');
-                                slots.black = true;
+                                ctx.setMySlot('player1');
+                                slots.player1 = true;
                                 refreshColorStatus();
                                 updateSeatOverlay();
                                 if (typeof ctx.updateTurn === 'function') ctx.updateTurn();
-                            } else if (action === 'continue-white') {
-                                w.send(JSON.stringify({ type: 'takeSeat', color: 'white' }));
-                                w.send(JSON.stringify({ type: 'selectColor', color: 'white' }));
-                                S._optimisticSeat = 'white';
+                            } else if (action === 'continue-player2') {
+                                w.send(JSON.stringify({ type: 'takeSeat', color: 'player2' }));
+                                w.send(JSON.stringify({ type: 'selectColor', color: 'player2' }));
+                                S._optimisticSeat = 'player2';
                                 S._seatRetryOther = false;
-                                ctx.setMySlot('white');
-                                slots.white = true;
+                                ctx.setMySlot('player2');
+                                slots.player2 = true;
                                 refreshColorStatus();
                                 updateSeatOverlay();
                                 if (typeof ctx.updateTurn === 'function') ctx.updateTurn();
@@ -1483,8 +1601,8 @@
             const mySlot = ctx.getMySlot();
             const matchStarted = !!(S.matchStarted || (S.matchTime && S.matchTime.settings));
             const btnSit = overlay.querySelector('[data-seat-action="sit"]');
-            const btnCB = overlay.querySelector('[data-seat-action="continue-black"]');
-            const btnCW = overlay.querySelector('[data-seat-action="continue-white"]');
+            const btnCB = overlay.querySelector('[data-seat-action="continue-player1"]');
+            const btnCW = overlay.querySelector('[data-seat-action="continue-player2"]');
             const btnCancel = overlay.querySelector('[data-seat-action="cancel"]');
 
             const gameOver = typeof ctx.getGameOver === 'function' && !!ctx.getGameOver();
@@ -1514,7 +1632,7 @@
                     notifySeatOverlayVisibility();
                     return;
                 }
-                const bothFull = !!(slots.black && slots.white);
+                const bothFull = !!(slots.player1 && slots.player2);
                 if (btnSit) {
                     btnSit.hidden = false;
                     btnSit.disabled = bothFull;
@@ -1529,9 +1647,9 @@
                 return;
             }
 
-            const needBlack = !slots.black;
-            const needWhite = !slots.white;
-            if (!needBlack && !needWhite) {
+            const needPlayer1 = !slots.player1;
+            const needPlayer2 = !slots.player2;
+            if (!needPlayer1 && !needPlayer2) {
                 setAllSeatOverlaysHidden(true);
                 refreshColorStatus();
                 updatePlayerLeftIndicators();
@@ -1540,11 +1658,11 @@
             }
             if (btnSit) btnSit.hidden = true;
             if (btnCB) {
-                btnCB.hidden = !needBlack;
+                btnCB.hidden = !needPlayer1;
                 btnCB.disabled = false;
             }
             if (btnCW) {
-                btnCW.hidden = !needWhite;
+                btnCW.hidden = !needPlayer2;
                 btnCW.disabled = false;
             }
             if (btnCancel) btnCancel.hidden = false;
@@ -1643,30 +1761,34 @@
         }
 
         function updatePlayerLeftIndicators() {
-            if (mtCtl && typeof mtCtl.applyMatchTimeFromState === 'function') {
-                // reuse timer panel refresh when matchTime present
-            }
             const panel = document.getElementById('goTimerPanel');
             const slots = ctx.getSlots();
             const matchStarted = !!(S.matchStarted || (S.matchTime && S.matchTime.settings));
-            const absentBlack = !!(matchStarted && !slots.black);
-            const absentWhite = !!(matchStarted && !slots.white);
-            if (panel && !panel.hidden && S.matchTime && S.matchTime.settings) {
+            const absentBlack = !!(matchStarted && !slots.player1);
+            const absentWhite = !!(matchStarted && !slots.player2);
+            const showAbsence = matchStarted && (absentBlack || absentWhite);
+            if (S.matchTime && S.matchTime.settings) S._timerPanelUsed = true;
+            // 有分边时间框的棋种（围棋/象棋类/跳棋等）：有人退出时让时间框保持可见，
+            // 「已退出」显示在 goTimerBlackTitle / goTimerWhiteTitle 里（与围棋一致），
+            // 不再另出「黑方已退出」提示条。
+            if (panel && showAbsence && S._timerPanelUsed) panel.hidden = false;
+            if (panel && !panel.hidden) {
                 ['black', 'white'].forEach((slot) => {
                     const el = panel.querySelector('[data-go-timer="' + slot + '"]');
                     if (!el) return;
-                    const left = slot === 'black' ? absentBlack : absentWhite;
+                    const left = slot === 'player1' ? absentBlack : absentWhite;
                     const titleEl = el.querySelector('.go-timer-title');
                     if (titleEl) {
                         const ui = (ctx.slotUi && ctx.slotUi[slot]) || null;
                         const base = ui
                             ? `${ui.emoji || ''} ${ui.name || ''}`.trim()
-                            : (slot === 'black' ? '⚫ 黑方' : '⚪ 白方');
+                            : (slot === 'player1' ? '⚫ 黑方' : '⚪ 白方');
                         titleEl.textContent = left ? `${base}(已退出)` : base;
                     }
                     el.classList.toggle('is-player-left', left);
                 });
             }
+            // 独立提示条只在「没有可用的分边时间框」时兜底
             let notice = document.getElementById('qiSeatAbsentNotice');
             const parent = panel && panel.parentElement;
             if (parent) {
@@ -1676,13 +1798,13 @@
                     notice.className = 'qi-seat-absent-notice';
                     parent.insertBefore(notice, panel.nextSibling);
                 }
-                if (!matchStarted || (!absentBlack && !absentWhite) || (panel && !panel.hidden)) {
+                if (!showAbsence || (panel && !panel.hidden)) {
                     notice.hidden = true;
                     notice.textContent = '';
                 } else {
                     const parts = [];
-                    if (absentBlack) parts.push(((ctx.slotUi && ctx.slotUi.black && ctx.slotUi.black.absentText) || '黑方已退出'));
-                    if (absentWhite) parts.push(((ctx.slotUi && ctx.slotUi.white && ctx.slotUi.white.absentText) || '白方已退出'));
+                    if (absentBlack) parts.push(((ctx.slotUi && ctx.slotUi.player1 && ctx.slotUi.player1.absentText) || '黑方已退出'));
+                    if (absentWhite) parts.push(((ctx.slotUi && ctx.slotUi.player2 && ctx.slotUi.player2.absentText) || '白方已退出'));
                     notice.textContent = parts.join('　');
                     notice.hidden = !parts.length;
                 }
@@ -1690,6 +1812,9 @@
         }
 
         function syncStateWithMatch(msg) {
+            if (msg && msg.sideLabels) S.sideLabels = msg.sideLabels;
+            if (typeof applySeatRadioText === 'function') applySeatRadioText();
+            if (typeof S._refreshTcColorLabels === 'function') { try { S._refreshTcColorLabels(); } catch (_) {} }
             ctx.syncState(msg);
             if (Object.prototype.hasOwnProperty.call(msg, 'katagoAvailable'))
                 S.katagoAvailable = !!msg.katagoAvailable;
@@ -1787,8 +1912,8 @@
                 case 'slotOccupied':
                     {
                         const s = ctx.getSlots();
-                        if (msg.slot === 'black') s.black = true;
-                        else if (msg.slot === 'white') s.white = true;
+                        if (msg.slot === 'player1') s.player1 = true;
+                        else if (msg.slot === 'player2') s.player2 = true;
                     }
                     updateRadioStyles();
                     ctx.updateTurn();
@@ -1796,8 +1921,8 @@
                 case 'slotReleased':
                     {
                         const s = ctx.getSlots();
-                        if (msg.slot === 'black') s.black = false;
-                        else if (msg.slot === 'white') s.white = false;
+                        if (msg.slot === 'player1') s.player1 = false;
+                        else if (msg.slot === 'player2') s.player2 = false;
                         if (ctx.getMySlot() === msg.slot) {
                             ctx.setMySlot(null);
                             refreshColorStatus();
@@ -1809,8 +1934,8 @@
                 case 'playerLeft':
                     {
                         const s = ctx.getSlots();
-                        if (msg.slot === 'black') s.black = false;
-                        else if (msg.slot === 'white') s.white = false;
+                        if (msg.slot === 'player1') s.player1 = false;
+                        else if (msg.slot === 'player2') s.player2 = false;
                         if (ctx.getMySlot() === msg.slot) {
                             ctx.setMySlot(null);
                             refreshColorStatus();
@@ -1828,8 +1953,8 @@
                     if (msg.isHost != null) S.isHost = !!msg.isHost;
                     {
                         const s = ctx.getSlots();
-                        if (ctx.getMySlot() === 'black') s.black = true;
-                        else s.white = true;
+                        if (ctx.getMySlot() === 'player1') s.player1 = true;
+                        else s.player2 = true;
                     }
                     if (msg.isHost) S.hostSlot = msg.color;
                     refreshColorStatus();
@@ -1880,21 +2005,21 @@
                         if (msg.gameOver && !wasOver) {
                             const slotName = (slot) =>
                                 (ctx.slotUi && ctx.slotUi[slot] && ctx.slotUi[slot].name)
-                                || (slot === 'black' ? '黑方' : '白方');
+                                || (slot === 'player1' ? '黑方' : '白方');
                             if (msg.action === 'timeLoss') {
                                 const loser = slotName(msg.player);
                                 const winText = msg.winner === 'draw' ? '和棋' : `${slotName(msg.winner)}胜`;
                                 qiAlert(`${loser}超时，${winText}。`);
                             }
                             else if (msg.recordResultText) qiAlert(msg.recordResultText);
-                            else if (msg.winner === 'black') qiAlert(`${slotName('black')}胜。`);
-                            else if (msg.winner === 'white') qiAlert(`${slotName('white')}胜。`);
-                            else if (msg.winner === 'draw') qiAlert('和棋。');
-                        } else if (msg.action === 'drawAgreed' && !wasOver) qiAlert('和棋。');
+                            else if (msg.winner === 'player1') qiAlert(`${slotName('black')}胜。`);
+                            else if (msg.winner === 'player2') qiAlert(`${slotName('white')}胜。`);
+                            else if (msg.winner === 'draw') qiAlert('和棋');
+                        } else if (msg.action === 'drawAgreed' && !wasOver) qiAlert('和棋');
                         else if (msg.action === 'resign' && !wasOver) {
                             const slotName = (slot) =>
                                 (ctx.slotUi && ctx.slotUi[slot] && ctx.slotUi[slot].name)
-                                || (slot === 'black' ? '黑方' : '白方');
+                                || (slot === 'player1' ? '黑方' : '白方');
                             qiAlert(`${slotName(msg.player)}认输`);
                         }
                     }
@@ -2042,7 +2167,7 @@
                         const seatsFull = msg.message && /双方均已落座/.test(msg.message);
                         // 开局落座抢座：自动改试另一色，不弹旧提示
                         if (occupied && S._seatRetryOther && (c === 'black' || c === 'white')) {
-                            const other = c === 'black' ? 'white' : 'black';
+                            const other = c === 'player1' ? 'player2' : 'player1';
                             S._seatRetryOther = false;
                             if (ctx.getMySlot() === c) ctx.setMySlot(null);
                             s[c] = false;
@@ -2062,8 +2187,8 @@
                             }
                         }
                         if (ctx.getMySlot() === c) ctx.setMySlot(null);
-                        if (c === 'black') s.black = false;
-                        else if (c === 'white') s.white = false;
+                        if (c === 'player1') s.player1 = false;
+                        else if (c === 'player2') s.player2 = false;
                         S._optimisticSeat = null;
                         S._seatRetryOther = false;
                         S.seatOverlayLocalHide = false;
@@ -2129,7 +2254,7 @@
                     : board.some(v => v !== 0 && v !== '' && v != null)
             );
             const s = ctx.getSlots();
-            const noPlayers = !s.black && !s.white;
+            const noPlayers = !s.player1 && !s.player2;
             const matchStarted = !!(S.matchStarted || (S.matchTime && S.matchTime.settings));
             const freshCatalog = isQiLobbyFreshCatalogRoom();
             if (ctx.getReplayMode()) {
@@ -2167,8 +2292,8 @@
             ctx.labelWhite.classList.remove('self-radio', 'opponent-radio', 'checked-disabled');
             const slots = ctx.getSlots();
             const mySlot = ctx.getMySlot();
-            if (slots.black) {
-                ctx.labelBlack.classList.add(mySlot === 'black' ? 'self-radio' : 'opponent-radio');
+            if (slots.player1) {
+                ctx.labelBlack.classList.add(mySlot === 'player1' ? 'self-radio' : 'opponent-radio');
                 ctx.labelBlack.classList.add('checked-disabled');
                 ctx.radioBlack.disabled = true;
                 ctx.radioBlack.checked = true;
@@ -2176,8 +2301,8 @@
                 ctx.radioBlack.disabled = false;
                 ctx.radioBlack.checked = false;
             }
-            if (slots.white) {
-                ctx.labelWhite.classList.add(mySlot === 'white' ? 'self-radio' : 'opponent-radio');
+            if (slots.player2) {
+                ctx.labelWhite.classList.add(mySlot === 'player2' ? 'self-radio' : 'opponent-radio');
                 ctx.labelWhite.classList.add('checked-disabled');
                 ctx.radioWhite.disabled = true;
                 ctx.radioWhite.checked = true;
@@ -2201,7 +2326,7 @@
         {
             newGameBtn.onclick = () => {
                 if (!S.mySlot) {
-                    if ((S.slots.black || S.slots.white) && !S.computerSlot) {
+                    if ((S.slots.player1 || S.slots.player2) && !S.computerSlot) {
                         qiAlert('只有对局者可以开始新局。');
                         return;
                     }
@@ -2210,7 +2335,7 @@
                     });
                     return;
                 }
-                const opponentSlot = S.mySlot === 'black' ? 'white' : 'black';
+                const opponentSlot = S.mySlot === 'player1' ? 'player2' : 'player1';
                 const hasHumanOpponent = S.slots[opponentSlot] && S.computerSlot !== opponentSlot;
                 if (hasHumanOpponent) {
                     qiConfirm('确定向对方申请开始新局吗？').then(ok => { if (ok) S.ws.send(JSON.stringify({ type: 'requestNewGame' })); });
@@ -2244,24 +2369,29 @@
                     S.seatOverlayForceHide = true;
                     updateSeatOverlay();
                 }
+                qiSyncTryPlayActionButtons(S);
             };
         }
 
         const passBtn = document.getElementById('passBtn');
-        if (passBtn !== null) 
+        if (passBtn !== null)
         {
             passBtn.onclick = () => {
+                // 试下中：直接走一步虚着（不用对方确认，也不发消息；捕获阶段的接管见 qiInstallTryPlayActionControls）
+                if (S.tryPlayMode) { runTryPlayPass(); return; }
                 if (!S.isMyTurn) return;
                 S.ws.send(JSON.stringify({ type: 'pass' }));
             };
         }
 
         const undoBtn = document.getElementById('undoBtn');
-        if (undoBtn !== null) 
+        if (undoBtn !== null)
         {
             undoBtn.onclick = () => {
+                // 试下中：直接退回上一手（不用对方确认，也不发消息）
+                if (S.tryPlayMode) { runTryPlayUndo(); return; }
                 if (!S.mySlot) { qiAlert('只有对局者可以悔棋'); return; }
-                const opponentSlot = S.mySlot === 'black' ? 'white' : 'black';
+                const opponentSlot = S.mySlot === 'player1' ? 'player2' : 'player1';
                 const hasOpponent = S.slots[opponentSlot];
                 if (hasOpponent) {
                     qiConfirm('确定向对方申请悔棋吗？').then(ok => { if (ok) S.ws.send(JSON.stringify({ type: 'requestUndo' })); });
@@ -2285,7 +2415,7 @@
         {
             drawBtn.onclick = () => {
                 if (!S.mySlot) { qiAlert('只有对局者可以申请和棋'); return; }
-                const opponentSlot = S.mySlot === 'black' ? 'white' : 'black';
+                const opponentSlot = S.mySlot === 'player1' ? 'player2' : 'player1';
                 const hasOpponent = S.slots[opponentSlot];
                 if (hasOpponent) {
                     qiConfirm('确定向对方申请和棋吗？').then(ok => { if (ok) S.ws.send(JSON.stringify({ type: 'requestDraw' })); });
@@ -2363,15 +2493,39 @@
         if (backToLobbyBtn !== null)
             backToLobbyBtn.onclick = () => { qiLeaveRoomAndGoLobby(); };
 
+        // 执子单选文字（左=player1、右=player2，按棋种执方命名）——放在块外，状态刷新时也能更新
+        const applySeatRadioText = () => {
+            const seatLabel = (slot) => {
+                const ui = ctx.slotUi && ctx.slotUi[slot];
+                if (ui && ui.choiceText) return ui.choiceText;
+                const name = (S.sideLabels && S.sideLabels[slot]) || (ctx.sideLabels && ctx.sideLabels[slot]) || '';
+                if (name) return '执' + String(name).replace(/方$/, '');
+                return slot === 'player1' ? '执先手' : '执后手';
+            };
+            const seatEmoji = (slot) => {
+                const ui = ctx.slotUi && ctx.slotUi[slot];
+                return (ui && ui.emoji) || '';
+            };
+            [['player1', ctx.radioBlack, 'labelBlack'], ['player2', ctx.radioWhite, 'labelWhite']].forEach(([slot, radio, labelId]) => {
+                const label = document.getElementById(labelId) || (radio && radio.parentElement);
+                if (!label) return;
+                const text = ' ' + [seatEmoji(slot), seatLabel(slot)].filter(Boolean).join(' ');
+                for (const node of label.childNodes) {
+                    if (node.nodeType === 3 && node.textContent.trim()) node.textContent = text;
+                }
+            });
+        };
+        applySeatRadioText();
         if (!ctx.boardSeatOverlay) {
             if (ctx.radioBlack)
-                ctx.radioBlack.onchange = function () { if (this.checked && !this.disabled) S.ws.send(JSON.stringify({ type: 'selectColor', color: 'black' })); };
+                ctx.radioBlack.onchange = function () { if (this.checked && !this.disabled) S.ws.send(JSON.stringify({ type: 'selectColor', color: 'player1' })); };
             if (ctx.radioWhite)
-                ctx.radioWhite.onchange = function () { if (this.checked && !this.disabled) S.ws.send(JSON.stringify({ type: 'selectColor', color: 'white' })); };
+                ctx.radioWhite.onchange = function () { if (this.checked && !this.disabled) S.ws.send(JSON.stringify({ type: 'selectColor', color: 'player2' })); };
         }
 
         if (ctx.boardSeatOverlay)
             updateSeatOverlay();
+        if (typeof applySeatRadioText === 'function') applySeatRadioText();
 
         const replayBackBtn = document.getElementById('replayBackBtn');
         if (replayBackBtn !== null)
@@ -2513,6 +2667,22 @@
         const row = boardSize - 1 - Math.round((y - padding) / cellSize);
         if (row < 0 || row >= boardSize || col < 0 || col >= boardSize) return { row: -1, col: -1 };
         return { row, col };
+    }
+
+    /** 落在格内的棋盘（权重围棋等）：命中最近的格子（按格心距离） */
+    function getClosestCell(x, y, boardSize, padding, cellSize) {
+        let bestRow = -1;
+        let bestCol = -1;
+        let bestDist = Infinity;
+        for (let r = 0; r < boardSize; r++) {
+            const cy = padding + (boardSize - 1 - r) * cellSize + cellSize / 2;
+            for (let c = 0; c < boardSize; c++) {
+                const cx = padding + c * cellSize + cellSize / 2;
+                const d = Math.hypot(x - cx, y - cy);
+                if (d < bestDist) { bestDist = d; bestRow = r; bestCol = c; }
+            }
+        }
+        return { row: bestRow, col: bestCol };
     }
 
     function canvasCoordsFromClient(clientX, clientY, canvas, logicalSize) {
@@ -2794,7 +2964,7 @@
             ctx.arc(padding + hoverCol * cellSize, padding + (bsHover - 1 - hoverRow) * cellSize, cellSize * 0.44, 0, 2 * Math.PI);
             const hoverColor = tryPlayMode
                 ? (tryPlayCurrentPlayer === 1 ? '#222' : '#fff')
-                : (mySlot === 'black' ? '#222' : '#fff');
+                : (mySlot === 'player1' ? '#222' : '#fff');
             ctx.fillStyle = hoverColor;
             ctx.fill();
             ctx.globalAlpha = 1.0;
@@ -2982,6 +3152,386 @@
         return ctx;
     }
 
+    /* ===== 棋盘木纹（程序化生成，不用图片素材） =====
+     * 做法：1D 不规则「线剖面」(线心位置/间距/深浅/宽度全部随机) + 2D 弯曲场采样
+     *       + 沿线淡出(线在长度方向时隐时现) + 纤维层 + 明暗块 + 细颗粒。
+     * 关键点：
+     *   - 线距不规则、深浅偏态(多数淡、少数深)、且沿线淡出 → 不会出现"代码条纹"的规整感；
+     *   - 弯曲场的波长远大于线距 → 线条是长直纹+缓弯，而不是同步摆动；
+     *   - 纹理只贡献「相对底色的偏离」，幅度归一化到参考贴图的 std，因此底色均值不变。
+     * 生成一次后按 (底色,尺寸,预设,强度) 缓存，同一会话内复用。
+     */
+    const WOOD_TEXTURE_PRESET = 'liuguan';     // 用哪套木纹预设（'liuguan' 竖直 / 'chengshuang' 水平浅色）
+    const WOOD_CELL_REF = 512;                 // 预设中的格点数以此尺寸为基准，生成时按比例缩放
+    const WOOD_PRESETS = {
+        // 竖直木纹（橡木/白蜡风格，中等对比）
+        liuguan: {
+            seed: 7, vertical: true, profScale: 4, blur: 0,
+            spacing: 9.0, depth: 0.62, lineW: 1.8, drift: 0.35,
+            bundle: 2, bundleGap: 1.5,
+            fiberSpacing: 1.1, fiber: 0.70, fiberW: 0.55,
+            warpCells: [1.0, 1.0], warpOct: 1, warpCycles: 0.5,   // 缓慢起伏：大体直、小弯小曲
+            wobbleCells: [4.0, 3.0], wobble: 0.02,
+            deepSkew: 6.0,                  // 深线稀有度：越大深线越少
+            compressCells: [2.5, 3.0], compress: 0,   // 压缩场会沿纹理方向推移线条 → 造成波形感，不用
+            densCells: [5.0, 1.5], densZ0: -0.8, densZ1: 0.3, fiberFloor: 0.30,
+            groupSize: 4, groupCellsV: 5, groupJitter: 0.20,
+            fadeCells: [3.0, 4.0], fadeMin: 0.12,
+            toneCells: [3.0, 3.5], tone: 0.14,
+            speckCells: [240, 240], speck: 0.15,
+            // 全局幅度：参考图为 7.05，这里调低以压低"深色比例"
+            targetStd: 5.6, chRatio: [0.94, 1.04, 1.09],
+        },
+        // 水平浅色木纹（北欧白木风格，细横纹、低对比）
+        chengshuang: {
+            seed: 21, vertical: false, profScale: 4, blur: 0,
+            spacing: 7.0, depth: 0.48, lineW: 1.5, drift: 0.30,
+            bundle: 2, bundleGap: 1.4,
+            fiberSpacing: 1.6, fiber: 0.28, fiberW: 0.5,
+            warpCells: [1.1, 1.1], warpOct: 1, warpCycles: 0.4,
+            wobbleCells: [5.0, 4.0], wobble: 0.02,
+            deepSkew: 6.0,
+            compressCells: [2.5, 3.0], compress: 0,
+            densCells: [4.0, 1.2], densZ0: -0.5, densZ1: 0.6, fiberFloor: 0.30,
+            groupSize: 5, groupCellsV: 4, groupJitter: 0.16,
+            fadeCells: [5.0, 6.0], fadeMin: 0.40,
+            toneCells: [2.5, 3.0], tone: 0.14,
+            speckCells: [230, 230], speck: 0.10,
+            targetStd: 3.9, chRatio: [0.85, 1.06, 1.28],
+        },
+    };
+    const woodTextureCache = Object.create(null);
+
+    function parseCssRgb(str) {
+        const t = (str || '').trim();
+        const m = /rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)/.exec(t);
+        if (m) return [+m[1], +m[2], +m[3]];
+        const hex = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(t);
+        if (hex) {
+            const h = hex[1].length === 3 ? hex[1].replace(/./g, (c) => c + c) : hex[1];
+            return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
+        }
+        return null;
+    }
+
+    /** 棋盘木色的来源：CSS 变量 --qi-room-board（改主题色时木纹自动跟随） */
+    function boardBaseColor() {
+        return parseCssRgb(getComputedStyle(document.body).getPropertyValue('--qi-room-board'))
+            || parseCssRgb(getComputedStyle(document.body).getPropertyValue('--qi-room-board-fallback'))
+            || [253, 204, 144];
+    }
+
+    /** 画布级随机种子：同一块画布复用，换房间/刷新重掷 */
+    function woodSeedFor(canvasEl) {
+        if (!canvasEl) return (Math.random() * 0x7fffffff) | 0;
+        let seed = canvasEl.__qiWoodSeed;
+        if (seed == null) {
+            seed = (Math.random() * 0x7fffffff) | 0;
+            canvasEl.__qiWoodSeed = seed;
+        }
+        return seed;
+    }
+
+    function woodRng(a) {
+        return function () {
+            a |= 0; a = (a + 0x6D2B79F5) | 0;
+            let t = Math.imul(a ^ (a >>> 15), 1 | a);
+            t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+            return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+        };
+    }
+
+    function woodValueNoise(nx, ny, rnd) {
+        const g = new Float32Array(nx * ny);
+        for (let i = 0; i < g.length; i++) g[i] = rnd() * 2 - 1;
+        return function (u, v) {
+            const gx = u * nx, gy = v * ny;
+            const ix = gx | 0, iy = gy | 0;
+            const fx0 = gx - ix, fy0 = gy - iy;
+            const fx = fx0 * fx0 * (3 - 2 * fx0), fy = fy0 * fy0 * (3 - 2 * fy0);
+            const x0 = Math.min(ix, nx - 1), y0 = Math.min(iy, ny - 1);
+            const x1 = Math.min(ix + 1, nx - 1), y1 = Math.min(iy + 1, ny - 1);
+            const a = g[y0 * nx + x0], b = g[y0 * nx + x1], c = g[y1 * nx + x0], d = g[y1 * nx + x1];
+            const top = a + (b - a) * fx, bot = c + (d - c) * fx;
+            return top + (bot - top) * fy;
+        };
+    }
+
+    // 低频场：在粗网格上算 fbm 再双线性放大；cellsU/cellsV = 场在 x/y 方向的格点数
+    function woodField(res, rnd, cellsU, cellsV, octaves, gain) {
+        const layers = [];
+        let tot = 0;
+        for (let i = 0; i < octaves; i++) {
+            const f = Math.pow(2, i), w = Math.pow(gain, i);
+            layers.push([woodValueNoise(Math.max(2, Math.round(cellsU * f)), Math.max(2, Math.round(cellsV * f)), rnd), w]);
+            tot += w;
+        }
+        const c = new Float32Array(res * res);
+        for (let y = 0; y < res; y++) {
+            const v = y / res;
+            for (let x = 0; x < res; x++) {
+                const u = x / res;
+                let s = 0;
+                for (let i = 0; i < layers.length; i++) s += layers[i][0](u, v) * layers[i][1];
+                c[y * res + x] = s / tot;
+            }
+        }
+        let m = 0; for (let i = 0; i < c.length; i++) m += c[i]; m /= c.length;
+        let sq = 0; for (let i = 0; i < c.length; i++) { const d = c[i] - m; sq += d * d; }
+        const fn = function (u, v) {                 // 双线性放大
+            const gx = u * (res - 1), gy = v * (res - 1);
+            const ix = Math.min(res - 2, gx | 0), iy = Math.min(res - 2, gy | 0);
+            const fx = gx - ix, fy = gy - iy;
+            const a = c[iy * res + ix], b = c[iy * res + ix + 1];
+            const d = c[(iy + 1) * res + ix], e = c[(iy + 1) * res + ix + 1];
+            const top = a + (b - a) * fx, bot = d + (e - d) * fx;
+            return top + (bot - top) * fy;
+        };
+        fn.mean = m; fn.std = Math.sqrt(sq / c.length) || 1;   // 供按 z 值做阈值映射
+        return fn;
+    }
+
+    // 往剖面里画一条线（中心深、两侧渐淡的不对称剖面）
+    function woodAddLine(out, n, center, d, wd) {
+        const lo = Math.max(0, Math.floor(center - wd * 3));
+        const hi = Math.min(n - 1, Math.ceil(center + wd * 4));
+        for (let i = lo; i <= hi; i++) {
+            const t = (i - center) / wd;
+            out[i] += d * (t < 0 ? 0.65 * Math.exp(-(t / 0.7) * (t / 0.7))
+                                 : 0.35 * Math.exp(-(t / 1.5) * (t / 1.5)));
+        }
+    }
+
+    // 1D 线剖面：不规则间距 + 偏态深浅 + 不定宽度 + 成束(1~bundle 条紧挨的线)
+    // 真实木纹的线是成束出现的，束内几条细线、束间留白，这是"丰富不单调"的关键
+    function woodBuildProfile(out, n, rnd, spacing, depthMean, widthMean, drift, jitter, bundle, bundleGap, deepSkew) {
+        const skew = deepSkew || 6.0;
+        let center = rnd() * spacing;
+        let dens = 0;
+        const bg = bundleGap || 2.2;
+        while (center < n) {
+            dens += (rnd() * 2 - 1) * 0.18;
+            if (dens > drift) dens = drift; else if (dens < -drift) dens = -drift;
+            const jit = jitter ? (0.35 + 1.5 * Math.pow(rnd(), 1.6)) : 1;
+            const step = spacing * (1 + dens) * jit;
+            const strong = Math.pow(rnd(), 1.6);                  // 少数束很深
+            const m = 1 + Math.floor(Math.pow(rnd(), 1.3) * (bundle - 1 + 1e-6));
+            let c = center;
+            for (let k = 0; k < m; k++) {
+                const d0 = depthMean * (0.04 + 1.7 * Math.pow(strong, skew)) * (k === 0 ? 1 : 0.3 + 0.5 * rnd());
+                const wd0 = widthMean * (0.35 + 2.8 * Math.pow(rnd(), 1.6)) * (k === 0 ? 1 : 0.6);
+                woodAddLine(out, n, c, d0, wd0);
+                c += bg * (0.8 + 1.6 * rnd());
+            }
+            center += step;
+        }
+    }
+
+    // 可分离箱式模糊(迭代 3 次近似高斯)，边缘钳位；radius 单位=像素
+    function woodBlur(val, size, radius) {
+        const r = Math.max(1, Math.round(radius));
+        const passes = radius < 1.5 ? 1 : 3;   // 小半径只做 1 次(3 次会把 1~2px 的纤维抹平)
+        let src = val, dst = new Float32Array(val.length);
+        for (let pass = 0; pass < passes; pass++) {
+            for (let y = 0; y < size; y++) {
+                const row = y * size;
+                let sum = 0;
+                for (let x = -r; x <= r; x++) sum += src[row + Math.min(size - 1, Math.max(0, x))];
+                for (let x = 0; x < size; x++) {
+                    dst[row + x] = sum / (2 * r + 1);
+                    const o = row + Math.min(size - 1, Math.max(0, x - r));
+                    const i = row + Math.min(size - 1, Math.max(0, x + r + 1));
+                    sum += src[i] - src[o];
+                }
+            }
+            let t = src; src = dst; dst = t;
+            for (let x = 0; x < size; x++) {
+                let sum = 0;
+                for (let y = -r; y <= r; y++) sum += src[Math.min(size - 1, Math.max(0, y)) * size + x];
+                for (let y = 0; y < size; y++) {
+                    dst[y * size + x] = sum / (2 * r + 1);
+                    const o = Math.min(size - 1, Math.max(0, y - r)) * size + x;
+                    const i = Math.min(size - 1, Math.max(0, y + r + 1)) * size + x;
+                    sum += src[i] - src[o];
+                }
+            }
+            const t2 = src; src = dst; dst = t2;
+        }
+        return src;
+    }
+
+    function woodSampleProfile(prof, pos) {
+        const n = prof.length;
+        let p = pos % n; if (p < 0) p += n;
+        const i0 = p | 0, f = p - i0;
+        const i1 = i0 + 1 >= n ? 0 : i0 + 1;
+        return prof[i0] * (1 - f) + prof[i1] * f;
+    }
+
+    /** 生成 size×size 木纹画布：底色 base 均值不变，只叠木纹偏离 */
+    function makeWoodTextureCanvas(size, base, presetName, opt) {
+        const P = Object.assign({}, WOOD_PRESETS[presetName] || WOOD_PRESETS.liuguan, opt || {});
+        const S = size / WOOD_CELL_REF;          // 尺度无关：生成尺寸变化时观感一致
+        const rnd = woodRng(P.seed);
+        const n = size * P.profScale;
+        const prof = new Float32Array(n);
+        woodBuildProfile(prof, n, rnd, P.spacing * S * P.profScale, P.depth, P.lineW * S * P.profScale, P.drift, true,
+                         P.bundle || 1, (P.bundleGap || 2.2) * S * P.profScale, P.deepSkew);
+        const fprof = new Float32Array(n);
+        woodBuildProfile(fprof, n, rnd, P.fiberSpacing * S * P.profScale, P.fiber, P.fiberW * S * P.profScale, P.drift, false, 1, 0, 3.0);
+
+        const period = P.spacing * S * P.profScale;
+        const RES = Math.max(64, Math.min(256, size >> 2));
+        const warp = woodField(RES, rnd, P.warpCells[0] * S, P.warpCells[1] * S, P.warpOct, 0.5);
+        const wobble = woodField(RES, rnd, P.wobbleCells[0] * S, P.wobbleCells[1] * S, 2, 0.5);
+        const tone = woodField(RES, rnd, P.toneCells[0] * S, P.toneCells[1] * S, 2, 0.5);
+        const fade = woodField(RES, rnd, P.fadeCells[0] * S, P.fadeCells[1] * S, 2, 0.5);
+        const spk = woodField(size, rnd, P.speckCells[0] * S, P.speckCells[1] * S, 2, 0.5);
+        // 局部密度：有的区域线挤紧、有的舒展（真实木料绝非均匀分布）
+        const compress = woodField(RES, rnd, P.compressCells[0] * S, P.compressCells[1] * S, 2, 0.5);
+        // 成组弯曲：按「组号」取噪声 → 一组线整体弯向同一方向、组内互相平行，组间弯度方向各异
+        // （真实木纹就是这样成束出现的，而不是每条线各自乱弯、也不是全盘一起摆）
+        const lineCount = Math.max(8, Math.round(n / period));
+        const groupSize = Math.max(1, P.groupSize || 4);
+        const groupCells = Math.max(2, Math.round(lineCount / groupSize));
+        const groupJit = woodField(Math.max(64, groupCells), rnd, groupCells, P.groupCellsV || 5, 2, 0.5);
+        // 疏密场：竖条带状，低处线完全消失(最稀疏处为 0)、高处满密度
+        const densF = woodField(RES, rnd, P.densCells[0] * S, P.densCells[1] * S, 2, 0.5);
+
+        const val = new Float32Array(size * size);
+        for (let y = 0; y < size; y++) {
+            const v = y / size;
+            for (let x = 0; x < size; x++) {
+                const u = x / size;
+                const U = P.vertical ? u : v, V = P.vertical ? v : u;
+                let pos = U * n * (1 + compress(U, V) * P.compress)
+                        + (warp(U, V) * P.warpCycles + wobble(U, V) * P.wobble) * period;
+                if (P.groupJitter > 0) {
+                    let li = Math.floor(pos / period) % lineCount;
+                    if (li < 0) li += lineCount;
+                    pos += P.groupJitter * period * groupJit(li / lineCount, V);
+                }
+                // 疏密：按疏密场的 z 值映射，最稀疏处为 0(完全无线条)，最密处为 1
+                const z = (densF(U, V) - densF.mean) / densF.std;
+                let presence = (z - P.densZ0) / (P.densZ1 - P.densZ0);
+                presence = presence < 0 ? 0 : presence > 1 ? 1 : presence;
+                const fd = P.fadeMin + (1 - P.fadeMin) * (fade(U, V) * 0.5 + 0.5);
+                val[y * size + x] = 1 - woodSampleProfile(prof, pos) * fd * presence
+                    - woodSampleProfile(fprof, pos) * (0.55 + 0.45 * fd)
+                      * (P.fiberFloor + (1 - P.fiberFloor) * presence)
+                    + tone(U, V) * P.tone + spk(U, V) * P.speck;
+            }
+        }
+        // 柔化：木纹是拍出来的，边缘要软，不能像矢量线
+        const field = P.blur > 0 ? woodBlur(val, size, P.blur * S) : val;
+        // 幅度归一化到目标 std，再叠到底色 → 纹理平均色 = 底色，颜色不变
+        let sum = 0; for (let i = 0; i < field.length; i++) sum += field[i];
+        const mean = sum / field.length;
+        let sq = 0; for (let i = 0; i < field.length; i++) { const d = field[i] - mean; sq += d * d; }
+        const k = (P.targetStd * (P.strength != null ? P.strength : 1)) / (Math.sqrt(sq / field.length) || 1);
+        const cv = document.createElement('canvas');
+        cv.width = size; cv.height = size;
+        const cctx = cv.getContext('2d');
+        const img = cctx.createImageData(size, size);
+        const data = img.data;
+        for (let i = 0; i < field.length; i++) {
+            const d = (field[i] - mean) * k;
+            for (let c = 0; c < 3; c++) {
+                const col = base[c] + d * P.chRatio[c];
+                data[i * 4 + c] = col < 0 ? 0 : col > 255 ? 255 : col;
+            }
+            data[i * 4 + 3] = 255;
+        }
+        cctx.putImageData(img, 0, 0);
+        return cv;
+    }
+
+    /**
+     * 异形棋盘（三角/六角/扭棱/扭曲空间等「画布自绘木色」的棋种）用：
+     * 返回铺满整块逻辑画布的木纹图案，直接拿来当 fillStyle 填自己的棋盘形状即可。
+     * 图案只铺一次(no-repeat)、边长＝逻辑画布尺寸，所以不会被平铺重复。
+     * @param {CanvasRenderingContext2D} ctx
+     * @param {HTMLCanvasElement} canvasEl 用于绑定随机种子（同一块画布木纹稳定）
+     * @param {number} [logicalSize=600] 逻辑画布边长
+     */
+    function getWoodFill(ctx, canvasEl, logicalSize) {
+        const ls = logicalSize > 0 ? logicalSize : DEFAULT_CANVAS_SIZE;
+        const base = boardBaseColor();
+        const key = 'fill|' + base.join(',') + '|' + ls + '|' + WOOD_TEXTURE_PRESET + '|' + woodSeedFor(canvasEl);
+        let pat = woodTextureCache[key];
+        if (!pat) {
+            const src = makeWoodTextureCanvas(ls, base, WOOD_TEXTURE_PRESET, { seed: woodSeedFor(canvasEl) });
+            pat = ctx.createPattern(src, 'no-repeat');
+            woodTextureCache[key] = pat;
+        }
+        return pat;
+    }
+
+    /**
+     * 给棋盘 canvas 铺木纹（CSS 背景层，绘制层保持透明，格线/棋子照常叠在上面）。
+     * 底色取元素自身的 background-color → 改主题色自动跟随，且纹理不改变该底色。
+     * @param {HTMLCanvasElement} canvasEl
+     * @param {{preset?:string, base?:number[], strength?:number, longSide?:number}} [opts]
+     */
+    function applyBoardWoodTexture(canvasEl, opts) {
+        if (!canvasEl || typeof document === 'undefined') return false;
+        const o = opts || {};
+        const preset = o.preset || WOOD_TEXTURE_PRESET;
+        const base = o.base || parseCssRgb(getComputedStyle(canvasEl).backgroundColor) || boardBaseColor();
+        if (!base) return false;
+        const seed = o.seed != null ? o.seed : woodSeedFor(canvasEl);   // 每块画布一个随机种子
+        const dpr = (typeof window !== 'undefined' && window.devicePixelRatio) || 1;
+        const rect = canvasEl.getBoundingClientRect();
+        const cssSize = Math.max(rect && rect.width ? rect.width : 0, rect && rect.height ? rect.height : 0, 256);
+        // 生成尺寸：够清晰即可，过大只是徒增耗时(纹理尺度与生成尺寸无关)
+        const size = Math.min(o.longSide || 768, Math.max(512, Math.round(cssSize * Math.min(dpr, 2))));
+        // 缓存键必须包含全部参数覆盖，否则不同参数会命中同一张纹理
+        const key = base.map((v) => Math.round(v)).join(',') + '|' + size + '|' + preset
+            + '|' + JSON.stringify(Object.keys(o).sort().reduce((acc, k) => (acc[k] = o[k], acc), {}));
+        let url = woodTextureCache[key];
+        if (!url) {
+            url = makeWoodTextureCanvas(size, base, preset, Object.assign({}, o, { seed })).toDataURL('image/png');
+            woodTextureCache[key] = url;
+        }
+        canvasEl.style.backgroundImage = 'url("' + url + '")';
+        canvasEl.style.backgroundSize = '100% 100%';
+        canvasEl.style.backgroundRepeat = 'no-repeat';
+        canvasEl.style.backgroundPosition = 'center';
+        return true;
+    }
+
+    /**
+     * 棋盘放大/平移时，让铺在 CSS 背景层的木纹同步缩放、平移。
+     * 画布内容是靠 ctx 变换缩放的（逻辑坐标 600），而木纹是 CSS 背景层，
+     * 两者必须手动对齐，否则会出现「格线放大了、木纹没动」。
+     * @param {HTMLCanvasElement} canvasEl
+     * @param {number} z 缩放倍数（1 = 原始大小）
+     * @param {number} vcx 视图中心（逻辑坐标）
+     * @param {number} vcy 视图中心（逻辑坐标）
+     * @param {number} [logicalSize=600] 逻辑画布边长
+     */
+    function syncBoardWoodView(canvasEl, z, vcx, vcy, logicalSize) {
+        if (!canvasEl || !canvasEl.style || !canvasEl.style.backgroundImage) return;
+        if (!(z > 1)) {                                  // 未缩放：木纹铺满整块画布
+            if (canvasEl.__qiWoodView !== 'fit') {
+                canvasEl.__qiWoodView = 'fit';
+                canvasEl.style.backgroundSize = '100% 100%';
+                canvasEl.style.backgroundPosition = 'center';
+            }
+            return;
+        }
+        const cs = logicalSize > 0 ? logicalSize : DEFAULT_CANVAS_SIZE;
+        const rect = canvasEl.getBoundingClientRect();
+        const w = rect.width || cs, h = rect.height || cs;
+        const key = z + '|' + vcx + '|' + vcy + '|' + Math.round(w) + 'x' + Math.round(h);
+        if (canvasEl.__qiWoodView === key) return;       // 视图没变就不重复写样式
+        canvasEl.__qiWoodView = key;
+        // 逻辑点 (vcx,vcy) 要落在画布中心；缩放后每逻辑单位 = z * 画布尺寸 / 逻辑边长
+        canvasEl.style.backgroundSize = (z * 100) + '% ' + (z * 100) + '%';
+        canvasEl.style.backgroundPosition =
+            (w / 2 - vcx * z * w / cs) + 'px ' + (h / 2 - vcy * z * h / cs) + 'px';
+    }
+
     const QiSquareWeiqiCanvas = {
         DEFAULT_CANVAS_SIZE,
         getStarPoints,
@@ -2989,6 +3539,7 @@
         deepCopyBoard,
         computePaddingAndCell,
         getClosestIntersection,
+        getClosestCell,
         canvasCoordsFromClient,
         computeWeiqiEstimateCaches,
         fillWeiqiEstimatePanel,
@@ -3000,7 +3551,11 @@
         initBoardMarkFoldDom,
         downloadWeiqiJsonRecord,
         fillScoreConfirmText,
-        setupHiDpiCanvas
+        setupHiDpiCanvas,
+        applyBoardWoodTexture,
+        syncBoardWoodView,
+        getWoodFill,
+        WOOD_TEXTURE_PRESET
     };
 
     global.QiSquareWeiqiCanvas = QiSquareWeiqiCanvas;
@@ -3062,11 +3617,23 @@
 
     /** 开局前 turnDisplay 文案：入座人数 / 等待对手 / 确认规则（各棋种共用） */
     function waitingSeatTurnText(slots, mySlot) {
-        const bothSelected = !!(slots && slots.black && slots.white);
+        const bothSelected = !!(slots && slots.player1 && slots.player2);
         if (bothSelected) return '等待双方确认规则';
-        const seated = (slots && slots.black ? 1 : 0) + (slots && slots.white ? 1 : 0);
+        const seated = (slots && slots.player1 ? 1 : 0) + (slots && slots.player2 ? 1 : 0);
         if (seated === 1 && mySlot) return '等待对手入座(1/2)';
         return `等待双方入座(${seated}/2)`;
+    }
+
+    /**
+     * 象棋类/国际跳棋/路墙棋统一的回合文本（显示在 turnDisplay，不再写 scoreBoard）：
+     * 显示**刚下完这手棋**的一方与当前回合数，未走子时显示「初始局面」。
+     * @param {number} moveCount 当前显示局面已走的手数
+     * @param {string} sideLabel 该方在本棋种中的称呼（'⚪'/'⚫'/'红方'/'黑方'…）
+     */
+    function roundTurnText(moveCount, sideLabel) {
+        const n = moveCount | 0;
+        if (n <= 0) return '初始局面';
+        return `${sideLabel} 第${Math.ceil(n / 2)}回合`;
     }
 
     /**
@@ -3393,6 +3960,9 @@
         function drawBoard() {
             if (opts.drawBoard) {
                 opts.drawBoard();
+                // 自绘棋种（如乌克兰/俄罗斯围棋）：画完后同样同步木纹的缩放与平移
+                const vt = getBoardViewTransform();
+                C().syncBoardWoodView(dom.canvas, vt.z, vt.vcx, vt.vcy, vt.cs);
                 return;
             }
             const d = C().draw;
@@ -3455,6 +4025,8 @@
                 d.estimateOverlay(dom.ctx, ps.board, ps.BOARD_SIZE, ps.PADDING, cellSize, ps.cachedLiveBoard, ps.cachedTerritory);
             }
             if (useView) dom.ctx.restore();
+            // 木纹（CSS 背景层）跟随缩放/平移，避免格线与木纹脱节
+            C().syncBoardWoodView(dom.canvas, z, vcx, vcy, cs);
             if (typeof opts.afterDrawBoard === 'function') opts.afterDrawBoard();
         }
 
@@ -3465,7 +4037,7 @@
             }
             if (ps.matchStartedOnce === undefined) ps.matchStartedOnce = false;
             if (ps.matchStarted) ps.matchStartedOnce = true;
-            const bothSelected = !!(ps.slots && ps.slots.black && ps.slots.white);
+            const bothSelected = !!(ps.slots && ps.slots.player1 && ps.slots.player2);
             const matchReady = !!(ps.matchTime && ps.matchTime.settings);
             if (bothSelected && matchReady) ps.matchStartedOnce = true;
             /** 对局已开始后因离座等只剩一方时，slots 不全为 true；用盘面/手数保持「已开局」以免误判为等待入座、禁止落子 */
@@ -3486,8 +4058,8 @@
             }
             if (ps.gameOver) {
                 dom.turnDisplay.innerText = '对局结束';
-                if (ps.winner === 'black') dom.scoreTitle.innerText = '黑胜';
-                else if (ps.winner === 'white') dom.scoreTitle.innerText = '白胜';
+                if (ps.winner === 'player1') dom.scoreTitle.innerText = '黑胜';
+                else if (ps.winner === 'player2') dom.scoreTitle.innerText = '白胜';
                 else if (ps.winner === 'draw') dom.scoreTitle.innerText = '和棋';
                 else dom.scoreTitle.innerText = '　';
                 ps.isMyTurn = false;
@@ -3511,7 +4083,7 @@
                 dom.turnDisplay.innerText = `${p === 1 ? '⚫' : '⚪'} 第${total}手`;
             }
             ps.isMyTurn = !!(ps.matchStarted && (ps.mySlot !== null)
-                && ((ps.mySlot === 'black' && ps.currentPlayer === 1) || (ps.mySlot === 'white' && ps.currentPlayer === 2)));
+                && ((ps.mySlot === 'player1' && ps.currentPlayer === 1) || (ps.mySlot === 'player2' && ps.currentPlayer === 2)));
             drawBoard();
         }
 
@@ -3622,6 +4194,7 @@
         }
 
         function updateReplayUI() {
+            syncTryPlayActionButtons(ps);
             if (opts.updateReplayUI) {
                 opts.updateReplayUI();
                 return;
@@ -3647,6 +4220,7 @@
         function enterTryPlay() {
             if (opts.enterTryPlay) {
                 opts.enterTryPlay();
+                syncTryPlayActionButtons(ps);
                 return;
             }
             clearMobileMovePreview();
@@ -3703,6 +4277,7 @@
         function exitTryPlay() {
             if (opts.exitTryPlay) {
                 opts.exitTryPlay();
+                syncTryPlayActionButtons(ps);
                 return;
             }
             clearMobileMovePreview();
@@ -3814,6 +4389,7 @@
         }
 
         function updateTryPlayDisplay() {
+            syncTryPlayActionButtons(ps);
             if (opts.updateTryPlayDisplay) {
                 opts.updateTryPlayDisplay();
                 return;
@@ -3933,6 +4509,15 @@
 
         function initBoardArray(size) {
             return C().initBoardArray(size);
+        }
+
+        /**
+         * 状态同步后刷新贴点条：贴目以服务器下发的 state.komi 为准（变体棋种的贴目随变体变化），
+         * 各棋种不必自己刷新贴目文本。
+         */
+        function syncKomiInfoFromState(state) {
+            if (state && Number.isFinite(state.komi)) ps.KOMI = state.komi;
+            if (dom.komiInfo) dom.komiInfo.innerText = resolveKomiInfoText();
         }
 
         /** 贴点条文本解析：komiInfoText（函数/常量）优先；否则取计分总点数
@@ -4108,7 +4693,7 @@
             if (
                 ps.numberOfHands <= 1
                 && !ps.gameOver
-                && !(ps.slots && ps.slots.black && ps.slots.white)
+                && !(ps.slots && ps.slots.player1 && ps.slots.player2)
                 && !(ps.matchTime && ps.matchTime.settings)
             ) {
                 ps.matchStarted = false;
@@ -4164,7 +4749,7 @@
             }
 
             const hasAnyStone = ps.board.some(row => row.some(v => v !== 0));
-            const hasPlayer = ps.slots.black || ps.slots.white;
+            const hasPlayer = ps.slots.player1 || ps.slots.player2;
             const boardSizeSelect = document.getElementById('boardSizeSelect');
             if (boardSizeSelect && ps.liveViewStep === 0 && !hasPlayer && !ps.gameOver && ps.mySlot === null)
                 boardSizeSelect.style.display = 'inline-block';
@@ -4187,6 +4772,8 @@
             if (editApi) editApi.restoreLocalEditAfterSync();
             if (editApi && state && state.type === 'editBoardAccepted')
                 editApi.noteEditBoardAccepted(state);
+            // 贴目随状态刷新（重新进入房间/切换变体后不再残留默认贴目）
+            syncKomiInfoFromState(state);
         }
 
         if (enableEditBoard && dom.canvas) {
@@ -4201,7 +4788,8 @@
                 emptyBoard: () => initBoardArray(ps.BOARD_SIZE),
                 pickAtClient(clientX, clientY) {
                     const { x, y } = canvasCoordsFromClient(clientX, clientY);
-                    return getClosestIntersection(x, y);
+                    // 棋子落在格内的棋种（opts.editPickCell，如权重围棋）：按格子命中，否则按交叉点
+                    return opts.editPickCell ? getClosestCell(x, y) : getClosestIntersection(x, y);
                 },
                 syncLiveOpening: true
             });
@@ -4217,6 +4805,11 @@
 
         function getClosestIntersection(x, y) {
             return C().getClosestIntersection(x, y, ps.BOARD_SIZE, ps.PADDING, ps.CELL_SIZE);
+        }
+
+        /** 落在格内的棋种（权重围棋等）：命中最近格心 */
+        function getClosestCell(x, y) {
+            return C().getClosestCell(x, y, ps.BOARD_SIZE, ps.PADDING, ps.CELL_SIZE);
         }
 
         function canvasCoordsFromClient(clientX, clientY) {
@@ -4851,6 +5444,341 @@
         return false;
     }
 
+    /**
+     * Benson 无条件活（pass-alive）判定：四邻方格。
+     * @returns {{ alive: boolean[][], territory: number[][] }}
+     *   alive[r][c]=true 表示该子属于无条件活棋链；
+     *   territory[r][c]∈{0,1,2} 表示该空点所在的"确定领地"归属（0=不定）。
+     */
+    function bensonAlive(board, boardSize) {
+        const dirs = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+        // 1) 棋链
+        const chainOf = Array(boardSize).fill().map(() => Array(boardSize).fill(-1));
+        const chains = [];
+        for (let r = 0; r < boardSize; r++) {
+            for (let c = 0; c < boardSize; c++) {
+                const v = board[r][c];
+                if ((v !== 1 && v !== 2) || chainOf[r][c] >= 0) continue;
+                const id = chains.length;
+                const stones = [[r, c]];
+                chainOf[r][c] = id;
+                const queue = [[r, c]];
+                for (let qi = 0; qi < queue.length; qi++) {
+                    const [rr, cc] = queue[qi];
+                    for (const [dr, dc] of dirs) {
+                        const nr = rr + dr, nc = cc + dc;
+                        if (nr < 0 || nr >= boardSize || nc < 0 || nc >= boardSize) continue;
+                        if (board[nr][nc] === v && chainOf[nr][nc] < 0) {
+                            chainOf[nr][nc] = id;
+                            stones.push([nr, nc]);
+                            queue.push([nr, nc]);
+                        }
+                    }
+                }
+                chains.push({ color: v, stones });
+            }
+        }
+        // 2) 空点区域与其邻接棋链
+        const regionOf = Array(boardSize).fill().map(() => Array(boardSize).fill(-1));
+        const regions = [];
+        for (let r = 0; r < boardSize; r++) {
+            for (let c = 0; c < boardSize; c++) {
+                if (board[r][c] !== 0 || regionOf[r][c] >= 0) continue;
+                const id = regions.length;
+                const points = [[r, c]];
+                const adj = new Set();
+                regionOf[r][c] = id;
+                const queue = [[r, c]];
+                for (let qi = 0; qi < queue.length; qi++) {
+                    const [rr, cc] = queue[qi];
+                    for (const [dr, dc] of dirs) {
+                        const nr = rr + dr, nc = cc + dc;
+                        if (nr < 0 || nr >= boardSize || nc < 0 || nc >= boardSize) continue;
+                        const nv = board[nr][nc];
+                        if (nv === 0) {
+                            if (regionOf[nr][nc] < 0) {
+                                regionOf[nr][nc] = id;
+                                points.push([nr, nc]);
+                                queue.push([nr, nc]);
+                            }
+                        } else if (chainOf[nr][nc] >= 0) {
+                            adj.add(chainOf[nr][nc]);
+                        }
+                    }
+                }
+                regions.push({ points, adj });
+            }
+        }
+        const chainRegions = chains.map(() => new Set());
+        regions.forEach((reg, ri) => { reg.adj.forEach((ci) => chainRegions[ci].add(ri)); });
+        // 3) 最大不动点：先假设全部链存活，反复剔除"不足两个要害区域"的链
+        //    （要害区域 = 其邻接的所有链当前均存活且同色）
+        const alive = new Array(chains.length).fill(true);
+        let changed = true;
+        while (changed) {
+            changed = false;
+            for (let ci = 0; ci < chains.length; ci++) {
+                if (!alive[ci]) continue;
+                const color = chains[ci].color;
+                let vital = 0;
+                for (const ri of chainRegions[ci]) {
+                    let ok = true;
+                    for (const aj of regions[ri].adj) {
+                        if (!alive[aj] || chains[aj].color !== color) { ok = false; break; }
+                    }
+                    if (ok && ++vital >= 2) break;
+                }
+                if (vital < 2) { alive[ci] = false; changed = true; }
+            }
+        }
+        // 4) 输出：活棋格与确定领地
+        const aliveGrid = Array(boardSize).fill().map(() => Array(boardSize).fill(false));
+        chains.forEach((ch, ci) => {
+            if (!alive[ci]) return;
+            for (const [r, c] of ch.stones) aliveGrid[r][c] = true;
+        });
+        const territory = Array(boardSize).fill().map(() => Array(boardSize).fill(0));
+        for (const reg of regions) {
+            if (!reg.adj.size) continue;
+            let owner = 0;
+            let ok = true;
+            for (const aj of reg.adj) {
+                if (!alive[aj]) { ok = false; break; }
+                const c = chains[aj].color;
+                if (owner === 0) owner = c;
+                else if (owner !== c) { ok = false; break; }
+            }
+            if (ok && owner) {
+                for (const [r, c] of reg.points) territory[r][c] = owner;
+            }
+        }
+        return { alive: aliveGrid, territory };
+    }
+
+function bensonCoreGrid(opts) {
+    const width = opts.width, height = opts.height;
+    const getNeighbors = opts.getNeighbors, isValid = opts.isValid, get = opts.get;
+    const nb = Array(height).fill().map(() => Array(width).fill(null));
+    for (let r = 0; r < height; r++) {
+        for (let c = 0; c < width; c++) {
+            if (!isValid(r, c)) continue;
+            nb[r][c] = getNeighbors(r, c).filter((p) =>
+                p[0] >= 0 && p[0] < height && p[1] >= 0 && p[1] < width && isValid(p[0], p[1]));
+        }
+    }
+    const chainOf = Array(height).fill().map(() => Array(width).fill(-1));
+    const chains = [];
+    for (let r = 0; r < height; r++) {
+        for (let c = 0; c < width; c++) {
+            if (!nb[r][c]) continue;
+            const v = get(r, c);
+            if ((v !== 1 && v !== 2) || chainOf[r][c] >= 0) continue;
+            const id = chains.length;
+            const stones = [[r, c]];
+            chainOf[r][c] = id;
+            const queue = [[r, c]];
+            for (let qi = 0; qi < queue.length; qi++) {
+                const rr = queue[qi][0], cc = queue[qi][1];
+                for (const p of nb[rr][cc]) {
+                    const nr = p[0], nc = p[1];
+                    if (get(nr, nc) === v && chainOf[nr][nc] < 0) {
+                        chainOf[nr][nc] = id;
+                        stones.push([nr, nc]);
+                        queue.push([nr, nc]);
+                    }
+                }
+            }
+            chains.push({ color: v, stones });
+        }
+    }
+    const regionOf = Array(height).fill().map(() => Array(width).fill(-1));
+    const regions = [];
+    for (let r = 0; r < height; r++) {
+        for (let c = 0; c < width; c++) {
+            if (!nb[r][c] || get(r, c) !== 0 || regionOf[r][c] >= 0) continue;
+            const id = regions.length;
+            const points = [[r, c]];
+            const adj = new Set();
+            regionOf[r][c] = id;
+            const queue = [[r, c]];
+            for (let qi = 0; qi < queue.length; qi++) {
+                const rr = queue[qi][0], cc = queue[qi][1];
+                for (const p of nb[rr][cc]) {
+                    const nr = p[0], nc = p[1];
+                    const nv = get(nr, nc);
+                    if (nv === 0) {
+                        if (regionOf[nr][nc] < 0) {
+                            regionOf[nr][nc] = id;
+                            points.push([nr, nc]);
+                            queue.push([nr, nc]);
+                        }
+                    } else if (chainOf[nr][nc] >= 0) {
+                        adj.add(chainOf[nr][nc]);
+                    }
+                }
+            }
+            regions.push({ points, adj });
+        }
+    }
+    const chainRegions = chains.map(() => new Set());
+    regions.forEach((reg, ri) => { reg.adj.forEach((ci) => chainRegions[ci].add(ri)); });
+    // 最大不动点：先全部存活，反复剔除不足两个要害区域（邻接链均存活且同色）的链
+    const alive = new Array(chains.length).fill(true);
+    let changed = true;
+    while (changed) {
+        changed = false;
+        for (let ci = 0; ci < chains.length; ci++) {
+            if (!alive[ci]) continue;
+            const color = chains[ci].color;
+            let vital = 0;
+            for (const ri of chainRegions[ci]) {
+                let ok = true;
+                for (const aj of regions[ri].adj) {
+                    if (!alive[aj] || chains[aj].color !== color) { ok = false; break; }
+                }
+                if (ok && ++vital >= 2) break;
+            }
+            if (vital < 2) { alive[ci] = false; changed = true; }
+        }
+    }
+    const aliveGrid = Array(height).fill().map(() => Array(width).fill(false));
+    chains.forEach((ch, ci) => {
+        if (!alive[ci]) return;
+        for (const p of ch.stones) aliveGrid[p[0]][p[1]] = true;
+    });
+    const territory = Array(height).fill().map(() => Array(width).fill(0));
+    for (const reg of regions) {
+        if (!reg.adj.size) continue;
+        let owner = 0;
+        let ok = true;
+        for (const aj of reg.adj) {
+            if (!alive[aj]) { ok = false; break; }
+            const cc2 = chains[aj].color;
+            if (owner === 0) owner = cc2;
+            else if (owner !== cc2) { ok = false; break; }
+        }
+        if (ok && owner) {
+            for (const p of reg.points) territory[p[0]][p[1]] = owner;
+        }
+    }
+    return { alive: aliveGrid, territory };
+}
+
+/**
+ * Benson 无条件活（通用扁平图版）。
+ * opts: { n, neighbors(id)->number[], get(id)->0/1/2 }
+ * @returns {{ alive: boolean[], territory: number[] }}
+ */
+function bensonCoreGraph(opts) {
+    const n = opts.n, neighbors = opts.neighbors, get = opts.get;
+    const nb = new Array(n).fill(null);
+    for (let i = 0; i < n; i++) {
+        nb[i] = (neighbors(i) || []).filter((j) => Number.isInteger(j) && j >= 0 && j < n);
+    }
+    const chainOf = new Array(n).fill(-1);
+    const chains = [];
+    for (let i = 0; i < n; i++) {
+        const v = get(i);
+        if ((v !== 1 && v !== 2) || chainOf[i] >= 0) continue;
+        const id = chains.length;
+        const stones = [i];
+        chainOf[i] = id;
+        const queue = [i];
+        for (let qi = 0; qi < queue.length; qi++) {
+            for (const j of nb[queue[qi]]) {
+                if (get(j) === v && chainOf[j] < 0) {
+                    chainOf[j] = id;
+                    stones.push(j);
+                    queue.push(j);
+                }
+            }
+        }
+        chains.push({ color: v, stones });
+    }
+    const regionOf = new Array(n).fill(-1);
+    const regions = [];
+    for (let i = 0; i < n; i++) {
+        if (get(i) !== 0 || regionOf[i] >= 0) continue;
+        const id = regions.length;
+        const points = [i];
+        const adj = new Set();
+        regionOf[i] = id;
+        const queue = [i];
+        for (let qi = 0; qi < queue.length; qi++) {
+            for (const j of nb[queue[qi]]) {
+                const nv = get(j);
+                if (nv === 0) {
+                    if (regionOf[j] < 0) {
+                        regionOf[j] = id;
+                        points.push(j);
+                        queue.push(j);
+                    }
+                } else if (chainOf[j] >= 0) {
+                    adj.add(chainOf[j]);
+                }
+            }
+        }
+        regions.push({ points, adj });
+    }
+    const chainRegions = chains.map(() => new Set());
+    regions.forEach((reg, ri) => { reg.adj.forEach((ci) => chainRegions[ci].add(ri)); });
+    const alive = new Array(chains.length).fill(true);
+    let changed = true;
+    while (changed) {
+        changed = false;
+        for (let ci = 0; ci < chains.length; ci++) {
+            if (!alive[ci]) continue;
+            const color = chains[ci].color;
+            let vital = 0;
+            for (const ri of chainRegions[ci]) {
+                let ok = true;
+                for (const aj of regions[ri].adj) {
+                    if (!alive[aj] || chains[aj].color !== color) { ok = false; break; }
+                }
+                if (ok && ++vital >= 2) break;
+            }
+            if (vital < 2) { alive[ci] = false; changed = true; }
+        }
+    }
+    const aliveArr = new Array(n).fill(false);
+    chains.forEach((ch, ci) => { if (alive[ci]) for (const i of ch.stones) aliveArr[i] = true; });
+    const territory = new Array(n).fill(0);
+    for (const reg of regions) {
+        if (!reg.adj.size) continue;
+        let owner = 0;
+        let ok = true;
+        for (const aj of reg.adj) {
+            if (!alive[aj]) { ok = false; break; }
+            const cc2 = chains[aj].color;
+            if (owner === 0) owner = cc2;
+            else if (owner !== cc2) { ok = false; break; }
+        }
+        if (ok && owner) for (const i of reg.points) territory[i] = owner;
+    }
+    return { alive: aliveArr, territory };
+}
+
+    /** 通用入口：供插件传入自定义邻接/有效点（网格图、带洞、桥等） */
+    function bensonAliveGrid(opts) {
+        return bensonCoreGrid(opts);
+    }
+
+    /** 通用入口：扁平顶点图 */
+    function bensonAliveGraph(opts) {
+        return bensonCoreGraph(opts);
+    }
+
+    /** Benson 无条件活（带洞方格版） */
+    function bensonAliveWithHoles(board, boardSize, isHole) {
+        return bensonCoreGrid({
+            width: boardSize,
+            height: boardSize,
+            getNeighbors: function (r, c) { return [[r - 1, c], [r + 1, c], [r, c - 1], [r, c + 1]]; },
+            isValid: function (r, c) { return !isHole(r, c); },
+            get: function (r, c) { return board[r][c]; }
+        });
+    }
+
     function removeDeadAndDying(srcBoard, boardSize, copyBoardFn, maxWeakLiberties = 2) {
         let boardCopy = copyBoardFn(srcBoard);
         let changed = true;
@@ -5126,7 +6054,7 @@
         const replayStepPlayers = [0];
 
         for (const move of (data.moves || [])) {
-            const playerVal = move.player === 'black' ? 1 : 2;
+            const playerVal = slotColorValue(null, move.player);
             replayStepPlayers.push(playerVal);
             if (move.type === 'move') {
                 const newBoard = tryPlaceStone(curBoard, move.row, move.col, playerVal);
@@ -5147,13 +6075,27 @@
         };
     }
 
+    /**
+     * 座位 → 棋子颜色值（1 黑 / 2 白）。
+     * 默认约定 player1 执黑；白先棋种（国际象棋等）在 opts.slotColor 里给出自己的换算。
+     */
+    function slotColorValue(opts, slot) {
+        if (opts && typeof opts.slotColor === 'function') {
+            try {
+                const v = opts.slotColor(slot);
+                if (v === 1 || v === 2) return v;
+            } catch (_) { /* ignore */ }
+        }
+        return slot === 'player1' ? 1 : 2;
+    }
+
     function rebuildLiveReplayFromMoveCoords(moveCoords, tryPlaceStone, deepCopyBoard, createEmptyBoard) {
         let curBoard = createEmptyBoard();
         const liveReplayBoards = [deepCopyBoard(curBoard)];
         const liveReplayMarkers = [[]];
         const liveReplayStepPlayers = [0];
         for (const move of (moveCoords || [])) {
-            const playerVal = move.player === 'black' ? 1 : 2;
+            const playerVal = slotColorValue(null, move.player);
             liveReplayStepPlayers.push(playerVal);
             if (move.type === 'move') {
                 const newBoard = tryPlaceStone(curBoard, move.row, move.col, playerVal);
@@ -5179,7 +6121,7 @@
         let curBoard = deepCopyBoard(liveReplayBoards[liveReplayBoards.length - 1]);
         for (let i = startLen; i < mcs.length; i++) {
             const move = mcs[i];
-            const playerVal = move.player === 'black' ? 1 : 2;
+            const playerVal = slotColorValue(null, move.player);
             liveReplayStepPlayers.push(playerVal);
             if (move.type === 'move') {
                 const newBoard = tryPlaceStone(curBoard, move.row, move.col, playerVal);
@@ -5629,7 +6571,7 @@
         if (typeof entry === 'string') {
             const ch = entry[0];
             if (ch !== 'B' && ch !== 'W') return null;
-            const player = ch === 'B' ? 'black' : 'white';
+            const player = ch === 'B' ? 'player1' : 'player2';
             if (entry.length >= 2 && entry[1] === 'p') return { type: 'pass', player };
             const coords = entry.substring(1).split(',').map(Number);
             if (coords.length < 2 || !Number.isFinite(coords[0]) || !Number.isFinite(coords[1])) return null;
@@ -5679,12 +6621,12 @@
                 }
             } else {
                 trailingPass = 0;
-                const pv = m.player === 'black' ? 1 : 2;
+                const pv = slotColorValue(null, m.player);
                 b[m.row][m.col] = pv;
                 markers = [{ row: m.row, col: m.col, color: pv }];
                 if (checkWuziqiFiveInRow(b, m.row, m.col, pv, boardSize)) {
                     go = true;
-                    win = reverseWin ? (m.player === 'black' ? 'white' : 'black') : m.player;
+                    win = reverseWin ? (m.player === 'player1' ? 'player2' : 'player1') : m.player;
                     nextCur = cur;
                 } else if (isWuziqiBoardFull(b, boardSize)) {
                     go = true;
@@ -5741,13 +6683,13 @@
                 }
             } else {
                 trailingPass = 0;
-                const pv = m.player === 'black' ? 1 : 2;
+                const pv = slotColorValue(null, m.player);
                 b[m.row][m.col] = pv;
                 markers = [{ row: m.row, col: m.col, color: pv }];
                 const outcome = evaluateSquareDiagonalFour(b, m.row, m.col, pv, boardSize);
                 if (outcome === 'lose') {
                     go = true;
-                    win = m.player === 'black' ? 'white' : 'black';
+                    win = m.player === 'player1' ? 'player2' : 'player1';
                     nextCur = cur;
                 } else if (outcome === 'win') {
                     go = true;
@@ -5774,18 +6716,171 @@
         return snaps;
     }
 
+    /**
+     * 试下模式的「虚着 / 悔棋」公共实现（所有棋类共用，按钮绑定见 createWeiqiMessageBindings）。
+     * - 进入试下时给 body 加 qi-tryplay 类：CSS 用它强制显示 #passBtn / #undoBtn（平时这两个按钮
+     *   被各棋类按对局状态藏起来）；退出试下时移除类，按钮立刻回到各棋类自己设置的显隐。
+     * - 虚着：直接推进一手（棋盘不变、本步无落子标记），不需要对方确认。
+     * - 悔棋：直接退回上一手，同样不需要对方确认。
+     * 特殊棋类可在 bindings 的 ctx 里传 tryPlayPass / tryPlayUndo 覆盖默认实现。
+     */
+    function syncTryPlayActionButtons(pageState) {
+        if (typeof document === 'undefined' || !document.body) return;
+        document.body.classList.toggle('qi-tryplay', !!(pageState && pageState.tryPlayMode));
+    }
+
+    /** 深拷贝一步状态：只处理按步数据里会出现的普通对象/数组/Set/Map */
+    function copyTryPlayStepValue(v) {
+        if (Array.isArray(v)) return v.map((x) => copyTryPlayStepValue(x));
+        if (v instanceof Set) return new Set(Array.from(v, (x) => copyTryPlayStepValue(x)));
+        if (v instanceof Map) return new Map(Array.from(v, ([k, x]) => [k, copyTryPlayStepValue(x)]));
+        if (v && typeof v === 'object') {
+            const out = {};
+            for (const k of Object.keys(v)) out[k] = copyTryPlayStepValue(v[k]);
+            return out;
+        }
+        return v;
+    }
+
+    /** 快照型棋类：找「另一方」的取值（'red'↔'black'、'white'↔'black' 等） */
+    function findTryPlayOppositeSide(ctx, S, curSide) {
+        if (typeof ctx.tryPlayOppositeSide === 'function') {
+            const v = ctx.tryPlayOppositeSide(curSide);
+            if (v != null && v !== curSide) return v;
+        }
+        // 各棋类的历史快照里两侧都出现过，取一个与当前方不同的值即可
+        const pools = [S.tryPlaySnapshots, S.liveSnapshots, S.replaySnapshots, S.tryPlaySnaps, S.liveSnaps];
+        for (const pool of pools) {
+            if (!Array.isArray(pool)) continue;
+            for (const s of pool) {
+                if (!s || typeof s !== 'object') continue;
+                const v = s.sideToMove != null ? s.sideToMove : (s.side != null ? s.side : null);
+                if (v != null && v !== curSide) return v;
+            }
+        }
+        return null;
+    }
+
+    /** 虚着默认实现：棋子型（tryPlayBoards）与快照型（tryPlaySnapshots）都能直接推进一手 */
+    function tryPlayPassDefault(ctx) {
+        const S = ctx.pageState;
+        if (!S || !S.tryPlayMode) return false;
+        const step = S.tryPlayStep | 0;
+        const total = S.tryPlayTotalSteps | 0;
+        // 在分支中段虚着：先砍掉后面的分支（只截断长度与总步数一致的按步数组）
+        for (const key of Object.keys(S)) {
+            if (!/^tryPlay[A-Z]/.test(key)) continue;
+            const arr = S[key];
+            if (Array.isArray(arr) && arr.length === total + 1 && arr.length > step + 1) arr.length = step + 1;
+        }
+        // 其余按步数据原样复制一步：虚着不改变它们（如易位/提子计数/不稳信息/镜像轴等）
+        const copyOtherSteps = (skipKeys) => {
+            for (const key of Object.keys(S)) {
+                if (!/^tryPlay[A-Z]/.test(key) || skipKeys.indexOf(key) >= 0) continue;
+                const arr = S[key];
+                if (!Array.isArray(arr) || arr.length !== step + 1) continue;
+                arr.push(copyTryPlayStepValue(arr[step]));
+            }
+        };
+
+        let totalSteps;
+        if (Array.isArray(S.tryPlayBoards) && S.tryPlayBoards.length > step) {
+            // 棋子型（围棋/五子棋/黑白棋等）：棋盘不变、本步没有落子标记
+            const playerNow = (Array.isArray(S.tryPlayCurrentPlayers) && S.tryPlayCurrentPlayers[step] != null)
+                ? S.tryPlayCurrentPlayers[step]
+                : ((S.tryPlayCurrentPlayer === 1 || S.tryPlayCurrentPlayer === 2) ? S.tryPlayCurrentPlayer : null);
+            S.tryPlayBoards.push(copyTryPlayStepValue(S.tryPlayBoards[step]));
+            if (Array.isArray(S.tryPlayMarkers)) S.tryPlayMarkers.push([]);
+            copyOtherSteps(['tryPlayBoards', 'tryPlayMarkers', 'tryPlayStepPlayers', 'tryPlayCurrentPlayers']);
+            if (playerNow != null) {
+                if (Array.isArray(S.tryPlayStepPlayers)) S.tryPlayStepPlayers.push(playerNow);
+                if (Array.isArray(S.tryPlayCurrentPlayers)) S.tryPlayCurrentPlayers.push(3 - playerNow);
+            }
+            totalSteps = S.tryPlayBoards.length - 1;
+        } else if (Array.isArray(S.tryPlaySnapshots) && S.tryPlaySnapshots.length > step) {
+            // 快照型（象棋/国际象棋/将棋/韩国将棋等）：复制当前快照、交换行棋方、清掉上一手痕迹
+            const cur = S.tryPlaySnapshots[step];
+            if (!cur || typeof cur !== 'object') return false;
+            const next = copyTryPlayStepValue(cur);
+            let flipped = false;
+            if (next.currentPlayer === 1 || next.currentPlayer === 2) {
+                next.currentPlayer = 3 - next.currentPlayer;
+                flipped = true;
+            } else {
+                const field = ('sideToMove' in next) ? 'sideToMove' : (('side' in next) ? 'side' : null);
+                if (field) {
+                    const opp = findTryPlayOppositeSide(ctx, S, next[field]);
+                    if (opp != null) { next[field] = opp; flipped = true; }
+                }
+            }
+            if (!flipped) return false;
+            if ('lastFrom' in next) next.lastFrom = null;
+            if ('lastTo' in next) next.lastTo = null;
+            if ('enPassant' in next) next.enPassant = null;
+            S.tryPlaySnapshots.push(next);
+            copyOtherSteps(['tryPlaySnapshots']);
+            totalSteps = S.tryPlaySnapshots.length - 1;
+        } else {
+            return false;
+        }
+
+        S.tryPlayTotalSteps = totalSteps;
+        if (typeof ctx.setTryPlayStep === 'function') ctx.setTryPlayStep(totalSteps);
+        // 部分棋类的 setTryPlayStep 只同步滑块 value、不同步 max，这里补齐（否则拉不到新的一手）
+        const slider = document.getElementById('replaySlider');
+        if (slider) {
+            slider.max = String(totalSteps);
+            slider.value = String(totalSteps);
+        }
+        // 也有棋种的步进函数只动滑块（不刷新步数显示/棋盘），补一次；各棋种自己的显示函数优先
+        if (typeof ctx.updateTryPlayDisplay === 'function') ctx.updateTryPlayDisplay();
+        if (typeof ctx.drawBoard === 'function') ctx.drawBoard();
+        syncTryPlayActionButtons(S);
+        return true;
+    }
+
+    /** 悔棋默认实现：直接退回上一手 */
+    function tryPlayUndoDefault(ctx) {
+        const S = ctx.pageState;
+        if (!S || !S.tryPlayMode || typeof ctx.setTryPlayStep !== 'function') return false;
+        const step = S.tryPlayStep | 0;
+        if (step <= 0) return false;
+        ctx.setTryPlayStep(step - 1);
+        // 少数棋类的 setTryPlayStep 不更新滑块/显示，这里补一次（与虚着保持一致）。
+        // 注意：闭包型棋种（试下状态在插件局部变量里）的 pageState 上没有这两个字段，此时不要动滑块，
+        // 否则会把 max 写成 0、把滑块夹回去。
+        const slider = document.getElementById('replaySlider');
+        if (slider && typeof S.tryPlayStep === 'number' && typeof S.tryPlayTotalSteps === 'number') {
+            slider.max = String(S.tryPlayTotalSteps);
+            slider.value = String(S.tryPlayStep);
+        }
+        if (typeof ctx.updateTryPlayDisplay === 'function') ctx.updateTryPlayDisplay();
+        if (typeof ctx.drawBoard === 'function') ctx.drawBoard();
+        return true;
+    }
+
     global.QiWeiqiSquarePageRuntime = {
         create,
+        syncTryPlayActionButtons,
+        tryPlayPassDefault,
+        tryPlayUndoDefault,
         setupHiDpiCanvas: global.QiSquareWeiqiCanvas.setupHiDpiCanvas,
+        applyBoardWoodTexture: global.QiSquareWeiqiCanvas.applyBoardWoodTexture,
+        getWoodFill: global.QiSquareWeiqiCanvas.getWoodFill,
         clearUserBoardMarksMap,
         bindActiveUserBoardMarks,
         waitingSeatTurnText,
+        roundTurnText,
         countGroupLiberties, 
         hasLiberty, 
         removeGroup, 
         tryPlaceStoneNLiberty, 
         isLibertySurroundedByOpponent, 
         removeDeadAndDying, 
+        bensonAlive, 
+        bensonAliveWithHoles, 
+        bensonAliveGrid, 
+        bensonAliveGraph, 
         assignTerritoryWithRange, 
         computeScore, 
         removeDeadAndDyingWithHoles, 
@@ -6338,6 +7433,9 @@
             }
         });
 
+        // 统一铺棋盘木纹（棋种清单见 WOOD_TEXTURE_GAMES）
+        applyBoardWoodTextureForGame(room.gameType);
+
         // 壳层统一绑定标记折叠，避免部分棋种插件未初始化导致 expand 无效
         ensureBoardMarkFoldControls();
 
@@ -6345,6 +7443,56 @@
         requestAnimationFrame(() => {
             try { RoomChat.init(); } catch (e) { console.warn('RoomChat.init failed', e); }
         });
+    }
+
+    /* 启用棋盘木纹的棋种：围棋类 + 五子棋类 + 其它类里的「不围棋 / 反五子棋」。
+     * 木纹的生成逻辑全在 QiSquareWeiqiCanvas 里（见 WOOD_PRESETS / makeWoodTextureCanvas），
+     * 要改木纹只改那段公共代码即可；这里只决定哪些棋种铺。 */
+    const WOOD_TEXTURE_GAMES = [
+        // —— 围棋类 ——
+        'weiqi', 'choice-weiqi', 'triangle-weiqi', 'hexagon-weiqi', 'snub-quadrangle-weiqi',
+        'cairo-pentagon-weiqi', 'floret-pentagon-weiqi', 'penrose-p2-weiqi', 'torus-weiqi',
+        'short-liberty-weiqi', 'zeroliberty-weiqi', 'various-liberty-weiqi', 'weight-weiqi',
+        'hole-weiqi', 'bridge-weiqi', 'neutral-stone-weiqi', 'family-weiqi', 'greedy-weiqi',
+        'ukrainian-weiqi', 'russian-weiqi', 'rus-weiqi', 'mirror-image-weiqi', 'magnetism-weiqi',
+        'translocation-weiqi', 'fat-weiqi', 'rotation-weiqi', 'instability-weiqi', 'nogrid-weiqi',
+        'sync-weiqi', 'fog-weiqi', 'invisible-stone-weiqi', 'radar-weiqi', 'sonar-weiqi',
+        'twisted-space-weiqi', 'front-back-weiqi', 'auction-weiqi', 'continuous-weiqi',
+        'bury-mine-weiqi', 'minesweeper-weiqi', 'sudoku-weiqi', 'real-time-weiqi',
+        'duo-quadricolour-weiqi', 'shizi-weiqi',
+        // —— 五子棋类 ——
+        'wuziqi', 'choice-wuziqi', 'guess-wuziqi', 'triangle-wuziqi', 'random-instability-wuziqi',
+        'match-wuziqi', 'rotation-wuziqi', 'square-diagonal-four',
+        // —— 其它类：不围棋 / 反五子棋 / 黑白棋 ——
+        'noweiqi', 'reverse-wuziqi', 'reversi',
+        // —— 其它类：跳达棋 / 结子棋（画布不铺底色，木纹直接透出来）——
+        'halma', 'neutreeko',
+        // —— 象棋类（画布不画底色，木纹直接透出来）——
+        'xiangqi', 'janggi', 'double-xiangqi', 'dyeing-xiangqi',
+        'fog-xiangqi', 'hexagon-xiangqi', 'capture-shiziqi',
+        // —— 其它类：WxD棋（底色由 canvas 的 CSS 木纹提供，插件不画底）——
+        'wxd',
+        // —— 方格类：舒尔特方格 / 对战舒尔特方格 ——
+        // 国际象棋类（chess/caturanga/hexagon-chess/rhombic-chess/circular-chess）、
+        // 模拟将棋/模拟泰象棋、路墙棋、对战扫雷、DFW 按用户要求不铺木纹
+        'schulte-grid', 'versus-schulte-grid'
+    ].reduce((m, g) => (m[g] = 1, m), Object.create(null));
+
+    /**
+     * 建页后按棋种铺木纹。异形棋盘（画布自绘木色）不在这里处理——
+     * 它们由插件用 QiSquareWeiqiCanvas.getWoodFill() 自己填。
+     */
+    function applyBoardWoodTextureForGame(gameType) {
+        if (!WOOD_TEXTURE_GAMES[gameType]) return;
+        if (document.body.classList.contains('qi-room-transparent-canvas')) return;
+        const C = window.QiSquareWeiqiCanvas;
+        if (!C || typeof C.applyBoardWoodTexture !== 'function') return;
+        const canvas = document.getElementById('goBoard');
+        if (!canvas) return;
+        // 放到首帧之后算，避免拖慢进房（生成一张约 200ms，之后按画布缓存）
+        const run = () => C.applyBoardWoodTexture(canvas);
+        if (window.requestAnimationFrame) window.requestAnimationFrame(run);
+        else run();
     }
 
     function ensureBoardMarkFoldControls() {

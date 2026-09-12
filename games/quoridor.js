@@ -105,13 +105,13 @@ function wallPlacementLegal(state, orient, r, c) {
 }
 
 function pawnPos(state, slot) {
-    return slot === 'black'
+    return slot === 'player2'
         ? [state.blackRow, state.blackCol]
         : [state.whiteRow, state.whiteCol];
 }
 
 function otherSlot(slot) {
-    return slot === 'black' ? 'white' : 'black';
+    return slot === 'player2' ? 'player1' : 'player2';
 }
 
 function getLegalPawnMoves(state, playerSlot) {
@@ -191,6 +191,7 @@ function initialState() {
         wallsV: new Set(),
         wallsBlackLeft: WALLS_EACH,
         wallsWhiteLeft: WALLS_EACH,
+        // 白方先行（白方默认显示在棋盘下方）
         currentPlayer: 2,
         gameOver: false,
         winner: null,
@@ -216,20 +217,20 @@ function cloneState(s) {
 }
 
 function applyPawnMove(state, slot, tr, tc) {
-    if (slot === 'black') {
+    if (slot === 'player2') {
         state.blackRow = tr;
         state.blackCol = tc;
     } else {
         state.whiteRow = tr;
         state.whiteCol = tc;
     }
-    state.lastMoveMarkers = [{ row: tr, col: tc, color: slot === 'black' ? 1 : 2 }];
-    if (slot === 'black' && tr === GRID - 1) {
+    state.lastMoveMarkers = [{ row: tr, col: tc, color: slot === 'player2' ? 1 : 2 }];
+    if (slot === 'player2' && tr === GRID - 1) {
         state.gameOver = true;
-        state.winner = 'black';
-    } else if (slot === 'white' && tr === 0) {
+        state.winner = 'player2';
+    } else if (slot === 'player1' && tr === 0) {
         state.gameOver = true;
-        state.winner = 'white';
+        state.winner = 'player1';
     }
     if (!state.gameOver) state.currentPlayer = state.currentPlayer === 1 ? 2 : 1;
 }
@@ -239,7 +240,7 @@ function applyWall(state, slot, orient, r, c) {
     if (!state.wallsV || !(state.wallsV instanceof Set)) state.wallsV = new Set(state.wallsV || []);
     if (orient === 'h') state.wallsH.add(qKey(r, c));
     else state.wallsV.add(qKey(r, c));
-    if (slot === 'black') state.wallsBlackLeft--;
+    if (slot === 'player2') state.wallsBlackLeft--;
     else state.wallsWhiteLeft--;
     state.lastMoveMarkers = [{ row: r, col: c, color: orient === 'h' ? 3 : 4, orient }];
     state.currentPlayer = state.currentPlayer === 1 ? 2 : 1;
@@ -291,7 +292,7 @@ if (QiTwoPlayerRoomBase) {
         this.moveHistory = [];
         this.historySnapshots = [];
         this.matchStarted = false;
-        this.slotJoinedAt = { black: null, white: null };
+        this.slotJoinedAt = { player2: null, player1: null };
         this.tcNego = null;
         this.tcSettings = null;
         this.tcClock = null;
@@ -331,20 +332,20 @@ if (QiTwoPlayerRoomBase) {
     }
 
     _firstPickerSlot() {
-        const tb = this.slotJoinedAt.black;
-        const tw = this.slotJoinedAt.white;
-        if (tb == null || tw == null) return 'black';
-        return tb <= tw ? 'black' : 'white';
+        const tb = this.slotJoinedAt.player2;
+        const tw = this.slotJoinedAt.player1;
+        if (tb == null || tw == null) return 'player2';
+        return tb <= tw ? 'player2' : 'player1';
     }
 
     _maybeBeginTimeNegotiation() {
         if (this.moveHistory.length > 0 || this.gameOver) return;
-        if (!this.room.getPlayerBySlot('black') || !this.room.getPlayerBySlot('white')) return;
+        if (!this.room.getPlayerBySlot('player2') || !this.room.getPlayerBySlot('player1')) return;
         if (this.tcNego !== null || this.tcSettings !== null) return;
         const first = this._firstPickerSlot();
         this.tcNego = { phase: 'propose', proposal: null, waitingSlot: first, lastProposerSlot: null };
         const ws1 = this.room.getPlayerBySlot(first);
-        const other = first === 'black' ? 'white' : 'black';
+        const other = first === 'player2' ? 'player1' : 'player2';
         const ws2 = this.room.getPlayerBySlot(other);
         if (ws1) ws1.send(JSON.stringify({ type: 'timeControlNegotiation', mode: 'propose' }));
         if (ws2) ws2.send(JSON.stringify({ type: 'timeControlWaitPeer', text: '对方正在选择限时规则…' }));
@@ -363,7 +364,7 @@ if (QiTwoPlayerRoomBase) {
         this.matchStarted = true;
         this.tcClock = qiMatchTimeControl.createClock(this.tcSettings, Date.now());
         if (this.tcClock && this.tcClock.timed) {
-            const active = this.currentPlayer === 2 ? 'white' : 'black';
+            const active = this.currentPlayer === 2 ? 'player1' : 'player2';
             qiMatchTimeControl.setActiveSlot(this.tcClock, active, Date.now());
             this._startClockTicker();
             this._broadcastClock();
@@ -386,7 +387,7 @@ if (QiTwoPlayerRoomBase) {
         this.tcNego.proposal = v;
         this.tcNego.lastProposerSlot = slot;
         this.tcNego.phase = 'respond';
-        const other = slot === 'black' ? 'white' : 'black';
+        const other = slot === 'player2' ? 'player1' : 'player2';
         this.tcNego.waitingSlot = other;
         const selfWs = this.room.getPlayerBySlot(slot);
         const peerWs = this.room.getPlayerBySlot(other);
@@ -418,7 +419,7 @@ if (QiTwoPlayerRoomBase) {
     _timeAllowsPlay(slot) {
         if (!slot || this.gameOver) return false;
         if (!this.matchStarted) return false;
-        const expected = this.currentPlayer === 2 ? 'white' : 'black';
+        const expected = this.currentPlayer === 2 ? 'player1' : 'player2';
         if (slot !== expected) return false;
         if (!this.tcClock || !this.tcClock.timed) return true;
         if (this.tcClock.paused) return false;
@@ -443,13 +444,13 @@ if (QiTwoPlayerRoomBase) {
 
     _syncClockAfterTurnChange() {
         if (!this.tcClock || !this.tcClock.timed || this.gameOver) return;
-        const next = this.currentPlayer === 2 ? 'white' : 'black';
+        const next = this.currentPlayer === 2 ? 'player1' : 'player2';
         qiMatchTimeControl.setActiveSlot(this.tcClock, next, Date.now());
         this._broadcastClock();
     }
 
     afterColorAssigned(_ws, slot) {
-        if (slot === 'black' || slot === 'white') this.slotJoinedAt[slot] = Date.now();
+        if (slot === 'player2' || slot === 'player1') this.slotJoinedAt[slot] = Date.now();
         this._maybeBeginTimeNegotiation();
     }
 
@@ -463,7 +464,7 @@ if (QiTwoPlayerRoomBase) {
         this.wallsV = new Set();
         this.wallsBlackLeft = QuoridorEngine.WALLS_EACH;
         this.wallsWhiteLeft = QuoridorEngine.WALLS_EACH;
-        this.currentPlayer = 2;
+        this.currentPlayer = 2;   // 白方先行
         this.gameOver = false;
         this.winner = null;
         this.lastMoveMarkers = [];
@@ -528,6 +529,11 @@ if (QiTwoPlayerRoomBase) {
         };
     }
 
+    /** 聊天/棋谱里显示的执方名：这些棋种白方先行，player1 座执白 */
+    getChatSideLabel(slot) {
+        return slot === 'player1' ? '白方' : (slot === 'player2' ? '黑方' : String(slot));
+    }
+
     getState() {
         return {
             quoridor: true,
@@ -558,8 +564,8 @@ if (QiTwoPlayerRoomBase) {
                     : { type: 'wall', player: m.player, orient: m.orient, r: m.r, c: m.c }
             ),
             slots: {
-                black: !!this.room.getPlayerBySlot('black'),
-                white: !!this.room.getPlayerBySlot('white')
+                player2: !!this.room.getPlayerBySlot('player2'),
+                player1: !!this.room.getPlayerBySlot('player1')
             }
         };
     }
@@ -573,8 +579,8 @@ if (QiTwoPlayerRoomBase) {
             boardSize: GRID,
             moves: this.moveHistory.map((m) =>
                 m.kind === 'pawn'
-                    ? `${m.player === 'black' ? 'B' : 'W'}M${m.row},${m.col}`
-                    : `${m.player === 'black' ? 'B' : 'W'}${m.orient === 'h' ? 'H' : 'V'}${m.r},${m.c}`
+                    ? `${m.player === 'player2' ? 'B' : 'W'}M${m.row},${m.col}`
+                    : `${m.player === 'player2' ? 'B' : 'W'}${m.orient === 'h' ? 'H' : 'V'}${m.r},${m.c}`
             ),
             result: this.gameOver ? this.winner : null,
             timeControl: this.tcSettings
@@ -606,8 +612,8 @@ if (QiTwoPlayerRoomBase) {
         for (let i = 0; i < raw.length; i++) {
             let s = raw[i];
             if (typeof s !== 'string') continue;
-            const slot = s[0] === 'B' ? 'black' : 'white';
-            const expect = this.currentPlayer === 2 ? 'white' : 'black';
+            const slot = s[0] === 'B' ? 'player2' : 'player1';
+            const expect = this.currentPlayer === 2 ? 'player1' : 'player2';
             if (slot !== expect) {
                 this.resetToEmpty();
                 requesterWs.send(
@@ -646,8 +652,8 @@ if (QiTwoPlayerRoomBase) {
                 const c = parseInt(rest[1], 10);
                 const st = this.asEngineState();
                 if (
-                    (slot === 'black' && st.wallsBlackLeft <= 0) ||
-                    (slot === 'white' && st.wallsWhiteLeft <= 0)
+                    (slot === 'player2' && st.wallsBlackLeft <= 0) ||
+                    (slot === 'player1' && st.wallsWhiteLeft <= 0)
                 ) {
                     this.resetToEmpty();
                     requesterWs.send(
@@ -714,7 +720,7 @@ if (QiTwoPlayerRoomBase) {
         this.broadcast({
             type: 'newGameStarted',
             ...this.getState(),
-            slots: { black: false, white: false }
+            slots: { player2: false, player1: false }
         });
     }
 
@@ -768,8 +774,8 @@ if (QiTwoPlayerRoomBase) {
                 const r = msg.r;
                 const c = msg.c;
                 if (
-                    (slot === 'black' && this.wallsBlackLeft <= 0) ||
-                    (slot === 'white' && this.wallsWhiteLeft <= 0)
+                    (slot === 'player2' && this.wallsBlackLeft <= 0) ||
+                    (slot === 'player1' && this.wallsWhiteLeft <= 0)
                 )
                     return;
                 const st = this.asEngineState();
@@ -817,14 +823,14 @@ if (QiTwoPlayerRoomBase) {
     handleRequestUndo(ws, slot) {
         if (!slot || this.gameOver) return;
         const isMyTurn =
-            (slot === 'white' && this.currentPlayer === 2) ||
-            (slot === 'black' && this.currentPlayer === 1);
+            (slot === 'player1' && this.currentPlayer === 2) ||
+            (slot === 'player2' && this.currentPlayer === 1);
         const steps = isMyTurn ? 2 : 1;
         if (this.historySnapshots.length < steps) {
             ws.send(JSON.stringify({ type: 'error', message: '无法悔棋。' }));
             return;
         }
-        const opponentSlot = slot === 'black' ? 'white' : 'black';
+        const opponentSlot = slot === 'player2' ? 'player1' : 'player2';
         const opponent = this.room.getPlayerBySlot(opponentSlot);
         if (!opponent) {
             for (let i = 0; i < steps; i++) {
@@ -837,7 +843,7 @@ if (QiTwoPlayerRoomBase) {
                     : this.emptySnapshot();
             this.restoreSnapshot(sn);
             if (this.tcClock && this.tcClock.timed && !this.gameOver) {
-                const active = this.currentPlayer === 2 ? 'white' : 'black';
+                const active = this.currentPlayer === 2 ? 'player1' : 'player2';
                 qiMatchTimeControl.setActiveSlot(this.tcClock, active, Date.now());
                 this._broadcastClock();
             }
@@ -866,7 +872,7 @@ if (QiTwoPlayerRoomBase) {
                         : this.emptySnapshot();
                 this.restoreSnapshot(sn);
                 if (this.tcClock && this.tcClock.timed && !this.gameOver) {
-                    const active = this.currentPlayer === 2 ? 'white' : 'black';
+                    const active = this.currentPlayer === 2 ? 'player1' : 'player2';
                     qiMatchTimeControl.setActiveSlot(this.tcClock, active, Date.now());
                     this._broadcastClock();
                 }

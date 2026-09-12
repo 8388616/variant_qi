@@ -59,7 +59,7 @@ window.RoomPlugins['real-time-weiqi'] = {
             iRejected: false,
             ws: null,
             isMyTurn: false,
-            slots: { black: false, white: false },
+            slots: { player1: false, player2: false },
             reconnectTimer: null,
             replayMode: false,
             replayBoards: [],
@@ -204,12 +204,50 @@ const scoreTitle = document.getElementById('scoreTitle');
             boardMarkSelect,
             colorStatus
         };
+        // 形势判断：Benson 加成（保活 + 确定领地覆盖）
+        function bensonRemoveDeadLocal(srcBoard) {
+            const RT = window.QiWeiqiSquarePageRuntime;
+            const size = ps.BOARD_SIZE;
+            const copy = (b) => QiSquareWeiqiCanvas.deepCopyBoard(b);
+            const benson = RT.bensonAlive(srcBoard, size);
+            let live = copy(srcBoard);
+            let changed = true;
+            while (changed) {
+                changed = false;
+                const cleaned = RT.removeDeadAndDying(live, size, copy, 2);
+                for (let r = 0; r < size; r++) {
+                    for (let c = 0; c < size; c++) {
+                        const v = srcBoard[r][c];
+                        if (benson.alive[r][c] && (v === 1 || v === 2) && cleaned[r][c] !== v) {
+                            cleaned[r][c] = v;
+                            changed = true;
+                        }
+                    }
+                }
+                live = cleaned;
+            }
+            return live;
+        }
+        function bensonTerritoryLocal(liveBoard) {
+            const RT = window.QiWeiqiSquarePageRuntime;
+            const size = ps.BOARD_SIZE;
+            const territory = RT.assignTerritoryWithRange(liveBoard, size);
+            const secure = RT.bensonAlive(liveBoard, size);
+            for (let r = 0; r < size; r++) {
+                for (let c = 0; c < size; c++) {
+                    if (liveBoard[r][c] === 0 && secure.territory[r][c]) territory[r][c] = secure.territory[r][c];
+                }
+            }
+            return territory;
+        }
         const page = QiWeiqiSquarePageRuntime.create(ps, domPage, {
             enableEditBoard: true,
             recordDownloadPrefix,
             komiInfoText: '无贴目',
             minLib,
             maxWeakLiberties: 2,
+            removeDeadAndDying: bensonRemoveDeadLocal,
+            assignTerritoryWithRange: bensonTerritoryLocal,
             gameType,
             roomId,
             roomPassword,
@@ -348,7 +386,7 @@ syncState,
             const m = ps.lastMoveMarkers && ps.lastMoveMarkers[0];
             if (!m || m.row < 0 || m.col < 0) return;
             if (lastMoveMarkerKey() === keyBefore) return;
-            const oppColor = ps.mySlot === 'black' ? 2 : 1;
+            const oppColor = ps.mySlot === 'player1' ? 2 : 1;
             if (m.color !== oppColor) return;
             ps.viewCenterX = ps.PADDING + m.col * ps.CELL_SIZE;
             ps.viewCenterY = ps.PADDING + (ps.BOARD_SIZE - 1 - m.row) * ps.CELL_SIZE;

@@ -59,7 +59,7 @@ window.RoomPlugins['zeroliberty-weiqi'] = {
             iRejected: false,
             ws: null,
             isMyTurn: false,
-            slots: { black: false, white: false },
+            slots: { player1: false, player2: false },
             reconnectTimer: null,
             replayMode: false,
             replayBoards: [],
@@ -151,7 +151,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             const liveReplayMarkers = [[]];
             const liveReplayStepPlayers = [0];
             for (const move of (moveCoords || [])) {
-                const playerVal = move.player === 'black' ? 1 : 2;
+                const playerVal = move.player === 'player1' ? 1 : 2;
                 liveReplayStepPlayers.push(playerVal);
                 if (move.type === 'move') {
                     const newBoard = zlTryPlaceStone(curBoard, move.row, move.col, playerVal);
@@ -180,7 +180,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             let curBoard = QiSquareWeiqiCanvas.deepCopyBoard(ps.liveReplayBoards[ps.liveReplayBoards.length - 1]);
             for (let i = startLen; i < mcs.length; i++) {
                 const move = mcs[i];
-                const playerVal = move.player === 'black' ? 1 : 2;
+                const playerVal = move.player === 'player1' ? 1 : 2;
                 ps.liveReplayStepPlayers.push(playerVal);
                 if (move.type === 'move') {
                     const newBoard = zlTryPlaceStone(curBoard, move.row, move.col, playerVal);
@@ -219,7 +219,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             const replayMarkers = [[]];
             const replayStepPlayers = [0];
             for (const move of (data.moves || [])) {
-                const playerVal = move.player === 'black' ? 1 : 2;
+                const playerVal = move.player === 'player1' ? 1 : 2;
                 replayStepPlayers.push(playerVal);
                 if (move.type === 'move') {
                     const newBoard = zlTryPlaceStone(curBoard, move.row, move.col, playerVal);
@@ -344,7 +344,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             if (
                 ps.numberOfHands <= 1
                 && !ps.gameOver
-                && !(ps.slots && ps.slots.black && ps.slots.white)
+                && !(ps.slots && ps.slots.player1 && ps.slots.player2)
                 && !(ps.matchTime && ps.matchTime.settings)
             ) {
                 ps.matchStartedOnce = false;
@@ -376,7 +376,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             }
 
             const hasAnyStone = ps.board.some(row => row.some(v => v !== 0));
-            const hasPlayer = ps.slots.black || ps.slots.white;
+            const hasPlayer = ps.slots.player1 || ps.slots.player2;
             const sizeSelect = document.getElementById('boardSizeSelect');
             if (!hasAnyStone && !hasPlayer && !ps.gameOver && ps.mySlot === null)
                 sizeSelect.style.display = 'inline-block';
@@ -506,6 +506,12 @@ syncState,
             updateTurn,
             updateReplayUI,
             showScoreConfirm,
+            // 试下（含虚着/悔棋）需要这几个：之前漏传，点「试下」会报 ctx.enterTryPlay is not a function
+            drawBoard,
+            enterTryPlay,
+            exitTryPlay,
+            setTryPlayStep,
+            updateTryPlayDisplay,
             standardWeiqiMatchTime,
             boardSeatOverlay: true
         });

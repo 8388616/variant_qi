@@ -59,7 +59,7 @@ window.RoomPlugins['fat-weiqi'] = {
             iRejected: false,
             ws: null,
             isMyTurn: false,
-            slots: { black: false, white: false },
+            slots: { player1: false, player2: false },
             reconnectTimer: null,
             replayMode: false,
             replayBoards: [],
@@ -501,7 +501,7 @@ const BOARD_MARK_CHAR_LIST = (() => {
             const m = ps.lastMoveMarkers && ps.lastMoveMarkers[0];
             if (!m || m.row < 0 || m.col < 0) return;
             if (lastMoveMarkerKey() === keyBefore) return;
-            const oppColor = ps.mySlot === 'black' ? 2 : 1;
+            const oppColor = ps.mySlot === 'player1' ? 2 : 1;
             if (m.color !== oppColor) return;
             ps.viewCenterX = ps.PADDING + m.col * ps.CELL_SIZE;
             ps.viewCenterY = ps.PADDING + m.row * ps.CELL_SIZE;

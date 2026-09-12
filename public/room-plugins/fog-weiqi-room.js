@@ -61,7 +61,7 @@ const Q = QiWeiqiSquarePageRuntime;
             iRejected: false,
             ws: null,
             isMyTurn: false,
-            slots: { black: false, white: false },
+            slots: { player1: false, player2: false },
             reconnectTimer: null,
             replayMode: false,
             replayBoards: [],
@@ -186,7 +186,7 @@ const scoreTitle = document.getElementById('scoreTitle');
         function buildMaskedBoardFromFull(fullBoard, slot, size) {
             const n = size != null ? size : ps.BOARD_SIZE;
             const out = Array(n).fill().map(() => Array(n).fill(0));
-            if (slot === 'black') {
+            if (slot === 'player1') {
                 const vis = computeVisionFromColor(fullBoard, 1, n);
                 for (let r = 0; r < n; r++) {
                     for (let c = 0; c < n; c++) {
@@ -198,7 +198,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                 }
                 return out;
             }
-            if (slot === 'white') {
+            if (slot === 'player2') {
                 const vis = computeVisionFromColor(fullBoard, 2, n);
                 for (let r = 0; r < n; r++) {
                     for (let c = 0; c < n; c++) {
@@ -247,7 +247,7 @@ const scoreTitle = document.getElementById('scoreTitle');
         function replayStepPlayersFromMoveCoords(coords) {
             const out = [0];
             for (const m of coords || [])
-                out.push(m.player === 'black' ? 1 : 2);
+                out.push(m.player === 'player1' ? 1 : 2);
             return out;
         }
 
@@ -258,8 +258,8 @@ const scoreTitle = document.getElementById('scoreTitle');
             const fog = Array(n).fill().map(() => Array(n).fill(false));
             for (let r = 0; r < n; r++) {
                 for (let c = 0; c < n; c++) {
-                    if (slot === 'black') fog[r][c] = !bVis[r][c];
-                    else if (slot === 'white') fog[r][c] = !wVis[r][c];
+                    if (slot === 'player1') fog[r][c] = !bVis[r][c];
+                    else if (slot === 'player2') fog[r][c] = !wVis[r][c];
                     else fog[r][c] = !(bVis[r][c] && wVis[r][c]);
                 }
             }
@@ -292,7 +292,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                 if (ps.replayPerspective === 'both') {
                     ps.fogMask = emptyBoolGrid();
                 } else {
-                    const slot = ps.replayPerspective === 'black' ? 'black' : 'white';
+                    const slot = ps.replayPerspective === 'player1' ? 'player1' : 'player2';
                     ps.fogMask = buildFogMaskFromFullBoard(full, slot);
                 }
                 return;
@@ -306,7 +306,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                 if (ps.replayPerspective === 'both') {
                     ps.fogMask = emptyBoolGrid();
                 } else {
-                    const slot = ps.replayPerspective === 'black' ? 'black' : 'white';
+                    const slot = ps.replayPerspective === 'player1' ? 'player1' : 'player2';
                     ps.fogMask = buildFogMaskFromFullBoard(full, slot);
                 }
                 return;
@@ -406,10 +406,10 @@ const scoreTitle = document.getElementById('scoreTitle');
         function parseRecordMoveFog(entry) {
             if (typeof entry !== 'string') return entry;
             if (entry === 'Bi' || entry === 'Wi') {
-                const player = entry === 'Bi' ? 'black' : 'white';
+                const player = entry === 'Bi' ? 'player1' : 'player2';
                 return { type: 'pass', player };
             }
-            const player = entry[0] === 'B' ? 'black' : 'white';
+            const player = entry[0] === 'B' ? 'player1' : 'player2';
             if (entry[1] === 'p') return { type: 'pass', player };
             const coords = entry.substring(1).split(',').map(Number);
             return { type: 'move', player, row: coords[0], col: coords[1] };
@@ -443,7 +443,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                     history.push(deepCopyBoard(handGrid));
                     continue;
                 }
-                const playerVal = m.player === 'black' ? 1 : 2;
+                const playerVal = m.player === 'player1' ? 1 : 2;
                 const nb = tryPlaceStoneFog(curBoard, m.row, m.col, playerVal);
                 if (!nb) {
                     history.push(deepCopyBoard(handGrid));
@@ -465,7 +465,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             const n = board.length;
             const nums = Array(n).fill().map(() => Array(n).fill(0));
             if (mySlot === null) return nums;
-            const wantBlack = mySlot === 'black';
+            const wantBlack = mySlot === 'player1';
             for (let r = 0; r < n; r++) {
                 for (let c = 0; c < n; c++) {
                     const v = board[r][c];
@@ -557,7 +557,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                     ps.liveReplayMarkers.push([]);
                 } else {
                     const m = coords[idx - 1];
-                    const pv = m && m.player === 'white' ? 2 : 1;
+                    const pv = m && m.player === 'player2' ? 2 : 1;
                     ps.liveReplayStepPlayers.push(pv);
                     const isLast = (idx === nh - 1);
                     ps.liveReplayMarkers.push(isLast ? (state.lastMoveMarkers || []).map(x => ({ ...x })) : []);
@@ -600,7 +600,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             ps.liveReplayBoards.push(deepCopyBoard(curBoard));
             ps.liveReplayMarkers.push([]);
             for (const move of moveCoords) {
-                const playerVal = move.player === 'black' ? 1 : 2;
+                const playerVal = move.player === 'player1' ? 1 : 2;
                 ps.liveReplayStepPlayers.push(playerVal);
                 if (move.type === 'move') {
                     const newBoard = tryPlaceStoneFog(curBoard, move.row, move.col, playerVal);
@@ -622,7 +622,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             let curBoard = deepCopyBoard(ps.liveReplayBoards[ps.liveReplayBoards.length - 1]);
             for (let i = startLen; i < mcs.length; i++) {
                 const move = mcs[i];
-                const playerVal = move.player === 'black' ? 1 : 2;
+                const playerVal = move.player === 'player1' ? 1 : 2;
                 ps.liveReplayStepPlayers.push(playerVal);
                 if (move.type === 'move') {
                     const newBoard = tryPlaceStoneFog(curBoard, move.row, move.col, playerVal);
@@ -664,10 +664,48 @@ const scoreTitle = document.getElementById('scoreTitle');
         }
 
         let page;
+        // 形势判断：Benson 加成（保活 + 确定领地覆盖）
+        function bensonRemoveDeadLocal(srcBoard) {
+            const RT = window.QiWeiqiSquarePageRuntime;
+            const size = ps.BOARD_SIZE;
+            const copy = (b) => QiSquareWeiqiCanvas.deepCopyBoard(b);
+            const benson = RT.bensonAlive(srcBoard, size);
+            let live = copy(srcBoard);
+            let changed = true;
+            while (changed) {
+                changed = false;
+                const cleaned = RT.removeDeadAndDying(live, size, copy, 2);
+                for (let r = 0; r < size; r++) {
+                    for (let c = 0; c < size; c++) {
+                        const v = srcBoard[r][c];
+                        if (benson.alive[r][c] && (v === 1 || v === 2) && cleaned[r][c] !== v) {
+                            cleaned[r][c] = v;
+                            changed = true;
+                        }
+                    }
+                }
+                live = cleaned;
+            }
+            return live;
+        }
+        function bensonTerritoryLocal(liveBoard) {
+            const RT = window.QiWeiqiSquarePageRuntime;
+            const size = ps.BOARD_SIZE;
+            const territory = RT.assignTerritoryWithRange(liveBoard, size);
+            const secure = RT.bensonAlive(liveBoard, size);
+            for (let r = 0; r < size; r++) {
+                for (let c = 0; c < size; c++) {
+                    if (liveBoard[r][c] === 0 && secure.territory[r][c]) territory[r][c] = secure.territory[r][c];
+                }
+            }
+            return territory;
+        }
         const fogOpts = {
             recordDownloadPrefix,
             minLib,
             maxWeakLiberties: 2,
+            removeDeadAndDying: bensonRemoveDeadLocal,
+            assignTerritoryWithRange: bensonTerritoryLocal,
             gameType,
             roomId,
             roomPassword,
@@ -793,7 +831,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                 }
 
                 const hasAnyStone = ps.board.some(row => row.some(v => v !== 0));
-                const hasPlayer = ps.slots.black || ps.slots.white;
+                const hasPlayer = ps.slots.player1 || ps.slots.player2;
                 const sizeSelect = document.getElementById('boardSizeSelect');
                 if (!hasAnyStone && !hasPlayer && !ps.gameOver && ps.mySlot === null)
                     sizeSelect.style.display = 'inline-block';
@@ -831,7 +869,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                 ps.replayMarkers.push([]);
 
                 for (const move of (data.moves || [])) {
-                    const playerVal = move.player === 'black' ? 1 : 2;
+                    const playerVal = move.player === 'player1' ? 1 : 2;
                     ps.replayStepPlayers.push(playerVal);
                     if (move.type === 'move') {
                         const newBoard = tryPlaceStoneFog(curBoard, move.row, move.col, playerVal);
@@ -890,7 +928,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                 if (ps.fogCleared || ps.replayPerspective === 'both') {
                     ps.board = deepCopyBoard(full);
                 } else {
-                    const slot = ps.replayPerspective === 'black' ? 'black' : 'white';
+                    const slot = ps.replayPerspective === 'player1' ? 'player1' : 'player2';
                     ps.board = buildMaskedBoardFromFull(full, slot, ps.BOARD_SIZE);
                 }
                 recomputeFogMaskForCurrentView();
@@ -935,9 +973,11 @@ const scoreTitle = document.getElementById('scoreTitle');
                 ps.tryPlayFromLiveStep = ps.liveViewStep || 0;
                 ps.tryPlayMode = true;
                 ps.tryPlayBaseStep = ps.replayStep;
-                const truth0 = ps.replayTruthBoards[ps.replayStep];
+                // 刚开房还没落子时 replayTruthBoards/replayMarkers 是空的，回退到当前盘面，
+                // 否则试下按钮一点就报 "undefined.map / undefined 棋盘"（公共 enterTryPlay 也有同样的兜底）
+                const truth0 = ps.replayTruthBoards[ps.replayStep] || ps.board;
                 ps.tryPlayBoards = [deepCopyBoard(truth0)];
-                ps.tryPlayMarkers = [ps.replayMarkers[ps.replayStep].map(m => ({ ...m }))];
+                ps.tryPlayMarkers = [(ps.replayMarkers[ps.replayStep] || ps.lastMoveMarkers || []).map(m => ({ ...m }))];
 
                 const _RT = typeof QiWeiqiSquarePageRuntime !== 'undefined' ? QiWeiqiSquarePageRuntime : null;
                 ps.tryPlayCurrentPlayer = _RT && _RT.resolveTryPlaySideToMove
@@ -1081,7 +1121,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             if (ps.fogCleared || ps.replayPerspective === 'both') {
                 ps.board = deepCopyBoard(full);
             } else {
-                const slot = ps.replayPerspective === 'black' ? 'black' : 'white';
+                const slot = ps.replayPerspective === 'player1' ? 'player1' : 'player2';
                 ps.board = buildMaskedBoardFromFull(full, slot, ps.BOARD_SIZE);
             }
             recomputeFogMaskForCurrentView();
@@ -1156,8 +1196,8 @@ const scoreTitle = document.getElementById('scoreTitle');
             }
             if (ps.gameOver) {
                 turnDisplay.innerText = '对局结束';
-                if (ps.winner === 'black') scoreTitle.innerText = '黑胜';
-                else if (ps.winner === 'white') scoreTitle.innerText = '白胜';
+                if (ps.winner === 'player1') scoreTitle.innerText = '黑胜';
+                else if (ps.winner === 'player2') scoreTitle.innerText = '白胜';
                 else if (ps.winner === 'draw') scoreTitle.innerText = '和棋';
                 else scoreTitle.innerText = '　';
                 ps.isMyTurn = false;
@@ -1165,9 +1205,9 @@ const scoreTitle = document.getElementById('scoreTitle');
                 fogOpts.drawBoard();
                 return;
             }
-            const bothSelected = !!(ps.slots && ps.slots.black && ps.slots.white);
+            const bothSelected = !!(ps.slots && ps.slots.player1 && ps.slots.player2);
             if (!ps.matchStartedOnce && !ps.matchStarted) {
-                turnDisplay.innerText = QiWeiqiSquarePageRuntime.waitingSeatTurnText(slots, mySlot);
+                turnDisplay.innerText = QiWeiqiSquarePageRuntime.waitingSeatTurnText(ps.slots, ps.mySlot);
                 ps.isMyTurn = false;
                 refreshUnknownFogScoreLine();
                 fogOpts.drawBoard();
@@ -1188,7 +1228,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             }
             const started = !!(ps.matchStarted || ps.matchStartedOnce);
             ps.isMyTurn = !!(started && (ps.mySlot !== null)
-                && ((ps.mySlot === 'black' && ps.currentPlayer === 1) || (ps.mySlot === 'white' && ps.currentPlayer === 2)));
+                && ((ps.mySlot === 'player1' && ps.currentPlayer === 1) || (ps.mySlot === 'player2' && ps.currentPlayer === 2)));
             refreshUnknownFogScoreLine();
             fogOpts.drawBoard();
         }

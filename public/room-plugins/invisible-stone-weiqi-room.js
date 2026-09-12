@@ -44,7 +44,7 @@ const ps = {
             iRejected: false,
             ws: null,
             isMyTurn: false,
-            slots: { black: false, white: false },
+            slots: { player1: false, player2: false },
             reconnectTimer: null,
             replayMode: false,
             replayBoards: [],
@@ -278,14 +278,14 @@ const scoreTitle = document.getElementById('scoreTitle');
         function buildClientViewBoard(truthBoard, inv, slot) {
             const size = truthBoard.length;
             const out = page.initBoardArray(size);
-            const isSpectator = slot !== 'black' && slot !== 'white';
+            const isSpectator = slot !== 'player1' && slot !== 'player2';
             for (let r = 0; r < size; r++) {
                 for (let c = 0; c < size; c++) {
                     const v = truthBoard[r][c];
                     if (v === 0) continue;
                     if (inv[r][c]) {
                         if (isSpectator) continue;
-                        if (slot === 'black') {
+                        if (slot === 'player1') {
                             if (v === 1) out[r][c] = v;
                         } else {
                             if (v === 2) out[r][c] = v;
@@ -301,14 +301,14 @@ const scoreTitle = document.getElementById('scoreTitle');
         /** 与服务器 buildInvisibleTint 一致，返回 "row,col" 字符串列表（便于逐步恢复 Set）。 */
         function buildClientInvisibleTintKeysList(truthBoard, inv, slot) {
             const list = [];
-            if (slot !== 'black' && slot !== 'white') return list;
+            if (slot !== 'player1' && slot !== 'player2') return list;
             const size = truthBoard.length;
             for (let r = 0; r < size; r++) {
                 for (let c = 0; c < size; c++) {
                     if (truthBoard[r][c] === 0) continue;
                     if (!inv[r][c]) continue;
-                    if (slot === 'black' && truthBoard[r][c] === 1) list.push(`${r},${c}`);
-                    else if (slot === 'white' && truthBoard[r][c] === 2) list.push(`${r},${c}`);
+                    if (slot === 'player1' && truthBoard[r][c] === 1) list.push(`${r},${c}`);
+                    else if (slot === 'player2' && truthBoard[r][c] === 2) list.push(`${r},${c}`);
                 }
             }
             return list;
@@ -317,15 +317,15 @@ const scoreTitle = document.getElementById('scoreTitle');
         /** 与服务器 filterLastMoveMarkers 一致（inv 为当前局面隐身子网格）。 */
         function filterLiveLastMoveMarkers(markers, inv, slot) {
             if (!markers || !markers.length) return [];
-            const isSpectator = slot !== 'black' && slot !== 'white';
+            const isSpectator = slot !== 'player1' && slot !== 'player2';
             return markers.filter(m => {
                 const { row, col, color } = m;
                 if (row < 0 || row >= ps.BOARD_SIZE || col < 0 || col >= ps.BOARD_SIZE) return true;
                 if (!inv[row][col]) return true;
                 if (isSpectator) return false;
                 const blackStone = color === 1;
-                if (blackStone && slot === 'white') return false;
-                if (!blackStone && slot === 'black') return false;
+                if (blackStone && slot === 'player2') return false;
+                if (!blackStone && slot === 'player1') return false;
                 return true;
             }).map(m => ({ row: m.row, col: m.col, color: m.color }));
         }
@@ -357,7 +357,7 @@ const scoreTitle = document.getElementById('scoreTitle');
 
             let plyIndex = 0;
             for (const move of replaySync.moves || []) {
-                const playerVal = move.player === 'black' ? 1 : 2;
+                const playerVal = move.player === 'player1' ? 1 : 2;
                 const enemyVal = 3 - playerVal;
                 liveReplayStepPlayers.push(playerVal);
                 let lastMarkersRaw = [];
@@ -434,7 +434,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             let plyIndex = startLen;
             for (let i = startLen; i < moves.length; i++) {
                 const move = moves[i];
-                const playerVal = move.player === 'black' ? 1 : 2;
+                const playerVal = move.player === 'player1' ? 1 : 2;
                 const enemyVal = 3 - playerVal;
                 ps.liveReplayStepPlayers.push(playerVal);
                 let lastMarkersRaw = [];
@@ -523,7 +523,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                 ps.liveReplayStepPlayers = [0];
                 for (let i = 0; i < coords.length; i++) {
                     const m = coords[i];
-                    const pv = m && m.player === 'white' ? 2 : 1;
+                    const pv = m && m.player === 'player2' ? 2 : 1;
                     ps.liveReplayStepPlayers.push(pv);
                 }
                 const markers = [[]];
@@ -531,7 +531,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                     const m = coords[i];
                     let mk = [];
                     if (m.type === 'move' && typeof m.row === 'number' && !m.concealed) {
-                        const pv = m.player === 'white' ? 2 : 1;
+                        const pv = m.player === 'player2' ? 2 : 1;
                         mk = [{ row: m.row, col: m.col, color: pv }];
                     }
                     markers.push(mk);
@@ -576,7 +576,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                     ps.liveReplayMarkers.push([]);
                 } else {
                     const m = coords[idx - 1];
-                    const pv = m && m.player === 'white' ? 2 : 1;
+                    const pv = m && m.player === 'player2' ? 2 : 1;
                     ps.liveReplayStepPlayers.push(pv);
                     const isLast = (idx === nh - 1);
                     ps.liveReplayMarkers.push(isLast ? (state.lastMoveMarkers || []).map(x => ({ ...x })) : []);
@@ -631,7 +631,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                         const v = truthBoard[rr][cc];
                         if (v !== 1 && v !== 2) continue;
                         const cx = ps.PADDING + cc * cellSize;
-                        const cy = ps.PADDING + rr * cellSize;
+                        const cy = ps.PADDING + (ps.BOARD_SIZE - 1 - rr) * cellSize;
                         QiWeiqiSquarePageRuntime.invisibleDrawStone(ctx, cx, cy, stoneRadius, v === 1, 0.6);
                     }
                 }
@@ -743,7 +743,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                 }
 
                 const hasAnyStone = ps.board.some(row => row.some(v => v !== 0));
-                const hasPlayer = ps.slots.black || ps.slots.white;
+                const hasPlayer = ps.slots.player1 || ps.slots.player2;
                 const sizeSelect = document.getElementById('boardSizeSelect');
                 if (!hasAnyStone && !hasPlayer && !ps.gameOver && ps.mySlot === null)
                     sizeSelect.style.display = 'inline-block';
@@ -785,7 +785,7 @@ const scoreTitle = document.getElementById('scoreTitle');
 
                 let plyIndex = 0;
                 for (const move of data.moves || []) {
-                    const playerVal = move.player === 'black' ? 1 : 2;
+                    const playerVal = move.player === 'player1' ? 1 : 2;
                     const enemyVal = 3 - playerVal;
                     if (move.type === 'move') {
                         plyIndex++;

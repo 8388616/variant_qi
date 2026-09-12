@@ -383,7 +383,7 @@ window.RoomPlugins['triangle-weiqi'] = {
                 ctx.save();
                 ctx.shadowBlur = 0;
                 ctx.shadowOffsetY = 0;
-                ctx.fillStyle = '#fdcc90';
+                ctx.fillStyle = QiSquareWeiqiCanvas.getWoodFill(ctx, canvas) || '#fdcc90';
                 ctx.strokeStyle = '#3a281c';
                 ctx.lineWidth = 0.5;
                 this.drawRoundedPolygon(ctx, outer, RHOM_FRAME_CORNER_RADIUS, false);
@@ -625,7 +625,7 @@ window.RoomPlugins['triangle-weiqi'] = {
 
         let ws;
         let isMyTurn = false;
-        let slots = { black: false, white: false };
+        let slots = { player1: false, player2: false };
         let reconnectTimer = null;
 
         let replayMode = false;
@@ -952,7 +952,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                     if (minBlack <= maxDist && minWhite <= maxDist) {
                         if (minBlack < minWhite) territory[r][c] = 1;
                         else if (minWhite < minBlack) territory[r][c] = 2;
-                        else territory[r][c] = 3; // 平局
+                        else territory[r][c] = 3;
                     } else if (minBlack <= maxDist) {
                         territory[r][c] = 1;
                     } else if (minWhite <= maxDist) {
@@ -984,16 +984,56 @@ const scoreTitle = document.getElementById('scoreTitle');
             return { blackTotal, whiteTotal };
         }
 
-        function computeLead() {
-            const liveBoard = removeDeadGroups(board);
+        // Benson 加成（三角/菱形/六角形棋盘：沿用本棋种邻接）
+        function bensonInfoTri(bd) {
+            return window.QiWeiqiSquarePageRuntime.bensonAliveGrid({
+                width: ROWS, height: ROWS,
+                getNeighbors: (r, c) => getNeighbors(r, c),
+                isValid: (r, c) => isValidCoord(r, c),
+                get: (r, c) => (bd[r] ? bd[r][c] : undefined)
+            });
+        }
+        function bensonRemoveDeadGroups(srcBoard) {
+            const benson = bensonInfoTri(srcBoard);
+            let live = srcBoard.map((row) => row.slice());
+            let changed = true;
+            while (changed) {
+                changed = false;
+                const cleaned = removeDeadGroups(live);
+                for (let r = 0; r < ROWS; r++) {
+                    for (let c = 0; c < rowLen(r); c++) {
+                        const v = srcBoard[r][c];
+                        if (benson.alive[r][c] && (v === 1 || v === 2) && cleaned[r][c] !== v) {
+                            cleaned[r][c] = v;
+                            changed = true;
+                        }
+                    }
+                }
+                live = cleaned;
+            }
+            return live;
+        }
+        function bensonTerritoryTri(liveBoard) {
             const territory = assignTerritoryWithRange(liveBoard);
+            const secure = bensonInfoTri(liveBoard);
+            for (let r = 0; r < ROWS; r++) {
+                for (let c = 0; c < rowLen(r); c++) {
+                    if (liveBoard[r][c] === 0 && secure.territory[r][c]) territory[r][c] = secure.territory[r][c];
+                }
+            }
+            return territory;
+        }
+
+        function computeLead() {
+            const liveBoard = bensonRemoveDeadGroups(board);
+            const territory = bensonTerritoryTri(liveBoard);
             const { blackTotal, whiteTotal } = computeScore(liveBoard, territory);
             return blackTotal - whiteTotal - 2 * KOMI;
         }
 
         function updateEstimateData() {
-            cachedLiveBoard = removeDeadGroups(board);
-            cachedTerritory = assignTerritoryWithRange(cachedLiveBoard);
+            cachedLiveBoard = bensonRemoveDeadGroups(board);
+            cachedTerritory = bensonTerritoryTri(cachedLiveBoard);
             const { blackTotal, whiteTotal } = computeScore(cachedLiveBoard, cachedTerritory);
             const lead = blackTotal - whiteTotal - 2 * KOMI;
             scoreTitle.innerText = '形势判断';
@@ -1088,7 +1128,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                 ctx.save();
                 ctx.shadowBlur = 0;
                 ctx.shadowOffsetY = 0;
-                ctx.fillStyle = '#fdcc90';
+                ctx.fillStyle = QiSquareWeiqiCanvas.getWoodFill(ctx, canvas) || '#fdcc90';
                 ctx.strokeStyle = '#3a281c';
                 ctx.lineWidth = 0.5;
                 drawRoundedPolygonLocal(FIXED_OUTER_HEX, cornerRadius, false);
@@ -1158,7 +1198,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                 ctx.save();
                 ctx.shadowBlur = 0;
                 ctx.shadowOffsetY = 0;
-                ctx.fillStyle = '#fdcc90';
+                ctx.fillStyle = QiSquareWeiqiCanvas.getWoodFill(ctx, canvas) || '#fdcc90';
                 ctx.strokeStyle = '#3a281c';
                 ctx.lineWidth = 0.5;
                 drawRoundedPolygonLocal([FIXED_OUTER_A, FIXED_OUTER_B, FIXED_OUTER_C], cornerRadius, false);
@@ -1335,8 +1375,8 @@ const scoreTitle = document.getElementById('scoreTitle');
                     if (t === 'white') hoverColor = '#fff';
                     else if (t === 'black') hoverColor = '#222';
                     else if (t !== 'empty') hoverColor = '#666';
-                } else if (tryPlayMode) hoverColor = tryPlayCurrentPlayer === 1 ? '#222' : '#ddd';
-                else hoverColor = mySlot === 'black' ? '#222' : '#ddd';
+                } else if (tryPlayMode) hoverColor = tryPlayCurrentPlayer === 1 ? '#222' : '#fff';
+                else hoverColor = mySlot === 'player1' ? '#222' : '#fff';
                 if (hoverColor) {
                     let { x, y } = coordToPixel(hoverR, hoverC);
                     ctx.globalAlpha = 0.45;
@@ -1401,8 +1441,8 @@ const scoreTitle = document.getElementById('scoreTitle');
             }
             if (gameOver) {
                 turnDisplay.innerText = '对局结束';
-                if (winner === 'black') scoreTitle.innerText = '黑胜';
-                else if (winner === 'white') scoreTitle.innerText = '白胜';
+                if (winner === 'player1') scoreTitle.innerText = '黑胜';
+                else if (winner === 'player2') scoreTitle.innerText = '白胜';
                 else if (winner === 'draw') scoreTitle.innerText = '和棋';
                 else scoreTitle.innerText = '　';
                 isMyTurn = false;
@@ -1437,7 +1477,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                 const p = liveReplayStepPlayers[total];
                 turnDisplay.innerText = `${p === 1 ? '⚫' : '⚪'} 第${total}手`;
             }
-            isMyTurn = (mySlot !== null) && ((mySlot === 'black' && currentPlayer === 1) || (mySlot === 'white' && currentPlayer === 2));
+            isMyTurn = (mySlot !== null) && ((mySlot === 'player1' && currentPlayer === 1) || (mySlot === 'player2' && currentPlayer === 2));
             if (showEstimateActive) updateEstimateData();
             else drawBoardWithOverlay();
         }
@@ -1511,7 +1551,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             replayMarkers.push([]);
 
             for (const move of (data.moves || [])) {
-                const playerVal = move.player === 'black' ? 1 : 2;
+                const playerVal = move.player === 'player1' ? 1 : 2;
                 replayStepPlayers.push(playerVal);
                 if (move.type === 'move') {
                     const newBoard = tryPlaceStone(curBoard, move.row, move.col, playerVal);
@@ -1716,6 +1756,31 @@ const scoreTitle = document.getElementById('scoreTitle');
             return true;
         }
 
+        /** 试下：虚着一手（棋盘不变、本步无落子标记），供公共的「虚着」按钮调用 */
+        function tryPlayPass() {
+            if (!tryPlayMode) return false;
+            if (tryPlayStep < tryPlayTotalSteps) {
+                tryPlayBoards.length = tryPlayStep + 1;
+                tryPlayMarkers.length = tryPlayStep + 1;
+            }
+            tryPlayBoards.push(deepCopyBoard(board));
+            tryPlayMarkers.push([]);
+            tryPlayTotalSteps = tryPlayBoards.length - 1;
+            tryPlayStep = tryPlayTotalSteps;
+            tryPlayCurrentPlayer = 3 - tryPlayCurrentPlayer;
+
+            // 本步无落子：与 setTryPlayStep 落到该步时的效果一致
+            lastMoveMarkers = [];
+
+            const slider = document.getElementById('replaySlider');
+            slider.max = tryPlayTotalSteps;
+            slider.value = tryPlayStep;
+            updateTryPlayDisplay();
+            if (showEstimateActive) updateEstimateData();
+            else drawBoardWithOverlay();
+            return true;
+        }
+
         function setTryPlayStep(step) {
             clearMobileMovePreview();
             if (step < 0) step = 0;
@@ -1755,7 +1820,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             liveReplayBoards.push(deepCopyBoard(curBoard));
             liveReplayMarkers.push([]);
             for (const move of (moveCoords || [])) {
-                const playerVal = move.player === 'black' ? 1 : 2;
+                const playerVal = move.player === 'player1' ? 1 : 2;
                 liveReplayStepPlayers.push(playerVal);
                 if (move.type === 'move') {
                     const newBoard = tryPlaceStone(curBoard, move.row, move.col, playerVal);
@@ -1777,7 +1842,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             for (let i = startLen; i < mcs.length; i++) {
                 const move = mcs[i];
 
-                const playerVal = move.player === 'black' ? 1 : 2;
+                const playerVal = move.player === 'player1' ? 1 : 2;
                 liveReplayStepPlayers.push(playerVal);
                 if (move.type === 'move') {
                     const newBoard = tryPlaceStone(curBoard, move.row, move.col, playerVal);
@@ -1982,10 +2047,8 @@ const scoreTitle = document.getElementById('scoreTitle');
         let updateRadioStyles = () => {};
         let updateSeatOverlay = null;
         let handleMessage = () => {};
-        const _weiqiBindings = QiBoardRoomClient.createWeiqiMessageBindings({
-            roomId,
-            gameType,
-            pageState: {
+        // 页面状态对象（共享 bindings 与插件自身都要读写，故提出为变量）
+        const pageState = {
                 get mySlot() { return mySlot; },
                 set mySlot(v) { mySlot = v; },
                 get slots() { return slots; },
@@ -2016,10 +2079,15 @@ const scoreTitle = document.getElementById('scoreTitle');
                 set matchTime(v) { matchTime = v; },
                 get matchStarted() { return matchStarted; },
                 set matchStarted(v) { matchStarted = !!v; }
-            },
+        };
+        const _weiqiBindings = QiBoardRoomClient.createWeiqiMessageBindings({
+            roomId,
+            gameType,
+            pageState,
             drawBoard: drawBoardWithOverlay,
             exitTryPlay,
             enterTryPlay,
+            tryPlayPass,
             setTryPlayStep,
             setReplayStep,
             setLiveViewStep,
@@ -2098,9 +2166,9 @@ syncState,
                 syncState(msg);
                 // 切换形状（三角形/菱形/六角形）后「与电脑对弈」可用性立即更新
                 if (Object.prototype.hasOwnProperty.call(msg, 'katagoAvailable'))
-                    ps.katagoAvailable = !!msg.katagoAvailable;
+                    pageState.katagoAvailable = !!msg.katagoAvailable;
                 if (Object.prototype.hasOwnProperty.call(msg, 'computerSlot'))
-                    ps.computerSlot = msg.computerSlot || null;
+                    pageState.computerSlot = msg.computerSlot || null;
                 if (typeof updateVsComputerBtn === 'function') updateVsComputerBtn();
                 return;
             }

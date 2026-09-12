@@ -73,7 +73,7 @@ function computeMaxTranspositionMoves(size) {
             iRejected: false,
             ws: null,
             isMyTurn: false,
-            slots: { black: false, white: false },
+            slots: { player1: false, player2: false },
             reconnectTimer: null,
             replayMode: false,
             replayBoards: [],
@@ -357,7 +357,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                     if (!frameOnly) {
                         ctx.globalAlpha = 0.3;
                         const pieceColor = (ps.board[row] && ps.board[row][col]) || (ps.lastMovePlayerColor === 1 ? 1 : 2);
-                        ctx.fillStyle = pieceColor === 1 ? '#222' : '#ddd';
+                        ctx.fillStyle = pieceColor === 1 ? '#222' : '#fff';
                         ctx.fill();
                         ctx.globalAlpha = 1.0;
                     }
@@ -365,7 +365,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             }
             const sel = ps.tryPlayMode ? ps.tryPlaySelectedPiece : ps.selectedPiece;
             const selMyTurn = ps.tryPlayMode ? true : (ps.isMyTurn && ps.canTransposition && !ps.gameOver);
-            const selColor = ps.tryPlayMode ? (ps.tryPlayCurrentPlayer === 1 ? '#ff9900' : '#0099ff') : (ps.mySlot === 'black' ? '#ff9900' : '#0099ff');
+            const selColor = ps.tryPlayMode ? (ps.tryPlayCurrentPlayer === 1 ? '#ff9900' : '#0099ff') : (ps.mySlot === 'player1' ? '#ff9900' : '#0099ff');
             if (sel && selMyTurn) {
                 const { row, col } = sel;
                 const x = ps.PADDING + col * cellSize;
@@ -389,7 +389,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                         showPreview = true;
                     }
                 }
-                previewColor = pv === 1 ? '#222' : '#ddd';
+                previewColor = pv === 1 ? '#222' : '#fff';
             } else if (!ps.gameOver && ps.isMyTurn && ps.isHoverValid && ps.hoverRow >= 0 && ps.hoverCol >= 0) {
                 if (ps.selectedPiece) {
                     if (isSwapTargetForSelection(ps.board, ps.selectedPiece, ps.hoverRow, ps.hoverCol))
@@ -397,12 +397,12 @@ const scoreTitle = document.getElementById('scoreTitle');
                 } else {
                     if (ps.board[ps.hoverRow][ps.hoverCol] === 0) showPreview = true;
                 }
-                previewColor = ps.mySlot === 'black' ? '#222' : '#ddd';
+                previewColor = ps.mySlot === 'player1' ? '#222' : '#fff';
             }
             if (showPreview) {
                 ctx.globalAlpha = 0.45;
                 ctx.beginPath();
-                ctx.arc(ps.PADDING + ps.hoverCol * cellSize, ps.PADDING + ps.hoverRow * cellSize, cellSize * 0.44, 0, 2 * Math.PI);
+                ctx.arc(ps.PADDING + ps.hoverCol * cellSize, ps.PADDING + (ps.BOARD_SIZE - 1 - ps.hoverRow) * cellSize, cellSize * 0.44, 0, 2 * Math.PI);
                 ctx.fillStyle = previewColor;
                 ctx.fill();
                 ctx.globalAlpha = 1.0;
@@ -428,7 +428,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             ps.liveReplayHighlights.push([]);
             ps.liveReplayMovePlayerColors.push(null);
             for (const move of (coords || [])) {
-                const playerVal = move.player === 'black' ? 1 : 2;
+                const playerVal = move.player === 'player1' ? 1 : 2;
                 ps.liveReplayStepPlayers.push(playerVal);
                 if (move.type === 'move') {
                     const nb = page.tryPlaceStone(curBoard, move.row, move.col, playerVal);
@@ -466,7 +466,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             let curBoard = C().deepCopyBoard(ps.liveReplayBoards[ps.liveReplayBoards.length - 1]);
             for (let i = startLen; i < mcs.length; i++) {
                 const move = mcs[i];
-                const playerVal = move.player === 'black' ? 1 : 2;
+                const playerVal = move.player === 'player1' ? 1 : 2;
                 ps.liveReplayStepPlayers.push(playerVal);
                 if (move.type === 'move') {
                     const nb = page.tryPlaceStone(curBoard, move.row, move.col, playerVal);
@@ -588,7 +588,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                 ps.moveHighlightMarkers = state.moveHighlightMarkers || [];
             }
             const hasAnyStone = ps.board.some(row => row.some(v => v !== 0));
-            const hasPlayer = ps.slots.black || ps.slots.white;
+            const hasPlayer = ps.slots.player1 || ps.slots.player2;
             const boardSizeSelect = document.getElementById('boardSizeSelect');
             if (boardSizeSelect && ps.liveViewStep === 0 && !hasPlayer && !ps.gameOver && ps.mySlot === null)
                 boardSizeSelect.style.display = 'inline-block';
@@ -607,7 +607,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             ps._syncMoveCoordsLen = (state.moveCoords && state.moveCoords.length) || 0;
         }
 
-        /** 与洞围棋等一致：紧凑数组 ["B3,3","W4,4"]；仍兼容旧棋谱 { black:[], white:[] } */
+        /** 与洞围棋等一致：紧凑数组 ["B3,3","W4,4"]；仍兼容旧棋谱 { player1:[], player2:[] } */
         function applyReplayInitialPositionToBoard(curBoard, boardSize, initialPosition) {
             if (!initialPosition) return;
             if (Array.isArray(initialPosition)) {
@@ -630,7 +630,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             ps.replayHighlights.push([]);
             ps.replayMovePlayerColors.push(null);
             for (const move of (data.moves || [])) {
-                const playerVal = move.player === 'black' ? 1 : 2;
+                const playerVal = move.player === 'player1' ? 1 : 2;
                 ps.replayStepPlayers.push(playerVal);
                 if (move.type === 'move') {
                     const nb = page.tryPlaceStone(curBoard, move.row, move.col, playerVal);
@@ -820,11 +820,49 @@ const scoreTitle = document.getElementById('scoreTitle');
         let page = null;
         let _weiqiBindings = null;
 
+        // 形势判断：Benson 加成（保活 + 确定领地覆盖）
+        function bensonRemoveDeadLocal(srcBoard) {
+            const RT = window.QiWeiqiSquarePageRuntime;
+            const size = ps.BOARD_SIZE;
+            const copy = (b) => QiSquareWeiqiCanvas.deepCopyBoard(b);
+            const benson = RT.bensonAlive(srcBoard, size);
+            let live = copy(srcBoard);
+            let changed = true;
+            while (changed) {
+                changed = false;
+                const cleaned = RT.removeDeadAndDying(live, size, copy, 2);
+                for (let r = 0; r < size; r++) {
+                    for (let c = 0; c < size; c++) {
+                        const v = srcBoard[r][c];
+                        if (benson.alive[r][c] && (v === 1 || v === 2) && cleaned[r][c] !== v) {
+                            cleaned[r][c] = v;
+                            changed = true;
+                        }
+                    }
+                }
+                live = cleaned;
+            }
+            return live;
+        }
+        function bensonTerritoryLocal(liveBoard) {
+            const RT = window.QiWeiqiSquarePageRuntime;
+            const size = ps.BOARD_SIZE;
+            const territory = RT.assignTerritoryWithRange(liveBoard, size);
+            const secure = RT.bensonAlive(liveBoard, size);
+            for (let r = 0; r < size; r++) {
+                for (let c = 0; c < size; c++) {
+                    if (liveBoard[r][c] === 0 && secure.territory[r][c]) territory[r][c] = secure.territory[r][c];
+                }
+            }
+            return territory;
+        }
         page = QiWeiqiSquarePageRuntime.create(ps, domPage, {
             enableEditBoard: true,
             recordDownloadPrefix,
             minLib,
             maxWeakLiberties: 2,
+            removeDeadAndDying: bensonRemoveDeadLocal,
+            assignTerritoryWithRange: bensonTerritoryLocal,
             gameType,
             roomId,
             roomPassword,
@@ -1026,7 +1064,7 @@ syncState,
 
             if (ps.gameOver) return;
             if (!ps.isMyTurn) return;
-            const playerVal = ps.mySlot === 'black' ? 1 : 2;
+            const playerVal = ps.mySlot === 'player1' ? 1 : 2;
 
             if (ps.selectedPiece) {
                 if (isSwapTargetForSelection(ps.board, ps.selectedPiece, row, col)) {

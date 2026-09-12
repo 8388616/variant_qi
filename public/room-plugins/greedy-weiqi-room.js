@@ -68,7 +68,7 @@ window.RoomPlugins['greedy-weiqi'] = {
             iRejected: false,
             ws: null,
             isMyTurn: false,
-            slots: { black: false, white: false },
+            slots: { player1: false, player2: false },
             reconnectTimer: null,
             replayMode: false,
             replayBoards: [],
@@ -338,12 +338,51 @@ const scoreTitle = document.getElementById('scoreTitle');
             boardMarkSelect,
             colorStatus
         };
-        const page = QiWeiqiSquarePageRuntime.create(ps, domPage, {
+                // 标准/变体围棋形势判断：Benson 无条件活加成（保活 + 确定领地覆盖）
+        function bensonRemoveDead(srcBoard) {
+            const RT = window.QiWeiqiSquarePageRuntime;
+            const size = ps.BOARD_SIZE;
+            const copy = (b) => QiSquareWeiqiCanvas.deepCopyBoard(b);
+            const benson = RT.bensonAlive(srcBoard, size);
+            let live = copy(srcBoard);
+            let changed = true;
+            while (changed) {
+                changed = false;
+                const cleaned = RT.removeDeadAndDying(live, size, copy, 2);
+                for (let r = 0; r < size; r++) {
+                    for (let c = 0; c < size; c++) {
+                        const v = srcBoard[r][c];
+                        if (benson.alive[r][c] && (v === 1 || v === 2) && cleaned[r][c] !== v) {
+                            cleaned[r][c] = v;
+                            changed = true;
+                        }
+                    }
+                }
+                live = cleaned;
+            }
+            return live;
+        }
+        function bensonTerritory(liveBoard) {
+            const RT = window.QiWeiqiSquarePageRuntime;
+            const size = ps.BOARD_SIZE;
+            const territory = RT.assignTerritoryWithRange(liveBoard, size);
+            const secure = RT.bensonAlive(liveBoard, size);
+            for (let r = 0; r < size; r++) {
+                for (let c = 0; c < size; c++) {
+                    if (liveBoard[r][c] === 0 && secure.territory[r][c]) territory[r][c] = secure.territory[r][c];
+                }
+            }
+            return territory;
+        }
+
+const page = QiWeiqiSquarePageRuntime.create(ps, domPage, {
             enableEditBoard: true,
             editTools: config.editTools,
             recordDownloadPrefix,
             minLib,
             maxWeakLiberties: 2,
+            removeDeadAndDying: bensonRemoveDead,
+            assignTerritoryWithRange: bensonTerritory,
             tryPlaceStone: greedyTryPlaceStoneForPage,
             drawBoard: drawBoardGreedy,
             gameType,
@@ -366,7 +405,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                 const liveReplayMarkers = [[]];
                 const liveReplayStepPlayers = [0];
                 for (const move of (moveCoords || [])) {
-                    const playerVal = move.player === 'black' ? 1 : 2;
+                    const playerVal = move.player === 'player1' ? 1 : 2;
                     liveReplayStepPlayers.push(playerVal);
                     if (move.type === 'move') {
                         const newBoard = greedyTryPlaceStone(curBoard, move.row, move.col, playerVal, histSet);
@@ -395,7 +434,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                 const histSet = ps.liveReplayHistSet || new Set([boardToString(curBoard)]);
                 for (let i = startLen; i < mcs.length; i++) {
                     const move = mcs[i];
-                    const playerVal = move.player === 'black' ? 1 : 2;
+                    const playerVal = move.player === 'player1' ? 1 : 2;
                     ps.liveReplayStepPlayers.push(playerVal);
                     if (move.type === 'move') {
                         const newBoard = greedyTryPlaceStone(curBoard, move.row, move.col, playerVal, histSet);

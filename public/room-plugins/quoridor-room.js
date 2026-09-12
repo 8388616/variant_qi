@@ -135,13 +135,13 @@ window.RoomPlugins["quoridor"] = {
             }
             
             function pawnPos(state, slot) {
-                return slot === 'black'
+                return slot === 'player2'
                     ? [state.blackRow, state.blackCol]
                     : [state.whiteRow, state.whiteCol];
             }
             
             function otherSlot(slot) {
-                return slot === 'black' ? 'white' : 'black';
+                return slot === 'player2' ? 'player1' : 'player2';
             }
             
             function getLegalPawnMoves(state, playerSlot) {
@@ -221,6 +221,7 @@ window.RoomPlugins["quoridor"] = {
                     wallsV: new Set(),
                     wallsBlackLeft: WALLS_EACH,
                     wallsWhiteLeft: WALLS_EACH,
+                    // 白方先行（白方默认显示在棋盘下方）
                     currentPlayer: 2,
                     gameOver: false,
                     winner: null,
@@ -246,20 +247,20 @@ window.RoomPlugins["quoridor"] = {
             }
             
             function applyPawnMove(state, slot, tr, tc) {
-                if (slot === 'black') {
+                if (slot === 'player2') {
                     state.blackRow = tr;
                     state.blackCol = tc;
                 } else {
                     state.whiteRow = tr;
                     state.whiteCol = tc;
                 }
-                state.lastMoveMarkers = [{ row: tr, col: tc, color: slot === 'black' ? 1 : 2 }];
-                if (slot === 'black' && tr === GRID - 1) {
+                state.lastMoveMarkers = [{ row: tr, col: tc, color: slot === 'player2' ? 1 : 2 }];
+                if (slot === 'player2' && tr === GRID - 1) {
                     state.gameOver = true;
-                    state.winner = 'black';
-                } else if (slot === 'white' && tr === 0) {
+                    state.winner = 'player2';
+                } else if (slot === 'player1' && tr === 0) {
                     state.gameOver = true;
-                    state.winner = 'white';
+                    state.winner = 'player1';
                 }
                 if (!state.gameOver) state.currentPlayer = state.currentPlayer === 1 ? 2 : 1;
             }
@@ -269,7 +270,7 @@ window.RoomPlugins["quoridor"] = {
                 if (!state.wallsV || !(state.wallsV instanceof Set)) state.wallsV = new Set(state.wallsV || []);
                 if (orient === 'h') state.wallsH.add(qKey(r, c));
                 else state.wallsV.add(qKey(r, c));
-                if (slot === 'black') state.wallsBlackLeft--;
+                if (slot === 'player2') state.wallsBlackLeft--;
                 else state.wallsWhiteLeft--;
                 state.lastMoveMarkers = [{ row: r, col: c, color: orient === 'h' ? 3 : 4, orient }];
                 state.currentPlayer = state.currentPlayer === 1 ? 2 : 1;
@@ -308,10 +309,28 @@ const N = Q.N;
             const WALL_FILL = '#2a1a10';
 
             function cellOrigin(c) { return MARGIN + c * (CELL + GAP); }
-            function cellOriginY(r) { return MARGIN + (N - 1 - r) * (CELL + GAP); }   // 棋盘显示上下翻折(y 镜像)
+            /** 第 r 行与第 r+1 行之间那条横向沟槽的上边 y（与视角无关） */
+            function wallGrooveY(r) {
+                return Math.min(cellOriginY(r), cellOriginY(r + 1)) + CELL;
+            }
+            /** 竖槽上端 y：跨第 r、r+1 两行，从较高的那行上边开始 */
+            function wallGrooveYSpanTop(r) {
+                return Math.min(cellOriginY(r), cellOriginY(r + 1));
+            }
+            /**
+             * 显示用行坐标：默认（观战/未入座/执白）白方(row 8)在下方，执黑时整体上下翻转，
+             * 使己方始终在下方（与国际象棋一致）。所有绘制/命中判定都走这里，故自动跟随视角。
+             */
+            function viewFlipped() { return ps.mySlot === 'player2'; }
+            function cellOriginY(r) {
+                // 默认 row 8（白方）在下；执黑时镜像，使 row 0（黑方）在下
+                const row = viewFlipped() ? (N - 1 - r) : r;
+                return MARGIN + row * (CELL + GAP);
+            }
             function boardOuterRect() {
                 const x0 = cellOrigin(0);
-                const y0 = cellOriginY(0);
+                // 视角可翻转：上边取两极值中较小者
+                const y0 = Math.min(cellOriginY(0), cellOriginY(N - 1));
                 const w = N * CELL + (N - 1) * GAP;
                 const h = w;
                 return { x0, y0, w, h };
@@ -324,7 +343,8 @@ const N = Q.N;
                 for (let r = 0; r < N - 1; r++) {
                     for (let c = 0; c < N - 1; c++) {
                         const jx = cellOrigin(c) + CELL;
-                        const jy = cellOriginY(r) + CELL;
+                        // 第 r 行与第 r+1 行之间的横槽（视角无关）
+                        const jy = wallGrooveY(r);
                         ctx.beginPath();
                         ctx.moveTo(jx, jy);
                         ctx.lineTo(jx + GAP, jy + GAP);
@@ -338,7 +358,8 @@ const N = Q.N;
             function fillHexWallH(r, c, fillStyle) {
                 const xL = cellOrigin(c);
                 const w = 2 * CELL + GAP;
-                const jy = cellOriginY(r) + CELL;
+                // h(r,c) 堵的是 (r,c)-(r+1,c) 这条边 → 画在第 r 行与第 r+1 行之间的沟槽里（视角无关）
+                const jy = wallGrooveY(r);
                 const ymid = jy + GAP / 2;
                 const cap = GAP / 2;
                 ctx.fillStyle = fillStyle;
@@ -359,7 +380,8 @@ const N = Q.N;
 
             function fillHexWallV(r, c, fillStyle) {
                 const jx = cellOrigin(c) + CELL;
-                const yT = cellOriginY(r);
+                // v(r,c) 堵的是 (r,c)-(r,c+1) 与 (r+1,c)-(r+1,c+1) → 竖槽跨第 r、r+1 两行（视角无关）
+                const yT = wallGrooveYSpanTop(r);
                 const h = 2 * CELL + GAP;
                 const xmid = jx + GAP / 2;
                 const cap = GAP / 2;
@@ -384,8 +406,8 @@ const N = Q.N;
                 ws: null,
                 reconnectTimer: null,
                 mySlot: null,
-                slots: { black: false, white: false },
-                currentPlayer: 2,
+                slots: { player2: false, player1: false },
+                currentPlayer: 2,   // 白方先行，与引擎 initialState 一致
                 gameOver: false,
                 winner: null,
                 blackRow: 0, blackCol: 4, whiteRow: 8, whiteCol: 4,
@@ -476,8 +498,8 @@ const scoreBoard = document.getElementById('scoreBoard');
                 if (ps.gameOver || ps.replayMode) return false;
                 if (!ps.matchStarted) return false;
                 if (!ps.mySlot) return false;
-                if (ps.mySlot === 'white' && ps.currentPlayer === 2) return true;
-                if (ps.mySlot === 'black' && ps.currentPlayer === 1) return true;
+                if (ps.mySlot === 'player1' && ps.currentPlayer === 2) return true;
+                if (ps.mySlot === 'player2' && ps.currentPlayer === 1) return true;
                 return false;
             }
 
@@ -498,12 +520,12 @@ const scoreBoard = document.getElementById('scoreBoard');
                     } else {
                         const m = ps.moveLog[step - 1];
                         const emoji =
-                            m && m.player === 'white' ? '⚪' : '⚫';
-                        turnDisplay.textContent = `${emoji} 第${step}手`;
+                            m && m.player === 'player1' ? '⚪' : '⚫';
+                        turnDisplay.textContent = QiWeiqiSquarePageRuntime.roundTurnText(step, emoji);
                     }
                     return;
                 }
-                const bothSelected = !!(ps.slots && ps.slots.black && ps.slots.white);
+                const bothSelected = !!(ps.slots && ps.slots.player2 && ps.slots.player1);
                 if (ps.matchStarted) ps.matchStartedOnce = true;
                 if (bothSelected && ps.matchTime && ps.matchTime.settings) ps.matchStartedOnce = true;
                 if ((ps.moveLog && ps.moveLog.length > 0)) ps.matchStartedOnce = true;
@@ -519,8 +541,9 @@ const scoreBoard = document.getElementById('scoreBoard');
                     return;
                 }
                 const m = ps.moveLog[n - 1];
-                const emoji = m && m.player === 'white' ? '⚪' : '⚫';
-                turnDisplay.textContent = `${emoji} 第${n}手`;
+                const moverLabel = m && m.player === 'player1' ? '⚪' : '⚫';
+                // 显示「刚下完这手棋」的一方与回合数（与象棋类/国际跳棋统一）
+                turnDisplay.textContent = QiWeiqiSquarePageRuntime.roundTurnText(n, moverLabel);
                 if (_seatOverlay.matchTimeCtl) _seatOverlay.matchTimeCtl.updateTimerPanel();
             }
 
@@ -541,8 +564,8 @@ const scoreBoard = document.getElementById('scoreBoard');
 
             function updateScore() {
                 if (ps.gameOver) {
-                    if (ps.winner === 'black') leadInfo.textContent = '黑胜';
-                    else if (ps.winner === 'white') leadInfo.textContent = '白胜';
+                    if (ps.winner === 'player2') leadInfo.textContent = '黑胜';
+                    else if (ps.winner === 'player1') leadInfo.textContent = '白胜';
                     else if (ps.winner === 'draw') leadInfo.textContent = '和棋';
                     else leadInfo.textContent = '　';
                 }
@@ -563,7 +586,7 @@ const scoreBoard = document.getElementById('scoreBoard');
                     importBtn.style.display = 'none';
                     exportBtn.style.display = 'none';
                 } else {
-                    const noPlayers = !ps.slots.black && !ps.slots.white;
+                    const noPlayers = !ps.slots.player2 && !ps.slots.player1;
                     if (noPlayers && isEmptyOpening()) {
                         importBtn.style.display = '';
                         exportBtn.style.display = 'none';
@@ -581,21 +604,18 @@ const scoreBoard = document.getElementById('scoreBoard');
                 standardWeiqiMatchTime,
                 getWs: () => ps.ws,
                 getBoardSize: () => N,
+                // 默认限时与围棋同口径：按棋盘总点数(9×9=81)换算
+                getTotalPoints: () => N * N,
+                // 主用时系数按本棋种调大（0.05，读秒/次数仍同围棋口径）
+                timeControlMainCoef: 0.05,
                 getSlots: () => ps.slots,
                 setSlots: (s) => { ps.slots = s; },
                 getMySlot: () => ps.mySlot,
                 setMySlot: (s) => { ps.mySlot = s; },
-                getTimeControlDefaults: (boardSize) => {
-                    const n = Number.isFinite(boardSize) && boardSize > 0 ? boardSize : N;
-                    const points = n * n;
-                    return {
-                        mainMinutes: Math.ceil(0.83 * points),
-                        byoyomiSeconds: Math.ceil(0.24 * Math.pow(points, 0.75)),
-                        maxTimeouts: Math.ceil(0.6 * Math.pow(points, 0.25))
-                    };
-                },
                 updateTurn: () => { if (typeof updateTurn === 'function') updateTurn(); },
                 updateReplayUI: () => { if (typeof updateReplayDisplay === 'function') updateReplayDisplay(); },
+                // 试下虚着/悔棋要落到具体某一步：seatOverlayOnly 短路后公共代码只能靠这里拿到步进函数
+                setTryPlayStep,
                 colorStatus});
 
             function updateRadioStyles() {
@@ -622,8 +642,8 @@ const scoreBoard = document.getElementById('scoreBoard');
                     b.className = 'qd-wall-slot';
                     b.innerHTML = '<span class="qd-wall-shape-v qd-b"></span>';
                     b.disabled = i >= ps.wallsBlackLeft;
-                    b.dataset.side = 'black';
-                    b.onclick = () => onWallSlotClick('black', b);
+                    b.dataset.side = 'player2';
+                    b.onclick = () => onWallSlotClick('player2', b);
                     bw.appendChild(b);
                 }
                 for (let i = 0; i < WMAX; i++) {
@@ -632,8 +652,8 @@ const scoreBoard = document.getElementById('scoreBoard');
                     b.className = 'qd-wall-slot';
                     b.innerHTML = '<span class="qd-wall-shape-v qd-w"></span>';
                     b.disabled = i >= ps.wallsWhiteLeft;
-                    b.dataset.side = 'white';
-                    b.onclick = () => onWallSlotClick('white', b);
+                    b.dataset.side = 'player1';
+                    b.onclick = () => onWallSlotClick('player1', b);
                     ww.appendChild(b);
                 }
             }
@@ -694,7 +714,7 @@ const scoreBoard = document.getElementById('scoreBoard');
                 for (let r = 0; r < 8; r++) {
                     for (let c = 0; c < 8; c++) {
                         const xL = cellOrigin(c);
-                        const jy = cellOriginY(r) + CELL;
+                        const jy = wallGrooveY(r);
                         const xminH = xL;
                         const xmaxH = xL + 2 * CELL + GAP;
                         const yminH = jy;
@@ -713,7 +733,7 @@ const scoreBoard = document.getElementById('scoreBoard');
                 for (let r = 0; r < 8; r++) {
                     for (let c = 0; c < 8; c++) {
                         const jx = cellOrigin(c) + CELL;
-                        const yT = cellOriginY(r);
+                        const yT = wallGrooveYSpanTop(r);
                         const cap = GAP / 2;
                         const hBody = 2 * CELL + GAP;
                         const xminV = jx;
@@ -870,12 +890,12 @@ const scoreBoard = document.getElementById('scoreBoard');
 
                 if (ps.selectPawn && boardInteractionActive()) {
                     const moveSlot = ps.tryPlayMode ? tryPlayToMoveSlot() : ps.mySlot;
-                    if (moveSlot === 'black' || moveSlot === 'white') {
-                        const selRow = moveSlot === 'black' ? ps.blackRow : ps.whiteRow;
-                        const selCol = moveSlot === 'black' ? ps.blackCol : ps.whiteCol;
+                    if (moveSlot === 'player2' || moveSlot === 'player1') {
+                        const selRow = moveSlot === 'player2' ? ps.blackRow : ps.whiteRow;
+                        const selCol = moveSlot === 'player2' ? ps.blackCol : ps.whiteCol;
                         const selCx = cellOrigin(selCol) + CELL / 2;
                         const selCy = cellOriginY(selRow) + CELL / 2;
-                        const selColor = moveSlot === 'black' ? '#ff9900' : '#0099ff';
+                        const selColor = moveSlot === 'player2' ? '#ff9900' : '#0099ff';
                         ctx.save();
                         ctx.strokeStyle = selColor;
                         ctx.lineWidth = 2;
@@ -894,7 +914,7 @@ const scoreBoard = document.getElementById('scoreBoard');
                     const moveSlot = ps.tryPlayMode ? tryPlayToMoveSlot() : ps.mySlot;
                     ctx.save();
                     ctx.globalAlpha = ps.hoverPawnValid ? 0.45 : 0.28;
-                    ctx.fillStyle = moveSlot === 'black'
+                    ctx.fillStyle = moveSlot === 'player2'
                         ? (ps.hoverPawnValid ? 'rgba(0,0,0,0.5)' : 'rgba(200,0,0,0.35)')
                         : (ps.hoverPawnValid ? 'rgba(255,255,255,0.65)' : 'rgba(200,0,0,0.35)');
                     ctx.beginPath();
@@ -925,8 +945,8 @@ const scoreBoard = document.getElementById('scoreBoard');
                 ps.wallsWhiteLeft = state.wallsWhiteLeft != null ? state.wallsWhiteLeft : WMAX;
                 ps.numberOfHands = state.numberOfHands || 1;
                 if (state.slots) {
-                    ps.slots.black = !!state.slots.black;
-                    ps.slots.white = !!state.slots.white;
+                    ps.slots.player2 = !!state.slots.player2;
+                    ps.slots.player1 = !!state.slots.player1;
                 }
                 if (state.moveCoords) {
                     ps.moveLog = state.moveCoords.slice();
@@ -1151,8 +1171,8 @@ const scoreBoard = document.getElementById('scoreBoard');
                 if (!ps.tryPlayMode || ps.gameOver) return false;
                 const st = Q.cloneState(ps.tryPlaySnapshots[ps.tryPlayStep]);
                 const slot = st.currentPlayer === 1 ? 'black' : 'white';
-                if (slot === 'black' && st.wallsBlackLeft <= 0) return false;
-                if (slot === 'white' && st.wallsWhiteLeft <= 0) return false;
+                if (slot === 'player2' && st.wallsBlackLeft <= 0) return false;
+                if (slot === 'player1' && st.wallsWhiteLeft <= 0) return false;
                 if (!Q.wallPlacementLegal(st, orient, r, c)) return false;
                 Q.applyWall(st, slot, orient, r, c);
                 if (ps.tryPlayStep < ps.tryPlayTotalSteps) ps.tryPlaySnapshots.length = ps.tryPlayStep + 1;
@@ -1275,8 +1295,8 @@ const scoreBoard = document.getElementById('scoreBoard');
 
             function trySendWall(orient, r, c) {
                 if (!isMyTurn()) return;
-                if (ps.mySlot === 'black' && ps.wallsBlackLeft <= 0) return;
-                if (ps.mySlot === 'white' && ps.wallsWhiteLeft <= 0) return;
+                if (ps.mySlot === 'player2' && ps.wallsBlackLeft <= 0) return;
+                if (ps.mySlot === 'player1' && ps.wallsWhiteLeft <= 0) return;
                 const st = engineStateFromPs();
                 if (!Q.wallPlacementLegal(st, orient, r, c)) return;
                 ps.ws && ps.ws.readyState === 1 && ps.ws.send(JSON.stringify({ type: 'quoridorWall', orient, r, c }));
@@ -1335,14 +1355,14 @@ const scoreBoard = document.getElementById('scoreBoard');
                 if (ps.gameOver || !isMyTurn()) return;
 
                 const cell = hitCell(x, y);
-                if (cell && ps.blackRow === cell.r && ps.blackCol === cell.c && ps.mySlot === 'black') {
+                if (cell && ps.blackRow === cell.r && ps.blackCol === cell.c && ps.mySlot === 'player2') {
                     ps.selectPawn = true;
                     ps.selectWall = false;
                     ps.mobilePendingWall = null;
                     document.querySelectorAll('.qd-wall-slot').forEach((el) => el.classList.remove('active'));
                     return;
                 }
-                if (cell && ps.whiteRow === cell.r && ps.whiteCol === cell.c && ps.mySlot === 'white') {
+                if (cell && ps.whiteRow === cell.r && ps.whiteCol === cell.c && ps.mySlot === 'player1') {
                     ps.selectPawn = true;
                     ps.selectWall = false;
                     ps.mobilePendingWall = null;
@@ -1400,14 +1420,14 @@ const scoreBoard = document.getElementById('scoreBoard');
                         updateRadioStyles();
                         break;
                     case 'slotOccupied':
-                        if (msg.slot === 'black') ps.slots.black = true;
-                        else if (msg.slot === 'white') ps.slots.white = true;
+                        if (msg.slot === 'player2') ps.slots.player2 = true;
+                        else if (msg.slot === 'player1') ps.slots.player1 = true;
                         updateRadioStyles();
                         updateTurn();
                         break;
                     case 'slotReleased':
-                        if (msg.slot === 'black') ps.slots.black = false;
-                        else if (msg.slot === 'white') ps.slots.white = false;
+                        if (msg.slot === 'player2') ps.slots.player2 = false;
+                        else if (msg.slot === 'player1') ps.slots.player1 = false;
                         if (ps.mySlot === msg.slot) {
                             ps.mySlot = null;
                         }
@@ -1416,8 +1436,8 @@ const scoreBoard = document.getElementById('scoreBoard');
                         updateTurn();
                         break;
                     case 'playerLeft':
-                        if (msg.slot === 'black') ps.slots.black = false;
-                        else if (msg.slot === 'white') ps.slots.white = false;
+                        if (msg.slot === 'player2') ps.slots.player2 = false;
+                        else if (msg.slot === 'player1') ps.slots.player1 = false;
                         if (ps.mySlot === msg.slot) ps.mySlot = null;
                         if (msg.matchStarted || ps.matchStarted)
                             ps.seatOverlayLocalHide = false;
@@ -1427,14 +1447,14 @@ const scoreBoard = document.getElementById('scoreBoard');
                         break;
                     case 'colorAssigned':
                         ps.mySlot = msg.color;
-                        if (msg.color === 'black') ps.slots.black = true;
-                        else ps.slots.white = true;
+                        if (msg.color === 'player2') ps.slots.player2 = true;
+                        else ps.slots.player1 = true;
                         _seatOverlay.refreshColorStatus();
                         updateRadioStyles();
                         updateTurn();
                         break;
                     case 'colorsFinalized':
-                        if (msg.slots) ps.slots = { black: !!msg.slots.black, white: !!msg.slots.white };
+                        if (msg.slots) ps.slots = { player2: !!msg.slots.player2, player1: !!msg.slots.player1 };
                         updateRadioStyles();
                         updateTurn();
                         break;
@@ -1449,7 +1469,7 @@ const scoreBoard = document.getElementById('scoreBoard');
                     case 'clockUpdate':
                         if (_seatOverlay.matchTimeCtl) _seatOverlay.matchTimeCtl.handleMessage(msg);
                         if (msg.type === 'timeControlAgreed') {
-                            if (msg.slots) ps.slots = { black: !!msg.slots.black, white: !!msg.slots.white };
+                            if (msg.slots) ps.slots = { player2: !!msg.slots.player2, player1: !!msg.slots.player1 };
                             updateRadioStyles();
                         }
                         break;
@@ -1459,15 +1479,15 @@ const scoreBoard = document.getElementById('scoreBoard');
                             syncFromState(msg);
                             if (msg.gameOver && !wasOver) {
                                 if (msg.action === 'timeLoss') {
-                                    const loser = msg.player === 'black' ? '黑方' : '白方';
-                                    const winText = msg.winner === 'black' ? '黑胜' : (msg.winner === 'white' ? '白胜' : '和棋');
+                                    const loser = msg.player === 'player1' ? '白方' : '黑方';
+                                    const winText = msg.winner === 'player2' ? '黑胜' : (msg.winner === 'player1' ? '白胜' : '和棋');
                                     qiAlert(`${loser}超时，${winText}。`);
-                                } else if (msg.winner === 'black') qiAlert('黑胜。');
-                                else if (msg.winner === 'white') qiAlert('白胜。');
-                                else if (msg.winner === 'draw') qiAlert('和棋。');
-                            } else if (msg.action === 'drawAgreed' && !wasOver) qiAlert('和棋。');
+                                } else if (msg.winner === 'player2') qiAlert('黑胜');
+                                else if (msg.winner === 'player1') qiAlert('白胜');
+                                else if (msg.winner === 'draw') qiAlert('和棋');
+                            } else if (msg.action === 'drawAgreed' && !wasOver) qiAlert('和棋');
                             else if (msg.action === 'resign' && !wasOver) {
-                                qiAlert((msg.player === 'black' ? '黑方' : '白方') + '认输');
+                                qiAlert((msg.player === 'player1' ? '白方' : '黑方') + '认输');
                             }
                         }
                         updateRadioStyles();
@@ -1475,7 +1495,7 @@ const scoreBoard = document.getElementById('scoreBoard');
                     case 'newGameStarted':
                         ps.mySlot = null;
                         colorStatus.textContent = '观战';
-                        ps.slots = { black: false, white: false };
+                        ps.slots = { player2: false, player1: false };
                         ps.matchStarted = false;
                         ps.matchStartedOnce = false;
                         ps.matchTime = null;
@@ -1638,6 +1658,7 @@ const scoreBoard = document.getElementById('scoreBoard');
 
             wallSlotsRefresh();
             syncFromState(Q.initialState());
+            window.__qd = { ps, cellOriginY, cellOrigin, nearestWallPlacement, N };
             updateRadioStyles();
             connectWebSocket();
         })();

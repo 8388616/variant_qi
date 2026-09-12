@@ -68,7 +68,7 @@ const SHAPE_LIST = [
             iRejected: false,
             ws: null,
             isMyTurn: false,
-            slots: { black: false, white: false },
+            slots: { player1: false, player2: false },
             reconnectTimer: null,
             replayMode: false,
             replayBoards: [],
@@ -317,7 +317,7 @@ const BOARD_MARK_CHAR_LIST = (() => {
         /** 底部复合子配色：执黑与观战为黑方视角；执白为白方视角；打谱试下时随当前轮行棋方切换。 */
         function compoundPalettePlayerVal() {
             if (ps.tryPlayMode && ps.replayMode) return ps.tryPlayCurrentPlayer;
-            return ps.mySlot === 'white' ? 2 : 1;
+            return ps.mySlot === 'player2' ? 2 : 1;
         }
 
         function computeTryPlayLastUsedAfterNTrialMoves(n) {
@@ -457,11 +457,11 @@ const BOARD_MARK_CHAR_LIST = (() => {
                     const pv = compoundPalettePlayerVal();
                     const radius = cellSize * 0.44;
                     if (inNormalGoLivePlay() && singleStoneCellFree(previewRow, previewCol)) {
-                        const cx = ps.PADDING + previewCol * cellSize, cy = ps.PADDING + previewRow * cellSize;
+                        const cx = ps.PADDING + previewCol * cellSize, cy = ps.PADDING + (ps.BOARD_SIZE - 1 - previewRow) * cellSize;
                         ctx.globalAlpha = 0.45;
                         ctx.beginPath();
                         ctx.arc(cx, cy, radius, 0, 2 * Math.PI);
-                        ctx.fillStyle = pv === 1 ? '#222' : '#ddd';
+                        ctx.fillStyle = pv === 1 ? '#222' : '#fff';
                         ctx.fill();
                         ctx.globalAlpha = 1.0;
                     } else if (!inNormalGoLivePlay()) {
@@ -474,7 +474,7 @@ const BOARD_MARK_CHAR_LIST = (() => {
                                     ctx.globalAlpha = 0.45;
                                     ctx.beginPath();
                                     ctx.arc(cx, cy, radius, 0, 2 * Math.PI);
-                                    ctx.fillStyle = pv === 1 ? '#222' : '#ddd';
+                                    ctx.fillStyle = pv === 1 ? '#222' : '#fff';
                                     ctx.fill();
                                 } else {
                                     ctx.globalAlpha = 0.55;
@@ -506,7 +506,7 @@ const BOARD_MARK_CHAR_LIST = (() => {
             const liveReplayMarkers = [[]];
             const liveReplayStepPlayers = [0];
             for (const move of (moveCoords || [])) {
-                const playerVal = move.player === 'black' ? 1 : 2;
+                const playerVal = move.player === 'player1' ? 1 : 2;
                 liveReplayStepPlayers.push(playerVal);
                 if (move.type === 'move' && move.stones) {
                     const nb = tryPlaceStonesAt(curBoard, move.stones.map(([r, c]) => [r, c]), playerVal);
@@ -543,7 +543,7 @@ const BOARD_MARK_CHAR_LIST = (() => {
             }
             for (let i = startLen; i < mcs.length; i++) {
                 const move = mcs[i];
-                const playerVal = move.player === 'black' ? 1 : 2;
+                const playerVal = move.player === 'player1' ? 1 : 2;
                 ps.liveReplayStepPlayers.push(playerVal);
                 if (move.type === 'move' && move.stones) {
                     const stoneList = move.stones.map(([r, c]) => [r, c]);
@@ -587,7 +587,7 @@ const BOARD_MARK_CHAR_LIST = (() => {
             const replayMarkers = [[]];
             const replayStepPlayers = [0];
             for (const move of (data.moves || [])) {
-                const playerVal = move.player === 'black' ? 1 : 2;
+                const playerVal = move.player === 'player1' ? 1 : 2;
                 replayStepPlayers.push(playerVal);
                 if (move.type === 'move' && move.stones) {
                     const nb = tryPlaceStonesAt(curBoard, move.stones.map(([r, c]) => [r, c]), playerVal);
@@ -930,7 +930,7 @@ const BOARD_MARK_CHAR_LIST = (() => {
                 else drawCompoundBoard();
             },
             syncState(state) {
-                const pv = ps.mySlot === 'black' ? 1 : (ps.mySlot === 'white' ? 2 : null);
+                const pv = ps.mySlot === 'player1' ? 1 : (ps.mySlot === 'player2' ? 2 : null);
                 let oldLuMy = -1;
                 if (pv !== null && ps.lastUsedShapeByColor) oldLuMy = ps.lastUsedShapeByColor[pv] ?? -1;
                 const incomingMoveLen = (state.moveCoords && state.moveCoords.length) || 0;
@@ -990,7 +990,7 @@ const BOARD_MARK_CHAR_LIST = (() => {
                 if (
                     ps.numberOfHands <= 1
                     && !ps.gameOver
-                    && !(ps.slots && ps.slots.black && ps.slots.white)
+                    && !(ps.slots && ps.slots.player1 && ps.slots.player2)
                     && !(ps.matchTime && ps.matchTime.settings)
                 ) {
                     ps.matchStartedOnce = false;
@@ -1019,7 +1019,7 @@ const BOARD_MARK_CHAR_LIST = (() => {
                 }
 
                 const hasAnyStone = ps.board.some(row => row.some(v => v !== 0));
-                const hasPlayer = ps.slots.black || ps.slots.white;
+                const hasPlayer = ps.slots.player1 || ps.slots.player2;
                 const sizeSelect = document.getElementById('boardSizeSelect');
                 if (!hasAnyStone && !hasPlayer && !ps.gameOver && ps.mySlot === null)
                     sizeSelect.style.display = 'inline-block';
@@ -1082,7 +1082,7 @@ const BOARD_MARK_CHAR_LIST = (() => {
 
         function commitCompoundMove(row, col) {
             if (ps.gameOver || !ps.isMyTurn || ps.waitingScoreConfirm) return false;
-            const playerVal = ps.mySlot === 'black' ? 1 : 2;
+            const playerVal = ps.mySlot === 'player1' ? 1 : 2;
             if (inNormalGoLivePlay()) {
                 if (!singleStoneCellFree(row, col)) return false;
                 ps.hasPreview = false;

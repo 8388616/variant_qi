@@ -34,12 +34,12 @@ class BuryMineWeiqiRoom extends WeiqiRoom {
         const q = defaultMineQuota(this.boardSize);
         /** @type {'waiting'|'burying'|'playing'} */
         this.phase = 'waiting';
-        this.mines = { black: new Set(), white: new Set() };
-        this.mineQuota = { black: q, white: q };
-        this.buryDone = { black: false, white: false };
-        this.lockedMines = { black: new Set(), white: new Set() };
-        this.pendingRebury = { black: 0, white: 0 };
-        this.reburySkipOpp = { black: false, white: false };
+        this.mines = { player1: new Set(), player2: new Set() };
+        this.mineQuota = { player1: q, player2: q };
+        this.buryDone = { player1: false, player2: false };
+        this.lockedMines = { player1: new Set(), player2: new Set() };
+        this.pendingRebury = { player1: 0, player2: 0 };
+        this.reburySkipOpp = { player1: false, player2: false };
         this.minesRevealedPublicly = false;
         this.isInitialBury = false;
     }
@@ -49,26 +49,26 @@ class BuryMineWeiqiRoom extends WeiqiRoom {
     }
 
     _opponent(slot) {
-        return slot === 'black' ? 'white' : 'black';
+        return slot === 'player1' ? 'player2' : 'player1';
     }
 
     _mineOwnersAt(row, col) {
         const k = mineKey(row, col);
         const owners = [];
-        if (this.mines.black.has(k)) owners.push('black');
-        if (this.mines.white.has(k)) owners.push('white');
+        if (this.mines.player1.has(k)) owners.push('black');   // 展示用执方名（player1 在此棋种执黑）
+        if (this.mines.player2.has(k)) owners.push('white');
         return owners;
     }
 
     _clearMinesAt(row, col) {
         const k = mineKey(row, col);
         const owners = [];
-        if (this.mines.black.has(k)) {
-            this.mines.black.delete(k);
+        if (this.mines.player1.has(k)) {
+            this.mines.player1.delete(k);
             owners.push('black');
         }
-        if (this.mines.white.has(k)) {
-            this.mines.white.delete(k);
+        if (this.mines.player2.has(k)) {
+            this.mines.player2.delete(k);
             owners.push('white');
         }
         return owners;
@@ -80,24 +80,24 @@ class BuryMineWeiqiRoom extends WeiqiRoom {
         const myLocked = slot && this.lockedMines[slot] ? setToMineList(this.lockedMines[slot]) : [];
         const allMines = revealed
             ? {
-                black: setToMineList(this.mines.black),
-                white: setToMineList(this.mines.white)
+                player1: setToMineList(this.mines.player1),
+                player2: setToMineList(this.mines.player2)
             }
             : null;
         return {
             phase: this.phase,
             isInitialBury: !!this.isInitialBury,
             buryDone: {
-                black: !!this.buryDone.black,
-                white: !!this.buryDone.white
+                player1: !!this.buryDone.player1,
+                player2: !!this.buryDone.player2
             },
             mineQuota: {
-                black: this.mineQuota.black | 0,
-                white: this.mineQuota.white | 0
+                player1: this.mineQuota.player1 | 0,
+                player2: this.mineQuota.player2 | 0
             },
             pendingRebury: {
-                black: this.pendingRebury.black | 0,
-                white: this.pendingRebury.white | 0
+                player1: this.pendingRebury.player1 | 0,
+                player2: this.pendingRebury.player2 | 0
             },
             myMines,
             myLockedMines: myLocked,
@@ -114,22 +114,22 @@ class BuryMineWeiqiRoom extends WeiqiRoom {
             phase: this.phase,
             isInitialBury: !!this.isInitialBury,
             buryDone: {
-                black: !!this.buryDone.black,
-                white: !!this.buryDone.white
+                player1: !!this.buryDone.player1,
+                player2: !!this.buryDone.player2
             },
             mineQuota: {
-                black: this.mineQuota.black | 0,
-                white: this.mineQuota.white | 0
+                player1: this.mineQuota.player1 | 0,
+                player2: this.mineQuota.player2 | 0
             },
             pendingRebury: {
-                black: this.pendingRebury.black | 0,
-                white: this.pendingRebury.white | 0
+                player1: this.pendingRebury.player1 | 0,
+                player2: this.pendingRebury.player2 | 0
             },
             minesRevealedPublicly: !!(this.minesRevealedPublicly || this.gameOver),
             allMines: (this.minesRevealedPublicly || this.gameOver)
                 ? {
-                    black: setToMineList(this.mines.black),
-                    white: setToMineList(this.mines.white)
+                    player1: setToMineList(this.mines.player1),
+                    player2: setToMineList(this.mines.player2)
                 }
                 : null
         };
@@ -266,30 +266,30 @@ class BuryMineWeiqiRoom extends WeiqiRoom {
         const now = nowMs != null ? nowMs : Date.now();
         qiMatchTimeControl.drain(this.tcClock, now);
         this.tcClock.syncMode = false;
-        this.tcClock.blackRunning = false;
-        this.tcClock.whiteRunning = false;
-        const slot = this.currentPlayer === 1 ? 'black' : 'white';
+        this.tcClock.player1Running = false;
+        this.tcClock.player2Running = false;
+        const slot = this.currentPlayer === 1 ? 'player1' : 'player2';
         qiMatchTimeControl.setActiveSlot(this.tcClock, slot, now);
     }
 
     _beginBuryPhase({ initial }) {
         this.phase = 'burying';
         this.isInitialBury = !!initial;
-        this.buryDone = { black: false, white: false };
+        this.buryDone = { player1: false, player2: false };
         if (initial) {
             const q = defaultMineQuota(this.boardSize);
-            this.mineQuota = { black: q, white: q };
-            this.mines = { black: new Set(), white: new Set() };
-            this.lockedMines = { black: new Set(), white: new Set() };
-            this.pendingRebury = { black: 0, white: 0 };
-            this.reburySkipOpp = { black: false, white: false };
+            this.mineQuota = { player1: q, player2: q };
+            this.mines = { player1: new Set(), player2: new Set() };
+            this.lockedMines = { player1: new Set(), player2: new Set() };
+            this.pendingRebury = { player1: 0, player2: 0 };
+            this.reburySkipOpp = { player1: false, player2: false };
         }
         const now = Date.now();
         if (this.tcClock && this.tcClock.timed) {
             qiMatchTimeControl.drain(this.tcClock, now);
             this.tcClock.syncMode = true;
-            this.tcClock.blackRunning = !this.buryDone.black;
-            this.tcClock.whiteRunning = !this.buryDone.white;
+            this.tcClock.player1Running = !this.buryDone.player1;
+            this.tcClock.player2Running = !this.buryDone.player2;
             this.tcClock.lastUpdateMs = now;
             this._startClockTicker();
             this._broadcastClock();
@@ -302,20 +302,20 @@ class BuryMineWeiqiRoom extends WeiqiRoom {
         if (!uniq.length) return;
         this.phase = 'burying';
         this.isInitialBury = false;
-        this.buryDone = { black: true, white: true };
+        this.buryDone = { player1: true, player2: true };
         for (const slot of uniq) {
             this.buryDone[slot] = false;
             this.lockedMines[slot] = new Set(this.mines[slot]);
         }
-        for (const slot of ['black', 'white']) {
+        for (const slot of ['player1', 'player2']) {
             if (this.buryDone[slot]) this.lockedMines[slot] = new Set();
         }
         const now = Date.now();
         if (this.tcClock && this.tcClock.timed) {
             qiMatchTimeControl.drain(this.tcClock, now);
             this.tcClock.syncMode = true;
-            this.tcClock.blackRunning = !this.buryDone.black;
-            this.tcClock.whiteRunning = !this.buryDone.white;
+            this.tcClock.player1Running = !this.buryDone.player1;
+            this.tcClock.player2Running = !this.buryDone.player2;
             this.tcClock.lastUpdateMs = now;
             this._startClockTicker();
             this._broadcastClock();
@@ -324,7 +324,7 @@ class BuryMineWeiqiRoom extends WeiqiRoom {
     }
 
     _bothBuryReady() {
-        return !!this.buryDone.black && !!this.buryDone.white;
+        return !!this.buryDone.player1 && !!this.buryDone.player2;
     }
 
     _finishBury(slot) {
@@ -361,7 +361,7 @@ class BuryMineWeiqiRoom extends WeiqiRoom {
         if (this._bothBuryReady()) {
             this.phase = 'playing';
             this.isInitialBury = false;
-            this.lockedMines = { black: new Set(), white: new Set() };
+            this.lockedMines = { player1: new Set(), player2: new Set() };
             this._convertClockToNormalPlay(now);
             this._broadcastClock();
             this.broadcast({ type: 'broadcast', action: 'buryDoneAll', ...this.getState() });
@@ -428,8 +428,8 @@ class BuryMineWeiqiRoom extends WeiqiRoom {
             settings: this.tcSettings,
             clock: this.tcClock ? qiMatchTimeControl.snapshotForClient(this.tcClock) : null,
             slots: {
-                black: !!this.room.getPlayerBySlot('black'),
-                white: !!this.room.getPlayerBySlot('white')
+                player1: !!this.room.getPlayerBySlot('player1'),
+                player2: !!this.room.getPlayerBySlot('player2')
             },
             hostSlot: this.hostWs ? this.room.getSlotByWs(this.hostWs) : null,
             ...this.getState()
@@ -504,7 +504,7 @@ class BuryMineWeiqiRoom extends WeiqiRoom {
         }
         if (!this._drainClockBeforeMove(moveSlot)) return;
         if (this.gameOver) return;
-        if (!moveSlot || moveSlot !== (this.currentPlayer === 1 ? 'black' : 'white')) return;
+        if (!moveSlot || moveSlot !== (this.currentPlayer === 1 ? 'player1' : 'player2')) return;
 
         const row = msg.row | 0;
         const col = msg.col | 0;
@@ -551,7 +551,7 @@ class BuryMineWeiqiRoom extends WeiqiRoom {
         }
         if (!this._drainClockBeforeMove(passSlot)) return;
         if (this.gameOver) return;
-        if (!passSlot || passSlot !== (this.currentPlayer === 1 ? 'black' : 'white')) return;
+        if (!passSlot || passSlot !== (this.currentPlayer === 1 ? 'player1' : 'player2')) return;
 
         this.historyBoards.push(this.copyBoard(this.board));
         this.historyMarkers.push(this.copyMarkers(this.lastMoveMarkers));
@@ -563,8 +563,8 @@ class BuryMineWeiqiRoom extends WeiqiRoom {
         this.broadcast({ type: 'broadcast', action: 'pass', ...this.getState() });
         if (this.passCounter >= 2) {
             this.passCounter = 0;
-            const blackPlayer = this.room.getPlayerBySlot('black');
-            const whitePlayer = this.room.getPlayerBySlot('white');
+            const blackPlayer = this.room.getPlayerBySlot('player1');
+            const whitePlayer = this.room.getPlayerBySlot('player2');
             if (blackPlayer && whitePlayer) {
                 this.startScoreCounting(blackPlayer, whitePlayer);
             } else {
@@ -603,7 +603,7 @@ class BuryMineWeiqiRoom extends WeiqiRoom {
                         if (this.pendingScore.agreed.size === 2) {
                             const lead = this.scoreProposalData.lead;
                             this.gameOver = true;
-                            this.winner = lead > 0 ? 'black' : (lead < 0 ? 'white' : 'draw');
+                            this.winner = lead > 0 ? 'player1' : (lead < 0 ? 'player2' : 'draw');
                             this.setScoreResultTextByLead(lead);
                             this.minesRevealedPublicly = true;
                             this.broadcast({ type: 'scoreAgreed', winner: this.winner, lead, ...this.getState() });
@@ -638,8 +638,8 @@ class BuryMineWeiqiRoom extends WeiqiRoom {
     performUndo(steps, requesterWs) {
         if (this.phase === 'burying') return;
         super.performUndo(steps, requesterWs);
-        this.pendingRebury = { black: 0, white: 0 };
-        this.reburySkipOpp = { black: false, white: false };
+        this.pendingRebury = { player1: 0, player2: 0 };
+        this.reburySkipOpp = { player1: false, player2: false };
     }
 
     resetGame() {
@@ -658,7 +658,7 @@ class BuryMineWeiqiRoom extends WeiqiRoom {
             return false;
         }
         const hasAnyStone = this.board.some(row => row.some(v => v !== 0));
-        const hasPlayer = this.room.getPlayerBySlot('black') || this.room.getPlayerBySlot('white');
+        const hasPlayer = this.room.getPlayerBySlot('player1') || this.room.getPlayerBySlot('player2');
         if (hasAnyStone || hasPlayer) return false;
         this.boardSize = newSize;
         this.resetGame();
@@ -671,15 +671,15 @@ class BuryMineWeiqiRoom extends WeiqiRoom {
         base.gameType = '埋雷围棋';
         base.gameId = 'bury-mine-weiqi';
         base.mines = {
-            black: setToMineList(this.mines.black),
-            white: setToMineList(this.mines.white)
+            player1: setToMineList(this.mines.player1),
+            player2: setToMineList(this.mines.player2)
         };
         base.mineQuota = {
-            black: this.mineQuota.black | 0,
-            white: this.mineQuota.white | 0
+            player1: this.mineQuota.player1 | 0,
+            player2: this.mineQuota.player2 | 0
         };
         base.moves = this.moveCoords.map(m => {
-            const p = m.player === 'black' ? 'B' : 'W';
+            const p = m.player === 'player1' ? 'B' : 'W';
             if (m.type === 'pass') return p + 'p';
             if (m.type === 'mineHit') return p + 'm' + m.row + ',' + m.col;
             return p + m.row + ',' + m.col;
@@ -689,7 +689,7 @@ class BuryMineWeiqiRoom extends WeiqiRoom {
 
     static parseMove(entry) {
         if (typeof entry === 'string') {
-            const player = entry[0] === 'B' ? 'black' : 'white';
+            const player = entry[0] === 'B' ? 'player1' : 'player2';
             if (entry[1] === 'p') return { type: 'pass', player };
             if (entry[1] === 'm') {
                 const coords = entry.substring(2).split(',').map(Number);
@@ -717,7 +717,7 @@ class BuryMineWeiqiRoom extends WeiqiRoom {
         applyInitialPositionCompact(this.board, this.boardSize, data.initialPosition);
 
         if (data.mines) {
-            for (const slot of ['black', 'white']) {
+            for (const slot of ['player1', 'player2']) {
                 const list = data.mines[slot] || [];
                 this.mines[slot] = new Set();
                 for (const m of list) {
@@ -730,11 +730,11 @@ class BuryMineWeiqiRoom extends WeiqiRoom {
             }
         }
         if (data.mineQuota) {
-            this.mineQuota.black = data.mineQuota.black | 0;
-            this.mineQuota.white = data.mineQuota.white | 0;
+            this.mineQuota.player1 = data.mineQuota.player1 | 0;
+            this.mineQuota.player2 = data.mineQuota.player2 | 0;
         } else {
             const q = defaultMineQuota(this.boardSize);
-            this.mineQuota = { black: q, white: q };
+            this.mineQuota = { player1: q, player2: q };
         }
 
         const rawMoves = data.moves || [];
@@ -742,7 +742,7 @@ class BuryMineWeiqiRoom extends WeiqiRoom {
         for (let i = 0; i < moves.length; i++) {
             const move = moves[i];
             const slot = move.player;
-            const playerVal = slot === 'black' ? 1 : 2;
+            const playerVal = slot === 'player1' ? 1 : 2;
             if (move.type === 'move') {
                 const { row, col } = move;
                 if (row < 0 || row >= this.boardSize || col < 0 || col >= this.boardSize) {
@@ -790,7 +790,7 @@ class BuryMineWeiqiRoom extends WeiqiRoom {
         }
 
         this.phase = 'playing';
-        this.buryDone = { black: true, white: true };
+        this.buryDone = { player1: true, player2: true };
         this.minesRevealedPublicly = true;
 
         if (data.timeControl && typeof data.timeControl === 'object') {
@@ -813,7 +813,7 @@ class BuryMineWeiqiRoom extends WeiqiRoom {
             const importedResultText = data.resultText != null ? String(data.resultText) : String(data.result);
             this.recordResultText = importedResultText;
             this.winner = WeiqiRoom.parseResultTextToWinner(importedResultText);
-            if (!this.winner && (data.result === 'black' || data.result === 'white' || data.result === 'draw')) {
+            if (!this.winner && (data.result === 'player1' || data.result === 'player2' || data.result === 'draw')) {
                 this.winner = data.result;
             }
         }

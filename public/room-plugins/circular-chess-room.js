@@ -99,8 +99,12 @@ function copyBoard(src) {
 
 function pieceSide(pc) { return pc[0] === 'w' ? 'white' : 'black'; }
 function oppositeSide(side) { return side === 'white' ? 'black' : 'white'; }
-function sideFromSlot(slot) { return slot === 'black' ? 'white' : 'black'; }
-function slotFromSide(side) { return side === 'white' ? 'black' : 'white'; }
+function sideFromSlot(slot) {
+    return slot === 'player1' ? 'white' : 'black';
+}
+function slotFromSide(side) {
+    return side === 'white' ? 'player1' : 'player2';
+}
 function sideColorChar(side) { return side[0]; }
 function normalizePromote(p) {
     p = String(p || '').toLowerCase();
@@ -338,8 +342,8 @@ return {
 };
 })();
         const SLOT_UI = {
-            black: { name: '白方', emoji: '⚪', continueText: '继续执白', choiceText: '执白', youText: '您执白', absentText: '白方已退出', statusText: '白方' },
-            white: { name: '黑方', emoji: '⚫', continueText: '继续执黑', choiceText: '执黑', youText: '您执黑', absentText: '黑方已退出', statusText: '黑方' }
+            player2: { name: '黑方', emoji: '⚫', continueText: '继续执黑', choiceText: '执黑', youText: '您执黑', absentText: '黑方已退出', statusText: '黑方' },
+            player1: { name: '白方', emoji: '⚪', continueText: '继续执白', choiceText: '执白', youText: '您执白', absentText: '白方已退出', statusText: '白方' }
         };
         const PROMOTE_LABELS = { q: '♛', r: '♜', n: '♞', b: '♝' };
 
@@ -380,7 +384,7 @@ return {
             lastTo: null,
             ws: null,
             isMyTurn: false,
-            slots: { black: false, white: false },
+            slots: { player2: false, player1: false },
             reconnectTimer: null,
             replayMode: false,
             tryPlayMode: false,
@@ -523,7 +527,8 @@ return {
         function slotOfSide(side) { return R.slotFromSide(side); }
 
         function boardFlipped() {
-            return ps.mySlot === 'white';
+            // 默认视角先手方(棋种执方)在下方；后手座位旋转 180°
+            return ps.mySlot === 'player2';
         }
 
         function toDisplaySector(sector) {
@@ -597,9 +602,9 @@ return {
                 const outer = inner + ringW;
                 for (let s = 0; s < R.SECTORS; s++) {
                     const disp = toDisplaySector(s);
-                    sectorPath(disp, inner, outer);
-                    ctx2d.fillStyle = (r + s) % 2 === 0 ? '#f0d9b5' : '#b58863';
+                    sectorPath(disp, inner, outer);                    ctx2d.fillStyle = (r + s) % 2 === 0 ? '#f0d9b5' : '#b58863';
                     ctx2d.fill();
+
                 }
             }
             // 格线：环向分隔 + 中心圆 + 外框
@@ -706,14 +711,14 @@ return {
 
         function updateTurn() {
             if (ps.gameOver) {
-                let text = '对局结束';
+                let text = '';
                 if (ps.winner === 'draw') text = '和棋';
-                else if (ps.winner === 'black') text = '⚪ 白方胜';
-                else if (ps.winner === 'white') text = '⚫ 黑方胜';
+                else if (ps.winner === 'player2') text = '⚫ 黑方胜';
+                else if (ps.winner === 'player1') text = '⚪ 白方胜';
                 if (ps.recordResultText) text = ps.recordResultText;
-                turnDisplay.innerText = text;
-                scoreTitle.innerText = '结果';
-                scoreBoard.innerText = text;
+                turnDisplay.innerText = '对局结束';
+                scoreTitle.innerText = text || '　';   // 结果放这里（与围棋一致）
+                scoreBoard.innerText = '　';
                 leadInfo.innerText = '　';
                 return;
             }
@@ -726,10 +731,16 @@ return {
                 return;
             }
             const side = ps.tryPlayMode ? ps.tryPlaySide : ps.sideToMove;
-            const label = side === 'white' ? '⚪ 白方行棋' : '⚫ 黑方行棋';
-            turnDisplay.innerText = (ps.tryPlayMode ? '试下 · ' : '') + label + (ps.inCheck ? '（将军）' : '');
+            if (!ps.tryPlayMode && !ps.replayMode) {
+                // turnDisplay 显示「刚下完这手棋」的一方与回合数（不再写 scoreBoard）
+                const moverLabel = side === 'white' ? '⚫' : '⚪';
+                turnDisplay.innerText = QiWeiqiSquarePageRuntime.roundTurnText(ps.moveHistory.length, moverLabel);
+            } else {
+                const label = side === 'white' ? '⚪ 白方行棋' : '⚫ 黑方行棋';
+                turnDisplay.innerText = (ps.tryPlayMode ? '试下 · ' : '') + label + (ps.inCheck ? '（将军）' : '');
+            }
             scoreTitle.innerText = '　';
-            scoreBoard.innerText = `第 ${Math.floor(ps.moveHistory.length / 2) + 1} 回合`;
+            scoreBoard.innerText = '　';
             leadInfo.innerText = ps.halfmoveClock > 40 ? `未吃子/兵动 ${ps.halfmoveClock}/100` : '　';
         }
 
@@ -883,7 +894,7 @@ return {
             for (const raw of moves) {
                 let m = raw;
                 if (typeof raw === 'string') {
-                    const mt = raw.match(/^([BW])(\d+),(\d+)-(\d+),(\d+)(?:=([QRNB]))?$/i);
+                    const mt = raw.match(/^([WB])(\d+),(\d+)-(\d+),(\d+)(?:=([QRNB]))?$/i);
                     if (!mt) continue;
                     m = { fromRow: +mt[2], fromCol: +mt[3], toRow: +mt[4], toCol: +mt[5], promote: mt[6] ? mt[6].toLowerCase() : null };
                 }
@@ -1096,6 +1107,8 @@ return {
             roomId,
             gameType,
             pageState: ps,
+            // 试下虚着：快照型棋种要由棋种自己给出「另一方」的取值，才能生成跳过一手的快照
+            tryPlayOppositeSide: (side) => R.oppositeSide(side),
             drawBoard,
             exitTryPlay,
             enterTryPlay,

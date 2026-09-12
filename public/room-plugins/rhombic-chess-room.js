@@ -168,20 +168,26 @@ const R = (function () {
         // 白方（底部）
         const whiteRow = ['wr', 'wn', 'wq', 'wk', 'wn', 'wr'];
         for (let c = 0; c < 6; c++) board[key(0, c)] = whiteRow[c];
-        board[key(9, 1)] = 'wb'; board[key(9, 2)] = 'wb';
-        for (let c = 0; c < 8; c++) board[key(8, c)] = 'wp';
+        // 白方整营在下半区（row 小）：象 row1、兵 row2（白兵向 row 增大方向推进，row9 升变）
+        board[key(1, 1)] = 'wb'; board[key(1, 2)] = 'wb';
+        for (let c = 0; c < 8; c++) board[key(2, c)] = 'wp';
         // 黑方（顶部）
         const blackRow = ['br', 'bn', 'bq', 'bk', 'bn', 'br'];
         for (let c = 0; c < 6; c++) board[key(10, c)] = blackRow[c];
-        board[key(1, 1)] = 'bb'; board[key(1, 2)] = 'bb';
-        for (let c = 0; c < 8; c++) board[key(2, c)] = 'bp';
+        // 黑方整营在上半区（row 大）：象 row9、兵 row8（黑兵向 row 减小方向推进，row1 升变）
+        board[key(9, 1)] = 'bb'; board[key(9, 2)] = 'bb';
+        for (let c = 0; c < 8; c++) board[key(8, c)] = 'bp';
         return board;
     }
 
     function pieceSide(pc) { return pc[0] === 'w' ? 'white' : 'black'; }
     function oppositeSide(side) { return side === 'white' ? 'black' : 'white'; }
-    function sideFromSlot(slot) { return slot === 'black' ? 'white' : 'black'; }
-    function slotFromSide(side) { return side === 'white' ? 'black' : 'white'; }
+    function sideFromSlot(slot) {
+    return slot === 'player1' ? 'white' : 'black';
+}
+    function slotFromSide(side) {
+    return side === 'white' ? 'player1' : 'player2';
+}
     function normalizePromote(p) {
         p = String(p || '').toLowerCase();
         if (PROMOTE_TYPES.includes(p)) return p;
@@ -361,8 +367,8 @@ const R = (function () {
 })();
 
         const SLOT_UI = {
-            black: { name: '白方', emoji: '⚪', continueText: '继续执白', choiceText: '执白', youText: '您执白', absentText: '白方已退出', statusText: '白方' },
-            white: { name: '黑方', emoji: '⚫', continueText: '继续执黑', choiceText: '执黑', youText: '您执黑', absentText: '黑方已退出', statusText: '黑方' }
+            player2: { name: '黑方', emoji: '⚫', continueText: '继续执黑', choiceText: '执黑', youText: '您执黑', absentText: '黑方已退出', statusText: '黑方' },
+            player1: { name: '白方', emoji: '⚪', continueText: '继续执白', choiceText: '执白', youText: '您执白', absentText: '白方已退出', statusText: '白方' }
         };
         const PROMOTE_LABELS = { q: '♛', r: '♜', n: '♞', b: '♝' };
 
@@ -408,7 +414,7 @@ const R = (function () {
 
         // 黑方视角：棋盘旋转 180°（黑方坐在对面，看到的是倒置的棋盘）
         function isBlackView() {
-            return ps && ps.mySlot === 'white';
+            return ps && ps.mySlot === 'player1';
         }
         const ROT_ID = (() => {
             const map = [];
@@ -494,7 +500,7 @@ const R = (function () {
             lastTo: null,
             lastEnPassant: null,
             ws: null,
-            slots: { black: false, white: false },
+            slots: { player2: false, player1: false },
             reconnectTimer: null,
             matchStarted: false,
             matchTime: null,
@@ -515,7 +521,7 @@ const R = (function () {
             if (piece && typeof piece === 'object') piece = piece[0] + piece[1];
             return R.PIECE_CHAR[piece] || piece;
         }
-        function sideOf(slot) { return slot === 'black' ? 'white' : 'black'; }
+        function sideOf(slot) { return slot === 'player2' ? 'player1' : 'player2'; }
         function isMyTurnNow() {
             return ps.mySlot !== null && ps.matchStarted && !ps.gameOver
                 && sideOf(ps.mySlot) === ps.sideToMove && !ps.waitingScoreConfirm;
@@ -534,9 +540,9 @@ const R = (function () {
             // 格子
             for (let id = 0; id < R.CELLS.length; id++) {
                 const did = displayId(id);
-                tracePoly(cellVerts(did));
-                ctx2d.fillStyle = CELL_COLORS[R.CELLS[did].type];
+                tracePoly(cellVerts(did));                ctx2d.fillStyle = CELL_COLORS[R.CELLS[did].type];
                 ctx2d.fill();
+
                 ctx2d.strokeStyle = '#8a5a3b';
                 ctx2d.lineWidth = 1;
                 ctx2d.stroke();
@@ -808,25 +814,34 @@ const R = (function () {
 
         function updateTurn() {
             if (ps.gameOver) {
-                let text = '对局结束';
+                let text = '';
                 if (ps.winner === 'draw') text = '和棋';
-                else if (ps.winner === 'black') text = '⚪ 白方胜';
-                else if (ps.winner === 'white') text = '⚫ 黑方胜';
+                else if (ps.winner === 'player2') text = '⚫ 黑方胜';
+                else if (ps.winner === 'player1') text = '⚪ 白方胜';
                 if (ps.recordResultText) text = ps.recordResultText;
-                turnDisplay.innerText = text;
+                turnDisplay.innerText = '对局结束';
+                scoreTitle.innerText = text || '　';   // 结果放这里（与围棋一致）
+                scoreBoard.innerText = '　';
+                leadInfo.innerText = '　';
             } else if (ps.matchStarted) {
-                const emoji = ps.sideToMove === 'white' ? '⚪' : '⚫';
-                turnDisplay.innerText = `${emoji} ${ps.sideToMove === 'white' ? '白方' : '黑方'}行棋`;
+                if (!ps.tryPlayMode && !ps.replayMode) {
+                    // turnDisplay 显示「刚下完这手棋」的一方与回合数（不再写 scoreBoard）
+                    const moverLabel = ps.sideToMove === 'white' ? '⚫' : '⚪';
+                    turnDisplay.innerText = QiWeiqiSquarePageRuntime.roundTurnText(ps.moveHistory.length, moverLabel);
+                } else {
+                    const emoji = ps.sideToMove === 'white' ? '⚪' : '⚫';
+                    turnDisplay.innerText = `${emoji} ${ps.sideToMove === 'white' ? '白方' : '黑方'}行棋`;
+                }
             } else {
-                const seated = (ps.slots && ps.slots.black ? 1 : 0) + (ps.slots && ps.slots.white ? 1 : 0);
+                const seated = (ps.slots && ps.slots.player2 ? 1 : 0) + (ps.slots && ps.slots.player1 ? 1 : 0);
                 turnDisplay.innerText = ps.mySlot ? `等待对手入座(${seated}/2)` : `等待双方入座(${seated}/2)`;
             }
         }
         function refreshColorStatus() {
             if (!colorStatus) return;
             const mySlot = ps.mySlot;
-            if (mySlot === 'black') colorStatus.innerText = '您执白';
-            else if (mySlot === 'white') colorStatus.innerText = '您执黑';
+            if (mySlot === 'player2') colorStatus.innerText = '您执黑';
+            else if (mySlot === 'player1') colorStatus.innerText = '您执白';
             else colorStatus.innerText = '观战';
         }
 
@@ -893,6 +908,8 @@ const R = (function () {
 
         const _weiqiBindings = QiBoardRoomClient.createWeiqiMessageBindings({
             pageState: ps,
+            // 试下虚着：快照型棋种要由棋种自己给出「另一方」的取值，才能生成跳过一手的快照
+            tryPlayOppositeSide: (side) => R.oppositeSide(side),
             enterTryPlay,
             exitTryPlay,
             tryPlayMove,

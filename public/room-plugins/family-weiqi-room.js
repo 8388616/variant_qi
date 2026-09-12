@@ -60,7 +60,7 @@ const ps = {
             BOARD_SIZE: 19, KOMI: 4.75, PADDING: 0, CELL_SIZE: 0, numberOfHands: 1, currentPlayer: 1,
             mySlot: null, gameOver: false, winner: null, lastMoveMarkers: [], showEstimateActive: false,
             cachedLiveBoard: null, cachedTerritory: null, waitingScoreConfirm: false, iRejected: false,
-            ws: null, isMyTurn: false, slots: { black: false, white: false }, reconnectTimer: null,
+            ws: null, isMyTurn: false, slots: { player1: false, player2: false }, reconnectTimer: null,
             replayMode: false, replayBoards: [], replayMarkers: [], replayStepPlayers: [], replayStep: 0, replayTotalSteps: 0,
             showMoveNumbers: false, moveLog: [], tryPlayMode: false, tryPlayBaseStep: 0, tryPlayBoards: [], tryPlayMarkers: [],
             tryPlayCurrentPlayer: 1, tryPlayStep: 0, tryPlayTotalSteps: 0, liveReplayBoards: [], liveReplayMarkers: [],
@@ -262,7 +262,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             const liveReplayMarkers = [[]];
             const liveReplayStepPlayers = [0];
             for (const move of moveCoords || []) {
-                const playerVal = move.player === 'black' ? 1 : 2;
+                const playerVal = move.player === 'player1' ? 1 : 2;
                 liveReplayStepPlayers.push(playerVal);
                 if (move.type === 'move') {
                     const newBoard = familyTryPlaceStone(curBoard, move.row, move.col, playerVal);
@@ -292,7 +292,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             let curBoard = dc(ps.liveReplayBoards[ps.liveReplayBoards.length - 1]);
             for (let i = startLen; i < mcs.length; i++) {
                 const move = mcs[i];
-                const playerVal = move.player === 'black' ? 1 : 2;
+                const playerVal = move.player === 'player1' ? 1 : 2;
                 ps.liveReplayStepPlayers.push(playerVal);
                 if (move.type === 'move') {
                     const newBoard = familyTryPlaceStone(curBoard, move.row, move.col, playerVal);
@@ -323,7 +323,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             const replayMarkers = [[]];
             const replayStepPlayers = [0];
             for (const move of (data.moves || [])) {
-                const playerVal = move.player === 'black' ? 1 : 2;
+                const playerVal = move.player === 'player1' ? 1 : 2;
                 replayStepPlayers.push(playerVal);
                 if (move.type === 'move') {
                     const newBoard = familyTryPlaceStone(curBoard, move.row, move.col, playerVal);

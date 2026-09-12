@@ -2,7 +2,7 @@ window.RoomPlugins = window.RoomPlugins || {};
 window.RoomPlugins["guess-wuziqi"] = {
     shell: {
         "title": "猜点五子棋",
-        "rulesHtml": "<strong>猜中哪个点是对方的选点，并且让对方猜错！</strong>\n<br /><br />基本规则同五子棋。每手棋分为「选点」和「猜点」两个阶段。<br /><br /><strong>选点：</strong> 系统随机生成三个迷惑点展示给当前行棋方，行棋方选择想要落子的点（可以迷惑点或是任意空点），迷惑点和行棋方选择的落子点合称为候选点。<br><br /><strong>猜点：</strong> 将所有候选点展示给等待方（但不区分是迷惑点还是行棋方选择的落子点）。等待方需要从候选点中猜出哪个是行棋方选择的落子点。<br />&nbsp;&nbsp;• 猜中：则该落子无效。<br />&nbsp;&nbsp;• 猜错：则该落子有效。<br />",
+        "rulesHtml": "<strong>猜中哪个点是对方的选点，并且让对方猜错！</strong>\n<br /><br />基本规则同五子棋。每手棋分为「选点」和「猜点」两个阶段，由行棋方选点，等待方猜点。<br /><br /><strong>选点：</strong> 系统随机生成三个迷惑点展示给当前行棋方，行棋方另外选择想要落子的点（也可以从迷惑点中选），迷惑点和行棋方选择的落子点合称为候选点。<br><br /><strong>猜点：</strong> 将所有候选点展示给等待方（但不区分是迷惑点还是行棋方选择的落子点）。等待方需要从候选点中猜出哪个是行棋方选择的落子点。<br />&nbsp;&nbsp;• 若猜中，则该落子无效。<br />&nbsp;&nbsp;• 若猜错，则该落子有效。<br />",
         "defaultKomiText": "无禁手",
         "boardSizeMin": 7,
         "boardSizeMax": 15,
@@ -64,6 +64,8 @@ let BOARD_SIZE = 13;
         let showMoveNumbers = false;
         let tryPlayMode = false;
         let tryPlayBaseStep = 0;
+        let tryPlayFromLive = false;
+        let tryPlayFromLiveStep = null;
         let tryPlayBoards = [];
         let tryPlayMarkers = [];
         let tryPlayCurrentPlayer = 'black';
@@ -82,7 +84,7 @@ let BOARD_SIZE = 13;
 
         let ws;
         let isMyTurn = false;
-        let slots = { black: false, white: false }; // 槽位占用情况
+        let slots = { player1: false, player2: false }; // 槽位占用情况
         let reconnectTimer = null;
         let matchStarted = false;
 
@@ -159,7 +161,8 @@ const scoreTitle = document.getElementById('scoreTitle');
                     else if (board[r][c] === 2) white++;
                 }
             }
-            scoreBoard.innerText = `棋子数量 黑：${black}　白：${white}`;
+            // 「棋子数量」与「黑」之间用全角空格：半角空格会被 CSS 合并成一个（white-space: normal）
+            scoreBoard.innerText = `棋子数量　黑: ${black} 白: ${white}`;
         }
 
         function initBoardArray(size) {
@@ -239,7 +242,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                 let gameOver = false;
                 let roundWinner = null;
                 if (!isHit) {
-                    const playerVal = currentPlayer === 'black' ? 1 : 2;
+                    const playerVal = currentPlayer === 'player1' ? 1 : 2;
                     board[selectedMove.row][selectedMove.col] = playerVal;
                     lastMoveMarkers = [{ row: selectedMove.row, col: selectedMove.col, color: playerVal }];
                     if (_checkWinOnBoardGuess(board, selectedMove.row, selectedMove.col, playerVal, size)) {
@@ -253,7 +256,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                     pushGuessSnapshot(snapshots, board, 'select', currentPlayer, [], null, [], rightGuessPoint, wrongGuessPoint, lastMoveMarkers, true, roundWinner, handNum);
                     break;
                 }
-                currentPlayer = currentPlayer === 'black' ? 'white' : 'black';
+                currentPlayer = currentPlayer === 'player1' ? 'white' : 'black';
                 let emptyCount = 0;
                 for (let r = 0; r < size; r++)
                     for (let c = 0; c < size; c++)
@@ -354,7 +357,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                 exportBtn.style.display = 'none';
             } else {
                 const hasAnyStone = board.some(row => row.some(v => v !== 0));
-                const noPlayers = !slots.black && !slots.white;
+                const noPlayers = !slots.player1 && !slots.player2;
                 if (noPlayers && !hasAnyStone) {
                     importBtn.style.display = '';
                     exportBtn.style.display = 'none';
@@ -421,7 +424,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             // 选点阶段：迷惑点方框；第二步快照再叠加行棋方选点圆圈（打谱/回溯）
             if (!tryPlayMode && matchStarted && phase === 'select' && candidates.length && ((replayMode && !gameOver) || (!gameOver && (browsingLiveHist || mySlot === currentPlayer)))) {
                 ctx.globalAlpha = 0.7;
-                const playerColor = currentPlayer === 'black' ? '#222' : '#fff';
+                const playerColor = currentPlayer === 'player1' ? '#222' : '#fff';
                 const squareHalf = cellSize * 0.18;
                 candidates.forEach(({ row, col }) => {
                     const x = PADDING + col * cellSize;
@@ -431,17 +434,17 @@ const scoreTitle = document.getElementById('scoreTitle');
                 });
                 ctx.globalAlpha = 1.0;
                 if (selectedMove && (replayMode || browsingLiveHist)) {
-                    ctx.strokeStyle = currentPlayer === 'black' ? '#000' : '#fff';
+                    ctx.strokeStyle = currentPlayer === 'player1' ? '#000' : '#fff';
                     ctx.lineWidth = 2;
                     ctx.beginPath();
-                    ctx.arc(PADDING + selectedMove.col * cellSize, PADDING + selectedMove.row * cellSize, cellSize * 0.44, 0, 2 * Math.PI);
+                    ctx.arc(PADDING + selectedMove.col * cellSize, rowToY(selectedMove.row, cellSize), cellSize * 0.44, 0, 2 * Math.PI);
                     ctx.stroke();
                 }
             }
 
             if (!tryPlayMode && matchStarted && phase === 'guess') {
                 ctx.globalAlpha = 0.7;
-                const guessColor = currentPlayer === 'black' ? '#222' : '#fff';
+                const guessColor = currentPlayer === 'player1' ? '#222' : '#fff';
                 const squareHalf = cellSize * 0.18;
                 guessCandidates.forEach(({ row, col }) => {
                     const x = PADDING + col * cellSize;
@@ -452,10 +455,10 @@ const scoreTitle = document.getElementById('scoreTitle');
                 ctx.globalAlpha = 1.0;
 
                 if (selectedMove && (replayMode || browsingLiveHist || mySlot === currentPlayer)) {
-                    ctx.strokeStyle = currentPlayer === 'black' ? '#000' : '#fff';
+                    ctx.strokeStyle = currentPlayer === 'player1' ? '#000' : '#fff';
                     ctx.lineWidth = 2;
                     ctx.beginPath();
-                    ctx.arc(PADDING + selectedMove.col * cellSize, PADDING + selectedMove.row * cellSize, cellSize * 0.44, 0, 2 * Math.PI);
+                    ctx.arc(PADDING + selectedMove.col * cellSize, rowToY(selectedMove.row, cellSize), cellSize * 0.44, 0, 2 * Math.PI);
                     ctx.stroke();
                 }
             }
@@ -472,7 +475,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                 if (hoverColor) {
                     ctx.globalAlpha = 0.45;
                     ctx.beginPath();
-                    ctx.arc(PADDING + hoverCol * cellSize, PADDING + hoverRow * cellSize, cellSize * 0.44, 0, 2 * Math.PI);
+                    ctx.arc(PADDING + hoverCol * cellSize, rowToY(hoverRow, cellSize), cellSize * 0.44, 0, 2 * Math.PI);
                     ctx.fillStyle = hoverColor;
                     ctx.fill();
                     ctx.globalAlpha = 1.0;
@@ -484,17 +487,17 @@ const scoreTitle = document.getElementById('scoreTitle');
                 if (phase === 'select' && (isMouseDevice || mobileTwoStepPlacing()) && isHoverValid && hoverRow >= 0 && hoverCol >= 0 && board[hoverRow][hoverCol] === 0) {
                     ctx.globalAlpha = 0.45;
                     ctx.beginPath();
-                    ctx.arc(PADDING + hoverCol * cellSize, PADDING + hoverRow * cellSize, cellSize * 0.44, 0, 2 * Math.PI);
-                    ctx.fillStyle = mySlot === 'black' ? '#222' : '#ddd';
+                    ctx.arc(PADDING + hoverCol * cellSize, rowToY(hoverRow, cellSize), cellSize * 0.44, 0, 2 * Math.PI);
+                    ctx.fillStyle = mySlot === 'player1' ? '#222' : '#fff';
                     ctx.fill();
                     ctx.globalAlpha = 1.0;
                 }
                 else if (phase === 'guess' && isMouseDevice && guessCandidates.some(p => p.row === hoverRow && p.col === hoverCol)) {
                     ctx.globalAlpha = 0.75;
                     ctx.beginPath();
-                    ctx.strokeStyle = mySlot === 'black' ? '#fff' : '#000';
+                    ctx.strokeStyle = mySlot === 'player1' ? '#fff' : '#000';
                     ctx.lineWidth = 2;
-                    ctx.arc(PADDING + hoverCol * cellSize, PADDING + hoverRow * cellSize, cellSize * 0.44, 0, 2 * Math.PI);
+                    ctx.arc(PADDING + hoverCol * cellSize, rowToY(hoverRow, cellSize), cellSize * 0.44, 0, 2 * Math.PI);
                     ctx.stroke();
                     ctx.globalAlpha = 1.0;
                 }
@@ -502,8 +505,8 @@ const scoreTitle = document.getElementById('scoreTitle');
             if ((isMouseDevice || mobileTwoStepPlacing()) && tryPlayMode && replayMode && !gameOver && isHoverValid && hoverRow >= 0 && hoverCol >= 0 && board[hoverRow][hoverCol] === 0) {
                 ctx.globalAlpha = 0.45;
                 ctx.beginPath();
-                ctx.arc(PADDING + hoverCol * cellSize, PADDING + hoverRow * cellSize, cellSize * 0.44, 0, 2 * Math.PI);
-                ctx.fillStyle = tryPlayCurrentPlayer === 'black' ? '#222' : '#ddd';
+                ctx.arc(PADDING + hoverCol * cellSize, rowToY(hoverRow, cellSize), cellSize * 0.44, 0, 2 * Math.PI);
+                ctx.fillStyle = tryPlayCurrentPlayer === 'player1' ? '#222' : '#fff';
                 ctx.fill();
                 ctx.globalAlpha = 1.0;
             }
@@ -575,7 +578,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             const inSelectDoneWaitingGuess = (phase === 'guess') && (el.length % 2 === 1);
             if (inSelectDoneWaitingGuess) {
                 const hand = completedRounds + 1;
-                const emoji = currentPlayer === 'black' ? '⚫' : '⚪';
+                const emoji = currentPlayer === 'player1' ? '⚫' : '⚪';
                 return { text: `${emoji} 第${hand}手（已选点）`, isInitial: false };
             }
 
@@ -635,9 +638,9 @@ const scoreTitle = document.getElementById('scoreTitle');
             if (gameOver)
             {
                 turnDisplay.innerText = '对局结束';
-                if (winner === 'black')
+                if (winner === 'player1')
                     scoreTitle.innerText = '黑胜';
-                else if (winner === 'white')
+                else if (winner === 'player2')
                     scoreTitle.innerText = '白胜';
                 else if (winner === 'draw')
                     scoreTitle.innerText = '和棋';
@@ -650,7 +653,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             }
 
             if (!matchStarted) {
-                const bothSelected = !!slots.black && !!slots.white;
+                const bothSelected = !!slots.player1 && !!slots.player2;
                 turnDisplay.innerText = QiWeiqiSquarePageRuntime.waitingSeatTurnText(slots, mySlot);
                 scoreTitle.innerText = '　';
                 isMyTurn = false;
@@ -687,19 +690,26 @@ const scoreTitle = document.getElementById('scoreTitle');
         const psBindings = {
             ws: null,
             mySlot: null,
-            slots: { black: false, white: false },
+            slots: { player1: false, player2: false },
             gameOver: false,
             winner: null,
             replayMode: false,
-            tryPlayMode: false,
             replayStep: 0,
-            tryPlayStep: 0,
             liveViewStep: 0,
             isMyTurn: false
         };
         Object.defineProperty(psBindings, 'showMoveNumbers', {
             get: () => showMoveNumbers,
             set: (v) => { showMoveNumbers = !!v; }
+        });
+        // 试下状态存在闭包局部变量里：公共代码（虚着/悔棋按钮、qi-tryplay 类名）读的是 pageState，这里透传
+        Object.defineProperty(psBindings, 'tryPlayMode', {
+            get: () => tryPlayMode,
+            set: (v) => { tryPlayMode = !!v; }
+        });
+        Object.defineProperty(psBindings, 'tryPlayStep', {
+            get: () => tryPlayStep,
+            set: (v) => { tryPlayStep = v | 0; }
         });
         const _weiqiBindings = QiBoardRoomClient.createWeiqiMessageBindings({
             roomId,
@@ -709,6 +719,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             exitTryPlay,
             enterTryPlay,
             setTryPlayStep,
+            tryPlayPass,
             setReplayStep,
             setLiveViewStep: setLiveViewStepGuess,
             getWs: () => ws,
@@ -882,7 +893,7 @@ syncState,
             }
 
             const hasAnyStone = board.some(row => row.some(v => v !== 0));
-            const hasPlayer = slots.black || slots.white;
+            const hasPlayer = slots.player1 || slots.player2;
             const sizeSelect = document.getElementById('boardSizeSelect');
             if (sizeSelect && !hasAnyStone && !hasPlayer && !gameOver && mySlot === null && !replayMode)
                 sizeSelect.style.display = 'inline-block';
@@ -989,8 +1000,8 @@ syncState,
                 }
             }
             if (gameOver) {
-                if (winner === 'black') scoreTitle.innerText = '黑胜';
-                else if (winner === 'white') scoreTitle.innerText = '白胜';
+                if (winner === 'player1') scoreTitle.innerText = '黑胜';
+                else if (winner === 'player2') scoreTitle.innerText = '白胜';
                 else if (winner === 'draw') scoreTitle.innerText = '和棋';
                 else scoreTitle.innerText = '对局结束';
             } else {
@@ -1021,11 +1032,36 @@ syncState,
 
         function enterTryPlay() {
             clearMobileMovePreview();
+            const wasAtLive = !replayMode;
+            const entryBoard = deepCopyBoard(board);
+            const entryMarkers = lastMoveMarkers.map(m => ({ ...m }));
             tryPlayMode = true;
             tryPlayBaseStep = replayStep;
-            tryPlayBoards = [deepCopyBoard(board)];
-            tryPlayMarkers = [lastMoveMarkers.map(m => ({ ...m }))];
+            tryPlayBoards = [entryBoard];
+            tryPlayMarkers = [entryMarkers];
             tryPlayMeta = [{ gameOver: false, winner: null }];
+            // 与公共 enterTryPlay 一致：从直播局面进入试下时挂上打谱脚手架。
+            // 本棋种的点击/悬停/绘制都按 replayMode && tryPlayMode 判断，缺了它试下点不动。
+            tryPlayFromLive = wasAtLive;
+            tryPlayFromLiveStep = liveViewStep || 0;
+            if (wasAtLive) {
+                replayMode = true;
+                replaySnapshots = [{
+                    board: deepCopyBoard(entryBoard),
+                    phase: 'select',
+                    currentPlayer: currentPlayer,
+                    candidates: [],
+                    selectedMove: null,
+                    guessCandidates: [],
+                    rightGuessPoint: null,
+                    wrongGuessPoint: null,
+                    lastMoveMarkers: entryMarkers.map(m => ({ ...m })),
+                    gameOver: false,
+                    winner: null
+                }];
+                replayStep = 0;
+                replayTotalSteps = 0;
+            }
             const snap = replaySnapshots[replayStep];
             tryPlayCurrentPlayer = (snap && !snap.gameOver && snap.currentPlayer) ? snap.currentPlayer : 'black';
             tryPlayStep = 0;
@@ -1036,6 +1072,7 @@ syncState,
             slider.min = 0;
             slider.max = 0;
             slider.value = 0;
+            psBindings.replayMode = replayMode;
             updateTryPlayDisplay();
             updateReplayUI();
             updateTurn();
@@ -1044,7 +1081,13 @@ syncState,
 
         function exitTryPlay() {
             clearMobileMovePreview();
+            const fromLive = !!tryPlayFromLive;
+            const savedLiveStep = tryPlayFromLiveStep != null ? tryPlayFromLiveStep : liveViewStep;
+            const snapBoard = tryPlayBoards.length > 0 ? deepCopyBoard(tryPlayBoards[0]) : null;
+            const snapMarkers = (tryPlayMarkers[0] || []).map(m => ({ ...m }));
             tryPlayMode = false;
+            tryPlayFromLive = false;
+            tryPlayFromLiveStep = null;
             tryPlayBoards = [];
             tryPlayMarkers = [];
             tryPlayMeta = [];
@@ -1052,8 +1095,27 @@ syncState,
             tryPlayTotalSteps = 0;
             const slider = document.getElementById('replaySlider');
             slider.min = 0;
-            slider.max = replayTotalSteps;
-            setReplayStep(tryPlayBaseStep);
+            if (fromLive) {
+                // 直播进的试下：退回直播局面，不能走打谱的 setReplayStep（下面是脚手架，只有进试下时那一步）
+                replayMode = false;
+                replaySnapshots = [];
+                replayStep = 0;
+                replayTotalSteps = 0;
+                if (liveReplaySnapshots.length) {
+                    liveViewStep = Math.min(Math.max(0, savedLiveStep), liveReplaySnapshots.length - 1);
+                    liveFollowLatest = liveViewStep >= liveReplaySnapshots.length - 1;
+                    applyLiveSnapshotGuess();
+                    updateLiveReplayPanelUIGuess();
+                } else if (snapBoard) {
+                    board = snapBoard;
+                    lastMoveMarkers = snapMarkers;
+                }
+                psBindings.replayMode = replayMode;
+                psBindings.liveViewStep = liveViewStep;
+            } else {
+                slider.max = replayTotalSteps;
+                setReplayStep(tryPlayBaseStep);
+            }
             updateReplayUI();
             updateTurn();
             psBindings.tryPlayMode = tryPlayMode;
@@ -1061,7 +1123,7 @@ syncState,
 
         function tryPlayMove(row, col) {
             if (board[row][col] !== 0 || gameOver) return;
-            const playerVal = tryPlayCurrentPlayer === 'black' ? 1 : 2;
+            const playerVal = tryPlayCurrentPlayer === 'player1' ? 1 : 2;
             board[row][col] = playerVal;
             lastMoveMarkers = [{ row, col, color: playerVal }];
             if (tryPlayStep < tryPlayTotalSteps) {
@@ -1082,13 +1144,39 @@ syncState,
             winner = win;
             tryPlayTotalSteps = tryPlayBoards.length - 1;
             tryPlayStep = tryPlayTotalSteps;
-            tryPlayCurrentPlayer = tryPlayCurrentPlayer === 'black' ? 'white' : 'black';
+            tryPlayCurrentPlayer = tryPlayCurrentPlayer === 'player1' ? 'white' : 'black';
             const slider = document.getElementById('replaySlider');
             slider.max = tryPlayTotalSteps;
             slider.value = tryPlayStep;
             updateTryPlayDisplay();
             updateTurn();
             drawBoard();
+        }
+
+        /** 试下：虚着一手（棋盘不变、本步无落子标记），供公共的「虚着」按钮调用 */
+        function tryPlayPass() {
+            if (!tryPlayMode) return false;
+            if (tryPlayStep < tryPlayTotalSteps) {
+                tryPlayBoards.length = tryPlayStep + 1;
+                tryPlayMarkers.length = tryPlayStep + 1;
+                tryPlayMeta.length = tryPlayStep + 1;
+            }
+            tryPlayBoards.push(deepCopyBoard(board));
+            tryPlayMarkers.push([]);
+            // 虚着不改变局面状态（含猜点阶段机）：按步元数据原样复制上一步
+            tryPlayMeta.push({ ...tryPlayMeta[tryPlayStep] });
+            tryPlayTotalSteps = tryPlayBoards.length - 1;
+            tryPlayStep = tryPlayTotalSteps;
+            tryPlayCurrentPlayer = tryPlayCurrentPlayer === 'player1' ? 'white' : 'black';
+            // 本步无落子：与 setTryPlayStep 落到该步时的效果一致
+            lastMoveMarkers = [];
+            const slider = document.getElementById('replaySlider');
+            slider.max = tryPlayTotalSteps;
+            slider.value = tryPlayStep;
+            updateTryPlayDisplay();
+            updateTurn();
+            drawBoard();
+            return true;
         }
 
         function setTryPlayStep(step) {
@@ -1103,7 +1191,7 @@ syncState,
             winner = meta.winner;
             const baseSnap = replaySnapshots[tryPlayBaseStep];
             const startPl = (baseSnap && !baseSnap.gameOver && baseSnap.currentPlayer) ? baseSnap.currentPlayer : 'black';
-            tryPlayCurrentPlayer = step % 2 === 0 ? startPl : (startPl === 'black' ? 'white' : 'black');
+            tryPlayCurrentPlayer = step % 2 === 0 ? startPl : (startPl === 'player1' ? 'white' : 'black');
             document.getElementById('replaySlider').value = step;
             updateTryPlayDisplay();
             updateTurn();
@@ -1114,13 +1202,18 @@ syncState,
         function updateTryPlayDisplay() {
             if (tryPlayMode) {
                 document.getElementById('replayStepDisplay').innerText = `试下 ${tryPlayStep} / ${tryPlayTotalSteps}`;
-                const emoji = tryPlayCurrentPlayer === 'black' ? '⚫' : '⚪';
+                const emoji = tryPlayCurrentPlayer === 'player1' ? '⚫' : '⚪';
                 turnDisplay.innerText = `${emoji} 试下`;
             }
         }
 
 
         // 坐标转换
+        /** 棋盘行号 → 画布 y：row 0 在下方（与落子、格线、猜点候选一致） */
+        function rowToY(row, cellSize) {
+            return PADDING + (BOARD_SIZE - 1 - row) * cellSize;
+        }
+
         function getClosestIntersection(x, y) {
             return QiSquareWeiqiCanvas.getClosestIntersection(x, y, BOARD_SIZE, PADDING, CELL_SIZE);
         }

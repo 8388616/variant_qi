@@ -65,8 +65,8 @@ const R = (function () {
 
     function sideColorChar(side) { return side === 'red' ? 'r' : 'b'; }
     function oppositeSide(side) { return side === 'red' ? 'black' : 'red'; }
-    function sideFromSlot(slot) { return slot === 'black' ? 'red' : 'black'; }
-    function slotFromSide(side) { return side === 'red' ? 'black' : 'white'; }
+    function sideFromSlot(slot) { return slot === 'player1' ? 'red' : 'black'; }
+    function slotFromSide(side) { return side === 'red' ? 'player1' : 'player2'; }
     function inBounds(row, col) {
         return row >= 0 && row < BOARD_H && col >= 0 && col < BOARD_W;
     }
@@ -452,7 +452,7 @@ class SimulatedShogiRoom extends QiTwoPlayerRoomBase {
                 this._stopClockTicker();
                 this.gameOver = true;
                 this.winner = winnerSlot;
-                this.recordResultText = lostSlot === 'black' ? '红超时黑胜' : '黑超时红胜';
+                this.recordResultText = lostSlot === 'player1' ? '红超时黑胜' : '黑超时红胜';
                 this.broadcast({ type: 'broadcast', action: 'timeLoss', player: lostSlot, winner: winnerSlot, ...this.getState() });
                 return;
             }
@@ -461,21 +461,21 @@ class SimulatedShogiRoom extends QiTwoPlayerRoomBase {
     }
 
     _firstPickerSlot() {
-        const tb = this.slotJoinedAt.black;
-        const tw = this.slotJoinedAt.white;
-        if (tb == null || tw == null) return 'black';
-        return tb <= tw ? 'black' : 'white';
+        const tb = this.slotJoinedAt.player1;
+        const tw = this.slotJoinedAt.player2;
+        if (tb == null || tw == null) return 'player1';
+        return tb <= tw ? 'player1' : 'player2';
     }
 
     _maybeBeginTimeNegotiation() {
         if (this.getMoveCount() > 0 || this.gameOver) return;
-        if (!this.room.getPlayerBySlot('black') || !this.room.getPlayerBySlot('white')) return;
+        if (!this.room.getPlayerBySlot('player1') || !this.room.getPlayerBySlot('player2')) return;
         if (this.tcNego || this.tcSettings) return;
         const first = this._firstPickerSlot();
         this.tcNego = { phase: 'propose', proposal: null, waitingSlot: first };
         const ws = this.room.getPlayerBySlot(first);
         if (ws) ws.send(JSON.stringify({ type: 'timeControlNegotiation', mode: 'propose' }));
-        const other = first === 'black' ? 'white' : 'black';
+        const other = first === 'player1' ? 'player2' : 'player1';
         const ws2 = this.room.getPlayerBySlot(other);
         if (ws2) ws2.send(JSON.stringify({ type: 'timeControlWaitPeer', text: '对方正在选择限时规则…' }));
     }
@@ -496,7 +496,7 @@ class SimulatedShogiRoom extends QiTwoPlayerRoomBase {
         if (slot !== this.tcNego.waitingSlot) return;
         this.tcNego.proposal = v;
         this.tcNego.phase = 'respond';
-        const other = slot === 'black' ? 'white' : 'black';
+        const other = slot === 'player1' ? 'player2' : 'player1';
         this.tcNego.waitingSlot = other;
         ws.send(JSON.stringify({ type: 'timeControlWaitPeer', text: '正在等对方确认' }));
         const otherWs = this.room.getPlayerBySlot(other);
@@ -549,7 +549,7 @@ class SimulatedShogiRoom extends QiTwoPlayerRoomBase {
             this._stopClockTicker();
             this.gameOver = true;
             this.winner = winnerSlot;
-            this.recordResultText = lostSlot === 'black' ? '红超时黑胜' : '黑超时红胜';
+            this.recordResultText = lostSlot === 'player1' ? '红超时黑胜' : '黑超时红胜';
             this.broadcast({ type: 'broadcast', action: 'timeLoss', player: lostSlot, winner: winnerSlot, ...this.getState() });
             return false;
         }
@@ -593,8 +593,8 @@ class SimulatedShogiRoom extends QiTwoPlayerRoomBase {
             matchStarted: this.matchStarted,
             recordResultText: this.recordResultText,
             slots: {
-                black: !!this.room.getPlayerBySlot('black'),
-                white: !!this.room.getPlayerBySlot('white')
+                player1: !!this.room.getPlayerBySlot('player1'),
+                player2: !!this.room.getPlayerBySlot('player2')
             }
         };
     }
@@ -613,9 +613,9 @@ class SimulatedShogiRoom extends QiTwoPlayerRoomBase {
             boardCols: R.BOARD_W,
             moves: this.moveHistory.map((m) => {
                 if (m.kind === 'drop') {
-                    return `${m.player[0].toUpperCase()}D${m.pieceType}${m.toRow},${m.toCol}`;
+                    return `${(m.player === 'player1' ? 'R' : 'B')}D${m.pieceType}${m.toRow},${m.toCol}`;
                 }
-                let s = `${m.player[0].toUpperCase()}${m.fromRow},${m.fromCol}-${m.toRow},${m.toCol}`;
+                let s = `${(m.player === 'player1' ? 'R' : 'B')}${m.fromRow},${m.fromCol}-${m.toRow},${m.toCol}`;
                 if (m.promote) s += '+';
                 return s;
             }),
@@ -648,7 +648,7 @@ class SimulatedShogiRoom extends QiTwoPlayerRoomBase {
         this.pendingNewGame = null;
         this.pendingUndo = null;
         this.pendingDraw = null;
-        this.slotJoinedAt = { black: null, white: null };
+        this.slotJoinedAt = { player1: null, player2: null };
         this.tcNego = null;
         this.tcSettings = null;
         this.tcClock = null;
@@ -744,10 +744,10 @@ class SimulatedShogiRoom extends QiTwoPlayerRoomBase {
             const entry = rawMoves[i];
             let r;
             if (typeof entry === 'string') {
-                const drop = entry.match(/^([BW])D([rbgslnp])(\d+),(\d+)$/i);
-                const mov = entry.match(/^([BW])(\d+),(\d+)-(\d+),(\d+)(\+)?$/i);
+                const drop = entry.match(/^([RB])D([rbgslnp])(\d+),(\d+)$/i);
+                const mov = entry.match(/^([RB])(\d+),(\d+)-(\d+),(\d+)(\+)?$/i);
                 if (drop) {
-                    const player = drop[1].toUpperCase() === 'B' ? 'black' : 'white';
+                    const player = drop[1].toUpperCase() === 'R' ? 'player1' : 'player2';
                     if (player !== R.slotFromSide(this.sideToMove)) {
                         this.resetToEmpty();
                         requesterWs.send(JSON.stringify({ type: 'error', message: `棋谱回放失败：第${i + 1}手行棋方不符。` }));
@@ -756,7 +756,7 @@ class SimulatedShogiRoom extends QiTwoPlayerRoomBase {
                     }
                     r = this._applyDropCore(drop[2].toLowerCase(), +drop[3], +drop[4], player);
                 } else if (mov) {
-                    const player = mov[1].toUpperCase() === 'B' ? 'black' : 'white';
+                    const player = mov[1].toUpperCase() === 'R' ? 'player1' : 'player2';
                     if (player !== R.slotFromSide(this.sideToMove)) {
                         this.resetToEmpty();
                         requesterWs.send(JSON.stringify({ type: 'error', message: `棋谱回放失败：第${i + 1}手行棋方不符。` }));
@@ -795,6 +795,11 @@ class SimulatedShogiRoom extends QiTwoPlayerRoomBase {
         });
     }
 
+    /** 聊天里显示的执方名：本棋种是「红方 / 黑方」，不是黑/白 */
+    getChatSideLabel(slot) {
+        return slot === 'player1' ? '红方' : (slot === 'player2' ? '黑方' : String(slot));
+    }
+
     handleMessage(ws, msg) {
         const slot = this.room.getSlotByWs(ws);
         switch (msg.type) {
@@ -828,7 +833,7 @@ class SimulatedShogiRoom extends QiTwoPlayerRoomBase {
             }
             case 'requestUndo': {
                 if (!slot || this.gameOver || this.moveHistory.length === 0) return;
-                const opp = slot === 'black' ? 'white' : 'black';
+                const opp = slot === 'player1' ? 'player2' : 'player1';
                 const oppWs = this.room.getPlayerBySlot(opp);
                 if (!oppWs) {
                     this._undoOne();
@@ -854,7 +859,7 @@ class SimulatedShogiRoom extends QiTwoPlayerRoomBase {
             case 'resign':
                 qiProtocol.resign(this, ws, slot);
                 if (this.gameOver && slot) {
-                    this.recordResultText = slot === 'black' ? '红认输黑胜' : '黑认输红胜';
+                    this.recordResultText = slot === 'player1' ? '红认输黑胜' : '黑认输红胜';
                     this._stopClockTicker();
                 }
                 break;
@@ -903,7 +908,7 @@ class SimulatedShogiRoom extends QiTwoPlayerRoomBase {
             this.room.observers.add(client);
             client.send(JSON.stringify({ type: 'slotReleased', slot: s }));
         }
-        this.broadcast({ type: 'newGameStarted', ...this.getState(), slots: { black: false, white: false } });
+        this.broadcast({ type: 'newGameStarted', ...this.getState(), slots: { player1: false, player2: false } });
     }
 
     onPlayerLeave(ws) {

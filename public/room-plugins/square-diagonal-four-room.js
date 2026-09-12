@@ -48,7 +48,7 @@ const ps = {
             iRejected: false,
             ws: null,
             isMyTurn: false,
-            slots: { black: false, white: false },
+            slots: { player1: false, player2: false },
             reconnectTimer: null,
             replayMode: false,
             replayBoards: [],
@@ -161,7 +161,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                     const moves = data.moves || [];
                     const raw = moves[i - 1];
                     const parsed = QiWeiqiSquarePageRuntime.parseWuziqiRecordMoveEntry(raw);
-                    if (parsed) return parsed.player === 'black' ? 1 : 2;
+                    if (parsed) return parsed.player === 'player1' ? 1 : 2;
                     return i % 2 === 1 ? 1 : 2;
                 });
                 ps.replayTotalSteps = ps.replayBoards.length - 1;
@@ -196,10 +196,10 @@ const scoreTitle = document.getElementById('scoreTitle');
                 );
                 if (outcome === 'lose') {
                     ps.gameOver = true;
-                    ps.winner = playerVal === 1 ? 'white' : 'black';
+                    ps.winner = playerVal === 1 ? 'player2' : 'player1';
                 } else if (outcome === 'win') {
                     ps.gameOver = true;
-                    ps.winner = playerVal === 1 ? 'black' : 'white';
+                    ps.winner = playerVal === 1 ? 'player1' : 'player2';
                 }
                 const slider = document.getElementById('replaySlider');
                 slider.max = ps.tryPlayTotalSteps;

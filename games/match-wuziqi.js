@@ -26,13 +26,13 @@ class MatchWuziqiRoom extends QiTwoPlayerRoomBase {
         this.pendingUndo = null;
         this.pendingDraw = null;
         this.matchStarted = false;
-        this.slotJoinedAt = { black: null, white: null };
+        this.slotJoinedAt = { player1: null, player2: null };
         this.tcNego = null;
         this.tcSettings = null;
         this.tcClock = null;
         this._clockInterval = null;
     }
-    getCurrentSlot() { return this.currentPlayer === 1 ? 'black' : 'white'; }
+    getCurrentSlot() { return this.currentPlayer === 1 ? 'player1' : 'player2'; }
     getOpponentVal(v) { return v === 1 ? 2 : 1; }
 
     _stopClockTicker() {
@@ -68,20 +68,20 @@ class MatchWuziqiRoom extends QiTwoPlayerRoomBase {
     }
 
     _firstPickerSlot() {
-        const tb = this.slotJoinedAt.black;
-        const tw = this.slotJoinedAt.white;
-        if (tb == null || tw == null) return 'black';
-        return tb <= tw ? 'black' : 'white';
+        const tb = this.slotJoinedAt.player1;
+        const tw = this.slotJoinedAt.player2;
+        if (tb == null || tw == null) return 'player1';
+        return tb <= tw ? 'player1' : 'player2';
     }
 
     _maybeBeginTimeNegotiation() {
         if (this.moveHistory.length > 0 || this.gameOver) return;
-        if (!this.room.getPlayerBySlot('black') || !this.room.getPlayerBySlot('white')) return;
+        if (!this.room.getPlayerBySlot('player1') || !this.room.getPlayerBySlot('player2')) return;
         if (this.tcNego !== null || this.tcSettings !== null) return;
         const first = this._firstPickerSlot();
         this.tcNego = { phase: 'propose', proposal: null, waitingSlot: first, lastProposerSlot: null };
         const ws1 = this.room.getPlayerBySlot(first);
-        const other = first === 'black' ? 'white' : 'black';
+        const other = first === 'player1' ? 'player2' : 'player1';
         const ws2 = this.room.getPlayerBySlot(other);
         if (ws1) ws1.send(JSON.stringify({ type: 'timeControlNegotiation', mode: 'propose' }));
         if (ws2) ws2.send(JSON.stringify({ type: 'timeControlWaitPeer', text: '对方正在选择限时规则…' }));
@@ -122,7 +122,7 @@ class MatchWuziqiRoom extends QiTwoPlayerRoomBase {
         this.tcNego.proposal = v;
         this.tcNego.lastProposerSlot = slot;
         this.tcNego.phase = 'respond';
-        const other = slot === 'black' ? 'white' : 'black';
+        const other = slot === 'player1' ? 'player2' : 'player1';
         this.tcNego.waitingSlot = other;
         const selfWs = this.room.getPlayerBySlot(slot);
         const peerWs = this.room.getPlayerBySlot(other);
@@ -188,7 +188,7 @@ class MatchWuziqiRoom extends QiTwoPlayerRoomBase {
     }
 
     afterColorAssigned(_ws, slot) {
-        if (slot === 'black' || slot === 'white') this.slotJoinedAt[slot] = Date.now();
+        if (slot === 'player1' || slot === 'player2') this.slotJoinedAt[slot] = Date.now();
         this._maybeBeginTimeNegotiation();
     }
 
@@ -197,10 +197,10 @@ class MatchWuziqiRoom extends QiTwoPlayerRoomBase {
         if (this.gameOver) return;
         if (this.blackScore >= MATCH_BLACK_WIN_SCORE) {
             this.gameOver = true;
-            this.winner = 'black';
+            this.winner = 'player1';
         } else if (this.whiteScore >= MATCH_WHITE_WIN_SCORE) {
             this.gameOver = true;
-            this.winner = 'white';
+            this.winner = 'player2';
         }
     }
 
@@ -309,8 +309,8 @@ class MatchWuziqiRoom extends QiTwoPlayerRoomBase {
             moves: this.recordMoves.slice(),
             moveHistory: this.moveHistory.map(m => ({ player: m.player, row: m.row, col: m.col })),
             slots: {
-                black: !!this.room.getPlayerBySlot('black'),
-                white: !!this.room.getPlayerBySlot('white')
+                player1: !!this.room.getPlayerBySlot('player1'),
+                player2: !!this.room.getPlayerBySlot('player2')
             }
         };
     }
@@ -320,13 +320,13 @@ class MatchWuziqiRoom extends QiTwoPlayerRoomBase {
     }
 
     /**
-     * @returns {{ player: 'black'|'white', place: {row:number,col:number}, remove: {row:number,col:number}|null }|null}
+     * @returns {{ player: 'player1'|'player2', place: {row:number,col:number}, remove: {row:number,col:number}|null }|null}
      */
     parseMoveRecordString(s) {
         if (typeof s !== 'string' || s.length < 3) return null;
         const ch = s[0];
         if (ch !== 'B' && ch !== 'W') return null;
-        const player = ch === 'B' ? 'black' : 'white';
+        const player = ch === 'B' ? 'player1' : 'player2';
         const parts = s.substring(1).split(',').map(Number);
         if (parts.length !== 2 && parts.length !== 4) return null;
         if (!parts.every(x => Number.isFinite(x))) return null;
@@ -384,7 +384,7 @@ class MatchWuziqiRoom extends QiTwoPlayerRoomBase {
             return false;
         }
         const hasAnyStone = this.board.some(row => row.some(v => v !== 0));
-        const hasPlayer = this.room.getPlayerBySlot('black') || this.room.getPlayerBySlot('white');
+        const hasPlayer = this.room.getPlayerBySlot('player1') || this.room.getPlayerBySlot('player2');
         if (hasAnyStone || hasPlayer) {
             requesterWs.send(JSON.stringify({ type: 'error', message: '已有棋子或玩家，不能改变路数。' }));
             return false;
@@ -444,13 +444,13 @@ class MatchWuziqiRoom extends QiTwoPlayerRoomBase {
                 return;
             }
 
-            const playerVal = player === 'black' ? 1 : 2;
+            const playerVal = player === 'player1' ? 1 : 2;
             this.board[row][col] = playerVal;
             this.lastMoveMarkers = [{ row, col, color: playerVal }];
             this.moveHistory.push({ player, row, col });
 
             const { gain, removed } = this.resolveScoringAfterPlacement(row, col, playerVal);
-            if (player === 'black') this.blackScore += gain;
+            if (player === 'player1') this.blackScore += gain;
             else this.whiteScore += gain;
             this.recentClearedStones = removed;
             this.recentClearedOwner = removed.length > 0 ? player : null;
@@ -605,13 +605,13 @@ class MatchWuziqiRoom extends QiTwoPlayerRoomBase {
                 this.moveHistory.push({ player: slot, row, col });
 
                 const { gain, removed } = this.resolveScoringAfterPlacement(row, col, playerVal);
-                if (slot === 'black') this.blackScore += gain;
+                if (slot === 'player1') this.blackScore += gain;
                 else this.whiteScore += gain;
                 this.recentClearedStones = removed;
                 this.recentClearedOwner = removed.length > 0 ? slot : null;
 
                 const pushPlaceOnly = () => {
-                    this.recordMoves.push(`${slot === 'black' ? 'B' : 'W'}${row},${col}`);
+                    this.recordMoves.push(`${slot === 'player1' ? 'B' : 'W'}${row},${col}`);
                 };
 
                 const beforeSlot = this.getCurrentSlot();
@@ -658,7 +658,7 @@ class MatchWuziqiRoom extends QiTwoPlayerRoomBase {
                 const row = msg.row;
                 const col = msg.col;
                 if (row < 0 || row >= this.BOARD_SIZE || col < 0 || col >= this.BOARD_SIZE) return;
-                const playerVal = slot === 'black' ? 1 : 2;
+                const playerVal = slot === 'player1' ? 1 : 2;
                 const opponentVal = this.getOpponentVal(playerVal);
                 if (this.board[row][col] !== opponentVal) return;
 
@@ -668,7 +668,7 @@ class MatchWuziqiRoom extends QiTwoPlayerRoomBase {
 
                 if (this.pendingRemoval.remaining <= 0) {
                     const pl = this.moveHistory[this.pendingRemoval.hand - 1];
-                    this.recordMoves.push(`${pl.player === 'black' ? 'B' : 'W'}${pl.row},${pl.col},${row},${col}`);
+                    this.recordMoves.push(`${pl.player === 'player1' ? 'B' : 'W'}${pl.row},${pl.col},${row},${col}`);
                     this.pendingRemoval = null;
                 }
                 this._broadcastClock();
@@ -736,7 +736,7 @@ class MatchWuziqiRoom extends QiTwoPlayerRoomBase {
             this.room.observers.add(client);
             client.send(JSON.stringify({ type: 'slotReleased', slot }));
         }
-        this.broadcast({ type: 'newGameStarted', ...this.getState(), slots: { black: false, white: false } });
+        this.broadcast({ type: 'newGameStarted', ...this.getState(), slots: { player1: false, player2: false } });
     }
 
     onPlayerLeave(ws) {
