@@ -2,7 +2,7 @@ window.RoomPlugins = window.RoomPlugins || {};
 window.RoomPlugins["weight-weiqi"] = {
     shell: {
         "title": "权重围棋",
-        "rulesHtml": "基本规则同围棋。<br /><br />每个格被随机赋予 1~格点总数 的不重复权重。<br /><br />请在格中落子。<br />",
+        "rulesHtml": "基本规则同围棋。<br /><br />每个格有不同的权重，在数点时算作对应的点数。<br /><br />请在格中落子。<br />",
         "defaultKomiText": "黑贴白1048点",
         "boardSizeMin": 7,
         "boardSizeMax": 21,
@@ -239,10 +239,15 @@ const scoreTitle = document.getElementById('scoreTitle');
             }
 
             const totalCells = boardSize * boardSize;
-            const highWeightThresh = Math.floor(totalCells * 0.75);
+            // 高权重格着色:默认涂最高的 ceil(N²/4) 格(权重/角重);心重涂 floor(N²/4) 格。
+            // 阈值 = N² − 涂色格数,判 > 阈值。池子子类(二/三权重)走各自分支,不受此影响。
+            const shadedCount = currentSubGame === 'center-focused-weiqi'
+                ? Math.floor(totalCells / 4)
+                : Math.ceil(totalCells / 4);
+            const highWeightThresh = totalCells - shadedCount;
             if (!ps.showEstimateActive) {
-                if (currentSubGame === 'weight-weiqi') {
-                    // weight-weiqi(1..N² 排列):高权重格(前 25%)着色
+                if (WEIGHT_ARRANGEMENTS.includes(currentSubGame)) {
+                    // 排列型(权重/角重/心重,1..N²):高权重格着色(张数见 shadedCount)
                     for (let r = 0; r < boardSize; r++) {
                         for (let c = 0; c < boardSize; c++) {
                             if (safeWeightAt(weights, r, c) > highWeightThresh) {
@@ -251,7 +256,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                             }
                         }
                     }
-                } 
+                }
 				else if (currentSubGame === 'biweight-weiqi' || currentSubGame === 'triweight-weiqi')
 				{
                     const wc = { 2: 'rgba(224, 128, 96, 0.8)', 3: 'rgba(192, 48, 32, 0.8)'};
@@ -265,32 +270,6 @@ const scoreTitle = document.getElementById('scoreTitle');
                         }
                     }
                 }
-				else if (currentSubGame === 'quadriweight-weiqi')
-				{
-					const wc = { 2: 'rgba(160, 224, 128, 0.8)', 3: 'rgba(80, 192, 80, 0.8)', 4: 'rgba(16, 128, 32, 0.8)' };
-					for (let r = 0; r < boardSize; r++) {
-						for (let c = 0; c < boardSize; c++) {
-							const w = safeWeightAt(weights, r, c);
-							if (w >= 2 && w <= 4) {
-								ctx.fillStyle = wc[w];
-								ctx.fillRect(1 + PADDING + c * CELL_SIZE, 1 + PADDING + (boardSize - 1 - r) * CELL_SIZE, CELL_SIZE - 2, CELL_SIZE - 2);
-							}
-						}
-					}
-				}
-				else if (currentSubGame === 'quintiweight-weiqi')
-				{
-					const wc = { 2: 'rgba(144, 176, 240, 0.8)', 3: 'rgba(96, 128, 208, 0.8)', 4: 'rgba(32, 64, 160, 0.8)', 5: 'rgba(0, 16, 128, 0.8)' };
-					for (let r = 0; r < boardSize; r++) {
-						for (let c = 0; c < boardSize; c++) {
-							const w = safeWeightAt(weights, r, c);
-							if (w >= 2 && w <= 5) {
-								ctx.fillStyle = wc[w];
-								ctx.fillRect(1 + PADDING + c * CELL_SIZE, 1 + PADDING + (boardSize - 1 - r) * CELL_SIZE, CELL_SIZE - 2, CELL_SIZE - 2);
-							}
-						}
-					}
-				}
             }
 
             if (ps.showEstimateActive && ps.cachedLiveBoard && ps.cachedTerritory) {
@@ -378,9 +357,9 @@ const scoreTitle = document.getElementById('scoreTitle');
                 }
             }
 
-            // 权重数字:仅 weight-weiqi(1..N² 排列)子类显示;
-            // 池子子类(二/三/四/五权重)与原三权重一致:格子只有颜色填充,不画数字
-            if (!ps.showMoveNumbers && currentSubGame === 'weight-weiqi') {
+            // 权重数字:排列型(权重/角重/心重,1..N²)逐格显示;
+            // 池子子类(二/三权重):格子只有颜色填充,不画数字
+            if (!ps.showMoveNumbers && WEIGHT_ARRANGEMENTS.includes(currentSubGame)) {
                 for (let r = 0; r < boardSize; r++) {
                     for (let c = 0; c < boardSize; c++) {
                         const val = board[r][c];
@@ -507,17 +486,17 @@ const scoreTitle = document.getElementById('scoreTitle');
             colorStatus
         };
 
-        // 权重围棋家族(主棋类 weight-weiqi,subGameId 区分五个子棋类):
-        // weight-weiqi:1..N² 不重复排列;其余:每点按权重池独立随机;贴目固定。
+        // 权重围棋家族(主棋类 weight-weiqi,subGameId 区分子棋类):
+        // weight-weiqi:1..N² 随机排列;角重/心重:1..N² 固定排布;二/三权重:每点按权重池独立随机。
+        // 贴目:排列型用原公式,池子子类用固定值。
+        const WEIGHT_SUB_GAMES = ['weight-weiqi', 'biweight-weiqi', 'triweight-weiqi', 'corner-focused-weiqi', 'center-focused-weiqi'];
+        const WEIGHT_ARRANGEMENTS = ['weight-weiqi', 'corner-focused-weiqi', 'center-focused-weiqi'];   // 逐格显示权重数字(1..N²)的排布型
         const WEIGHT_SUB_POOLS = {
             'biweight-weiqi': [1, 1, 2],
-            'triweight-weiqi': [1, 1, 1, 1, 2, 2, 3],
-            'quadriweight-weiqi': [1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 4],
-            'quintiweight-weiqi': [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 5]
+            'triweight-weiqi': [1, 1, 1, 1, 2, 2, 3]
         };
         const WEIGHT_FIXED_KOMI = {
-            'biweight-weiqi': 5.25, 'triweight-weiqi': 6.25,
-            'quadriweight-weiqi': 6.75, 'quintiweight-weiqi': 7.25
+            'biweight-weiqi': 5.25, 'triweight-weiqi': 6.25
         };
         let currentSubGame = 'weight-weiqi';
         // 计分总点数(weight-weiqi 排列的闭式,Σ1..N²)
@@ -541,8 +520,36 @@ const scoreTitle = document.getElementById('scoreTitle');
             if (f != null) return f;
             return Math.floor(0.008 * (1 + n * n) * n * n);
         }
+        // 固定排布(角重/心重):与服务器 generateFixedWeights 一致——先按屏幕方向排,
+        // 再换算到站点坐标(row 0 = 屏幕最下面一行)
+        function genFixedWeightsLocal(n, kind) {
+            const disp = Array.from({ length: n }, () => new Array(n).fill(0));
+            if (kind === 'corner') {
+                const cells = [];
+                for (let dr = 0; dr < n; dr++) for (let dc = 0; dc < n; dc++) cells.push([dr, dc]);
+                cells.sort((a, b) => (a[0] + a[1]) - (b[0] + b[1]) || a[0] - b[0]);
+                cells.forEach(([dr, dc], k) => { disp[dr][dc] = k + 1; });
+            } else {
+                let top = 0, bottom = n - 1, left = 0, right = n - 1, k = 1;
+                while (top <= bottom && left <= right) {
+                    for (let dc = left; dc <= right; dc++) disp[top][dc] = k++;
+                    top++;
+                    for (let dr = top; dr <= bottom; dr++) disp[dr][right] = k++;
+                    right--;
+                    if (top <= bottom) { for (let dc = right; dc >= left; dc--) disp[bottom][dc] = k++; bottom--; }
+                    if (left <= right) { for (let dr = bottom; dr >= top; dr--) disp[dr][left] = k++; left++; }
+                }
+            }
+            const out = Array.from({ length: n }, () => new Array(n).fill(0));
+            for (let dr = 0; dr < n; dr++) {
+                for (let dc = 0; dc < n; dc++) out[n - 1 - dr][dc] = disp[dr][dc];
+            }
+            return out;
+        }
         // 本地生成权重(乐观切换用,与服务器一致)
         function genWeightsLocal(n) {
+            if (currentSubGame === 'corner-focused-weiqi') return genFixedWeightsLocal(n, 'corner');
+            if (currentSubGame === 'center-focused-weiqi') return genFixedWeightsLocal(n, 'center');
             const pool = WEIGHT_SUB_POOLS[currentSubGame];
             const out = Array.from({ length: n }, () => new Array(n).fill(0));
             if (!pool) {
@@ -629,8 +636,7 @@ const page = QiWeiqiSquarePageRuntime.create(ps, domPage, {
 
         function applyWeightSyncExtras(state) {
             const n = ps.BOARD_SIZE;
-            if (state && WEIGHT_SUB_POOLS[state.subGameId] !== undefined) currentSubGame = state.subGameId;
-            else if (state && state.subGameId === 'weight-weiqi') currentSubGame = 'weight-weiqi';
+            if (state && WEIGHT_SUB_GAMES.includes(state.subGameId)) currentSubGame = state.subGameId;
             ps.weights = normalizeWeightMatrix(state.weights || ps.weights, n);
             if (state && typeof state.komi === 'number' && Number.isFinite(state.komi)) ps.KOMI = state.komi;
             else ps.KOMI = weightKomiForSize(n);
@@ -803,7 +809,7 @@ syncState,
             }
             _weiqiBindings.handleMessage(msg);
             if (msg && msg.type === 'subGameChanged') {
-                if (WEIGHT_SUB_POOLS[msg.subGameId] !== undefined) currentSubGame = msg.subGameId;
+                if (WEIGHT_SUB_GAMES.includes(msg.subGameId)) currentSubGame = msg.subGameId;
                 const n = ps.BOARD_SIZE;
                 ps.weights = normalizeWeightMatrix(msg.weights || ps.weights, n);
                 if (typeof msg.komi === 'number' && Number.isFinite(msg.komi)) ps.KOMI = msg.komi;
@@ -965,7 +971,7 @@ syncState,
                 ps.waitingScoreConfirm = false;
             };
         }
-        // 子棋类选择器(权重围棋/二/三/四/五权重围棋)
+        // 子棋类选择器(权重/二权重/三权重/角重/心重围棋)
         const subGameSelectEl = document.getElementById('subGameSelect');
         if (subGameSelectEl) {
             subGameSelectEl.innerHTML = '';
@@ -973,8 +979,8 @@ syncState,
                 { value: 'weight-weiqi', label: '权重' },
                 { value: 'biweight-weiqi', label: '二权重' },
                 { value: 'triweight-weiqi', label: '三权重' },
-                { value: 'quadriweight-weiqi', label: '四权重' },
-                { value: 'quintiweight-weiqi', label: '五权重' }
+                { value: 'corner-focused-weiqi', label: '角重' },
+                { value: 'center-focused-weiqi', label: '心重' }
             ];
             for (const o of subOpts) {
                 const opt = document.createElement('option');

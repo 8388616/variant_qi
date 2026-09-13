@@ -1180,18 +1180,18 @@ const scoreTitle = document.getElementById('scoreTitle');
                 const labelY = (rr) => TOP_Y + rr * DY;
                 for (let c = 0; c < rowLen(0); c++) {
                     let { x } = coordToPixel(0, c);
-                    x += labelOff * 0.5;
-                    ctx.fillText(LETTERS[c], x, labelY(0) - labelOff);
+                    ctx.fillText(LETTERS[c], x + labelOff * 0.5, labelY(0) - 0.7 * labelOff);
                 }
+                // 左上数字、左下希腊字母：位置不变，仅取值反序（自上而下递减 = 自下而上递增）
                 for (let r = 0; r <= RH; r++) {
                     let { x } = coordToPixel(r, 0);
                     x -= labelOff * 0.6;
-                    ctx.fillText(String(r + 1), x, labelY(r) - labelDy);
+                    ctx.fillText(String(RH + 1 - r), x, labelY(r) - labelDy);
                 }
                 for (let r = RH; r < ROWS; r++) {
                     let { x } = coordToPixel(r, 0);
                     x -= labelOff * 0.6;
-                    ctx.fillText(GREEK[r - RH] || String(r + 1), x, labelY(r) + labelDy);
+                    ctx.fillText(GREEK[ROWS - 1 - r] || String(ROWS - r), x, labelY(r) + labelDy);
                 }
             } else {
                 // 三角：木质外框

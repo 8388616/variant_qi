@@ -91,7 +91,9 @@ function isKatagoAvailable(gameId) {
 }
 
 /** 非方形棋盘（如开罗五角围棋）时 boardHeight 为行数；缺省与 boardSize（宽）相同。
- *  坐标约定：row=0 为棋盘顶部（GTP 行号 = 路数，即 A19） */
+ *  坐标约定：row=0 为棋盘最低行（界面自下而上编号 1..N）。
+ *  映射到 GTP 行号 = 路数 − row，即 row 0 → A19：站点行号与 GTP 行号方向相反，
+ *  整盘是一致地垂直翻转；发盘面（本函数）与回读着法（fromGtpVertex）都走这一映射，收发对称。 */
 function toGtpVertex(row, col, boardSize, boardHeight) {
     if (row == null || col == null) return 'pass';
     const h = boardHeight || boardSize;
@@ -463,7 +465,7 @@ class KatagoGtpSession {
      *   黑/白 → B / W
      *   洞/桥/雷/中立子 → -1 / -2 / -3 / 10000（与 games 盘面 id 一致）
      * 例：set_position B D4 W Q16 -1 A1 10000 C3
-     * @param {{ boardSize: number, komi: number, board: number[][], gameId?: string, maxTranslocationMoves?: number }} opts
+     * @param {{ boardSize: number, komi: number, board: number[][], gameId?: string, maxTranslocationMoves?: number, weights?: number[][] }} opts
      */
     async setupGame(opts) {
         const boardWidth = (opts.boardWidth | 0) || (opts.boardSize | 0);
@@ -498,6 +500,27 @@ class KatagoGtpSession {
         }
         await this.command('clear_board');
         if (Number.isFinite(komi)) await this.command(`komi ${komi}`);
+
+        // 权重围棋：kata-set-weights w0 w1 … w(N-1)——引擎要求盘上无子，故须在 clear_board
+        // 之后、set_position 之前发送。展开顺序与棋子天然一致：站点 row 0 是棋盘最低行，
+        // toGtpVertex 给出 GTP 行号 = 路数 − row，引擎再换算回内部 y = 路数 − 行号 = row，
+        // 即内部 Loc = row*x_size + col；故 weights[row][col] 自 row 0 起逐行拼接即可对上。
+        // 不支持该命令的引擎返回错误，忽略即可。
+        if (Array.isArray(opts.weights)) {
+            const flat = [];
+            for (let r = 0; r < boardHeight; r++) {
+                const row = opts.weights[r];
+                for (let c = 0; c < boardWidth; c++) {
+                    const v = Number(row && row[c]);
+                    flat.push(Number.isFinite(v) ? v : 1);
+                }
+            }
+            if (flat.length === boardWidth * boardHeight) {
+                try {
+                    await this.command(`kata-set-weights ${flat.join(' ')}`);
+                } catch (_) { /* 非权重围棋引擎 / 未实现该命令 */ }
+            }
+        }
 
         const pairs = [];
         if (Array.isArray(board)) {

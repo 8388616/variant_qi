@@ -23,25 +23,20 @@ function normalizeInitialPositionForReplayPayload(initialPosition) {
 }
 
 // 权重围棋家族(主棋类 weight-weiqi):subGameId 区分五个子棋类。
-// weight-weiqi:1..N² 不重复权重(排列);其余:每点独立按权重池随机。
-// 贴目:weight-weiqi 用原公式,其余固定值。
+// weight-weiqi:1..N² 随机排列;角重(corner-focused):1..N² 固定排布,自屏幕左上角沿
+// 反对角线向右下递增,右下角最大;心重(center-focused):1..N² 固定排布,自屏幕左上角
+// 顺时针螺旋,中心最大;二/三权重:每点独立按权重池随机。
+// 贴目:排列型(随机/固定)用原公式,池子子类用固定值。
 const WEIGHT_SUB_GAMES = [
-    'weight-weiqi', 'biweight-weiqi', 'triweight-weiqi', 'quadriweight-weiqi', 'quintiweight-weiqi'
+    'weight-weiqi', 'biweight-weiqi', 'triweight-weiqi', 'corner-focused-weiqi', 'center-focused-weiqi'
 ];
 const WEIGHT_POOLS = {
     'biweight-weiqi': [1, 1, 2],
-    'triweight-weiqi': [1, 1, 1, 1, 2, 2, 3],
-    'quadriweight-weiqi': [1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 4],
-    'quintiweight-weiqi': [
-        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-        2, 2, 2, 2, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 5
-    ]
+    'triweight-weiqi': [1, 1, 1, 1, 2, 2, 3]
 };
 const WEIGHT_FIXED_KOMI = {
     'biweight-weiqi': 5.25,
-    'triweight-weiqi': 6.25,
-    'quadriweight-weiqi': 6.75,
-    'quintiweight-weiqi': 7.25
+    'triweight-weiqi': 6.25
 };
 
 class WeightWeiqiRoom extends QiTwoPlayerRoomBase {
@@ -308,8 +303,43 @@ class WeightWeiqiRoom extends QiTwoPlayerRoomBase {
         return null;
     }
 
-    /** 按子棋类生成权重:weight-weiqi 为 1..N² 不重复排列;其余按权重池逐点独立随机 */
+    /**
+     * 固定排布权重(角重/心重):1..N² 各一次,不随机。
+     * 先在屏幕坐标上生成(disp[0] = 屏幕最上面一行),再换算到站点坐标(row 0 = 屏幕最下面一行),
+     * 保证界面上看到的数字与设计一致。
+     *   corner:按反对角线(dr+dc)自左上角向右下递增,同一条内自上而下
+     *   center:自左上角顺时针螺旋,中心最大
+     */
+    generateFixedWeights(kind) {
+        const n = this.boardSize;
+        const disp = Array.from({ length: n }, () => new Array(n).fill(0));
+        if (kind === 'corner') {
+            const cells = [];
+            for (let dr = 0; dr < n; dr++) for (let dc = 0; dc < n; dc++) cells.push([dr, dc]);
+            cells.sort((a, b) => (a[0] + a[1]) - (b[0] + b[1]) || a[0] - b[0]);
+            cells.forEach(([dr, dc], k) => { disp[dr][dc] = k + 1; });
+        } else {
+            let top = 0, bottom = n - 1, left = 0, right = n - 1, k = 1;
+            while (top <= bottom && left <= right) {
+                for (let dc = left; dc <= right; dc++) disp[top][dc] = k++;
+                top++;
+                for (let dr = top; dr <= bottom; dr++) disp[dr][right] = k++;
+                right--;
+                if (top <= bottom) { for (let dc = right; dc >= left; dc--) disp[bottom][dc] = k++; bottom--; }
+                if (left <= right) { for (let dr = bottom; dr >= top; dr--) disp[dr][left] = k++; left++; }
+            }
+        }
+        const weights = Array.from({ length: n }, () => new Array(n).fill(0));
+        for (let dr = 0; dr < n; dr++) {
+            for (let dc = 0; dc < n; dc++) weights[n - 1 - dr][dc] = disp[dr][dc];
+        }
+        return weights;
+    }
+
+    /** 按子棋类生成权重:排列型(weight-weiqi 随机 / 角重 / 心重)为 1..N² 各一次;其余按权重池逐点独立随机 */
     generateWeights() {
+        if (this.subGameId === 'corner-focused-weiqi') return this.generateFixedWeights('corner');
+        if (this.subGameId === 'center-focused-weiqi') return this.generateFixedWeights('center');
         const pool = WEIGHT_POOLS[this.subGameId];
         const weights = Array(this.boardSize).fill().map(() => Array(this.boardSize).fill(0));
         if (!pool) {

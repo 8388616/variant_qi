@@ -30,6 +30,27 @@ function engineGameId(self) {
     return (self && self._qiKatagoGameId) || (self && self.room && self.room.gameType) || null;
 }
 
+/** 引擎目录 id：**只有**权重围棋家族的四个子棋类（二/三权重、角重、心重）与主棋类
+ *  共用 katagos/weight-weiqi——引擎与模型完全相同，差别只在每点权重（由 kata-set-weights 同步）。
+ *  其余带子棋类的棋类（磁性围棋 weak/medium/strong-magnetism-weiqi、三角围棋的形状子棋类、
+ *  自由围棋 biliberty/quadriliberty/triliberty-weiqi 等）一律各用 katagos/{子棋类id}/ 自己的引擎与模型。 */
+function engineDirIdOf(gameId) {
+    return isWeightWeiqiEngine(gameId) ? 'weight-weiqi' : gameId;
+}
+
+/** 本房间的引擎目录 id */
+function engineDirId(self) { return engineDirIdOf(engineGameId(self)); }
+
+/** 引擎棋种（围棋族）座位↔执方：player1 座执黑（先手）、player2 座执白，与棋种 slotFromSide 一致。
+ *  座位 id 用于房间 / 棋谱 / 广播，执方名（'black'/'white'）只在与引擎交互时使用。 */
+function colorOfSlot(slot) { return slot === 'player2' ? 'white' : 'black'; }
+
+/** 另一座位 */
+function otherSlot(slot) { return slot === 'player1' ? 'player2' : 'player1'; }
+
+/** 当前行棋方座位 */
+function seatToMove(self) { return self.currentPlayer === 1 ? 'player1' : 'player2'; }
+
 function supportsSquareWeiqiGtp(self) {
     // 普通方格围棋：tryPlaceStone；复合棋子棋种（rus-weiqi）：tryPlaceShape/tryPlaceStonesAt
     const common = !!(self
@@ -65,6 +86,26 @@ function readRemainingTranslocationMoves(self) {
     return Math.max(0, (maxT | 0) - played);
 }
 
+/** 权重围棋家族子棋类 id（权重/二权重/三权重/角重/心重）：共用 katagos/weight-weiqi 引擎与模型，
+ *  各子棋类只是每点权重不同（kata-set-weights 每局同步）。新增权重系子棋类时在此登记。 */
+const WEIGHT_SUB_GAME_IDS = new Set([
+    'weight-weiqi', 'biweight-weiqi', 'triweight-weiqi',
+    'corner-focused-weiqi', 'center-focused-weiqi'
+]);
+function isWeightWeiqiEngine(id) {
+    return typeof id === 'string' && WEIGHT_SUB_GAME_IDS.has(id);
+}
+
+/** 每点权重矩阵（[row][col]，row 0 = 棋盘最低行，与站点盘面同索引）；非权重围棋或无权重时返回 null */
+function readWeights(self) {
+    if (!isWeightWeiqiEngine(engineGameId(self))) return null;
+    const w = self && self.weights;
+    const size = Number(self && self.boardSize);
+    if (!Array.isArray(w) || !Number.isFinite(size) || w.length !== size) return null;
+    if (!Array.isArray(w[0]) || w[0].length !== size) return null;
+    return w;
+}
+
 function buildKatagoSetupOpts(self, board) {
     const opts = {
         boardSize: self.boardSize,
@@ -79,15 +120,20 @@ function buildKatagoSetupOpts(self, board) {
     }
     const remain = readRemainingTranslocationMoves(self);
     if (remain != null) opts.maxTranslocationMoves = remain;
-    // set_position 后引擎行棋方（presumedNextMovePla）恒为黑；当前轮到白时，
+    // 权重围棋：把每点权重同步给引擎（kata-set-weights），否则引擎按均权（普通围棋）判断
+    const weights = readWeights(self);
+    if (weights) opts.weights = weights;
+    // set_position 后引擎行棋方（presumedNextMovePla）恒为黑；当前轮到白（player2 座）时，
     // 去掉最后一手再同步、重放最后一手来翻转行棋方，否则 genmove 会被引擎拒绝
-    const nextPlayer = (self.currentPlayer === 1) ? 'black' : 'white';
+    const nextSlot = seatToMove(self);
     const mcs = Array.isArray(self.moveCoords) ? self.moveCoords : [];
     const last = mcs.length ? mcs[mcs.length - 1] : null;
-    if (nextPlayer === 'white' && last && (last.player === 'black' || last.player === 'white')) {
+    if (nextSlot === 'player2' && last && (last.player === 'player1' || last.player === 'player2')) {
+        // 棋谱 player 为座位 id，引擎只认 'black'/'white'
+        const lastColor = colorOfSlot(last.player);
         if (last.type === 'move' && Number.isInteger(last.shapeIndex) && Number.isInteger(last.row) && Number.isInteger(last.col)) {
             opts.lastMove = {
-                player: last.player,
+                player: lastColor,
                 row: last.row,
                 col: last.col,
                 shapeIndex: last.shapeIndex,
@@ -95,9 +141,9 @@ function buildKatagoSetupOpts(self, board) {
                 stones: Array.isArray(last.stones) ? last.stones : null
             };
         } else if (last.type === 'move' && Number.isInteger(last.row) && Number.isInteger(last.col)) {
-            opts.lastMove = { player: last.player, row: last.row, col: last.col, shapeIndex: null, stones: null };
+            opts.lastMove = { player: lastColor, row: last.row, col: last.col, shapeIndex: null, stones: null };
         } else if (last.type === 'pass') {
-            opts.lastMove = { player: last.player, type: 'pass' };
+            opts.lastMove = { player: lastColor, type: 'pass' };
         }
     }
     return opts;
@@ -121,15 +167,15 @@ function enrichState(self, state) {
             : (typeof self.subGameId === 'string' && self.subGameId.trim() ? self.subGameId.trim() : (self.room && self.room.gameType));
         if (curId && curId !== self._qiKatagoGameId) {
             self._qiKatagoGameId = curId;
-            self.katagoAvailable = isKatagoAvailable(curId);
+            self.katagoAvailable = isKatagoAvailable(engineDirIdOf(curId));
             stopKatago(self);   // 旧 id 的引擎会话停掉——下次按新 id 拉取
         }
     }
     state.katagoAvailable = !!self.katagoAvailable;
     state.computerSlot = self.computerSlot || null;
-    if (!state.slots) state.slots = { black: false, white: false };
-    if (self.computerSlot === 'black') state.slots.black = true;
-    if (self.computerSlot === 'white') state.slots.white = true;
+    if (!state.slots) state.slots = { player1: false, player2: false };
+    if (self.computerSlot === 'player1') state.slots.player1 = true;
+    if (self.computerSlot === 'player2') state.slots.player2 = true;
     return state;
 }
 
@@ -222,7 +268,7 @@ function stopKatago(self) {
  * @param {import('ws').WebSocket|null} [ws] 繁忙时用于提示
  */
 function prepareKatagoEngine(self, ws) {
-    if (!self || !self.katagoAvailable || !isKatagoAvailable(engineGameId(self))) return;
+    if (!self || !self.katagoAvailable || !isKatagoAvailable(engineDirId(self))) return;
     if (self.matchStarted || self.computerSlot || self.gameOver) return;
     if (self._qiKatagoPrepared && !self._qiKatagoPrepared.dead) return;
     // 进行中的预热（含已取消、正等待归还进池）：勿再开第二条 acquire；
@@ -237,7 +283,7 @@ function prepareKatagoEngine(self, ws) {
     }
 
     const gen = (self._qiKatagoPrepareGen = (self._qiKatagoPrepareGen || 0) + 1);
-    const prepPromise = acquireKatagoSession(engineGameId(self), {
+    const prepPromise = acquireKatagoSession(engineDirId(self), {
         boardSize: self.boardSize
     }).then((session) => {
         if (gen !== self._qiKatagoPrepareGen) {
@@ -290,14 +336,14 @@ function abortVsComputerOnEngineFailure(self, ws, err) {
 }
 
 function canRequestVsComputer(self, ws) {
-    if (!self.katagoAvailable || !isKatagoAvailable(engineGameId(self))) return '该棋类暂不支持与电脑对战。';
+    if (!self.katagoAvailable || !isKatagoAvailable(engineDirId(self))) return '该棋类暂不支持与电脑对战。';
     if (self.matchStarted || self.computerSlot || self.gameOver) return '对局已开始。';
     if (Array.isArray(self.moveHistory) && self.moveHistory.length > 0) return '对局已开始。';
     if (self.tcNego) return '请先完成限时协商。';
     const room = self.room;
-    const black = room.getPlayerBySlot('black');
-    const white = room.getPlayerBySlot('white');
-    const seatedCount = (black ? 1 : 0) + (white ? 1 : 0);
+    const p1 = room.getPlayerBySlot('player1');
+    const p2 = room.getPlayerBySlot('player2');
+    const seatedCount = (p1 ? 1 : 0) + (p2 ? 1 : 0);
     if (seatedCount >= 2) return '房间已满，无法与电脑对战。';
     const mySlot = room.getSlotByWs(ws);
     if (seatedCount === 1 && !mySlot) return '仅入座者可与电脑对战。';
@@ -305,7 +351,7 @@ function canRequestVsComputer(self, ws) {
 }
 
 function humanWs(self) {
-    return self.room.getPlayerBySlot('black') || self.room.getPlayerBySlot('white') || null;
+    return self.room.getPlayerBySlot('player1') || self.room.getPlayerBySlot('player2') || null;
 }
 
 function slotOccupied(self, slot) {
@@ -337,7 +383,7 @@ function boardToString(self, board) {
 function applyComputerMove(self, row, col) {
     if (!self.computerSlot || self.gameOver) return false;
     const moveSlot = self.computerSlot;
-    if (moveSlot !== (self.currentPlayer === 1 ? 'black' : 'white')) return false;
+    if (moveSlot !== seatToMove(self)) return false;
     const playerVal = self.currentPlayer === 1 ? 1 : 2;
     // 提子判负类棋种（不围棋）：房间用 tryPlaceStoneResult 返回 { newBoard, capturedOpponent }；
     // 其余棋类走标准 tryPlaceStone（返回盘面或 null）
@@ -367,7 +413,7 @@ function applyComputerMove(self, row, col) {
     // 提子判负（不围棋）：电脑先提子 → 电脑负（与房间人类着法一致：不切换行棋方）
     if (capturedOpponent) {
         self.gameOver = true;
-        self.winner = moveSlot === 'black' ? 'white' : 'black';
+        self.winner = otherSlot(moveSlot);
         if (typeof self.setCaptureLossResultText === 'function') self.setCaptureLossResultText(moveSlot);
         self.broadcast({ type: 'broadcast', action: 'move', ...self.getState() });
         if (typeof self._syncClockAfterTurnChange === 'function') self._syncClockAfterTurnChange();
@@ -393,7 +439,7 @@ function applyComputerCompound(self, mv) {
     if (!self.computerSlot || self.gameOver) return false;
     if (typeof self.tryPlaceShape !== 'function') return false;
     const moveSlot = self.computerSlot;
-    if (moveSlot !== (self.currentPlayer === 1 ? 'black' : 'white')) return false;
+    if (moveSlot !== seatToMove(self)) return false;
     const playerVal = self.currentPlayer === 1 ? 1 : 2;
     // 引擎 orient → 服务端 (rot, flip)：引擎 rot 可多圈（shape1-3 偏移 4、shape4 偏移 16）——取模 4
     const rot = (mv.orientIdx >> 1) % 4;
@@ -443,7 +489,7 @@ function applyComputerSwap(self, aRow, aCol, bRow, bCol) {
     if (!self.computerSlot || self.gameOver) return false;
     if (typeof self.trySwapPiece !== 'function') return false;
     const moveSlot = self.computerSlot;
-    if (moveSlot !== (self.currentPlayer === 1 ? 'black' : 'white')) return false;
+    if (moveSlot !== seatToMove(self)) return false;
     if ('maxTranspositionMoves' in self && Number.isFinite(Number(self.moveCount))
         && Number(self.moveCount) >= Number(self.maxTranspositionMoves)) {
         return false;
@@ -518,7 +564,7 @@ function startScoreVsComputer(self) {
 function applyComputerPass(self) {
     if (!self.computerSlot || self.gameOver) return;
     const moveSlot = self.computerSlot;
-    if (moveSlot !== (self.currentPlayer === 1 ? 'black' : 'white')) return;
+    if (moveSlot !== seatToMove(self)) return;
     // 不允许虚着的棋种（不围棋）：棋盘走满 → 和棋；其它情况虚着 → 电脑判负
     if (typeof self.passIsIllegal === 'function' && self.passIsIllegal()) {
         if (typeof self.isBoardFull === 'function' && self.isBoardFull()) {
@@ -527,7 +573,7 @@ function applyComputerPass(self) {
             if (typeof self.onDrawResolved === 'function') self.onDrawResolved();
         } else {
             self.gameOver = true;
-            self.winner = moveSlot === 'black' ? 'white' : 'black';
+            self.winner = otherSlot(moveSlot);
             if (typeof self.setPassLossResultText === 'function') self.setPassLossResultText(moveSlot);
         }
         self.broadcast({ type: 'broadcast', action: 'pass', ...self.getState() });
@@ -556,7 +602,7 @@ function applyComputerPass(self) {
 function maybeScheduleKatago(self) {
     if (!self.computerSlot || self.gameOver || self._qiKatagoBusy || !self.matchStarted) return;
     if (self.pendingScore) return;
-    const turnSlot = self.currentPlayer === 1 ? 'black' : 'white';
+    const turnSlot = seatToMove(self);
     if (turnSlot !== self.computerSlot) return;
 
     const run = async () => {
@@ -571,13 +617,13 @@ function maybeScheduleKatago(self) {
         }
         if (!self.computerSlot || self.gameOver || self._qiKatagoBusy || !self.matchStarted) return;
         if (self.pendingScore) return;
-        if ((self.currentPlayer === 1 ? 'black' : 'white') !== self.computerSlot) return;
+        if (seatToMove(self) !== self.computerSlot) return;
         if (!self._qiKatago) return;
 
         const gen = self._qiKatagoGen;
         self._qiKatagoBusy = true;
         touchKatagoActivity(self);
-        self._qiKatago.genMove(self.computerSlot).then((mv) => {
+        self._qiKatago.genMove(colorOfSlot(self.computerSlot)).then((mv) => {
             if (gen !== self._qiKatagoGen || self.gameOver || !self.computerSlot) return;
             if (mv && mv.pass) applyComputerPass(self);
             else if (mv && mv.compound) {
@@ -660,7 +706,7 @@ async function ensureKatagoEngine(self, opts) {
         const gen = self._qiKatagoGen;
 
         if (!session) {
-            session = await acquireKatagoSession(engineGameId(self), {
+            session = await acquireKatagoSession(engineDirId(self), {
                 boardSize: self.boardSize
             });
         }
@@ -741,7 +787,7 @@ function handleStartVsComputer(self, ws, msg) {
     // spawn 名额已占、进程将可用）则视为可取得，不拦截。
     const hasPreparedEngine = !!(self._qiKatagoPrepared && !self._qiKatagoPrepared.dead);
     const preparePending = !!self._qiKatagoPreparePromise;
-    if (!hasPreparedEngine && !preparePending && !canAcquireKatagoNow(engineGameId(self))) {
+    if (!hasPreparedEngine && !preparePending && !canAcquireKatagoNow(engineDirId(self))) {
         ws.send(JSON.stringify({ type: 'error', message: KATAGO_BUSY_MESSAGE }));
         return;
     }
@@ -749,39 +795,40 @@ function handleStartVsComputer(self, ws, msg) {
     const room = self.room;
     const mySlot = room.getSlotByWs(ws);
 
+    // 执方选项统一折算为座位 id（兼容旧客户端的 black/white/hostBlack/hostWhite）
     let choice = msg && msg.colorChoice;
-    if (choice === 'hostBlack') choice = 'black';
-    if (choice === 'hostWhite') choice = 'white';
-    if (choice !== 'black' && choice !== 'white' && choice !== 'random') choice = 'black';
-    const humanColor = choice === 'random'
-        ? (Math.random() < 0.5 ? 'black' : 'white')
+    if (choice === 'hostBlack' || choice === 'black') choice = 'player1';
+    if (choice === 'hostWhite' || choice === 'white') choice = 'player2';
+    if (choice !== 'player1' && choice !== 'player2' && choice !== 'random') choice = 'player1';
+    const humanSlot = choice === 'random'
+        ? (Math.random() < 0.5 ? 'player1' : 'player2')
         : choice;
-    const computerColor = humanColor === 'black' ? 'white' : 'black';
+    const computerSlot = otherSlot(humanSlot);
 
     if (!mySlot) {
-        room.setPlayerSlot(ws, humanColor);
-        if (typeof self.afterColorAssigned === 'function') self.afterColorAssigned(ws, humanColor);
-        ws.send(JSON.stringify({ type: 'colorAssigned', color: humanColor, finalized: true }));
-        room.broadcast({ type: 'slotOccupied', slot: humanColor }, ws);
-    } else if (mySlot !== humanColor) {
-        const other = mySlot === 'black' ? 'white' : 'black';
+        room.setPlayerSlot(ws, humanSlot);
+        if (typeof self.afterColorAssigned === 'function') self.afterColorAssigned(ws, humanSlot);
+        ws.send(JSON.stringify({ type: 'colorAssigned', color: humanSlot, finalized: true }));
+        room.broadcast({ type: 'slotOccupied', slot: humanSlot }, ws);
+    } else if (mySlot !== humanSlot) {
+        const other = otherSlot(mySlot);
         if (room.getPlayerBySlot(other)) {
             ws.send(JSON.stringify({ type: 'error', message: '无法调整座位。' }));
             return;
         }
         if (typeof room.reassignPlayerSlot === 'function') {
-            room.reassignPlayerSlot(ws, humanColor);
+            room.reassignPlayerSlot(ws, humanSlot);
         } else {
             room.slotOccupancy.delete(mySlot);
-            room.setPlayerSlot(ws, humanColor);
+            room.setPlayerSlot(ws, humanSlot);
         }
         if (self.slotJoinedAt) {
             self.slotJoinedAt[mySlot] = null;
-            self.slotJoinedAt[humanColor] = Date.now();
+            self.slotJoinedAt[humanSlot] = Date.now();
         }
         room.broadcast({ type: 'slotReleased', slot: mySlot });
-        room.broadcast({ type: 'slotOccupied', slot: humanColor });
-        ws.send(JSON.stringify({ type: 'colorAssigned', color: humanColor, finalized: true }));
+        room.broadcast({ type: 'slotOccupied', slot: humanSlot });
+        ws.send(JSON.stringify({ type: 'colorAssigned', color: humanSlot, finalized: true }));
     }
 
     // 释放上一局正式引擎；预热进程由 ensure 接手
@@ -790,12 +837,12 @@ function handleStartVsComputer(self, ws, msg) {
     clearKatagoHibernateTimer(self);
     if (old) releaseSessionToPool(old);
 
-    self.computerSlot = computerColor;
+    self.computerSlot = computerSlot;
     self.tcNego = null;
     self.tcSettings = { timed: false };
     self.tcClock = null;
     self.matchStarted = true;
-    room.broadcast({ type: 'slotOccupied', slot: computerColor });
+    room.broadcast({ type: 'slotOccupied', slot: computerSlot });
 
     // 先开局，立刻可落子；KataGo 在后台启动/同步
     self.broadcast({
@@ -803,8 +850,8 @@ function handleStartVsComputer(self, ws, msg) {
         settings: self.tcSettings,
         clock: null,
         slots: {
-            black: slotOccupied(self, 'black'),
-            white: slotOccupied(self, 'white')
+            player1: slotOccupied(self, 'player1'),
+            player2: slotOccupied(self, 'player2')
         },
         computerSlot: self.computerSlot,
         hostSlot: self.hostWs ? room.getSlotByWs(self.hostWs) : null,
@@ -821,7 +868,7 @@ function handleHumanPassVsComputer(self, ws, slot) {
     }
     if (typeof self._drainClockBeforeMove === 'function' && self._drainClockBeforeMove(slot) === false) return;
     if (self.gameOver) return;
-    if (!slot || slot !== (self.currentPlayer === 1 ? 'black' : 'white')) return;
+    if (!slot || slot !== seatToMove(self)) return;
 
     // 先立刻虚着，不因引擎启动阻塞
     if (Array.isArray(self.historyBoards)) self.historyBoards.push(copyBoard(self, self.board));
@@ -845,7 +892,7 @@ function handleHumanPassVsComputer(self, ws, slot) {
 
     if (self._qiKatago && !self._qiKatago.dead) {
         const gen = self._qiKatagoGen;
-        self._qiKatago.play(slot, null, null).then(() => {
+        self._qiKatago.play(colorOfSlot(slot), null, null).then(() => {
             if (gen === self._qiKatagoGen) maybeScheduleKatago(self);
         }).catch((err) => console.error('KataGo play pass 失败', err));
         return;
@@ -872,7 +919,7 @@ function install(self, gameId) {
     self._qiKatagoGameId = gameId;   // 引擎棋类 id（子棋类优先）——引擎检查/获取/setup 统一使用
     // 棋种若已自带 computerSlot，只暴露是否有 KataGo，不接管对局
     const hadBuiltinComputer = Object.prototype.hasOwnProperty.call(self, 'computerSlot');
-    self.katagoAvailable = isKatagoAvailable(gameId);
+    self.katagoAvailable = isKatagoAvailable(engineDirIdOf(gameId));
     if (!hadBuiltinComputer) self.computerSlot = null;
     self._qiKatago = null;
     self._qiKatagoBusy = false;
@@ -957,7 +1004,7 @@ function install(self, gameId) {
             const slot = this.room.getSlotByWs(ws);
 
             if (msg.type === 'requestNewGame') {
-                if (!slot && (this.room.getPlayerBySlot('black') || this.room.getPlayerBySlot('white'))) return;
+                if (!slot && (this.room.getPlayerBySlot('player1') || this.room.getPlayerBySlot('player2'))) return;
                 if (typeof this.resetGame === 'function') this.resetGame();
                 return;
             }
@@ -1001,7 +1048,7 @@ function install(self, gameId) {
                         if (this.pendingScore.agreed.size >= need) {
                             const lead = this.scoreProposalData && this.scoreProposalData.lead;
                             this.gameOver = true;
-                            this.winner = lead > 0 ? 'black' : (lead < 0 ? 'white' : 'draw');
+                            this.winner = lead > 0 ? 'player1' : (lead < 0 ? 'player2' : 'draw');
                             if (typeof this.setScoreResultTextByLead === 'function') this.setScoreResultTextByLead(lead);
                             this.broadcast({ type: 'scoreAgreed', winner: this.winner, lead });
                             this.pendingScore = null;
@@ -1077,7 +1124,7 @@ function install(self, gameId) {
                     const gen = this._qiKatagoGen;
                     if (last && last.type === 'swap') {
                         this._qiKatago.playSwap(
-                            slot, last.fromRow, last.fromCol, last.row, last.col
+                            colorOfSlot(slot), last.fromRow, last.fromCol, last.row, last.col
                         ).then(() => {
                             if (gen === this._qiKatagoGen) maybeScheduleKatago(this);
                         }).catch((err) => {
@@ -1096,7 +1143,7 @@ function install(self, gameId) {
                         if (Number.isInteger(last.shapeIndex) && Number.isInteger(last.row) && Number.isInteger(last.col)) {
                             // 复合棋子着法（rus-weiqi）：服务端 rot/flip → 引擎规范 orient
                             const orient = compoundOrientToEngine(last.shapeIndex, last.rotation, last.flipped);
-                            this._qiKatago.playCompound(slot, last.row, last.col, last.shapeIndex, orient).then(() => {
+                            this._qiKatago.playCompound(colorOfSlot(slot), last.row, last.col, last.shapeIndex, orient).then(() => {
                                 if (gen === this._qiKatagoGen) maybeScheduleKatago(this);
                             }).catch((err) => {
                                 console.error('KataGo playCompound 失败，全量重同步引擎局面', err);
@@ -1110,7 +1157,7 @@ function install(self, gameId) {
                                 }).catch((e2) => console.error('KataGo 复合着后重同步失败', e2));
                             });
                         } else {
-                            this._qiKatago.play(slot, last.row, last.col).then(() => {
+                            this._qiKatago.play(colorOfSlot(slot), last.row, last.col).then(() => {
                                 if (gen === this._qiKatagoGen) maybeScheduleKatago(this);
                             }).catch((err) => {
                                 console.error('KataGo play 失败，全量重同步引擎局面', err);
