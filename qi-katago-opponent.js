@@ -90,7 +90,7 @@ function readRemainingTranslocationMoves(self) {
  *  各子棋类只是每点权重不同（kata-set-weights 每局同步）。新增权重系子棋类时在此登记。 */
 const WEIGHT_SUB_GAME_IDS = new Set([
     'weight-weiqi', 'biweight-weiqi', 'triweight-weiqi',
-    'corner-focused-weiqi', 'center-focused-weiqi'
+    'corner-focused-weiqi', 'centre-focused-weiqi'
 ]);
 function isWeightWeiqiEngine(id) {
     return typeof id === 'string' && WEIGHT_SUB_GAME_IDS.has(id);

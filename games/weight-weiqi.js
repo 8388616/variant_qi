@@ -24,11 +24,11 @@ function normalizeInitialPositionForReplayPayload(initialPosition) {
 
 // 权重围棋家族(主棋类 weight-weiqi):subGameId 区分五个子棋类。
 // weight-weiqi:1..N² 随机排列;角重(corner-focused):1..N² 固定排布,自屏幕左上角沿
-// 反对角线向右下递增,右下角最大;心重(center-focused):1..N² 固定排布,自屏幕左上角
+// 反对角线向右下递增,右下角最大;心重(centre-focused):1..N² 固定排布,自屏幕左上角
 // 顺时针螺旋,中心最大;二/三权重:每点独立按权重池随机。
 // 贴目:排列型(随机/固定)用原公式,池子子类用固定值。
 const WEIGHT_SUB_GAMES = [
-    'weight-weiqi', 'biweight-weiqi', 'triweight-weiqi', 'corner-focused-weiqi', 'center-focused-weiqi'
+    'weight-weiqi', 'biweight-weiqi', 'triweight-weiqi', 'corner-focused-weiqi', 'centre-focused-weiqi'
 ];
 const WEIGHT_POOLS = {
     'biweight-weiqi': [1, 1, 2],
@@ -339,7 +339,7 @@ class WeightWeiqiRoom extends QiTwoPlayerRoomBase {
     /** 按子棋类生成权重:排列型(weight-weiqi 随机 / 角重 / 心重)为 1..N² 各一次;其余按权重池逐点独立随机 */
     generateWeights() {
         if (this.subGameId === 'corner-focused-weiqi') return this.generateFixedWeights('corner');
-        if (this.subGameId === 'center-focused-weiqi') return this.generateFixedWeights('center');
+        if (this.subGameId === 'centre-focused-weiqi') return this.generateFixedWeights('center');
         const pool = WEIGHT_POOLS[this.subGameId];
         const weights = Array(this.boardSize).fill().map(() => Array(this.boardSize).fill(0));
         if (!pool) {

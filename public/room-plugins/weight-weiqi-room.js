@@ -241,7 +241,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             const totalCells = boardSize * boardSize;
             // 高权重格着色:默认涂最高的 ceil(N²/4) 格(权重/角重);心重涂 floor(N²/4) 格。
             // 阈值 = N² − 涂色格数,判 > 阈值。池子子类(二/三权重)走各自分支,不受此影响。
-            const shadedCount = currentSubGame === 'center-focused-weiqi'
+            const shadedCount = currentSubGame === 'centre-focused-weiqi'
                 ? Math.floor(totalCells / 4)
                 : Math.ceil(totalCells / 4);
             const highWeightThresh = totalCells - shadedCount;
@@ -489,8 +489,8 @@ const scoreTitle = document.getElementById('scoreTitle');
         // 权重围棋家族(主棋类 weight-weiqi,subGameId 区分子棋类):
         // weight-weiqi:1..N² 随机排列;角重/心重:1..N² 固定排布;二/三权重:每点按权重池独立随机。
         // 贴目:排列型用原公式,池子子类用固定值。
-        const WEIGHT_SUB_GAMES = ['weight-weiqi', 'biweight-weiqi', 'triweight-weiqi', 'corner-focused-weiqi', 'center-focused-weiqi'];
-        const WEIGHT_ARRANGEMENTS = ['weight-weiqi', 'corner-focused-weiqi', 'center-focused-weiqi'];   // 逐格显示权重数字(1..N²)的排布型
+        const WEIGHT_SUB_GAMES = ['weight-weiqi', 'biweight-weiqi', 'triweight-weiqi', 'corner-focused-weiqi', 'centre-focused-weiqi'];
+        const WEIGHT_ARRANGEMENTS = ['weight-weiqi', 'corner-focused-weiqi', 'centre-focused-weiqi'];   // 逐格显示权重数字(1..N²)的排布型
         const WEIGHT_SUB_POOLS = {
             'biweight-weiqi': [1, 1, 2],
             'triweight-weiqi': [1, 1, 1, 1, 2, 2, 3]
@@ -549,7 +549,7 @@ const scoreTitle = document.getElementById('scoreTitle');
         // 本地生成权重(乐观切换用,与服务器一致)
         function genWeightsLocal(n) {
             if (currentSubGame === 'corner-focused-weiqi') return genFixedWeightsLocal(n, 'corner');
-            if (currentSubGame === 'center-focused-weiqi') return genFixedWeightsLocal(n, 'center');
+            if (currentSubGame === 'centre-focused-weiqi') return genFixedWeightsLocal(n, 'center');
             const pool = WEIGHT_SUB_POOLS[currentSubGame];
             const out = Array.from({ length: n }, () => new Array(n).fill(0));
             if (!pool) {
@@ -980,7 +980,7 @@ syncState,
                 { value: 'biweight-weiqi', label: '二权重' },
                 { value: 'triweight-weiqi', label: '三权重' },
                 { value: 'corner-focused-weiqi', label: '角重' },
-                { value: 'center-focused-weiqi', label: '心重' }
+                { value: 'centre-focused-weiqi', label: '心重' }
             ];
             for (const o of subOpts) {
                 const opt = document.createElement('option');
