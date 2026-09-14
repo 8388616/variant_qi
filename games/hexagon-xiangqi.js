@@ -13,6 +13,8 @@ const V = 96;
 const neighborsRaw = [[1,5,19],[0,2,6],[1,3,9],[2,4],[3,5],[4,0,20],[7,1,23],[6,8,10],[7,9,13],[8,2],[11,7,25],[10,12,14],[11,13,17],[12,8],[15,11,27],[14,16,30],[15,17],[16,12],[19,21,32],[18,0,22],[5,21],[20,18,33],[23,19,36],[22,6,24],[25,23,38],[24,10,26],[27,25,40],[26,14,28],[29,27,42],[28,30,45],[29,15],[32,34,47],[31,18,35],[21,34],[33,31,48],[36,32,51],[35,22,37],[38,36,53],[37,24,39],[40,38,55],[39,26,41],[42,40,57],[41,28,43],[44,42,59],[43,45,62],[44,29],[47,49,65],[46,31,50],[34,49],[48,46],[51,47,64],[50,35,52],[53,51,67],[52,37,54],[55,53,69],[54,39,56],[57,55,71],[56,41,58],[59,57,73],[58,43,60],[61,59,75],[60,62],[61,44],[64,65,78],[63,50,66],[46,63],[67,64,77],[66,52,68],[69,67,80],[68,54,70],[71,69,82],[70,56,72],[73,71,84],[72,58,74],[75,73,86],[74,60],[77,78,89],[76,66,79],[63,76],[80,77,88],[79,68,81],[82,80,91],[81,70,83],[84,82,93],[83,72,85],[86,84,95],[85,74],[88,89],[87,79,90],[76,87],[91,88],[90,81,92],[93,91],[92,83,94],[95,93],[94,85]];
 const xs = [5.196,3.464,3.464,5.196,6.928,6.928,1.732,0,0,1.732,-1.732,-3.464,-3.464,-1.732,-5.196,-6.928,-6.928,-5.196,6.928,5.196,8.66,8.66,3.464,1.732,0,-1.732,-3.464,-5.196,-6.928,-8.66,-8.66,8.66,6.928,10.392,10.392,5.196,3.464,1.732,0,-1.732,-3.464,-5.196,-6.928,-8.66,-10.392,-10.392,10.392,8.66,12.124,12.124,6.928,5.196,3.464,1.732,0,-1.732,-3.464,-5.196,-6.928,-8.66,-10.392,-12.124,-12.124,8.66,6.928,10.392,5.196,3.464,1.732,0,-1.732,-3.464,-5.196,-6.928,-8.66,-10.392,6.928,5.196,8.66,3.464,1.732,0,-1.732,-3.464,-5.196,-6.928,-8.66,5.196,3.464,6.928,1.732,0,-1.732,-3.464,-5.196,-6.928];
 const ys = [-7,-8,-10,-11,-10,-8,-7,-8,-10,-11,-7,-8,-10,-11,-7,-8,-10,-11,-4,-5,-7,-5,-4,-5,-4,-5,-4,-5,-4,-5,-7,-1,-2,-4,-2,-1,-2,-1,-2,-1,-2,-1,-2,-1,-2,-4,2,1,-1,1,2,1,2,1,2,1,2,1,2,1,2,1,-1,5,4,4,5,4,5,4,5,4,5,4,5,4,8,7,7,8,7,8,7,8,7,8,7,11,10,10,11,10,11,10,11,10];
+
+
 const hexagons = [[0,1,2,3,4,5],[6,7,8,9,2,1],[10,11,12,13,8,7],[14,15,16,17,12,11],[18,19,0,5,20,21],[22,23,6,1,0,19],[24,25,10,7,6,23],[26,27,14,11,10,25],[28,29,30,15,14,27],[31,32,18,21,33,34],[35,36,22,19,18,32],[37,38,24,23,22,36],[39,40,26,25,24,38],[41,42,28,27,26,40],[43,44,45,29,28,42],[46,47,31,34,48,49],[50,51,35,32,31,47],[52,53,37,36,35,51],[54,55,39,38,37,53],[56,57,41,40,39,55],[58,59,43,42,41,57],[60,61,62,44,43,59],[63,64,50,47,46,65],[66,67,52,51,50,64],[68,69,54,53,52,67],[70,71,56,55,54,69],[72,73,58,57,56,71],[74,75,60,59,58,73],[76,77,66,64,63,78],[79,80,68,67,66,77],[81,82,70,69,68,80],[83,84,72,71,70,82],[85,86,74,73,72,84],[87,88,79,77,76,89],[90,91,81,80,79,88],[92,93,83,82,81,91],[94,95,85,84,83,93]];
 const riverDropKeys = ['43,59','41,57','39,55','37,53','35,51','31,47']; // 仅视觉去线，仍可跨河
 const neighbors = neighborsRaw;
@@ -413,6 +415,8 @@ function isLegalMove(board, from, to, side) {
     return true;
 }
 
+
+
 function generateLegalMoves(board, side) {
     const moves = [];
     const ch = sideColorChar(side);
@@ -562,6 +566,43 @@ return {
 })();
 
 /**
+ * 坐标表：棋盘坐标固定按「未翻面」几何定义（不棋盘面随视角镜像）
+ *   行 0 = ys 最大的一侧（黑方那一侧，未翻面时的最上面一行），列 = 该行内 xs 从小到大
+ */
+const koordOf = new Array(R.V);
+const vertexByKoord = new Map();
+(function buildKoordTable() {
+    const rows = [];
+    for (let v = 0; v < R.V; v++) {
+        let row = rows.find((r) => Math.abs(r.y - R.ys[v]) < 1e-6);
+        if (!row) { row = { y: R.ys[v], pts: [] }; rows.push(row); }
+        row.pts.push(v);
+    }
+    rows.sort((a, b) => b.y - a.y);
+    rows.forEach((row, ri) => {
+        row.pts.sort((a, b) => R.xs[a] - R.xs[b]);
+        row.pts.forEach((v, ci) => { koordOf[v] = [ri, ci]; vertexByKoord.set(ri + ',' + ci, v); });
+    });
+})();
+const wireBoard = (flat) => {
+    const rows = [];
+    for (let v = 0; v < R.V; v++) {
+        const rc = koordOf[v];
+        if (!rows[rc[0]]) rows[rc[0]] = [];
+        rows[rc[0]][rc[1]] = flat[v];
+    }
+    return rows;
+};
+const wireMove = (m) => {
+    const a = koordOf[m.from], b = koordOf[m.to];
+    return { type: 'move', player: m.player, fromRow: a[0], fromCol: a[1], toRow: b[0], toCol: b[1], piece: m.piece, captured: m.captured || '' };
+};
+const vertexOfKoord = (row, col) => {
+    const v = vertexByKoord.get(Number(row) + ',' + Number(col));
+    return v === undefined ? -1 : v;
+};
+
+/**
  * 协议座位：black=红方(先手)，white=黑方(后手)
  */
 class HexagonXiangqiRoom extends QiTwoPlayerRoomBase {
@@ -592,7 +633,7 @@ class HexagonXiangqiRoom extends QiTwoPlayerRoomBase {
                 this._stopClockTicker();
                 this.gameOver = true;
                 this.winner = winnerSlot;
-                this.recordResultText = lostSlot === 'player1' ? '红超时黑胜' : '黑超时红胜';
+                this.recordResultText = lostSlot === 'player1' ? '红方超时，黑胜' : '黑方超时，红胜';
                 this.broadcast({ type: 'broadcast', action: 'timeLoss', player: lostSlot, winner: winnerSlot, ...this.getState() });
                 return;
             }
@@ -606,81 +647,10 @@ class HexagonXiangqiRoom extends QiTwoPlayerRoomBase {
         if (tb == null || tw == null) return 'player1';
         return tb <= tw ? 'player1' : 'player2';
     }
-
-    _maybeBeginTimeNegotiation() {
-        if (this.getMoveCount() > 0 || this.gameOver) return;
-        if (!this.room.getPlayerBySlot('player1') || !this.room.getPlayerBySlot('player2')) return;
-        if (this.tcNego || this.tcSettings) return;
-        const first = this._firstPickerSlot();
-        this.tcNego = { phase: 'propose', proposal: null, waitingSlot: first };
-        const ws = this.room.getPlayerBySlot(first);
-        if (ws) ws.send(JSON.stringify({ type: 'timeControlNegotiation', mode: 'propose' }));
-        const other = first === 'player1' ? 'player2' : 'player1';
-        const ws2 = this.room.getPlayerBySlot(other);
-        if (ws2) ws2.send(JSON.stringify({ type: 'timeControlWaitPeer', text: '对方正在选择限时规则…' }));
-    }
-
     afterColorAssigned(ws, slot) {
         this.slotJoinedAt[slot] = Date.now();
         this._maybeBeginTimeNegotiation();
     }
-
-    _handleTimeControlSubmit(ws, msg) {
-        const slot = this.room.getSlotByWs(ws);
-        if (!slot || !this.tcNego) return;
-        const v = qiMatchTimeControl.validateProposal(msg);
-        if (!v.ok) {
-            ws.send(JSON.stringify({ type: 'error', message: v.error }));
-            return;
-        }
-        if (slot !== this.tcNego.waitingSlot) return;
-        this.tcNego.proposal = v;
-        this.tcNego.phase = 'respond';
-        const other = slot === 'player1' ? 'player2' : 'player1';
-        this.tcNego.waitingSlot = other;
-        ws.send(JSON.stringify({ type: 'timeControlWaitPeer', text: '正在等对方确认' }));
-        const otherWs = this.room.getPlayerBySlot(other);
-        if (otherWs) {
-            otherWs.send(JSON.stringify({
-                type: 'timeControlNegotiation',
-                mode: 'respond',
-                proposal: {
-                    ok: true,
-                    timed: v.timed,
-                    mainMinutes: v.mainMinutes,
-                    byoyomiSeconds: v.byoyomiSeconds,
-                    maxTimeouts: v.maxTimeouts
-                }
-            }));
-        }
-    }
-
-    _handleTimeControlAccept(ws) {
-        const slot = this.room.getSlotByWs(ws);
-        if (!slot || !this.tcNego || this.tcNego.phase !== 'respond') return;
-        if (slot !== this.tcNego.waitingSlot) return;
-        const p = this.tcNego.proposal;
-        if (!p || p.ok !== true) return;
-        this.tcSettings = p.timed ? {
-            timed: true, mainMinutes: p.mainMinutes, byoyomiSeconds: p.byoyomiSeconds, maxTimeouts: p.maxTimeouts
-        } : { timed: false };
-        this.tcNego = null;
-        this.matchStarted = true;
-        this.tcClock = qiMatchTimeControl.createClock(this.tcSettings, Date.now());
-        if (this.tcClock.timed) {
-            qiMatchTimeControl.setActiveSlot(this.tcClock, R.slotFromSide(this.sideToMove), Date.now());
-            this._startClockTicker();
-            this._broadcastClock();
-        } else {
-            this.tcClock = null;
-        }
-        this.broadcast({
-            type: 'timeControlAgreed',
-            settings: this.tcSettings,
-            clock: this.tcClock ? qiMatchTimeControl.snapshotForClient(this.tcClock) : null
-        });
-    }
-
     _timeAllowsPlay(slot) {
         if (this.gameOver || !this.matchStarted || this.tcNego || this.tcSettings === null) return false;
         return slot === R.slotFromSide(this.sideToMove);
@@ -694,7 +664,7 @@ class HexagonXiangqiRoom extends QiTwoPlayerRoomBase {
             this._stopClockTicker();
             this.gameOver = true;
             this.winner = winnerSlot;
-            this.recordResultText = lostSlot === 'player1' ? '红超时黑胜' : '黑超时红胜';
+            this.recordResultText = lostSlot === 'player1' ? '红方超时，黑胜' : '黑方超时，红胜';
             this.broadcast({ type: 'broadcast', action: 'timeLoss', player: lostSlot, winner: winnerSlot, ...this.getState() });
             return false;
         }
@@ -713,19 +683,21 @@ class HexagonXiangqiRoom extends QiTwoPlayerRoomBase {
 
     getState() {
         return {
-            board: this.board,
+            board: wireBoard(this.board),
             vertexCount: R.V,
             sideToMove: this.sideToMove,
             currentPlayer: this.sideToMove === 'red' ? 1 : 2,
             numberOfHands: this.moveHistory.length + 1,
-            lastFrom: this.lastFrom,
-            lastTo: this.lastTo,
-            lastMoveMarkers: this.lastTo != null ? [{ vertex: this.lastTo, color: this.sideToMove === 'red' ? 2 : 1 }] : [],
+            lastFromRow: this.lastFrom != null ? koordOf[this.lastFrom][0] : null,
+            lastFromCol: this.lastFrom != null ? koordOf[this.lastFrom][1] : null,
+            lastToRow: this.lastTo != null ? koordOf[this.lastTo][0] : null,
+            lastToCol: this.lastTo != null ? koordOf[this.lastTo][1] : null,
+            lastMoveMarkers: this.lastTo != null ? [{ row: koordOf[this.lastTo][0], col: koordOf[this.lastTo][1], color: this.sideToMove === 'red' ? 2 : 1 }] : [],
             gameOver: this.gameOver,
             winner: this.winner,
             halfmoveClock: this.halfmove.halfmoveClock,
             inCheck: R.isInCheck(this.board, this.sideToMove),
-            moveHistory: this.moveHistory.map((m) => ({ ...m })),
+            moveHistory: this.moveHistory.map((m) => wireMove(m)),
             moveCoords: this.wireMoveCoords(),
             matchTime: {
                 negotiation: this.tcNego,
@@ -742,14 +714,7 @@ class HexagonXiangqiRoom extends QiTwoPlayerRoomBase {
     }
 
     wireMoveCoords() {
-        return this.moveHistory.map((m) => ({
-            type: 'move',
-            player: m.player,
-            from: m.from,
-            to: m.to,
-            piece: m.piece,
-            captured: m.captured || ''
-        }));
+        return this.moveHistory.map((m) => wireMove(m));
     }
 
     exportRecord() {
@@ -759,9 +724,10 @@ class HexagonXiangqiRoom extends QiTwoPlayerRoomBase {
             gameType: '六角象棋',
             gameId: 'hexagon-xiangqi',
             vertexCount: R.V,
-            moves: this.moveHistory.map((m) => (
-                `${(m.player === 'player1' ? 'R' : 'B')}${m.from}-${m.to}`
-            )),
+            moves: this.moveHistory.map((m) => {
+                const a = koordOf[m.from], b = koordOf[m.to];
+                return `${(m.player === 'player1' ? 'R' : 'B')}${a[0]},${a[1]}-${b[0]},${b[1]}`;
+            }),
             result: this.gameOver ? this.winner : null,
             timeControl: this.tcSettings ? {
                 enabled: this.tcSettings.timed === true,
@@ -814,7 +780,7 @@ class HexagonXiangqiRoom extends QiTwoPlayerRoomBase {
         const side = this.sideToMove;
         if (R.findKing(this.board, side) < 0) {
             const winnerSlot = R.slotFromSide(R.oppositeSide(side));
-            this._endGame(winnerSlot, side === 'red' ? '红方无帅黑胜' : '黑方无将红胜');
+            this._endGame(winnerSlot, side === 'red' ? '红方无帥，黑胜' : '黑方无將，红胜');
             return true;
         }
         return false;
@@ -832,9 +798,9 @@ class HexagonXiangqiRoom extends QiTwoPlayerRoomBase {
         if (R.hasLegalMove(this.board, side)) return;
         const winnerSlot = R.slotFromSide(R.oppositeSide(side));
         if (kings === 1 && R.isInCheck(this.board, side)) {
-            this._endGame(winnerSlot, side === 'black' ? '红将死黑胜' : '黑将死红胜');
+            this._endGame(winnerSlot, side === 'red' ? '黑胜' : '红胜');
         } else {
-            this._endGame(winnerSlot, side === 'black' ? '红困毙黑胜' : '黑困毙红胜');
+            this._endGame(winnerSlot, side === 'red' ? '红方困毙，黑胜' : '黑方困毙，红胜');
         }
     }
 
@@ -879,8 +845,8 @@ class HexagonXiangqiRoom extends QiTwoPlayerRoomBase {
         if (!canMove) {
             const winnerSlot = R.slotFromSide(R.oppositeSide(side));
             const text = inCheck
-                ? (side === 'black' ? '红将死黑胜' : '黑将死红胜')
-                : (side === 'black' ? '红困毙黑胜' : '黑困毙红胜');
+                ? (side === 'red' ? '黑胜' : '红胜')
+                : (side === 'red' ? '红方困毙，黑胜' : '黑方困毙，红胜');
             this._endGame(winnerSlot, text);
             return;
         }
@@ -899,7 +865,7 @@ class HexagonXiangqiRoom extends QiTwoPlayerRoomBase {
             if (rep.result === 'loss') {
                 const loserSlot = R.slotFromSide(rep.loserSide);
                 const winnerSlot = loserSlot === 'player1' ? 'white' : 'black';
-                this._endGame(winnerSlot, rep.loserSide === 'red' ? '红长将黑胜' : '黑长将红胜');
+                this._endGame(winnerSlot, rep.loserSide === 'red' ? '红方长将，黑胜' : '黑方长将，红胜');
                 return;
             }
         }
@@ -920,7 +886,8 @@ class HexagonXiangqiRoom extends QiTwoPlayerRoomBase {
             let entry = rawMoves[i];
             let player; let from; let to;
             if (typeof entry === 'string') {
-                const m = entry.match(/^([RB])(\d+)-(\d+)$/i);
+                // 坐标写法：R<起点行>,<起点列>-<终点行>,<终点列>（如 R5,5-6,5）
+                const m = entry.match(/^([RB])(\d+),(\d+)-(\d+),(\d+)$/i);
                 if (!m) {
                     this.resetToEmpty();
                     requesterWs.send(JSON.stringify({ type: 'error', message: `棋谱回放失败：第${i + 1}手格式错误。` }));
@@ -928,12 +895,23 @@ class HexagonXiangqiRoom extends QiTwoPlayerRoomBase {
                     return;
                 }
                 player = m[1].toUpperCase() === 'R' ? 'player1' : 'player2';
-                from = +m[2];
-                to = +m[3];
+                from = vertexOfKoord(m[2], m[3]);
+                to = vertexOfKoord(m[4], m[5]);
+                if (from < 0 || to < 0) {
+                    this.resetToEmpty();
+                    requesterWs.send(JSON.stringify({ type: 'error', message: `棋谱回放失败：第${i + 1}手坐标越界。` }));
+                    this.broadcast({ type: 'roomReset', ...this.getState() });
+                    return;
+                }
             } else {
                 player = entry.player;
-                from = entry.from;
-                to = entry.to;
+                if (entry.fromRow != null) {
+                    from = vertexOfKoord(entry.fromRow, entry.fromCol);
+                    to = vertexOfKoord(entry.toRow, entry.toCol);
+                } else {
+                    from = entry.from;
+                    to = entry.to;
+                }
             }
             const expect = R.slotFromSide(this.sideToMove);
             if (player !== expect) {
@@ -1005,8 +983,11 @@ class HexagonXiangqiRoom extends QiTwoPlayerRoomBase {
                 if (this.gameOver) return;
                 if (!this._timeAllowsPlay(slot)) return;
                 if (!this._drainClockBeforeMove(slot)) return;
-                const { from, to } = msg;
-                if (![from, to].every((n) => Number.isInteger(n))) return;
+                const cells = [msg.fromRow, msg.fromCol, msg.toRow, msg.toCol].map(Number);
+                if (!cells.every((n) => Number.isInteger(n))) return;
+                const from = vertexOfKoord(cells[0], cells[1]);
+                const to = vertexOfKoord(cells[2], cells[3]);
+                if (from < 0 || to < 0) return;
                 const r = this._applyMoveCore(from, to, slot);
                 if (!r.ok) return;
                 this._resolveAfterMove();
@@ -1045,7 +1026,7 @@ class HexagonXiangqiRoom extends QiTwoPlayerRoomBase {
             case 'resign':
                 qiProtocol.resign(this, ws, slot);
                 if (this.gameOver && slot) {
-                    this.recordResultText = slot === 'player1' ? '红认输黑胜' : '黑认输红胜';
+                    this.recordResultText = slot === 'player1' ? '红方认输，黑胜' : '黑方认输，红胜';
                     this._stopClockTicker();
                 }
                 break;

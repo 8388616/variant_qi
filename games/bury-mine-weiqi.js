@@ -1,4 +1,5 @@
 const {
+    qiBoardSeatOverlay,
     qiProtocol,
     qiMatchTimeControl,
     applyInitialPositionCompact
@@ -396,44 +397,6 @@ class BuryMineWeiqiRoom extends WeiqiRoom {
     _timeAllowsPlay(slot) {
         if (this.phase === 'burying') return false;
         return super._timeAllowsPlay(slot);
-    }
-
-    _finalizeTimeControl(valid) {
-        if (this.boardSeatOverlay) {
-            const chooserSlot = (valid && valid.colorChooserSlot)
-                || (this.tcNego && this.tcNego.lastProposerSlot)
-                || this._firstPickerSlot();
-            this._applyChooserColorChoice((valid && valid.colorChoice) || 'black', chooserSlot);
-            this._notifyColorsAfterHostChoice();
-        }
-        this.tcSettings = valid.timed
-            ? {
-                timed: true,
-                mainMinutes: valid.mainMinutes,
-                byoyomiSeconds: valid.byoyomiSeconds,
-                maxTimeouts: valid.maxTimeouts
-            }
-            : { timed: false };
-        this.tcNego = null;
-        this.matchStarted = true;
-        const now = Date.now();
-        if (valid.timed) {
-            this.tcClock = qiMatchTimeControl.createSyncClock(this.tcSettings, now);
-        } else {
-            this.tcClock = null;
-        }
-        this._beginBuryPhase({ initial: true });
-        this.broadcast({
-            type: 'timeControlAgreed',
-            settings: this.tcSettings,
-            clock: this.tcClock ? qiMatchTimeControl.snapshotForClient(this.tcClock) : null,
-            slots: {
-                player1: !!this.room.getPlayerBySlot('player1'),
-                player2: !!this.room.getPlayerBySlot('player2')
-            },
-            hostSlot: this.hostWs ? this.room.getSlotByWs(this.hostWs) : null,
-            ...this.getState()
-        });
     }
 
     _handleBuryClick(ws, msg) {
@@ -834,6 +797,7 @@ module.exports = {
     initRoom(room) {
         room.gameLogic = new BuryMineWeiqiRoom(room);
         room.maxPlayers = 2;
+        if (typeof qiBoardSeatOverlay !== 'undefined' && qiBoardSeatOverlay) qiBoardSeatOverlay.install(room.gameLogic);
         if (typeof qiProtocol.installStandardEditBoard === 'function') {
             qiProtocol.installStandardEditBoard(room.gameLogic);
         }

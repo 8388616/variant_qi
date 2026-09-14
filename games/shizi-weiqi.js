@@ -1,4 +1,4 @@
-const { qiProtocol, squareWuziqiRules, applyInitialPositionCompact } = require('../common');
+const { qiBoardSeatOverlay, qiProtocol, squareWuziqiRules, applyInitialPositionCompact } = require('../common');
 const { WeiqiRoom } = require('./weiqi');
 
 const WIN_IN_ROW = 10;
@@ -151,6 +151,7 @@ module.exports = {
     initRoom(room) {
         room.gameLogic = new ShiziWeiqiRoom(room);
         room.maxPlayers = 2;
+        if (typeof qiBoardSeatOverlay !== 'undefined' && qiBoardSeatOverlay) qiBoardSeatOverlay.install(room.gameLogic);
         if (typeof qiProtocol.installStandardEditBoard === 'function') {
             qiProtocol.installStandardEditBoard(room.gameLogic);
         }

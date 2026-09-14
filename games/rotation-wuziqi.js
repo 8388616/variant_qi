@@ -219,31 +219,10 @@ class RotationWuziqiRoom extends QiTwoPlayerRoomBase {
         if (tb == null || tw == null) return 'player1';
         return tb <= tw ? 'player1' : 'player2';
     }
-
-    _maybeBeginTimeNegotiation() {
-        if (this.moveHistory.length > 0 || this.gameOver) return;
-        if (!this.room.getPlayerBySlot('player1') || !this.room.getPlayerBySlot('player2')) return;
-        if (this.tcNego !== null || this.tcSettings !== null) return;
-        const first = this._firstPickerSlot();
-        this.tcNego = { phase: 'propose', proposal: null, waitingSlot: first, lastProposerSlot: null };
-        const firstWs = this.room.getPlayerBySlot(first);
-        if (firstWs) firstWs.send(JSON.stringify({ type: 'timeControlNegotiation', mode: 'propose' }));
-        const other = first === 'player1' ? 'player2' : 'player1';
-        const otherWs = this.room.getPlayerBySlot(other);
-        if (otherWs) otherWs.send(JSON.stringify({ type: 'timeControlWaitPeer', text: '对方正在选择限时规则…' }));
-    }
-
     afterColorAssigned(ws, slot) {
         this.slotJoinedAt[slot] = Date.now();
         this._maybeBeginTimeNegotiation();
     }
-
-    _sendRespondDialog(toSlot, proposal) {
-        const ws = this.room.getPlayerBySlot(toSlot);
-        if (!ws) return;
-        ws.send(JSON.stringify({ type: 'timeControlNegotiation', mode: 'respond', proposal }));
-    }
-
     _finalizeTimeControl(valid) {
         this.tcSettings = valid.timed
             ? { timed: true, mainMinutes: valid.mainMinutes, byoyomiSeconds: valid.byoyomiSeconds, maxTimeouts: valid.maxTimeouts }
@@ -258,31 +237,6 @@ class RotationWuziqiRoom extends QiTwoPlayerRoomBase {
         } else this.tcClock = null;
         this.broadcast({ type: 'timeControlAgreed', settings: this.tcSettings, clock: this.tcClock ? qiMatchTimeControl.snapshotForClient(this.tcClock) : null });
     }
-
-    _handleTimeControlSubmit(ws, msg) {
-        const slot = this.room.getSlotByWs(ws);
-        if (!slot || !this.tcNego || slot !== this.tcNego.waitingSlot) return;
-        const valid = qiMatchTimeControl.validateProposal(msg);
-        if (!valid.ok) {
-            ws.send(JSON.stringify({ type: 'error', message: valid.error }));
-            return;
-        }
-        this.tcNego.proposal = valid;
-        this.tcNego.phase = 'respond';
-        const other = slot === 'player1' ? 'player2' : 'player1';
-        this.tcNego.waitingSlot = other;
-        ws.send(JSON.stringify({ type: 'timeControlWaitPeer', text: '正在等对方确认' }));
-        this._sendRespondDialog(other, valid);
-    }
-
-    _handleTimeControlAccept(ws) {
-        const slot = this.room.getSlotByWs(ws);
-        if (!slot || !this.tcNego || this.tcNego.phase !== 'respond' || slot !== this.tcNego.waitingSlot) return;
-        const prop = this.tcNego.proposal;
-        if (!prop || prop.ok !== true) return;
-        this._finalizeTimeControl(prop);
-    }
-
     getState() {
         return {
             board: this.board,

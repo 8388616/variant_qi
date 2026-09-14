@@ -47,18 +47,47 @@ function generateHexBoardData(n) {
         }
     }
     const neighborList = neighborSets.map(set => Array.from(set));
-    return { vertexCount: V, neighbors: neighborList };
+
+    /**
+     * 坐标表（棋谱里写作 颜色字母 + 行,列，如 B5,5）
+     *   行 0 = 屏幕最上面一行：棋盘显示时 y 做了上下翻折（y 越大越靠上），故按 y 从大到小排行
+     *   列 = 该行内自左往右，0 起
+     */
+    const rows = [];
+    for (let v = 0; v < V; v++) {
+        const y = vertices[v].y;
+        let row = rows.find((r) => Math.abs(r.y - y) < 1e-6);
+        if (!row) {
+            row = { y, pts: [] };
+            rows.push(row);
+        }
+        row.pts.push(v);
+    }
+    rows.sort((a, b) => b.y - a.y);
+    const koordOf = new Array(V);
+    const vertexByKoord = new Map();
+    rows.forEach((row, ri) => {
+        row.pts.sort((a, b) => vertices[a].x - vertices[b].x);
+        row.pts.forEach((v, ci) => {
+            koordOf[v] = [ri, ci];
+            vertexByKoord.set(`${ri},${ci}`, v);
+        });
+    });
+
+    return { vertexCount: V, neighbors: neighborList, koordOf, vertexByKoord };
 }
 
-const { QiTwoPlayerRoomBase, qiMatchTimeControl, vertexGraphWeiqiRules, qiBoardSeatOverlay, qiProtocol, encodeOpeningPositionCompact } = require('../common');
+const { QiTwoPlayerRoomBase, qiMatchTimeControl, vertexGraphWeiqiRules, qiBoardSeatOverlay, qiProtocol } = require('../common');
 class HexagonWeiqiRoom extends QiTwoPlayerRoomBase {
     constructor(room, initialSize = 9) {
         super(room);
         this.editBoardMode = 'flat';
         this.boardSize = initialSize;
-        const { vertexCount, neighbors } = generateHexBoardData(initialSize);
+        const { vertexCount, neighbors, koordOf, vertexByKoord } = generateHexBoardData(initialSize);
         this.vertexCount = vertexCount;
         this.neighbors = neighbors;
+        this.koordOf = koordOf;
+        this.vertexByKoord = vertexByKoord;
         this.board = Array(this.vertexCount).fill(0);
         if (this.openingBoard === undefined) this.openingBoard = (typeof this.copyBoard === 'function' ? this.copyBoard(this.board) : (Array.isArray(this.board[0]) ? this.board.map(r => r.slice()) : this.board.slice()));
         this.currentPlayer = 1;
@@ -137,20 +166,6 @@ class HexagonWeiqiRoom extends QiTwoPlayerRoomBase {
         if (tb == null || tw == null) return 'player1';
         return tb <= tw ? 'player1' : 'player2';
     }
-
-    _maybeBeginTimeNegotiation() {
-        if (this.moveHistory.length > 0 || this.gameOver) return;
-        if (!this.room.getPlayerBySlot('player1') || !this.room.getPlayerBySlot('player2')) return;
-        if (this.tcNego !== null || this.tcSettings !== null) return;
-        const first = this._firstPickerSlot();
-        this.tcNego = { phase: 'propose', proposal: null, waitingSlot: first, lastProposerSlot: null };
-        const firstWs = this.room.getPlayerBySlot(first);
-        if (firstWs) firstWs.send(JSON.stringify({ type: 'timeControlNegotiation', mode: 'propose' }));
-        const other = first === 'player1' ? 'player2' : 'player1';
-        const otherWs = this.room.getPlayerBySlot(other);
-        if (otherWs) otherWs.send(JSON.stringify({ type: 'timeControlWaitPeer', text: '等待对方设置限时规则...' }));
-    }
-
     _finalizeTimeControl(valid) {
         this.tcSettings = valid.timed
             ? {
@@ -176,64 +191,6 @@ class HexagonWeiqiRoom extends QiTwoPlayerRoomBase {
             clock: this.tcClock ? qiMatchTimeControl.snapshotForClient(this.tcClock) : null
         });
     }
-
-    _sendRespondDialog(toSlot, proposal) {
-        const ws = this.room.getPlayerBySlot(toSlot);
-        if (!ws) return;
-        ws.send(JSON.stringify({
-            type: 'timeControlNegotiation',
-            mode: 'respond',
-            proposal: {
-                ok: true,
-                timed: proposal.timed,
-                mainMinutes: proposal.mainMinutes,
-                byoyomiSeconds: proposal.byoyomiSeconds,
-                maxTimeouts: proposal.maxTimeouts
-            }
-        }));
-    }
-
-    _handleTimeControlSubmit(ws, msg) {
-        const slot = this.room.getSlotByWs(ws);
-        if (!slot || !this.tcNego) return;
-        const v = qiMatchTimeControl.validateProposal(msg);
-        if (!v.ok) {
-            ws.send(JSON.stringify({ type: 'error', message: v.error }));
-            return;
-        }
-        const room = this.room;
-        if (this.tcNego.phase === 'propose') {
-            if (slot !== this.tcNego.waitingSlot) return;
-            this.tcNego.proposal = v;
-            this.tcNego.lastProposerSlot = slot;
-            this.tcNego.phase = 'respond';
-            const other = slot === 'player1' ? 'player2' : 'player1';
-            this.tcNego.waitingSlot = other;
-            room.getPlayerBySlot(slot).send(JSON.stringify({ type: 'timeControlWaitPeer', text: '等待对方确认...' }));
-            this._sendRespondDialog(other, v);
-            return;
-        }
-        if (this.tcNego.phase === 'respond') {
-            if (slot !== this.tcNego.waitingSlot) return;
-            this.tcNego.proposal = v;
-            this.tcNego.lastProposerSlot = slot;
-            const other = slot === 'player1' ? 'player2' : 'player1';
-            this.tcNego.waitingSlot = other;
-            this.tcNego.phase = 'respond';
-            room.getPlayerBySlot(slot).send(JSON.stringify({ type: 'timeControlWaitPeer', text: '等待对方确认...' }));
-            this._sendRespondDialog(other, v);
-        }
-    }
-
-    _handleTimeControlAccept(ws, msg) {
-        const slot = this.room.getSlotByWs(ws);
-        if (!slot || !this.tcNego || this.tcNego.phase !== 'respond') return;
-        if (slot !== this.tcNego.waitingSlot) return;
-        const prop = this.tcNego.proposal;
-        if (!prop || prop.ok !== true) return;
-        this._finalizeTimeControl(prop);
-    }
-
     _timeAllowsPlay(slot) {
         if (this.gameOver) return false;
         if (!this.matchStarted) return false;
@@ -422,14 +379,15 @@ class HexagonWeiqiRoom extends QiTwoPlayerRoomBase {
     getState() {
         return {
             boardSize: this.boardSize,
-            board: this.board,
+            board: this.wireBoard(),
             komi: 3.25,
+            initialBoard: this.wireInitialBoard(),
             numberOfHands: 1 + this.historyBoards.length,
             currentPlayer: this.currentPlayer,
-            lastMoveMarkers: this.lastMoveMarkers,
+            lastMoveMarkers: this.wireMarkers(this.lastMoveMarkers),
             gameOver: this.gameOver,
             winner: this.winner,
-            moveCoords: this.moveCoords,
+            moveCoords: this.wireMoveCoords(),
             slots: {
                 player1: !!this.room.getPlayerBySlot('player1'),
                 player2: !!this.room.getPlayerBySlot('player2')
@@ -468,11 +426,13 @@ class HexagonWeiqiRoom extends QiTwoPlayerRoomBase {
             requesterWs.send(JSON.stringify({ type: 'error', message: '已有棋子或玩家，不能改变路数' }));
             return false;
         }
-        const { vertexCount, neighbors } = generateHexBoardData(newSize);
+        const { vertexCount, neighbors, koordOf, vertexByKoord } = generateHexBoardData(newSize);
         this.boardSize = newSize;
         this.openingBoard = undefined;
         this.vertexCount = vertexCount;
         this.neighbors = neighbors;
+        this.koordOf = koordOf;
+        this.vertexByKoord = vertexByKoord;
         this.board = Array(this.vertexCount).fill(0);
         this.currentPlayer = 1;
         this.historyBoards = [];
@@ -516,10 +476,12 @@ class HexagonWeiqiRoom extends QiTwoPlayerRoomBase {
             boardSize: this.boardSize,
             komi: 3.25,
             players: { player1: null, player2: null },
-            initialPosition: encodeOpeningPositionCompact(this),
+            initialPosition: this.encodeInitialPositionCoords(),
             moves: this.moveCoords.map(m => {
                 const p = m.player === 'player1' ? 'B' : 'W';
-                return m.type === 'pass' ? p + 'p' : p + m.vertex;
+                if (m.type === 'pass') return p + 'p';
+                const rc = this.koordOf[m.vertex] || [];
+                return p + rc[0] + ',' + rc[1];
             }),
             timeControl: (this.tcSettings && this.tcSettings.timed) ? `S${this.tcSettings.mainMinutes || 0},${this.tcSettings.byoyomiSeconds || 0},${this.tcSettings.maxTimeouts || 0}` : null,
             result: resultText
@@ -553,29 +515,137 @@ class HexagonWeiqiRoom extends QiTwoPlayerRoomBase {
         this.matchStarted = false;
     }
 
-    static parseMove(entry) {
-        if (typeof entry === 'string') {
-            const player = entry[0] === 'B' ? 'player1' : 'player2';
-            if (entry[1] === 'p') return { type: 'pass', player };
-            const vertex = parseInt(entry.substring(1), 10);
-            return { type: 'move', player, vertex };
-        }
-        return entry;
+    /** 棋谱着法 → 顶点：颜色字母 + 行,列（如 B5,5）；虚着写作 Bp / Wp */
+    parseMoveEntry(entry) {
+        if (typeof entry !== 'string') return entry;
+        const player = entry[0] === 'B' ? 'player1' : 'player2';
+        const body = entry.slice(1);
+        if (body === 'p') return { type: 'pass', player };
+        const m = /^(\d+),(\d+)$/.exec(body);
+        if (!m) return { type: 'move', player, vertex: -1 };
+        const vertex = this.vertexByKoord.get(`${Number(m[1])},${Number(m[2])}`);
+        return { type: 'move', player, vertex: vertex === undefined ? -1 : vertex };
     }
 
-    parseInitialPositionCompact(initialPosition) {
-        if (!Array.isArray(initialPosition)) return [];
+/** 编辑盘面：提交的是坐标二维盘 board[行][列]（锯齿，行长随行变化），内部转成顶点盘 */
+    applyEditBoard(ws, msg) {
+        const edited = msg && msg.board;
+        const fail = (text) => {
+            ws.send(JSON.stringify({ type: 'error', message: text }));
+            return true;
+        };
+        if (!Array.isArray(edited)) return fail('无效的棋盘数据');
+        const next = new Array(this.vertexCount).fill(0);
+        for (let r = 0; r < edited.length; r++) {
+            const line = edited[r];
+            if (!Array.isArray(line)) return fail('无效的棋盘数据');
+            for (let c = 0; c < line.length; c++) {
+                const v = this.vertexOfKoord(r, c);
+                if (v < 0) return fail('无效的棋盘数据');
+                const val = Number(line[c]);
+                if (val !== 0 && val !== 1 && val !== 2) return fail('棋盘数据包含非法值');
+                next[v] = val;
+            }
+        }
+        this.board = next;
+        this.openingBoard = this.copyBoard(next);
+        this.historyBoards = [];
+        if (this.historyBoardSet && typeof this.historyBoardSet.clear === 'function') {
+            this.historyBoardSet.clear();
+            this.historyBoardSet.add(this.boardToString(next));
+        }
+        this.moveHistory = [];
+        this.moveCoords = [];
+        this.historyMarkers = [];
+        this.currentPlayer = 1;
+        this.lastMoveMarkers = [];
+        this.passCounter = 0;
+        this.gameOver = false;
+        this.winner = null;
+        this.broadcast({ type: 'editBoardAccepted', ...this.getState() });
+        return true;
+    }
+
+    /** 行,列 → 顶点；非法坐标返回 -1 */
+    vertexOfKoord(row, col) {
+        const v = this.vertexByKoord.get(`${row},${col}`);
+        return v === undefined ? -1 : v;
+    }
+
+    /* 下面四个 wire*：对外（协议/棋谱）只用坐标 行,列，内部一律顶点号 */
+
+    /** 棋盘：board[行][列]（每行点数不同，是锯齿数组） */
+    wireBoard() {
+        const rows = [];
+        for (let v = 0; v < this.vertexCount; v++) {
+            const rc = this.koordOf[v];
+            if (!rows[rc[0]]) rows[rc[0]] = [];
+            rows[rc[0]][rc[1]] = this.board[v];
+        }
+        return rows;
+    }
+
+    /** 最近一手标记：[{row, col, color}] */
+    wireMarkers(markers) {
+        return (markers || []).map((m) => {
+            if (m == null || m.vertex == null) return Object.assign({}, m);
+            const rc = this.koordOf[m.vertex];
+            if (!rc) return Object.assign({}, m);
+            return { row: rc[0], col: rc[1], color: m.color };
+        });
+    }
+
+    /** 初始（编辑后）盘面按坐标下发 */
+    wireInitialBoard() {
+        const opening = this.openingBoard || this.board;
+        const rows = [];
+        for (let v = 0; v < this.vertexCount; v++) {
+            const rc = this.koordOf[v];
+            if (!rows[rc[0]]) rows[rc[0]] = [];
+            rows[rc[0]][rc[1]] = opening[v] || 0;
+        }
+        return rows;
+    }
+
+    /** 着手列表：[{type:'move', player, row, col}] */
+    wireMoveCoords() {
+        return this.moveCoords.map((m) => {
+            if (m == null || m.type !== 'move' || m.vertex == null) return Object.assign({}, m);
+            const rc = this.koordOf[m.vertex];
+            if (!rc) return Object.assign({}, m);
+            return { type: 'move', player: m.player, row: rc[0], col: rc[1] };
+        });
+    }
+
+    /** 初始局面（编辑盘面）写成坐标串：B5,5 */
+    encodeInitialPositionCoords() {
         const out = [];
+        for (let v = 0; v < this.vertexCount; v++) {
+            const val = this.openingBoard ? this.openingBoard[v] : 0;
+            if (val !== 1 && val !== 2) continue;
+            const rc = this.koordOf[v];
+            out.push(`${val === 1 ? 'B' : 'W'}${rc[0]},${rc[1]}`);
+        }
+        return out;
+    }
+
+    /** 坐标串 → [[顶点, 颜色]] */
+    parseInitialPositionCoords(initialPosition) {
+        if (!Array.isArray(initialPosition)) return [];
+        const stones = [];
         for (const s of initialPosition) {
             if (typeof s !== 'string' || s.length < 2) continue;
             const p = s[0];
             if (p !== 'B' && p !== 'W') continue;
-            const vertex = parseInt(s.slice(1), 10);
-            if (!Number.isInteger(vertex) || vertex < 0 || vertex >= this.vertexCount) continue;
-            out.push(`${p}${vertex}`);
+            const m = /^(\d+),(\d+)$/.exec(s.slice(1));
+            if (!m) continue;
+            const v = this.vertexByKoord.get(`${Number(m[1])},${Number(m[2])}`);
+            if (v === undefined) continue;
+            stones.push([v, p === 'B' ? 1 : 2]);
         }
-        return out;
+        return stones;
     }
+
 
     importRecord(data, requesterWs) {
         if (!data || data.gameId !== 'hexagon-weiqi') {
@@ -588,21 +658,18 @@ class HexagonWeiqiRoom extends QiTwoPlayerRoomBase {
             return;
         }
 
-        const { vertexCount, neighbors } = generateHexBoardData(newSize);
+        const { vertexCount, neighbors, koordOf, vertexByKoord } = generateHexBoardData(newSize);
         this.boardSize = newSize;
+        this.koordOf = koordOf;
+        this.vertexByKoord = vertexByKoord;
         this.vertexCount = vertexCount;
         this.neighbors = neighbors;
         this.resetToEmpty();
 
-        let compactInitialPosition = this.parseInitialPositionCompact(data.initialPosition);
-        for (const s of compactInitialPosition) {
-            const p = s[0];
-            const v = parseInt(s.slice(1), 10);
-            this.board[v] = p === 'B' ? 1 : 2;
-        }
+        for (const [v, val] of this.parseInitialPositionCoords(data.initialPosition)) this.board[v] = val;
 
         const rawMoves = data.moves || [];
-        const moves = rawMoves.map(HexagonWeiqiRoom.parseMove);
+        const moves = rawMoves.map((e) => this.parseMoveEntry(e));
         for (let i = 0; i < moves.length; i++) {
             const move = moves[i];
             const slot = move.player;
@@ -691,10 +758,10 @@ class HexagonWeiqiRoom extends QiTwoPlayerRoomBase {
             replayData: {
                 boardSize: this.boardSize,
                 // 打谱从空盘 + 全手顺即可；避免 initialPosition 与 moves 重复导致客户端回放失败
-                initialPosition: encodeOpeningPositionCompact(this),
+                initialPosition: this.encodeInitialPositionCoords(),
                 moves: moves.map(m => (m.type === 'pass'
                     ? { type: 'pass', player: m.player }
-                    : { type: 'move', player: m.player, vertex: m.vertex }))
+                    : { type: 'move', player: m.player, row: this.koordOf[m.vertex] ? this.koordOf[m.vertex][0] : -1, col: this.koordOf[m.vertex] ? this.koordOf[m.vertex][1] : -1 }))
             }
         });
     }
@@ -742,8 +809,10 @@ class HexagonWeiqiRoom extends QiTwoPlayerRoomBase {
                 }
                 if (!this._drainClockBeforeMove(slot)) return;
                 if (!slot || slot !== (this.currentPlayer === 1 ? 'player1' : 'player2')) return;
-                const { vertex } = msg;
-                if (!Number.isInteger(vertex) || vertex < 0 || vertex >= this.vertexCount) return;
+                const row = Number(msg.row), col = Number(msg.col);
+                if (!Number.isInteger(row) || !Number.isInteger(col)) return;
+                const vertex = this.vertexOfKoord(row, col);
+                if (vertex < 0 || vertex >= this.vertexCount) return;
                 if (this.board[vertex] !== 0) return;
                 const playerVal = this.currentPlayer === 1 ? 1 : 2;
                 const newBoard = this.tryPlaceStone(this.board, vertex, playerVal);

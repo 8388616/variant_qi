@@ -341,8 +341,8 @@
     <label class="qi-time-control-field"><span>超时次数</span><input type="number" id="qiTcMaxT" min="0" max="100" value=""></label>
   </div>
   <div class="qi-time-control-row qi-time-control-color-row" id="qiTcColorRow" style="display:none;">
-    <label class="qi-time-control-radio"><input type="radio" name="qiColorChoice" value="player1" checked> 执先手</label>
-    <label class="qi-time-control-radio"><input type="radio" name="qiColorChoice" value="player2"> 执后手</label>
+    <label class="qi-time-control-radio"><input type="radio" name="qiColorChoice" value="player1" checked> 执黑</label>
+    <label class="qi-time-control-radio"><input type="radio" name="qiColorChoice" value="player2"> 执白</label>
     <label class="qi-time-control-radio"><input type="radio" name="qiColorChoice" value="random"> 猜先</label>
   </div>
   <p class="qi-time-control-hint" id="qiTcHint"></p>
@@ -458,7 +458,7 @@
                 const S2 = (ctx.pageState) || {};
                 const name = (S2.sideLabels && S2.sideLabels[slot]) || (ctx.sideLabels && ctx.sideLabels[slot]) || '';
                 if (name) return (prefix ? '您执' : '执') + String(name).replace(/方$/, '');
-                return (prefix ? '您执' : '执') + (slot === 'player1' ? '先手' : '后手');
+                return (prefix ? '您执' : '执') + (slot === 'player1' ? '黑' : '白');
             }
 
             /** 选项相对己方：直接显示您执X / 猜先 */
@@ -469,7 +469,7 @@
             }
 
             function applySlotUiColorLabels() {
-                [['player1', '执先手'], ['player2', '执后手']].forEach(([slot, fallback]) => {
+                [['player1', '执黑'], ['player2', '执白']].forEach(([slot, fallback]) => {
                     const input = wrap.querySelector(`input[name="qiColorChoice"][value="${slot}"]`);
                     if (!input || !input.parentElement) return;
                     const has = (ctx.slotUi && ctx.slotUi[slot]) || (ctx.pageState && ctx.pageState.sideLabels && ctx.pageState.sideLabels[slot]);
@@ -2500,7 +2500,7 @@
                 if (ui && ui.choiceText) return ui.choiceText;
                 const name = (S.sideLabels && S.sideLabels[slot]) || (ctx.sideLabels && ctx.sideLabels[slot]) || '';
                 if (name) return '执' + String(name).replace(/方$/, '');
-                return slot === 'player1' ? '执先手' : '执后手';
+                return slot === 'player1' ? '执黑' : '执白';
             };
             const seatEmoji = (slot) => {
                 const ui = ctx.slotUi && ctx.slotUi[slot];

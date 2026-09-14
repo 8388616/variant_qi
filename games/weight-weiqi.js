@@ -22,13 +22,12 @@ function normalizeInitialPositionForReplayPayload(initialPosition) {
     return out;
 }
 
-// 权重围棋家族(主棋类 weight-weiqi):subGameId 区分五个子棋类。
-// weight-weiqi:1..N² 随机排列;角重(corner-focused):1..N² 固定排布,自屏幕左上角沿
-// 反对角线向右下递增,右下角最大;心重(centre-focused):1..N² 固定排布,自屏幕左上角
-// 顺时针螺旋,中心最大;二/三权重:每点独立按权重池随机。
-// 贴目:排列型(随机/固定)用原公式,池子子类用固定值。
+// 权重围棋家族(主棋类 weight-weiqi):subGameId 区分四个子棋类。
+// weight-weiqi:1..N² 随机排列;焦点(focus-weight):1..N² 螺旋排布,每局随机起点与初始方向,
+// 起点为 N²、沿螺旋向外递减(出盘格不占号);二/三权重:每点独立按权重池随机。
+// 贴目:排列型(随机/螺旋)用原公式,池子子类用固定值。
 const WEIGHT_SUB_GAMES = [
-    'weight-weiqi', 'biweight-weiqi', 'triweight-weiqi', 'corner-focused-weiqi', 'centre-focused-weiqi'
+    'weight-weiqi', 'biweight-weiqi', 'triweight-weiqi', 'focus-weight-weiqi'
 ];
 const WEIGHT_POOLS = {
     'biweight-weiqi': [1, 1, 2],
@@ -40,6 +39,12 @@ const WEIGHT_FIXED_KOMI = {
 };
 
 class WeightWeiqiRoom extends QiTwoPlayerRoomBase {
+    /** 焦点螺旋的 8 个初始方向 = 螺旋最初两段的走向（右上 = 先右后上） */
+    static FOCUS_DIRECTIONS = [
+        ['E', 'N'], ['N', 'W'], ['W', 'S'], ['S', 'E'],   // 逆时针：右上 / 上左 / 左下 / 下右
+        ['E', 'S'], ['S', 'W'], ['W', 'N'], ['N', 'E']    // 顺时针：右下 / 下左 / 左上 / 上右
+    ];
+
     constructor(room, initialSize = 19, subGameId = 'weight-weiqi') {
         super(room);
         this.boardSize = initialSize;   // 每行每列格数（19路 = 19×19 格）
@@ -123,27 +128,6 @@ class WeightWeiqiRoom extends QiTwoPlayerRoomBase {
         if (tb == null || tw == null) return 'player1';
         return tb <= tw ? 'player1' : 'player2';
     }
-
-    _maybeBeginTimeNegotiation() {
-        if (this.moveHistory.length > 0 || this.gameOver) return;
-        const room = this.room;
-        if (!room.getPlayerBySlot('player1') || !room.getPlayerBySlot('player2')) return;
-        if (this.tcNego !== null) return;
-        if (this.tcSettings !== null) return;
-        const first = this._firstPickerSlot();
-        this.tcNego = {
-            phase: 'propose',
-            proposal: null,
-            waitingSlot: first,
-            lastProposerSlot: null
-        };
-        const ws = room.getPlayerBySlot(first);
-        if (ws) ws.send(JSON.stringify({ type: 'timeControlNegotiation', mode: 'propose' }));
-        const other = first === 'player1' ? 'player2' : 'player1';
-        const ws2 = room.getPlayerBySlot(other);
-        if (ws2) ws2.send(JSON.stringify({ type: 'timeControlWaitPeer', text: '等待对方设置限时规则...' }));
-    }
-
     afterColorAssigned(ws, slot) {
         this.slotJoinedAt[slot] = Date.now();
         this._maybeBeginTimeNegotiation();
@@ -175,65 +159,6 @@ class WeightWeiqiRoom extends QiTwoPlayerRoomBase {
             clock: this.tcClock ? qiMatchTimeControl.snapshotForClient(this.tcClock) : null
         });
     }
-
-    _sendRespondDialog(toSlot, proposal) {
-        const ws = this.room.getPlayerBySlot(toSlot);
-        if (ws) {
-            ws.send(JSON.stringify({
-                type: 'timeControlNegotiation',
-                mode: 'respond',
-                proposal: {
-                    ok: true,
-                    timed: proposal.timed,
-                    mainMinutes: proposal.mainMinutes,
-                    byoyomiSeconds: proposal.byoyomiSeconds,
-                    maxTimeouts: proposal.maxTimeouts
-                }
-            }));
-        }
-    }
-
-    _handleTimeControlSubmit(ws, msg) {
-        const slot = this.room.getSlotByWs(ws);
-        if (!slot || !this.tcNego) return;
-        const v = qiMatchTimeControl.validateProposal(msg);
-        if (!v.ok) {
-            ws.send(JSON.stringify({ type: 'error', message: v.error }));
-            return;
-        }
-        const room = this.room;
-        if (this.tcNego.phase === 'propose') {
-            if (slot !== this.tcNego.waitingSlot) return;
-            this.tcNego.proposal = v;
-            this.tcNego.lastProposerSlot = slot;
-            this.tcNego.phase = 'respond';
-            const other = slot === 'player1' ? 'player2' : 'player1';
-            this.tcNego.waitingSlot = other;
-            room.getPlayerBySlot(slot).send(JSON.stringify({ type: 'timeControlWaitPeer', text: '等待对方确认...' }));
-            this._sendRespondDialog(other, v);
-            return;
-        }
-        if (this.tcNego.phase === 'respond') {
-            if (slot !== this.tcNego.waitingSlot) return;
-            this.tcNego.proposal = v;
-            this.tcNego.lastProposerSlot = slot;
-            const other = slot === 'player1' ? 'player2' : 'player1';
-            this.tcNego.waitingSlot = other;
-            this.tcNego.phase = 'respond';
-            room.getPlayerBySlot(slot).send(JSON.stringify({ type: 'timeControlWaitPeer', text: '等待对方确认...' }));
-            this._sendRespondDialog(other, v);
-        }
-    }
-
-    _handleTimeControlAccept(ws) {
-        const slot = this.room.getSlotByWs(ws);
-        if (!slot || !this.tcNego || this.tcNego.phase !== 'respond') return;
-        if (slot !== this.tcNego.waitingSlot) return;
-        const prop = this.tcNego.proposal;
-        if (!prop || prop.ok !== true) return;
-        this._finalizeTimeControl(prop);
-    }
-
     _timeAllowsPlay(slot) {
         if (this.gameOver) return false;
         if (!this.matchStarted) return false;
@@ -304,42 +229,50 @@ class WeightWeiqiRoom extends QiTwoPlayerRoomBase {
     }
 
     /**
-     * 固定排布权重(角重/心重):1..N² 各一次,不随机。
-     * 先在屏幕坐标上生成(disp[0] = 屏幕最上面一行),再换算到站点坐标(row 0 = 屏幕最下面一行),
-     * 保证界面上看到的数字与设计一致。
-     *   corner:按反对角线(dr+dc)自左上角向右下递增,同一条内自上而下
-     *   center:自左上角顺时针螺旋,中心最大
+     * 焦点排布:1..N² 各一次,非随机排列——每局随机选一个起点与 8 个初始方向之一,
+     * 起点为 N²,之后沿方形螺旋向外逐格递减(段长 1,1,2,2,3,3… 每段同侧转向);
+     * 走出棋盘的格不占号(无权重),螺旋照走,回到棋盘内继续递减。
+     * 方向名 = 螺旋最初两段走向(右上 = 先右后上),顺时针/逆时针各四个,共 8 个。
+     * 先按屏幕坐标生成(第一行 = 屏幕最上面一行),再换算到站点坐标(row 0 = 屏幕最下面一行)。
      */
-    generateFixedWeights(kind) {
-        const n = this.boardSize;
+    /** 焦点螺旋核心(屏幕坐标):起点 (startRow, startCol) 为 N²,沿 d1→d2 决定的螺旋向外递减 */
+    buildFocusSpiral(n, startRow, startCol, d1, d2) {
+        const DIR = { E: [0, 1], N: [-1, 0], W: [0, -1], S: [1, 0] };   // dr 向下为正
+        const OPP = { E: 'W', W: 'E', N: 'S', S: 'N' };
+        const cycle = [d1, d2, OPP[d1], OPP[d2]];
         const disp = Array.from({ length: n }, () => new Array(n).fill(0));
-        if (kind === 'corner') {
-            const cells = [];
-            for (let dr = 0; dr < n; dr++) for (let dc = 0; dc < n; dc++) cells.push([dr, dc]);
-            cells.sort((a, b) => (a[0] + a[1]) - (b[0] + b[1]) || a[0] - b[0]);
-            cells.forEach(([dr, dc], k) => { disp[dr][dc] = k + 1; });
-        } else {
-            let top = 0, bottom = n - 1, left = 0, right = n - 1, k = 1;
-            while (top <= bottom && left <= right) {
-                for (let dc = left; dc <= right; dc++) disp[top][dc] = k++;
-                top++;
-                for (let dr = top; dr <= bottom; dr++) disp[dr][right] = k++;
-                right--;
-                if (top <= bottom) { for (let dc = right; dc >= left; dc--) disp[bottom][dc] = k++; bottom--; }
-                if (left <= right) { for (let dr = bottom; dr >= top; dr--) disp[dr][left] = k++; left++; }
+        let dr = startRow;
+        let dc = startCol;
+        let val = n * n;
+        disp[dr][dc] = val--;
+        let len = 1, seg = 0, di = 0;
+        while (val > 0) {
+            const [sr, sc] = DIR[cycle[di % 4]];
+            for (let s = 0; s < len && val > 0; s++) {
+                dr += sr; dc += sc;
+                if (dr >= 0 && dr < n && dc >= 0 && dc < n) disp[dr][dc] = val--;
             }
+            di++;
+            if (++seg === 2) { seg = 0; len++; }
         }
         const weights = Array.from({ length: n }, () => new Array(n).fill(0));
-        for (let dr = 0; dr < n; dr++) {
-            for (let dc = 0; dc < n; dc++) weights[n - 1 - dr][dc] = disp[dr][dc];
+        for (let r = 0; r < n; r++) {
+            for (let c = 0; c < n; c++) weights[n - 1 - r][c] = disp[r][c];
         }
         return weights;
     }
 
-    /** 按子棋类生成权重:排列型(weight-weiqi 随机 / 角重 / 心重)为 1..N² 各一次;其余按权重池逐点独立随机 */
+    /** 焦点:每局随机起点与初始方向(8 选 1) */
+    generateFocusWeights() {
+        const SPIRAL = WeightWeiqiRoom.FOCUS_DIRECTIONS;
+        const [d1, d2] = SPIRAL[Math.floor(Math.random() * SPIRAL.length)];
+        const n = this.boardSize;
+        return this.buildFocusSpiral(n, Math.floor(Math.random() * n), Math.floor(Math.random() * n), d1, d2);
+    }
+
+    /** 按子棋类生成权重:排列型(weight-weiqi 随机 / 焦点螺旋)为 1..N² 各一次;其余按权重池逐点独立随机 */
     generateWeights() {
-        if (this.subGameId === 'corner-focused-weiqi') return this.generateFixedWeights('corner');
-        if (this.subGameId === 'centre-focused-weiqi') return this.generateFixedWeights('center');
+        if (this.subGameId === 'focus-weight-weiqi') return this.generateFocusWeights();
         const pool = WEIGHT_POOLS[this.subGameId];
         const weights = Array(this.boardSize).fill().map(() => Array(this.boardSize).fill(0));
         if (!pool) {
@@ -369,9 +302,23 @@ class WeightWeiqiRoom extends QiTwoPlayerRoomBase {
     /** 子棋类贴目:固定值;weight-weiqi(排列)沿用原公式 */
     komiFor() {
         const fixed = WEIGHT_FIXED_KOMI[this.subGameId];
-        if (fixed != null) return fixed;
-        const n = this.boardSize;
-        return Math.floor(0.008 * (1 + n * n) * n * n);
+        if (fixed != null)
+			return fixed;
+
+		let p = 8.25;
+		if (this.subGameId === 'weight-weiqi')
+		{
+			if (this.boardSize === 5)
+				p = 25;
+			if (this.boardSize === 6)
+				p = 7.5;
+			if (this.boardSize === 7 || this.boardSize === 8)
+				p = 9.5;
+			if (this.boardSize >= 9 || this.boardSize < 15)
+				p = 7.75;
+				
+		}
+		return Math.floor(0.25 * p * (1 + this.boardSize * this.boardSize));
     }
 
     countGroupLiberties(board, row, col) {

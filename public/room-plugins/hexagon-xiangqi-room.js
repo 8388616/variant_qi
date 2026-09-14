@@ -728,6 +728,41 @@ return {
         function sideOfSlot(slot) { return R.sideFromSlot(slot); }
         function slotOfSide(side) { return R.slotFromSide(side); }
 
+        /* ===== 协议/棋谱用坐标 行,列 于固定几何（不随视角镜像）；内部一律顶点号 ===== */
+        const koordOfVertex = new Array(R.V);
+        const vertexOfKoordMap = new Map();
+        (function buildKoordTables() {
+            const rows = [];
+            for (let v = 0; v < R.V; v++) {
+                let row = rows.find(r => Math.abs(r.y - R.ys[v]) < 1e-6);
+                if (!row) { row = { y: R.ys[v], pts: [] }; rows.push(row); }
+                row.pts.push(v);
+            }
+            rows.sort((a, b) => b.y - a.y);
+            rows.forEach((row, ri) => {
+                row.pts.sort((a, b) => R.xs[a] - R.xs[b]);
+                row.pts.forEach((v, ci) => { koordOfVertex[v] = [ri, ci]; vertexOfKoordMap.set(ri + ',' + ci, v); });
+            });
+        })();
+        function vertexOfKoord(row, col) {
+            const v = vertexOfKoordMap.get(Number(row) + ',' + Number(col));
+            return v === undefined ? -1 : v;
+        }
+        function koordOf(vertex) { return koordOfVertex[vertex] || null; }
+        function boardFromWire(wire) {
+            const flat = new Array(R.V).fill(0);
+            if (!Array.isArray(wire)) return flat;
+            for (let r = 0; r < wire.length; r++) {
+                const line = wire[r];
+                if (!Array.isArray(line)) continue;
+                for (let c = 0; c < line.length; c++) {
+                    const v = vertexOfKoord(r, c);
+                    if (v >= 0) flat[v] = line[c];
+                }
+            }
+            return flat;
+        }
+
         function boardFlipped() {
             return ps.mySlot === 'player2';
         }
@@ -966,7 +1001,7 @@ return {
 
         function syncState(state) {
             if (!state) return;
-            if (state.board) ps.board = R.copyBoard(state.board);
+            if (state.board) ps.board = boardFromWire(state.board);
             if (state.sideToMove) {
                 ps.sideToMove = state.sideToMove;
                 ps.currentPlayer = state.sideToMove === 'red' ? 1 : 2;
@@ -976,15 +1011,15 @@ return {
             }
             ps.gameOver = !!state.gameOver;
             ps.winner = state.winner != null ? state.winner : null;
-            ps.lastFrom = state.lastFrom != null ? state.lastFrom : null;
-            ps.lastTo = state.lastTo != null ? state.lastTo : null;
+            ps.lastFrom = state.lastToRow != null && state.lastFromRow != null ? vertexOfKoord(state.lastFromRow, state.lastFromCol) : null;
+            ps.lastTo = state.lastToRow != null ? vertexOfKoord(state.lastToRow, state.lastToCol) : null;
             ps.inCheck = !!state.inCheck;
             ps.halfmoveClock = state.halfmoveClock || 0;
             if (state.slots) ps.slots = state.slots;
             if (state.matchStarted != null) ps.matchStarted = !!state.matchStarted;
             if (state.matchTime !== undefined) ps.matchTime = state.matchTime;
             if (state.moveHistory) {
-                ps.moveHistory = state.moveHistory.slice();
+                ps.moveHistory = state.moveHistory.map((m) => Object.assign({}, m, m.fromRow != null ? { from: vertexOfKoord(m.fromRow, m.fromCol), to: vertexOfKoord(m.toRow, m.toCol) } : {}));
             } else if (state.moveCoords) {
                 ps.moveHistory = state.moveCoords.filter((m) => m.type === 'move').map((m) => ({
                     player: m.player,
@@ -1216,7 +1251,9 @@ return {
 
         function commitMove(from, to) {
             if (!ps.ws || ps.ws.readyState !== 1) return;
-            ps.ws.send(JSON.stringify({ type: 'move', from, to }));
+            const a = koordOf(from), b = koordOf(to);
+            if (!a || !b) return;
+            ps.ws.send(JSON.stringify({ type: 'move', fromRow: a[0], fromCol: a[1], toRow: b[0], toCol: b[1] }));
         }
 
         function getNearestVertex(canvasX, canvasY) {

@@ -83,63 +83,10 @@ class RandomInstabilityWuziqiRoom extends QiTwoPlayerRoomBase {
         if (tb == null || tw == null) return 'player1';
         return tb <= tw ? 'player1' : 'player2';
     }
-
-    _maybeBeginTimeNegotiation() {
-        if (this.moveLog.length > 0 || this.gameOver) return;
-        if (!this.room.getPlayerBySlot('player1') || !this.room.getPlayerBySlot('player2')) return;
-        if (this.tcNego || this.tcSettings) return;
-        const first = this._firstPickerSlot();
-        this.tcNego = { phase: 'propose', proposal: null, waitingSlot: first };
-        const ws = this.room.getPlayerBySlot(first);
-        if (ws) ws.send(JSON.stringify({ type: 'timeControlNegotiation', mode: 'propose' }));
-        const other = first === 'player1' ? 'player2' : 'player1';
-        const ws2 = this.room.getPlayerBySlot(other);
-        if (ws2) ws2.send(JSON.stringify({ type: 'timeControlWaitPeer', text: '对方正在选择限时规则…' }));
-    }
-
     afterColorAssigned(ws, slot) {
         this.slotJoinedAt[slot] = Date.now();
         this._maybeBeginTimeNegotiation();
     }
-
-    _handleTimeControlSubmit(ws, msg) {
-        const slot = this.room.getSlotByWs(ws);
-        if (!slot || !this.tcNego || slot !== this.tcNego.waitingSlot) return;
-        const v = qiMatchTimeControl.validateProposal(msg);
-        if (!v.ok) {
-            ws.send(JSON.stringify({ type: 'error', message: v.error }));
-            return;
-        }
-        this.tcNego.proposal = v;
-        this.tcNego.phase = 'respond';
-        const other = slot === 'player1' ? 'player2' : 'player1';
-        this.tcNego.waitingSlot = other;
-        ws.send(JSON.stringify({ type: 'timeControlWaitPeer', text: '正在等对方确认' }));
-        const otherWs = this.room.getPlayerBySlot(other);
-        if (otherWs) otherWs.send(JSON.stringify({ type: 'timeControlNegotiation', mode: 'respond', proposal: v }));
-    }
-
-    _handleTimeControlAccept(ws) {
-        const slot = this.room.getSlotByWs(ws);
-        if (!slot || !this.tcNego || this.tcNego.phase !== 'respond' || slot !== this.tcNego.waitingSlot) return;
-        const p = this.tcNego.proposal;
-        if (!p || p.ok !== true) return;
-        this.tcSettings = p.timed
-            ? { timed: true, mainMinutes: p.mainMinutes, byoyomiSeconds: p.byoyomiSeconds, maxTimeouts: p.maxTimeouts }
-            : { timed: false };
-        this.tcNego = null;
-        this.matchStarted = true;
-        this.tcClock = qiMatchTimeControl.createClock(this.tcSettings, Date.now());
-        if (this.tcClock && this.tcClock.timed) {
-            qiMatchTimeControl.setActiveSlot(this.tcClock, this.currentPlayer, Date.now());
-            this._startClockTicker();
-            this._broadcastClock();
-        } else {
-            this.tcClock = null;
-        }
-        this.broadcast({ type: 'timeControlAgreed', settings: this.tcSettings, clock: this.tcClock ? qiMatchTimeControl.snapshotForClient(this.tcClock) : null });
-    }
-
     generateNextPreview() {
         const base = 5 + 0.05 * this.moveCount;
         const raw = base * Math.random() + 0.05 * this.moveCount;

@@ -2480,7 +2480,7 @@ const qiBoardSeatOverlay = {
                 // 房主连接已断/僵死时不再把协商提案发给它（否则另一方永远收不到协商，matchStarted 恒 false 无法落子）
                 if (hs && (!this.hostWs.readyState || this.hostWs.readyState === 1)) return hs;
             }
-            return origFirst ? origFirst() : 'black';
+            return origFirst ? origFirst() : 'player1';
         };
 
         const origMaybe = typeof self._maybeBeginTimeNegotiation === 'function'

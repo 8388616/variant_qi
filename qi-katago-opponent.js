@@ -30,7 +30,7 @@ function engineGameId(self) {
     return (self && self._qiKatagoGameId) || (self && self.room && self.room.gameType) || null;
 }
 
-/** 引擎目录 id：**只有**权重围棋家族的四个子棋类（二/三权重、角重、心重）与主棋类
+/** 引擎目录 id：**只有**权重围棋家族的三个子棋类（二/三权重、焦点）与主棋类
  *  共用 katagos/weight-weiqi——引擎与模型完全相同，差别只在每点权重（由 kata-set-weights 同步）。
  *  其余带子棋类的棋类（磁性围棋 weak/medium/strong-magnetism-weiqi、三角围棋的形状子棋类、
  *  自由围棋 biliberty/quadriliberty/triliberty-weiqi 等）一律各用 katagos/{子棋类id}/ 自己的引擎与模型。 */
@@ -86,11 +86,10 @@ function readRemainingTranslocationMoves(self) {
     return Math.max(0, (maxT | 0) - played);
 }
 
-/** 权重围棋家族子棋类 id（权重/二权重/三权重/角重/心重）：共用 katagos/weight-weiqi 引擎与模型，
+/** 权重围棋家族子棋类 id（权重/二权重/三权重/焦点）：共用 katagos/weight-weiqi 引擎与模型，
  *  各子棋类只是每点权重不同（kata-set-weights 每局同步）。新增权重系子棋类时在此登记。 */
 const WEIGHT_SUB_GAME_IDS = new Set([
-    'weight-weiqi', 'biweight-weiqi', 'triweight-weiqi',
-    'corner-focused-weiqi', 'centre-focused-weiqi'
+    'weight-weiqi', 'biweight-weiqi', 'triweight-weiqi', 'focus-weight-weiqi'
 ]);
 function isWeightWeiqiEngine(id) {
     return typeof id === 'string' && WEIGHT_SUB_GAME_IDS.has(id);

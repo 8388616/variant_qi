@@ -371,8 +371,14 @@ class VersusMinesweeperRoom extends QiTwoPlayerRoomBase {
         return { ...base, myBoard: null, mySlot: slot || null };
     }
 
+    /** 执方名（对局设置与状态栏都用它，避免显示成「先手/后手」） */
+    getChatSideLabel(slot) {
+        return slot === 'player1' ? '黑方' : '白方';
+    }
+
     getState() {
         return {
+            sideLabels: { player1: '黑方', player2: '白方' },
             boardSize: this.boardSize,
             mineCount: this.mineCount,
             buryMinutes: this.buryMinutes,

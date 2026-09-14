@@ -1,6 +1,6 @@
 const crypto = require('crypto');
 
-const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, applyInitialPositionCompact, encodeInitialPositionCompact, encodeOpeningPositionCompact } = require('../common');
+const { qiBoardSeatOverlay, QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, applyInitialPositionCompact, encodeInitialPositionCompact, encodeOpeningPositionCompact  } = require('../common');
 
 // ======================== 双人四色围棋 ========================
 // 两人对弈四色围棋：黑蓝方执黑(1)/蓝(4)，白红方执白(2)/红(3)。
@@ -258,250 +258,9 @@ class DuoQuadricolourRoom extends QiTwoPlayerRoomBase
         }, 1000);
     }
 
-    _clearTimeNegotiation(reason) {
-        this.tcNego = null;
-        this.broadcast({ type: 'timeControlReset', reason: reason || 'cleared' });
-    }
-
-    _firstPickerSlot() {
-        if (this.hostWs) {
-            const hs = this.room.getSlotByWs(this.hostWs);
-            if (hs) return hs;
-        }
-        const tb = this.slotJoinedAt.player1;
-        const tw = this.slotJoinedAt.player2;
-        if (tb == null || tw == null) return 'player1';
-        return tb <= tw ? 'player1' : 'player2';
-    }
-
-    _maybeBeginTimeNegotiation() {
-        if (this.moveHistory.length > 0 || this.gameOver) return;
-        const room = this.room;
-        if (!room.getPlayerBySlot('player1') || !room.getPlayerBySlot('player2')) return;
-        if (this.tcNego !== null) return;
-        if (this.tcSettings !== null) return;
-        const first = this._firstPickerSlot();
-        this.tcNego = {
-            phase: 'propose',
-            proposal: null,
-            waitingSlot: first,
-            lastProposerSlot: null
-        };
-        const ws = room.getPlayerBySlot(first);
-        if (ws) {
-            ws.send(JSON.stringify({
-                type: 'timeControlNegotiation',
-                mode: 'propose',
-                boardSeatOverlay: !!this.boardSeatOverlay
-            }));
-        }
-        const other = first === 'player1' ? 'player2' : 'player1';
-        const ws2 = room.getPlayerBySlot(other);
-        if (ws2) ws2.send(JSON.stringify({ type: 'timeControlWaitPeer', text: '等待对方设置限时规则...' }));
-    }
-
-    afterColorAssigned(ws, slot) {
-        if (!this.hostWs) this.hostWs = ws;
-        this.slotJoinedAt[slot] = Date.now();
-        this._maybeBeginTimeNegotiation();
-    }
-
     /** 按「选择者己方执子」交换座位：colorChoice 为 black|white|random */
-    _applyChooserColorChoice(colorChoice, chooserSlot) {
-        if (!chooserSlot) return null;
-        const room = this.room;
-        if (!room.getPlayerBySlot(chooserSlot)) return null;
-        let raw = colorChoice;
-        if (raw === 'hostWhite') raw = 'player2';
-        if (raw === 'hostBlack') raw = 'player1';
-        let target = 'player1';
-        if (raw === 'player2') target = 'player2';
-        else if (raw === 'random') target = Math.random() < 0.5 ? 'player1' : 'player2';
-        if (chooserSlot === target) return target;
-
-        if (typeof room.swapSlots === 'function') {
-            room.swapSlots('player1', 'player2');
-        } else {
-            const a = room.slotOccupancy.get('player1') || null;
-            const b = room.slotOccupancy.get('player2') || null;
-            room.slotOccupancy.delete('player1');
-            room.slotOccupancy.delete('player2');
-            if (a) {
-                room.players.set(a, 'player2');
-                room.slotOccupancy.set('player2', a);
-            }
-            if (b) {
-                room.players.set(b, 'player1');
-                room.slotOccupancy.set('player1', b);
-            }
-        }
-        const tb = this.slotJoinedAt.player1;
-        const tw = this.slotJoinedAt.player2;
-        this.slotJoinedAt.player1 = tw;
-        this.slotJoinedAt.player2 = tb;
-        return target;
-    }
-
-    _notifyColorsAfterHostChoice() {
-        const room = this.room;
-        const b = room.getPlayerBySlot('player1');
-        const w = room.getPlayerBySlot('player2');
-        const hostSlot = this.hostWs ? room.getSlotByWs(this.hostWs) : null;
-        if (b) b.send(JSON.stringify({ type: 'colorAssigned', color: 'player1', finalized: true, isHost: b === this.hostWs }));
-        if (w) w.send(JSON.stringify({ type: 'colorAssigned', color: 'player2', finalized: true, isHost: w === this.hostWs }));
-        this.broadcast({
-            type: 'colorsFinalized',
-            slots: { player1: !!b, player2: !!w },
-            hostSlot
-        });
-    }
-
-    _finalizeTimeControl(valid) {
-        if (this.boardSeatOverlay) {
-            const chooserSlot = (valid && valid.colorChooserSlot)
-                || (this.tcNego && this.tcNego.lastProposerSlot)
-                || this._firstPickerSlot();
-            this._applyChooserColorChoice((valid && valid.colorChoice) || 'black', chooserSlot);
-            this._notifyColorsAfterHostChoice();
-        }
-        this.tcSettings = valid.timed
-            ? {
-                timed: true,
-                mainMinutes: valid.mainMinutes,
-                byoyomiSeconds: valid.byoyomiSeconds,
-                maxTimeouts: valid.maxTimeouts
-            }
-            : { timed: false };
-        this.tcNego = null;
-        this.matchStarted = true;
-        const now = Date.now();
-        this.tcClock = qiMatchTimeControl.createClock(this.tcSettings, now);
-        if (this.tcClock.timed) {
-            qiMatchTimeControl.setActiveSlot(this.tcClock, this.currentPlayer === 1 ? 'player1' : 'player2', now);
-            this._startClockTicker();
-            this._broadcastClock();
-        } else {
-            this.tcClock = null;
-        }
-        this.broadcast({
-            type: 'timeControlAgreed',
-            settings: this.tcSettings,
-            clock: this.tcClock ? qiMatchTimeControl.snapshotForClient(this.tcClock) : null,
-            slots: {
-                player1: !!this.room.getPlayerBySlot('player1'),
-                player2: !!this.room.getPlayerBySlot('player2')
-            },
-            hostSlot: this.hostWs ? this.room.getSlotByWs(this.hostWs) : null
-        });
-    }
-
-    _sendRespondDialog(toSlot, proposal) {
-        const ws = this.room.getPlayerBySlot(toSlot);
-        if (ws) {
-            ws.send(JSON.stringify({
-                type: 'timeControlNegotiation',
-                mode: 'respond',
-                boardSeatOverlay: !!this.boardSeatOverlay,
-                proposal: {
-                    ok: true,
-                    timed: proposal.timed,
-                    mainMinutes: proposal.mainMinutes,
-                    byoyomiSeconds: proposal.byoyomiSeconds,
-                    maxTimeouts: proposal.maxTimeouts,
-                    colorChoice: proposal.colorChoice || null,
-                    colorChooserSlot: proposal.colorChooserSlot || null
-                }
-            }));
-        }
-    }
 
     /** 把当前协商界面重新推给某客户端，避免提交被忽略后卡死 */
-    _resendNegotiationUi(ws) {
-        if (!this.tcNego || !ws) return;
-        const slot = this.room.getSlotByWs(ws);
-        if (!slot) return;
-        if (this.tcNego.waitingSlot === slot && this.tcNego.phase === 'propose') {
-            ws.send(JSON.stringify({
-                type: 'timeControlNegotiation',
-                mode: 'propose',
-                boardSeatOverlay: !!this.boardSeatOverlay
-            }));
-            return;
-        }
-        if (this.tcNego.waitingSlot === slot && this.tcNego.phase === 'respond' && this.tcNego.proposal) {
-            this._sendRespondDialog(slot, this.tcNego.proposal);
-            return;
-        }
-        ws.send(JSON.stringify({ type: 'timeControlWaitPeer', text: '等待对方确认...' }));
-    }
-
-    _handleTimeControlSubmit(ws, msg) {
-        const slot = this.room.getSlotByWs(ws);
-        if (!slot || !this.tcNego) return;
-        const v = qiMatchTimeControl.validateProposal(msg);
-        if (!v.ok) {
-            ws.send(JSON.stringify({ type: 'error', message: v.error }));
-            this._resendNegotiationUi(ws);
-            return;
-        }
-        if (this.boardSeatOverlay) {
-            // colorChoice 相对提交者己方：black|white|random（兼容旧 hostBlack/hostWhite）
-            const raw = msg && msg.colorChoice;
-            if (raw === 'black' || raw === 'hostBlack')
-                v.colorChoice = 'player1';
-            else if (raw === 'white' || raw === 'hostWhite')
-                v.colorChoice = 'player2';
-            else if (raw === 'random')
-                v.colorChoice = 'random';
-            else
-                v.colorChoice = 'player1';
-            // 选择者永远是本次提交的人
-            v.colorChooserSlot = slot;
-        }
-        const room = this.room;
-        if (this.tcNego.phase === 'propose') {
-            if (slot !== this.tcNego.waitingSlot) {
-                this._resendNegotiationUi(ws);
-                return;
-            }
-            this.tcNego.proposal = v;
-            this.tcNego.lastProposerSlot = slot;
-            this.tcNego.phase = 'respond';
-            const other = slot === 'player1' ? 'player2' : 'player1';
-            this.tcNego.waitingSlot = other;
-            room.getPlayerBySlot(slot).send(JSON.stringify({ type: 'timeControlWaitPeer', text: '等待对方确认...' }));
-            this._sendRespondDialog(other, v);
-            return;
-        }
-        if (this.tcNego.phase === 'respond') {
-            if (slot !== this.tcNego.waitingSlot) {
-                this._resendNegotiationUi(ws);
-                return;
-            }
-            this.tcNego.proposal = v;
-            this.tcNego.lastProposerSlot = slot;
-            const other = slot === 'player1' ? 'player2' : 'player1';
-            this.tcNego.waitingSlot = other;
-            this.tcNego.phase = 'respond';
-            room.getPlayerBySlot(slot).send(JSON.stringify({ type: 'timeControlWaitPeer', text: '等待对方确认...' }));
-            this._sendRespondDialog(other, v);
-        }
-    }
-
-    _handleTimeControlAccept(ws, msg) {
-        const slot = this.room.getSlotByWs(ws);
-        if (!slot || !this.tcNego || this.tcNego.phase !== 'respond') {
-            if (this.tcNego) this._resendNegotiationUi(ws);
-            return;
-        }
-        if (slot !== this.tcNego.waitingSlot) {
-            this._resendNegotiationUi(ws);
-            return;
-        }
-        const prop = this.tcNego.proposal;
-        if (!prop || prop.ok !== true) return;
-        this._finalizeTimeControl(prop);
-    }
 
     _timeAllowsPlay(slot) {
         if (this.gameOver) return false;
@@ -676,40 +435,6 @@ class DuoQuadricolourRoom extends QiTwoPlayerRoomBase
 
         switch (msg.type)
         {
-            case 'selectColor':
-            case 'takeSeat': {
-                if (typeof qiProtocol.takeSeat === 'function') {
-                    qiProtocol.takeSeat(this, ws, msg);
-                    break;
-                }
-                // 旧 common 无 takeSeat：开局前自动分配空位，避免无 color 或抢座失败
-                if (this.gameOver) break;
-                let color = (msg.color === 'black' || msg.color === 'white') ? msg.color : null;
-                if (!this.matchStarted) {
-                    if (!this.room.getPlayerBySlot('player1')) color = 'player1';
-                    else if (!this.room.getPlayerBySlot('player2')) color = 'player2';
-                    else {
-                        // 座位已满：静默忽略
-                        break;
-                    }
-                } else if (!color) {
-                    ws.send(JSON.stringify({ type: 'error', message: '请选择继续执黑或执白。' }));
-                    break;
-                }
-                qiProtocol.selectColor(this, ws, { color }, {
-                    colorOccupiedMsg: this.matchStarted ? '该座位已被占用。' : '双方均已落座。'
-                });
-                break;
-            }
-
-            case 'timeControlSubmit':
-                this._handleTimeControlSubmit(ws, msg);
-                break;
-
-            case 'timeControlAccept':
-                this._handleTimeControlAccept(ws, msg);
-                break;
-
             case 'setBoardSize':
                 qiProtocol.setBoardSizeWeiqiObserver(this, ws, msg, slot);
                 break;
@@ -1188,6 +913,7 @@ module.exports = {
     initRoom(room) {
         room.gameLogic = new DuoQuadricolourRoom(room);
         room.maxPlayers = 2;
+        if (typeof qiBoardSeatOverlay !== 'undefined' && qiBoardSeatOverlay) qiBoardSeatOverlay.install(room.gameLogic);
         if (typeof qiProtocol.installStandardEditBoard === 'function') {
             qiProtocol.installStandardEditBoard(room.gameLogic);
         }

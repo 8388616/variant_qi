@@ -239,15 +239,13 @@ const scoreTitle = document.getElementById('scoreTitle');
             }
 
             const totalCells = boardSize * boardSize;
-            // 高权重格着色:默认涂最高的 ceil(N²/4) 格(权重/角重);心重涂 floor(N²/4) 格。
+            // 高权重格着色:涂最高的 ceil(N²/4) 格(权重/焦点)。
             // 阈值 = N² − 涂色格数,判 > 阈值。池子子类(二/三权重)走各自分支,不受此影响。
-            const shadedCount = currentSubGame === 'centre-focused-weiqi'
-                ? Math.floor(totalCells / 4)
-                : Math.ceil(totalCells / 4);
+            const shadedCount = Math.floor(totalCells / 4);   // 排列型(权重/焦点)涂最高的 floor(N²/4) 格
             const highWeightThresh = totalCells - shadedCount;
             if (!ps.showEstimateActive) {
                 if (WEIGHT_ARRANGEMENTS.includes(currentSubGame)) {
-                    // 排列型(权重/角重/心重,1..N²):高权重格着色(张数见 shadedCount)
+                    // 排列型(权重/焦点,1..N²):高权重格着色(张数见 shadedCount)
                     for (let r = 0; r < boardSize; r++) {
                         for (let c = 0; c < boardSize; c++) {
                             if (safeWeightAt(weights, r, c) > highWeightThresh) {
@@ -357,7 +355,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                 }
             }
 
-            // 权重数字:排列型(权重/角重/心重,1..N²)逐格显示;
+            // 权重数字:排列型(权重/焦点,1..N²)逐格显示;
             // 池子子类(二/三权重):格子只有颜色填充,不画数字
             if (!ps.showMoveNumbers && WEIGHT_ARRANGEMENTS.includes(currentSubGame)) {
                 for (let r = 0; r < boardSize; r++) {
@@ -487,10 +485,10 @@ const scoreTitle = document.getElementById('scoreTitle');
         };
 
         // 权重围棋家族(主棋类 weight-weiqi,subGameId 区分子棋类):
-        // weight-weiqi:1..N² 随机排列;角重/心重:1..N² 固定排布;二/三权重:每点按权重池独立随机。
+        // weight-weiqi:1..N² 随机排列;焦点:1..N² 螺旋排布(随机起点与方向);二/三权重:每点按权重池独立随机。
         // 贴目:排列型用原公式,池子子类用固定值。
-        const WEIGHT_SUB_GAMES = ['weight-weiqi', 'biweight-weiqi', 'triweight-weiqi', 'corner-focused-weiqi', 'centre-focused-weiqi'];
-        const WEIGHT_ARRANGEMENTS = ['weight-weiqi', 'corner-focused-weiqi', 'centre-focused-weiqi'];   // 逐格显示权重数字(1..N²)的排布型
+        const WEIGHT_SUB_GAMES = ['weight-weiqi', 'biweight-weiqi', 'triweight-weiqi', 'focus-weight-weiqi'];
+        const WEIGHT_ARRANGEMENTS = ['weight-weiqi', 'focus-weight-weiqi'];   // 逐格显示权重数字(1..N²)的排布型
         const WEIGHT_SUB_POOLS = {
             'biweight-weiqi': [1, 1, 2],
             'triweight-weiqi': [1, 1, 1, 1, 2, 2, 3]
@@ -515,41 +513,63 @@ const scoreTitle = document.getElementById('scoreTitle');
             return sum;
         }
         // 子棋类贴目:固定值;weight-weiqi 沿用原公式
-        function weightKomiForSize(n) {
-            const f = WEIGHT_FIXED_KOMI[currentSubGame];
-            if (f != null) return f;
-            return Math.floor(0.008 * (1 + n * n) * n * n);
-        }
-        // 固定排布(角重/心重):与服务器 generateFixedWeights 一致——先按屏幕方向排,
-        // 再换算到站点坐标(row 0 = 屏幕最下面一行)
-        function genFixedWeightsLocal(n, kind) {
+        function weightKomiForSize(n)
+		{
+			const fixed = WEIGHT_FIXED_KOMI[currentSubGame];
+			if (fixed != null)
+				return fixed;
+	
+			let p = 8.25;
+			if (currentSubGame === 'weight-weiqi')
+			{
+				if (n === 5)
+					p = 25;
+				if (n === 6)
+					p = 7.5;
+				if (n === 7 || n === 8)
+					p = 9.5;
+				if (n >= 9 || n < 15)
+					p = 7.75;				
+			}
+			return Math.floor(0.25 * p * (1 + n * n));
+		}
+
+        // 焦点排布(乐观切换用):与服务器 generateFocusWeights 同算法——随机起点+初始方向,
+        // 起点 N²、螺旋向外递减、出盘不占号;先按屏幕方向排,再换算到站点坐标(row 0 = 屏幕最下面一行)。
+        // 本地随机结果与服务器多半不同,服务器 subGameChanged 回来即校正。
+        function genFocusWeightsLocal(n) {
+            const DIR = { E: [0, 1], N: [-1, 0], W: [0, -1], S: [1, 0] };
+            const OPP = { E: 'W', W: 'E', N: 'S', S: 'N' };
+            const SPIRAL = [
+                ['E', 'N'], ['N', 'W'], ['W', 'S'], ['S', 'E'],
+                ['E', 'S'], ['S', 'W'], ['W', 'N'], ['N', 'E']
+            ];
+            const [d1, d2] = SPIRAL[Math.floor(Math.random() * SPIRAL.length)];
+            const cycle = [d1, d2, OPP[d1], OPP[d2]];
             const disp = Array.from({ length: n }, () => new Array(n).fill(0));
-            if (kind === 'corner') {
-                const cells = [];
-                for (let dr = 0; dr < n; dr++) for (let dc = 0; dc < n; dc++) cells.push([dr, dc]);
-                cells.sort((a, b) => (a[0] + a[1]) - (b[0] + b[1]) || a[0] - b[0]);
-                cells.forEach(([dr, dc], k) => { disp[dr][dc] = k + 1; });
-            } else {
-                let top = 0, bottom = n - 1, left = 0, right = n - 1, k = 1;
-                while (top <= bottom && left <= right) {
-                    for (let dc = left; dc <= right; dc++) disp[top][dc] = k++;
-                    top++;
-                    for (let dr = top; dr <= bottom; dr++) disp[dr][right] = k++;
-                    right--;
-                    if (top <= bottom) { for (let dc = right; dc >= left; dc--) disp[bottom][dc] = k++; bottom--; }
-                    if (left <= right) { for (let dr = bottom; dr >= top; dr--) disp[dr][left] = k++; left++; }
+            let dr = Math.floor(Math.random() * n);
+            let dc = Math.floor(Math.random() * n);
+            let val = n * n;
+            disp[dr][dc] = val--;
+            let len = 1, seg = 0, di = 0;
+            while (val > 0) {
+                const [sr, sc] = DIR[cycle[di % 4]];
+                for (let s = 0; s < len && val > 0; s++) {
+                    dr += sr; dc += sc;
+                    if (dr >= 0 && dr < n && dc >= 0 && dc < n) disp[dr][dc] = val--;
                 }
+                di++;
+                if (++seg === 2) { seg = 0; len++; }
             }
             const out = Array.from({ length: n }, () => new Array(n).fill(0));
-            for (let dr = 0; dr < n; dr++) {
-                for (let dc = 0; dc < n; dc++) out[n - 1 - dr][dc] = disp[dr][dc];
+            for (let r = 0; r < n; r++) {
+                for (let c = 0; c < n; c++) out[n - 1 - r][c] = disp[r][c];
             }
             return out;
         }
         // 本地生成权重(乐观切换用,与服务器一致)
         function genWeightsLocal(n) {
-            if (currentSubGame === 'corner-focused-weiqi') return genFixedWeightsLocal(n, 'corner');
-            if (currentSubGame === 'centre-focused-weiqi') return genFixedWeightsLocal(n, 'center');
+            if (currentSubGame === 'focus-weight-weiqi') return genFocusWeightsLocal(n);
             const pool = WEIGHT_SUB_POOLS[currentSubGame];
             const out = Array.from({ length: n }, () => new Array(n).fill(0));
             if (!pool) {
@@ -971,7 +991,7 @@ syncState,
                 ps.waitingScoreConfirm = false;
             };
         }
-        // 子棋类选择器(权重/二权重/三权重/角重/心重围棋)
+        // 子棋类选择器(权重/二权重/三权重/焦点围棋)
         const subGameSelectEl = document.getElementById('subGameSelect');
         if (subGameSelectEl) {
             subGameSelectEl.innerHTML = '';
@@ -979,8 +999,7 @@ syncState,
                 { value: 'weight-weiqi', label: '权重' },
                 { value: 'biweight-weiqi', label: '二权重' },
                 { value: 'triweight-weiqi', label: '三权重' },
-                { value: 'corner-focused-weiqi', label: '角重' },
-                { value: 'centre-focused-weiqi', label: '心重' }
+                { value: 'focus-weight-weiqi', label: '焦点' }
             ];
             for (const o of subOpts) {
                 const opt = document.createElement('option');

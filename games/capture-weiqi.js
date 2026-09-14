@@ -1,92 +1,15 @@
+/**
+ * 吃子围棋 capture-weiqi
+ *   规则同围棋，唯一的区别在提子：
+ *     提到对方任意一子（含多子）→ 落子方立即获胜
+ *     自杀多颗棋子（整块被提，除刚落下的子外还带走别的己方子）→ 对方立即获胜
+ *     禁全同优先：自杀单颗子时盘面不变，这种着手被禁全同挡住（无法落子），不判负
+ *   双方都没提过子时，和围棋一样走数点（双方虚着 → 申请数点 → 双方确认）
+ *   本文件是围棋实现的副本，只有落子入口（playCaptureMove）与棋谱回放不同
+ */
 const crypto = require('crypto');
 
 const { qiBoardSeatOverlay, QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, applyInitialPositionCompact, encodeInitialPositionCompact, encodeOpeningPositionCompact } = require('../common');
-
-// ======================== 胖围棋规则 ========================
-// 胖围棋在围棋基础上修改三条规则：
-//  1) 落子不能与任何棋盘上已有的棋子相邻（上下左右四邻）。
-//  2) 同色棋子按「胖连接」成组：坐标差 (±1,±1) 或 (±1,±2)/(±2,±1) 的点相连
-//     （普通四邻不相连）；提子整组提。
-//  3) 一组若能「落一个子与它相连」的点（胖邻且可落子的空点）全部不存在，
-//     则整组被提 —— 可落子点被自己或对方占掉、或因四邻有子而不可落，都会让它失气。
-// 落子后只判定受影响组：落点 p 及其四邻空点的可落性变化，
-// 会影响的组 = p 与其四邻点的胖邻棋子所在组；先判对方提子再判己方。
-const ORTH_DIRS = [[-1, 0], [1, 0], [0, -1], [0, 1]];
-const FAT_DIRS = [
-    [-1, -1], [-1, 1], [1, -1], [1, 1],       // 横纵各差 1
-    [-1, -2], [-1, 2], [1, -2], [1, 2],       // 横差 1 纵差 2
-    [-2, -1], [-2, 1], [2, -1], [2, 1]        // 横差 2 纵差 1
-];
-const inB = (r, c, n) => r >= 0 && r < n && c >= 0 && c < n;
-
-/** 收集 (r,c) 同色棋子所在的胖组（12 向递归闭包），返回 [[r,c],...]（不含 (r,c) 为空的情况） */
-function fatGroupStones(board, r, c, n) {
-    const color = board[r][c];
-    if (color === 0) return [];
-    const stones = [];
-    const visited = Array.from({ length: n }, () => new Uint8Array(n));
-    visited[r][c] = 1;
-    const queue = [[r, c]];
-    for (let i = 0; i < queue.length; i++) {
-        const [cr, cc] = queue[i];
-        stones.push([cr, cc]);
-        for (const [dr, dc] of FAT_DIRS) {
-            const nr = cr + dr;
-            const nc = cc + dc;
-            if (inB(nr, nc, n) && board[nr][nc] === color && !visited[nr][nc]) {
-                visited[nr][nc] = 1;
-                queue.push([nr, nc]);
-            }
-        }
-    }
-    return stones;
-}
-
-/**
- * 组是否有「可落子相连点」：存在空点 q，q 胖邻于组内某子，
- * 且 q 的上下左右四邻没有任何棋子（规则 1，可合法落子）。
- */
-function fatGroupHasPlayableSpot(board, stones, n) {
-    const seenSpots = new Set();
-    for (const [r, c] of stones) {
-        for (const [dr, dc] of FAT_DIRS) {
-            const nr = r + dr;
-            const nc = c + dc;
-            if (!inB(nr, nc, n) || board[nr][nc] !== 0) continue;
-            const key = nr * n + nc;
-            if (seenSpots.has(key)) continue;
-            seenSpots.add(key);
-            let playable = true;
-            for (const [dr2, dc2] of ORTH_DIRS) {
-                const ar = nr + dr2;
-                const ac = nc + dc2;
-                if (inB(ar, ac, n) && board[ar][ac] !== 0) { playable = false; break; }
-            }
-            if (playable) return true;
-        }
-    }
-    return false;
-}
-
-/** 在盘面上把 (r,c) 所在的整组（12 向同色）清空 */
-function fatRemoveGroupAt(board, r, c, n) {
-    const color = board[r][c];
-    if (color === 0) return;
-    const queue = [[r, c]];
-    board[r][c] = 0;
-    for (let i = 0; i < queue.length; i++) {
-        const [cr, cc] = queue[i];
-        for (const [dr, dc] of FAT_DIRS) {
-            const nr = cr + dr;
-            const nc = cc + dc;
-            if (inB(nr, nc, n) && board[nr][nc] === color) {
-                board[nr][nc] = 0;
-                queue.push([nr, nc]);
-            }
-        }
-    }
-}
-
 class WeiqiRoom extends QiTwoPlayerRoomBase
 {
     constructor(room, initialSize = 19) {
@@ -210,96 +133,17 @@ class WeiqiRoom extends QiTwoPlayerRoomBase
     }
 
     countGroupLiberties(board, row, col) {
-        // 胖语义：该胖组「可落子的相连点」个数（空点胖邻于组且其四邻无子）
-        const n = this.boardSize;
-        const stones = fatGroupStones(board, row, col, n);
-        const seenSpots = new Set();
-        let count = 0;
-        for (const [r, c] of stones) {
-            for (const [dr, dc] of FAT_DIRS) {
-                const nr = r + dr;
-                const nc = c + dc;
-                if (!inB(nr, nc, n) || board[nr][nc] !== 0) continue;
-                const key = nr * n + nc;
-                if (seenSpots.has(key)) continue;
-                seenSpots.add(key);
-                let playable = true;
-                for (const [dr2, dc2] of ORTH_DIRS) {
-                    const ar = nr + dr2;
-                    const ac = nc + dc2;
-                    if (inB(ar, ac, n) && board[ar][ac] !== 0) { playable = false; break; }
-                }
-                if (playable) count++;
-            }
-        }
-        return count;
+        return squareWeiqiRules.countGroupLiberties(board, row, col, this.boardSize);
     }
 
     removeGroup(board, row, col, color) {
-        fatRemoveGroupAt(board, row, col, this.boardSize);
+        squareWeiqiRules.removeGroup(board, row, col, color, this.boardSize);
     }
 
     tryPlaceStone(boardBefore, row, col, playerVal) {
-        const n = this.boardSize;
-        if (boardBefore[row][col] !== 0) return null;
-        // 胖规则 1：落子不能与任何棋盘上已有的棋子（上下左右）相邻
-        for (const [dr, dc] of ORTH_DIRS) {
-            const nr = row + dr;
-            const nc = col + dc;
-            if (inB(nr, nc, n) && boardBefore[nr][nc] !== 0) return null;
-        }
-        const newBoard = this.copyBoard(boardBefore);
-        newBoard[row][col] = playerVal;
-        const enemy = 3 - playerVal;
-
-        // 受影响点 = 落点 p 及其四邻空点（p 占位后，四邻点失去可落性）。
-        // 候选组 = 这些点的胖邻棋子所在的胖组（去重收集）。
-        const affectedPoints = [[row, col]];
-        for (const [dr, dc] of ORTH_DIRS) {
-            const nr = row + dr;
-            const nc = col + dc;
-            if (inB(nr, nc, n)) affectedPoints.push([nr, nc]);
-        }
-        const candidates = [];          // { color, stones }
-        const visitedCells = Array.from({ length: n }, () => new Uint8Array(n));
-        for (const [pr, pc] of affectedPoints) {
-            for (const [dr, dc] of FAT_DIRS) {
-                const nr = pr + dr;
-                const nc = pc + dc;
-                if (!inB(nr, nc, n) || newBoard[nr][nc] === 0 || visitedCells[nr][nc]) continue;
-                const stones = [];
-                const color = newBoard[nr][nc];
-                visitedCells[nr][nc] = 1;
-                const queue = [[nr, nc]];
-                for (let i = 0; i < queue.length; i++) {
-                    const [cr, cc] = queue[i];
-                    stones.push([cr, cc]);
-                    for (const [dr2, dc2] of FAT_DIRS) {
-                        const ar = cr + dr2;
-                        const ac = cc + dc2;
-                        if (inB(ar, ac, n) && newBoard[ar][ac] === color && !visitedCells[ar][ac]) {
-                            visitedCells[ar][ac] = 1;
-                            queue.push([ar, ac]);
-                        }
-                    }
-                }
-                candidates.push({ color, stones });
-            }
-        }
-
-        // 先判对方：所有候选对方组基于同一盘面（含 p、尚未提子）统一判定，无气的整组提
-        for (const g of candidates) {
-            if (g.color === enemy && !fatGroupHasPlayableSpot(newBoard, g.stones, n)) {
-                for (const [r2, c2] of g.stones) newBoard[r2][c2] = 0;
-            }
-        }
-        // 再判己方：对方提完后的盘面上，直接判落点 p 所在的整组（孤子也在此组内），
-        // 无气的整组提（允许自杀）
-        const ownStones = fatGroupStones(newBoard, row, col, n);
-        if (!fatGroupHasPlayableSpot(newBoard, ownStones, n)) {
-            for (const [r2, c2] of ownStones) newBoard[r2][c2] = 0;
-        }
-        return newBoard;
+        return squareWeiqiRules.tryPlaceStoneNLiberty(
+            boardBefore, row, col, playerVal, this.boardSize, (b) => this.copyBoard(b), 1
+        );
     }
 
     isLibertySurroundedByOpponent(board, libertyRow, libertyCol, opponentColor) {
@@ -309,8 +153,7 @@ class WeiqiRoom extends QiTwoPlayerRoomBase
     }
 
     removeDeadAndDying(srcBoard) {
-        // 胖围棋数点不做自动判死：保留此钩子供协议兼容，返回原盘
-        return this.copyBoard(srcBoard);
+        return squareWeiqiRules.removeDeadAndDying(srcBoard, this.boardSize, (b) => this.copyBoard(b));
     }
 
     assignTerritoryWithRange(liveBoard) {
@@ -321,17 +164,122 @@ class WeiqiRoom extends QiTwoPlayerRoomBase
         return squareWeiqiRules.computeScore(liveBoard, territory, this.boardSize);
     }
 
+    /**
+     * Benson 加成的盘面净活盘：先用现有启发式去死子，再恢复无条件活棋链
+     * （防止"弱气被围"启发式误杀被动活），迭代到稳定。
+     */
+    bensonLiveBoard() {
+        const size = this.boardSize;
+        const benson = squareWeiqiRules.bensonAlive(this.board, size);
+        let live = this.board.map((row) => row.slice());
+        let changed = true;
+        while (changed) {
+            changed = false;
+            const cleaned = this.removeDeadAndDying(live);
+            for (let r = 0; r < size; r++) {
+                for (let c = 0; c < size; c++) {
+                    if (benson.alive[r][c] && this.board[r][c] !== 0 && cleaned[r][c] !== this.board[r][c]) {
+                        cleaned[r][c] = this.board[r][c];
+                        changed = true;
+                    }
+                }
+            }
+            live = cleaned;
+        }
+        return live;
+    }
+
     computeLead()
     {
-        // 胖围棋：数点不做自动判死（无气提子只发生在落子时），直接按当前盘算地
-        const territory = this.assignTerritoryWithRange(this.board);
-        const { blackTotal, whiteTotal } = this.computeScore(this.board, territory);
-        const KOMI = this.boardSize <= 8 ? 4.25 : 3.25;
+        const size = this.boardSize;
+        const liveBoard = this.bensonLiveBoard();
+        const territory = this.assignTerritoryWithRange(liveBoard);
+        // Benson 确定领地优先于"距离扩张"归属
+        const secure = squareWeiqiRules.bensonAlive(liveBoard, size);
+        for (let r = 0; r < size; r++) {
+            for (let c = 0; c < size; c++) {
+                if (liveBoard[r][c] === 0 && secure.territory[r][c]) territory[r][c] = secure.territory[r][c];
+            }
+        }
+        const { blackTotal, whiteTotal } = this.computeScore(liveBoard, territory);
+        const KOMI = this.boardSize <= 8 ? 3.5 : 2.5;
         return blackTotal - whiteTotal - 2 * KOMI;
     }
 
     onResignResolved(resignSlot) {
         this.recordResultText = resignSlot === 'player1' ? '白中盘胜' : '黑中盘胜';
+    }
+
+    /** 盘上某一方的棋子数（吃子围棋用它判断本手提了对方几子、或是否自提） */
+    countStones(board, colorVal) {
+        let n = 0;
+        for (let r = 0; r < this.boardSize; r++) {
+            for (let c = 0; c < this.boardSize; c++) if (board[r][c] === colorVal) n++;
+        }
+        return n;
+    }
+
+    /**
+     * 落子（吃子围棋）：规则同围棋，只是提子直接终局
+     *   提掉对方任意一子（含多子）→ 落子方立即获胜
+     *   自杀多颗（己方整块被提，除刚落下的那一子外还带走别的己方子）→ 对方立即获胜
+     *   没提子也没自杀 → 照常换手，双方都没提过子时就和围棋一样数点
+     * 禁全同优先：自杀单颗子不会改变盘面（落下的子随即被提），这种着手按禁全同**禁止落子**，不判负
+     */
+    playCaptureMove(ws, msg, slot) {
+        if (this.gameOver) return;
+        if (!slot || slot !== (this.currentPlayer === 1 ? 'player1' : 'player2')) return;
+        const row = msg.row, col = msg.col;
+        if (!Number.isInteger(row) || !Number.isInteger(col)) return;
+        if (row < 0 || row >= this.boardSize || col < 0 || col >= this.boardSize) return;
+        if (this.board[row][col] !== 0) return;
+        const playerVal = this.currentPlayer === 1 ? 1 : 2;
+        const enemyVal = 3 - playerVal;
+        const enemyBefore = this.countStones(this.board, enemyVal);
+        const newBoard = this.tryPlaceStone(this.board, row, col, playerVal);
+        if (!newBoard) return;
+        const captured = enemyBefore - this.countStones(newBoard, enemyVal);
+        // 刚落下的那一子若已被提掉（连同整块被提），就是自杀
+        const selfCaptured = newBoard[row][col] !== playerVal;
+        const newBoardStr = this.boardToString(newBoard);
+        // 禁全同优先：自杀单颗子时盘面不会有任何变化（落下的子随即被提），按禁全同禁止落子，不判负
+        if (newBoardStr === this.boardToString(this.board) || this.historyBoardSet.has(newBoardStr)) {
+            ws.send(JSON.stringify({ type: 'error', message: '禁全同。' }));
+            return;
+        }
+        if (this._drainClockBeforeMove(slot) === false) return;
+        this.historyBoards.push(this.copyBoard(newBoard));
+        this.historyBoardSet.add(newBoardStr);
+        this.historyMarkers.push(this.copyMarkers(this.lastMoveMarkers));
+        this.moveHistory.push(slot);
+        this.moveCoords.push({ type: 'move', player: slot, row, col });
+        this.board = newBoard;
+        this.lastMoveMarkers = [{ row, col, color: playerVal }];
+        this.passCounter = 0;
+        if (captured > 0) {
+            this.endByCapture(slot, captured);
+        } else if (selfCaptured) {
+            this.endBySuicide(slot);
+        } else {
+            this.currentPlayer = 3 - this.currentPlayer;
+        }
+        this.broadcast({ type: 'broadcast', action: 'move', ...this.getState() });
+    }
+
+    /** 提子终局：落子方胜 */
+    endByCapture(slot, captured) {
+        this.gameOver = true;
+        this.winner = slot;
+        this.recordResultText = `${slot === 'player1' ? '黑' : '白'}胜`;
+        this._stopClockTicker();
+    }
+
+    /** 自杀终局：对方胜 */
+    endBySuicide(slot) {
+        this.gameOver = true;
+        this.winner = slot === 'player1' ? 'player2' : 'player1';
+        this.recordResultText = slot === 'player1' ? '白胜' : '黑胜';
+        this._stopClockTicker();
     }
 
     onDrawResolved() {
@@ -368,7 +316,7 @@ class WeiqiRoom extends QiTwoPlayerRoomBase
             : this.copyBoard(this.board);
         return {
             boardSize: this.boardSize,
-            komi: this.boardSize <= 8 ? 4.25 : 3.25,
+            komi: this.boardSize <= 8 ? 3.5 : 2.5,
             board: this.board,
             initialBoard,
             numberOfHands: 1 + this.historyBoards.length,
@@ -376,6 +324,7 @@ class WeiqiRoom extends QiTwoPlayerRoomBase
             lastMoveMarkers: this.lastMoveMarkers,
             gameOver: this.gameOver,
             winner: this.winner,
+            recordResultText: this.recordResultText,
             moveCoords: this.moveCoords,
             slots: {
                 player1: !!this.room.getPlayerBySlot('player1'),
@@ -431,8 +380,7 @@ class WeiqiRoom extends QiTwoPlayerRoomBase
                     if (moveSlot) ws.send(JSON.stringify({ type: 'error', message: '请先与对手确认限时规则。' }));
                     return;
                 }
-                const before = () => this._drainClockBeforeMove(moveSlot);
-                qiProtocol.weiqiMove(this, ws, msg, moveSlot, { beforeCommit: before });
+                this.playCaptureMove(ws, msg, moveSlot);
                 this._syncClockAfterTurnChange();
                 break;
             }
@@ -632,10 +580,10 @@ class WeiqiRoom extends QiTwoPlayerRoomBase
         return {
             format: 'muzei',
             version: 1,
-            gameType: '围棋',
-            gameId: 'weiqi',
+            gameType: '吃子围棋',
+            gameId: 'capture-weiqi',
             boardSize: this.boardSize,
-            komi: this.boardSize <= 8 ? 4.25 : 3.25,
+            komi: this.boardSize <= 8 ? 3.5 : 2.5,
             players: { player1: null, player2: null },
             initialPosition: encodeOpeningPositionCompact(this),
             moves: this.moveCoords.map(m => {
@@ -686,8 +634,8 @@ class WeiqiRoom extends QiTwoPlayerRoomBase
     }
 
     importRecord(data, requesterWs) {
-        if (!data || data.gameId !== 'weiqi') {
-            requesterWs.send(JSON.stringify({ type: 'error', message: '棋谱格式不匹配（需要围棋棋谱）。' }));
+        if (!data || data.gameId !== 'capture-weiqi') {
+            requesterWs.send(JSON.stringify({ type: 'error', message: '棋谱格式不匹配（需要吃子围棋棋谱）。' }));
             return;
         }
         const newSize = data.boardSize || 19;
@@ -703,6 +651,7 @@ class WeiqiRoom extends QiTwoPlayerRoomBase
 
         const rawMoves = data.moves || [];
         const moves = rawMoves.map(WeiqiRoom.parseMove);
+        let endedByCapture = false;
         for (let i = 0; i < moves.length; i++) {
             const move = moves[i];
             const slot = move.player;
@@ -715,6 +664,7 @@ class WeiqiRoom extends QiTwoPlayerRoomBase
                     this.broadcast({ type: 'roomReset', ...this.getState() });
                     return;
                 }
+                const enemyBefore = this.countStones(this.board, 3 - playerVal);
                 const newBoard = this.tryPlaceStone(this.board, row, col, playerVal);
                 if (!newBoard) {
                     this.resetToEmpty();
@@ -722,7 +672,17 @@ class WeiqiRoom extends QiTwoPlayerRoomBase
                     this.broadcast({ type: 'roomReset', ...this.getState() });
                     return;
                 }
+                const captured = enemyBefore - this.countStones(newBoard, 3 - playerVal);
+                const selfCaptured = newBoard[row][col] !== playerVal;
                 const newBoardStr = this.boardToString(newBoard);
+                // 与实战一致：自杀单颗子（盘面不变）属于禁全同，棋谱里也不该出现
+                if (selfCaptured && captured === 0
+                    && (newBoardStr === this.boardToString(this.board) || this.historyBoardSet.has(newBoardStr))) {
+                    this.resetToEmpty();
+                    requesterWs.send(JSON.stringify({ type: 'error', message: `棋谱回放失败：第${i + 1}手禁全同` }));
+                    this.broadcast({ type: 'roomReset', ...this.getState() });
+                    return;
+                }
                 this.historyBoards.push(this.copyBoard(newBoard));
                 this.historyBoardSet.add(newBoardStr);
                 this.historyMarkers.push(this.copyMarkers(this.lastMoveMarkers));
@@ -730,8 +690,18 @@ class WeiqiRoom extends QiTwoPlayerRoomBase
                 this.moveCoords.push({ type: 'move', player: slot, row, col });
                 this.board = newBoard;
                 this.lastMoveMarkers = [{ row, col, color: playerVal }];
-                this.currentPlayer = 3 - this.currentPlayer;
                 this.passCounter = 0;
+                if (captured > 0) {
+                    this.endByCapture(slot, captured);
+                    endedByCapture = true;
+                    break;
+                }
+                if (selfCaptured) {
+                    this.endBySuicide(slot);
+                    endedByCapture = true;
+                    break;
+                }
+                this.currentPlayer = 3 - this.currentPlayer;
             } else if (move.type === 'pass') {
                 this.historyBoards.push(this.copyBoard(this.board));
                 this.historyMarkers.push(this.copyMarkers(this.lastMoveMarkers));
@@ -758,7 +728,7 @@ class WeiqiRoom extends QiTwoPlayerRoomBase
             this.matchStarted = true;
         }
 
-        if (data.result || data.resultText) {
+        if (!endedByCapture && (data.result || data.resultText)) {
             this.gameOver = true;
             const importedResultText = data.resultText != null ? String(data.resultText) : String(data.result);
             this.recordResultText = importedResultText;

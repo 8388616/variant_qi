@@ -202,6 +202,61 @@ window.RoomPlugins["floret-pentagon-weiqi"] = {
 
         let gridLayerCanvas = null;
 
+        /* ===== 协议/棋谱用坐标 行,列；客户端内部一律顶点号 =====
+           行 0 = 屏幕最上面一行（与显示一致），列 = 该行内自左往右 */
+        let koordOfVertex = [];
+        let vertexOfKoordMap = new Map();
+        function buildKoordTables() {
+            const rows = [];
+            for (let v = 0; v < (transformed ? transformed.length : 0); v++) {
+                const y = transformed[v].y;
+                let row = rows.find(r => Math.abs(r.y - y) < 0.01);
+                if (!row) { row = { y, pts: [] }; rows.push(row); }
+                row.pts.push(v);
+            }
+            rows.sort((a, b) => a.y - b.y);
+            koordOfVertex = new Array(transformed ? transformed.length : 0);
+            vertexOfKoordMap = new Map();
+            rows.forEach((row, ri) => {
+                row.pts.sort((a, b) => transformed[a].x - transformed[b].x);
+                row.pts.forEach((v, ci) => { koordOfVertex[v] = [ri, ci]; vertexOfKoordMap.set(ri + ',' + ci, v); });
+            });
+        }
+        function vertexOfKoord(row, col) {
+            const v = vertexOfKoordMap.get(Number(row) + ',' + Number(col));
+            return v === undefined ? -1 : v;
+        }
+        /** 协议里的棋盘 board[行][列]（锯齿）→ 顶点扁平数组 */
+        function boardFromWire(wire) {
+            const flat = Array(V).fill(0);
+            if (!Array.isArray(wire)) return flat;
+            for (let r = 0; r < wire.length; r++) {
+                const line = wire[r];
+                if (!Array.isArray(line)) continue;
+                for (let c = 0; c < line.length; c++) {
+                    const v = vertexOfKoord(r, c);
+                    if (v >= 0) flat[v] = line[c];
+                }
+            }
+            return flat;
+        }
+        /** 协议里的着手列表 [{row,col}] → 内部 [{vertex}] */
+        function wireMoveCoordsToVertices(list) {
+            return (list || []).map((m) => {
+                if (m == null || m.type !== 'move' || m.row == null) return Object.assign({}, m);
+                return { type: 'move', player: m.player, vertex: vertexOfKoord(m.row, m.col) };
+            });
+        }
+        /** 协议里的最近一手标记 [{row,col,color}] → 内部 [{vertex,color}] */
+        function markersFromWire(list) {
+            return (list || []).map((m) => {
+                if (m == null) return null;
+                if (m.vertex != null) return { vertex: m.vertex, color: m.color };
+                const v = vertexOfKoord(m.row, m.col);
+                return v < 0 ? null : { vertex: v, color: m.color };
+            }).filter(Boolean);
+        }
+
         function applyFloretGeometry(data) {
             V = data.vertexCount;
             transformed = data.transformed;
@@ -211,6 +266,7 @@ window.RoomPlugins["floret-pentagon-weiqi"] = {
             cellSize = data.cellSize;
             centerX = data.centerX;
             centerY = data.centerY;
+            buildKoordTables();
             rebuildBoardEdgePath();
             rebuildGridLayer();
         }
@@ -924,8 +980,10 @@ const scoreTitle = document.getElementById('scoreTitle');
                         if (typeof s !== 'string' || s.length < 2) continue;
                         const p = s[0];
                         if (p !== 'B' && p !== 'W') continue;
-                        const vi = parseInt(s.slice(1), 10);
-                        if (!Number.isInteger(vi) || vi < 0 || vi >= V) continue;
+                        const mm = /^(\d+),(\d+)$/.exec(s.slice(1));
+                        if (!mm) continue;
+                        const vi = vertexOfKoord(Number(mm[1]), Number(mm[2]));
+                        if (vi < 0 || vi >= V) continue;
                         curBoard[vi] = p === 'B' ? 1 : 2;
                     }
                 } else if (Array.isArray(data.initialPosition.black)) {
@@ -944,7 +1002,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             replayBoards.push(deepCopyBoard(curBoard));
             replayMarkers.push([]);
 
-            for (const move of (data.moves || [])) {
+            for (const move of wireMoveCoordsToVertices(data.moves)) {
                 const playerVal = move.player === 'player1' ? 1 : 2;
                 replayStepPlayers.push(playerVal);
                 if (move.type === 'move') {
@@ -1234,12 +1292,12 @@ const scoreTitle = document.getElementById('scoreTitle');
         }
 
         function syncLiveReplayFromState(state) {
-            const mcs = state.moveCoords || [];
+            const mcs = wireMoveCoordsToVertices(state.moveCoords);
             const syncedLen = liveReplayBoards.length - 1;
             if (syncedLen >= 0 && mcs.length > syncedLen) {
                 if (applyLiveReplayIncremental(mcs)) return;
             }
-            rebuildLiveReplayFromMoveCoords(mcs, state.initialBoard);
+            rebuildLiveReplayFromMoveCoords(mcs, Array.isArray(state.initialBoard) && Array.isArray(state.initialBoard[0]) ? boardFromWire(state.initialBoard) : state.initialBoard);
         }
 
         function applyLiveViewBoard() {
@@ -1312,7 +1370,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             const sizeNum = Number(BOARD_SIZE);
             const needGeometry =
                 Number.isFinite(incomingSize) &&
-                (incomingSize !== sizeNum || (state.board && state.board.length !== V));
+                incomingSize !== sizeNum;
             if (needGeometry) {
                 BOARD_SIZE = incomingSize;
                 applyFloretGeometry(generateFloretPentBoard(BOARD_SIZE));
@@ -1330,7 +1388,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                 else if ((state.numberOfHands || 1) <= 1) matchStartedOnce = false;
             }
             if (state.moveCoords !== undefined) {
-                moveCoordsFull = state.moveCoords || [];
+                moveCoordsFull = wireMoveCoordsToVertices(state.moveCoords);
                 moveLog = moveCoordsFull.map(m => m.type === 'move' ? { vertex: m.vertex } : null);
             }
             if (state.slots)
@@ -1359,8 +1417,8 @@ const scoreTitle = document.getElementById('scoreTitle');
                     updateLiveReplayPanelUI();
                 }
             } else if (!tryPlayMode) {
-                board = state.board;
-                lastMoveMarkers = state.lastMoveMarkers || [];
+                board = boardFromWire(state.board);
+                lastMoveMarkers = markersFromWire(state.lastMoveMarkers);
             }
 
             const hasAnyStone = board.some(v => v !== 0);
@@ -1387,6 +1445,8 @@ const scoreTitle = document.getElementById('scoreTitle');
         const _weiqiBindings = QiBoardRoomClient.createWeiqiMessageBindings({
             roomId,
             gameType,
+            // 物理总点数（顶点数）：开局前对局设置的默认时间按总点数推算
+            getTotalPoints: () => V,
             pageState: {
                 get mySlot() { return mySlot; },
                 set mySlot(v) { mySlot = v; },
@@ -1497,7 +1557,9 @@ komiInfo,
             if (gameOver) return false;
             if (!isMyTurn) return false;
             if (board[vertex] !== 0) return false;
-            ws.send(JSON.stringify({ type: 'move', vertex }));
+            const rc = koordOfVertex[vertex];
+            if (!rc) return false;
+            ws.send(JSON.stringify({ type: 'move', row: rc[0], col: rc[1] }));
             return true;
         }
 
@@ -1741,6 +1803,20 @@ komiInfo,
                 ps: _editPs,
                 canvas: document.getElementById('goBoard'),
                 mode: 'flat',
+                sendBoard(bd) {
+                    /* 编辑提交也走坐标：一维顶点盘 → 坐标锯齿二维盘 board[行][列] */
+                    const rows = [];
+                    for (let v = 0; v < bd.length; v++) {
+                        const rc = koordOfVertex[v];
+                        if (!rc) continue;
+                        if (!rows[rc[0]]) rows[rc[0]] = [];
+                        rows[rc[0]][rc[1]] = bd[v];
+                    }
+                    if (typeof ws !== 'undefined' && ws && ws.readyState === 1) {
+                        ws.send(JSON.stringify({ type: 'editBoard', board: rows }));
+                    }
+                },
+
                 pickAtClient(clientX, clientY) {
                     const canvasEl = document.getElementById('goBoard');
                     if (!canvasEl) return null;

@@ -295,7 +295,7 @@ class SimulatedMakrukRoom extends QiTwoPlayerRoomBase {
                 this._stopClockTicker();
                 this.gameOver = true;
                 this.winner = winnerSlot;
-                this.recordResultText = lostSlot === 'player1' ? '红超时黑胜' : '黑超时红胜';
+                this.recordResultText = lostSlot === 'player1' ? '红方超时，黑胜' : '黑方超时，红胜';
                 this.broadcast({ type: 'broadcast', action: 'timeLoss', player: lostSlot, winner: winnerSlot, ...this.getState() });
                 return;
             }
@@ -309,76 +309,10 @@ class SimulatedMakrukRoom extends QiTwoPlayerRoomBase {
         if (tb == null || tw == null) return 'player1';
         return tb <= tw ? 'player1' : 'player2';
     }
-
-    _maybeBeginTimeNegotiation() {
-        if (this.getMoveCount() > 0 || this.gameOver) return;
-        if (!this.room.getPlayerBySlot('player1') || !this.room.getPlayerBySlot('player2')) return;
-        if (this.tcNego || this.tcSettings) return;
-        const first = this._firstPickerSlot();
-        this.tcNego = { phase: 'propose', proposal: null, waitingSlot: first };
-        const ws = this.room.getPlayerBySlot(first);
-        if (ws) ws.send(JSON.stringify({ type: 'timeControlNegotiation', mode: 'propose' }));
-        const other = first === 'player1' ? 'player2' : 'player1';
-        const ws2 = this.room.getPlayerBySlot(other);
-        if (ws2) ws2.send(JSON.stringify({ type: 'timeControlWaitPeer', text: '对方正在选择限时规则…' }));
-    }
-
     afterColorAssigned(ws, slot) {
         this.slotJoinedAt[slot] = Date.now();
         this._maybeBeginTimeNegotiation();
     }
-
-    _handleTimeControlSubmit(ws, msg) {
-        const slot = this.room.getSlotByWs(ws);
-        if (!slot || !this.tcNego) return;
-        const v = qiMatchTimeControl.validateProposal(msg);
-        if (!v.ok) {
-            ws.send(JSON.stringify({ type: 'error', message: v.error }));
-            return;
-        }
-        if (slot !== this.tcNego.waitingSlot) return;
-        this.tcNego.proposal = v;
-        this.tcNego.phase = 'respond';
-        const other = slot === 'player1' ? 'player2' : 'player1';
-        this.tcNego.waitingSlot = other;
-        ws.send(JSON.stringify({ type: 'timeControlWaitPeer', text: '正在等对方确认' }));
-        const otherWs = this.room.getPlayerBySlot(other);
-        if (otherWs) {
-            otherWs.send(JSON.stringify({
-                type: 'timeControlNegotiation',
-                mode: 'respond',
-                proposal: {
-                    ok: true, timed: v.timed, mainMinutes: v.mainMinutes,
-                    byoyomiSeconds: v.byoyomiSeconds, maxTimeouts: v.maxTimeouts
-                }
-            }));
-        }
-    }
-
-    _handleTimeControlAccept(ws) {
-        const slot = this.room.getSlotByWs(ws);
-        if (!slot || !this.tcNego || this.tcNego.phase !== 'respond') return;
-        if (slot !== this.tcNego.waitingSlot) return;
-        const p = this.tcNego.proposal;
-        if (!p || p.ok !== true) return;
-        this.tcSettings = p.timed ? {
-            timed: true, mainMinutes: p.mainMinutes, byoyomiSeconds: p.byoyomiSeconds, maxTimeouts: p.maxTimeouts
-        } : { timed: false };
-        this.tcNego = null;
-        this.matchStarted = true;
-        this.tcClock = qiMatchTimeControl.createClock(this.tcSettings, Date.now());
-        if (this.tcClock.timed) {
-            qiMatchTimeControl.setActiveSlot(this.tcClock, R.slotFromSide(this.sideToMove), Date.now());
-            this._startClockTicker();
-            this._broadcastClock();
-        } else this.tcClock = null;
-        this.broadcast({
-            type: 'timeControlAgreed',
-            settings: this.tcSettings,
-            clock: this.tcClock ? qiMatchTimeControl.snapshotForClient(this.tcClock) : null
-        });
-    }
-
     _timeAllowsPlay(slot) {
         if (this.gameOver || !this.matchStarted || this.tcNego || this.tcSettings === null) return false;
         return slot === R.slotFromSide(this.sideToMove);
@@ -392,7 +326,7 @@ class SimulatedMakrukRoom extends QiTwoPlayerRoomBase {
             this._stopClockTicker();
             this.gameOver = true;
             this.winner = winnerSlot;
-            this.recordResultText = lostSlot === 'player1' ? '红超时黑胜' : '黑超时红胜';
+            this.recordResultText = lostSlot === 'player1' ? '红方超时，黑胜' : '黑方超时，红胜';
             this.broadcast({ type: 'broadcast', action: 'timeLoss', player: lostSlot, winner: winnerSlot, ...this.getState() });
             return false;
         }
@@ -582,7 +516,7 @@ class SimulatedMakrukRoom extends QiTwoPlayerRoomBase {
         if (R.hasLegalMove(this.board, side)) return;
         if (kingCount === 1 && R.isInCheck(this.board, side)) {
             const winnerSlot = R.slotFromSide(R.oppositeSide(side));
-            this._endGame(winnerSlot, side === 'black' ? '红将死黑胜' : '黑将死红胜');
+            this._endGame(winnerSlot, side === 'red' ? '黑胜' : '红胜');
         } else {
             this._endGame('draw', '逼和');
         }
@@ -598,7 +532,7 @@ class SimulatedMakrukRoom extends QiTwoPlayerRoomBase {
         if (!canMove) {
             if (inCheck) {
                 const winnerSlot = R.slotFromSide(R.oppositeSide(side));
-                this._endGame(winnerSlot, side === 'black' ? '红将死黑胜' : '黑将死红胜');
+                this._endGame(winnerSlot, side === 'red' ? '黑胜' : '红胜');
             } else {
                 this._endGame('draw', '逼和');
             }
@@ -724,7 +658,7 @@ class SimulatedMakrukRoom extends QiTwoPlayerRoomBase {
             case 'resign':
                 qiProtocol.resign(this, ws, slot);
                 if (this.gameOver && slot) {
-                    this.recordResultText = slot === 'player1' ? '红认输黑胜' : '黑认输红胜';
+                    this.recordResultText = slot === 'player1' ? '红方认输，黑胜' : '黑方认输，红胜';
                     this._stopClockTicker();
                 }
                 break;
