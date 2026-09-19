@@ -1,6 +1,6 @@
 const crypto = require('crypto');
 
-const { qiBoardSeatOverlay, QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, applyInitialPositionCompact, encodeInitialPositionCompact, encodeOpeningPositionCompact } = require('../common');
+const { qiBoardSeatOverlay, QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, applyInitialPositionCompact, encodeInitialPositionCompact, encodeOpeningPositionCompact, computeNearestWeiqiLead, squareWeiqiScoringOps } = require('../common');
 
 // ======================== 胖围棋规则 ========================
 // 胖围棋在围棋基础上修改三条规则：
@@ -313,21 +313,12 @@ class WeiqiRoom extends QiTwoPlayerRoomBase
         return this.copyBoard(srcBoard);
     }
 
-    assignTerritoryWithRange(liveBoard) {
-        return squareWeiqiRules.assignTerritoryWithRange(liveBoard, this.boardSize);
-    }
-
-    computeScore(liveBoard, territory) {
-        return squareWeiqiRules.computeScore(liveBoard, territory, this.boardSize);
-    }
-
-    computeLead()
-    {
-        // 胖围棋：数点不做自动判死（无气提子只发生在落子时），直接按当前盘算地
-        const territory = this.assignTerritoryWithRange(this.board);
-        const { blackTotal, whiteTotal } = this.computeScore(this.board, territory);
-        const KOMI = this.boardSize <= 8 ? 4.25 : 3.25;
-        return blackTotal - whiteTotal - 2 * KOMI;
+    /** 形势判断 / 数点：只用最近归属档（公共口径）；不做自动判死（无气提子只发生在落子时） */
+    computeLead() {
+        const { lead } = computeNearestWeiqiLead(this.board, this.boardSize <= 8 ? 4.25 : 3.25, squareWeiqiScoringOps(this.boardSize, {
+            copyBoard: (b) => this.copyBoard(b)
+        }));
+        return lead;
     }
 
     onResignResolved(resignSlot) {
@@ -592,13 +583,7 @@ class WeiqiRoom extends QiTwoPlayerRoomBase
         this.winner = null;
         this.passCounter = 0;
         this.moveCoords = [];
-        for (let [client, slot] of this.room.players.entries())
-        {
-            this.room.slotOccupancy.delete(slot);
-            this.room.players.delete(client);
-            this.room.observers.add(client);
-            client.send(JSON.stringify({ type: 'slotReleased', slot }));
-        }
+        qiProtocol.releaseAllSeats(this);
         this.broadcast({ type: 'newGameStarted', ...this.getState(), slots: { player1: false, player2: false } });
     }
 

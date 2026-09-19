@@ -9,7 +9,7 @@ window.RoomPlugins['versus-schulte-grid'] = {
         "defaultBoardSize": 9,
         "minLib": 1,
         "recordDownloadPrefix": "对战舒尔特方格",
-        "features": {}
+        "features": { "woodTexture": true,}
     },
     mount: function (ctx) {
         var gameType = ctx.gameType;
@@ -318,8 +318,10 @@ window.RoomPlugins['versus-schulte-grid'] = {
                 newGameBtn.textContent = '新局';
                 newGameBtn.disabled = S.phase !== 'finished' || !isHost() || S.players.length < 2;
                 newGameBtn.onclick = () => {
-                    if (S.ws && S.ws.readyState === WebSocket.OPEN)
-                        S.ws.send(JSON.stringify({ type: 'startGame' }));
+                    if (!(S.ws && S.ws.readyState === WebSocket.OPEN)) return;
+                    qiConfirm('确定开始新局吗？').then((ok) => {
+                        if (ok) S.ws.send(JSON.stringify({ type: 'startGame' }));
+                    });
                 };
             }
 

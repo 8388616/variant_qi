@@ -9,8 +9,10 @@ window.RoomPlugins["twisted-space-weiqi"] = {
         "defaultBoardSize": 9,
         "minLib": 1,
         "recordDownloadPrefix": "扭曲空间围棋",
+        "useBenson": false,
         "standardWeiqiMatchTime": true,
         "features": {
+            "woodTexture": true,
             "editBoard": true,
             "transparentCanvas": true
         },
@@ -279,69 +281,24 @@ if (sizeSelect) {
             });
         }
 
-        function removeDeadGroups(src) {
-            let b = deepCopyBoard(src), changed = true;
-            while (changed) {
-                changed = false;
-                for (let r = 0; r < ROWS; r++) {
-                    for (let c = 0; c <= 2 * r; c++) {
-                        if (b[r][c] !== 0 && countGroupLiberties(b, r, c) === 0) {
-                            removeGroup(b, r, c, b[r][c]);
-                            changed = true;
-                        }
-                    }
-                }
-            }
-            return b;
+        /** 形势判断 / 数点：走公共两档口径（图版几何；档位见 shell.useBenson） */
+        function scoringOps() {
+            return QiWeiqiSquarePageRuntime.gridGraphWeiqiScoringOps(
+                ROWS, 2 * ROWS - 1, neighbors, isValidCoord, { copyBoard: deepCopyBoard }
+            );
         }
-        function shortestToColor(liveBoard, sr, sc, targetColor) {
-            const q = [[sr, sc]];
-            const vis = new Set([`${sr},${sc}`]);
-            let head = 0;
-            while (head < q.length) {
-                const [r, c, d = 0] = q[head++];
-                if (liveBoard[r][c] === targetColor) return d;
-                for (const [nr, nc] of neighbors(r, c)) {
-                    const k = `${nr},${nc}`;
-                    if (!vis.has(k)) { vis.add(k); q.push([nr, nc, d + 1]); }
-                }
-            }
-            return Infinity;
-        }
-        function assignTerritory(liveBoard) {
-            const territory = initBoardArray(ROWS);
-            for (let r = 0; r < ROWS; r++) {
-                for (let c = 0; c <= 2 * r; c++) {
-                    if (liveBoard[r][c] !== 0) continue;
-                    const b = shortestToColor(liveBoard, r, c, 1);
-                    const w = shortestToColor(liveBoard, r, c, 2);
-                    territory[r][c] = b < w ? 1 : (w < b ? 2 : 3);
-                }
-            }
-            return territory;
-        }
-        function computeScore(liveBoard, territory) {
-            let bs = 0, ws = 0, bt = 0, wt = 0, pt = 0;
-            for (let r = 0; r < ROWS; r++) {
-                for (let c = 0; c <= 2 * r; c++) {
-                    const v = liveBoard[r][c];
-                    if (v === 1) bs++;
-                    else if (v === 2) ws++;
-                    else if (territory[r][c] === 1) bt++;
-                    else if (territory[r][c] === 2) wt++;
-                    else if (territory[r][c] === 3) pt++;
-                }
-            }
-            return { blackTotal: bs + bt + pt / 2, whiteTotal: ws + wt + pt / 2 };
+        function computeScoring() {
+            const RT = QiWeiqiSquarePageRuntime;
+            const run = config.useBenson === false ? RT.computeNearestWeiqiLead : RT.computeBensonWeiqiLead;
+            return run(board, KOMI, scoringOps());
         }
         function updateEstimateData() {
-            cachedLiveBoard = removeDeadGroups(board);
-            cachedTerritory = assignTerritory(cachedLiveBoard);
-            const s = computeScore(cachedLiveBoard, cachedTerritory);
-            const lead = s.blackTotal - s.whiteTotal - 2 * KOMI;
+            const r = computeScoring();
+            cachedLiveBoard = r.liveBoard;
+            cachedTerritory = r.territory;
             scoreTitle.innerText = '形势判断';
-            scoreBoard.innerText = `黑: ${Number(s.blackTotal.toFixed(2))}　白: ${Number(s.whiteTotal.toFixed(2))}`;
-            leadInfo.innerText = `黑${lead >= 0 ? '+' : ''}${lead.toFixed(1)}点`;
+            scoreBoard.innerText = `黑: ${Number(r.blackTotal.toFixed(2))}　白: ${Number(r.whiteTotal.toFixed(2))}`;
+            leadInfo.innerText = `黑${r.lead >= 0 ? '+' : ''}${r.lead.toFixed(1)}点`;
         }
 
         /** 点在多边形内判定（ray casting，顶点按 {x,y} 数组） */

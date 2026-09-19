@@ -1,4 +1,4 @@
-const { QiTwoPlayerRoomBase, qiMatchTimeControl, squareWeiqiRules, encodeInitialPositionCompact, applyInitialPositionCompact, qiBoardSeatOverlay } = require('../common');
+const { QiTwoPlayerRoomBase, applyInitialPositionCompact, encodeInitialPositionCompact, qiBoardSeatOverlay, qiMatchTimeControl, qiProtocol, squareWeiqiRules , computeNearestWeiqiLead, squareWeiqiScoringOps } = require('../common');
 class InvisibleStone2WeiqiRoom extends QiTwoPlayerRoomBase {
     constructor(room, initialSize = 9) {
         super(room);
@@ -246,12 +246,12 @@ class InvisibleStone2WeiqiRoom extends QiTwoPlayerRoomBase {
         return squareWeiqiRules.computeScore(liveBoard, territory, this.boardSize);
     }
 
+    /** 形势判断 / 数点：只用最近归属档（公共口径）；不判死子、不叠 Benson */
     computeLead() {
-        const liveBoard = this.removeDeadAndDying(this.board);
-        const territory = this.assignTerritoryWithRange(liveBoard);
-        const { blackTotal, whiteTotal } = this.computeScore(liveBoard, territory);
-        const KOMI = 4.25;
-        return blackTotal - whiteTotal - 2 * KOMI;
+        const { lead } = computeNearestWeiqiLead(this.board, 4.25, squareWeiqiScoringOps(this.boardSize, {
+            copyBoard: (b) => this.copyBoard(b)
+        }));
+        return lead;
     }
 
     onResignResolved(resignSlot) {
@@ -930,12 +930,7 @@ class InvisibleStone2WeiqiRoom extends QiTwoPlayerRoomBase {
         this.tcClock = null;
         this.matchStarted = false;
         this._stopClockTicker();
-        for (let [client, s] of this.room.players.entries()) {
-            this.room.slotOccupancy.delete(s);
-            this.room.players.delete(client);
-            this.room.observers.add(client);
-            client.send(JSON.stringify({ type: 'slotReleased', slot: s }));
-        }
+        qiProtocol.releaseAllSeats(this);
         const allClients = [...this.room.players.keys(), ...this.room.observers];
         for (const client of allClients) {
             if (client.readyState !== 1) continue;

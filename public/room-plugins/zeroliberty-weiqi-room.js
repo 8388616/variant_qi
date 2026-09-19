@@ -9,8 +9,10 @@ window.RoomPlugins['zeroliberty-weiqi'] = {
         "defaultBoardSize": 19,
         "minLib": 0,
         "recordDownloadPrefix": "零气围棋",
+        "useBenson": false,
         "standardWeiqiMatchTime": true,
         "features": {
+            "woodTexture": true,
             "editBoard": true,
             "compoundPalette": false,
             "zoomScroll": false
@@ -409,6 +411,12 @@ const scoreTitle = document.getElementById('scoreTitle');
             boardMarkSelect,
             colorStatus
         };
+        // 变体：形势判断/数点只用最近归属档（公共钩子；档位见 shell.useBenson）
+        const scoringHooks = QiWeiqiSquarePageRuntime.weiqiScoringHooks(config.useBenson === false, {
+            boardSize: () => ps.BOARD_SIZE,
+            maxWeakLiberties: 2
+        });
+
         const page = QiWeiqiSquarePageRuntime.create(ps, domPage, {
             enableEditBoard: true,
             recordDownloadPrefix,
@@ -419,7 +427,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             roomPassword,
             isMouseDevice,
             tryPlaceStone: zlTryPlaceStone,
-            removeDeadAndDying: (src) => QiSquareWeiqiCanvas.deepCopyBoard(src),
+            ...scoringHooks,
             rebuildLiveReplayFromMoveCoords: (m, opening) => zlRebuildLiveReplayFromMoveCoords(m, opening),
             enterReplayMode: (data) => zlEnterReplayMode(data, pageHolder),
             // enter/exit/setTryPlayStep 走公共试下；仅落子需支持「点零气子提子」

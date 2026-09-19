@@ -752,6 +752,7 @@ class HexagonXiangqiRoom extends QiTwoPlayerRoomBase {
         this.lastTo = null;
         this.moveHistory = [];
         this.gameOver = false;
+        this.importReplayNoJudge = false;
         this.winner = null;
         this.recordResultText = null;
         this.pendingNewGame = null;
@@ -768,6 +769,8 @@ class HexagonXiangqiRoom extends QiTwoPlayerRoomBase {
     }
 
     _endGame(winnerSlot, resultText) {
+        // 导入棋谱回放期间不判终局：只摆棋，结果以棋谱记录为准
+        if (this.importReplayNoJudge) return;
         this.gameOver = true;
         this.winner = winnerSlot;
         this.recordResultText = resultText;
@@ -838,6 +841,7 @@ class HexagonXiangqiRoom extends QiTwoPlayerRoomBase {
     }
 
     _resolveAfterMove() {
+        if (this.importReplayNoJudge) return;
         const side = this.sideToMove;
         const inCheck = R.isInCheck(this.board, side);
         const canMove = R.hasLegalMove(this.board, side);
@@ -864,7 +868,7 @@ class HexagonXiangqiRoom extends QiTwoPlayerRoomBase {
             }
             if (rep.result === 'loss') {
                 const loserSlot = R.slotFromSide(rep.loserSide);
-                const winnerSlot = loserSlot === 'player1' ? 'white' : 'black';
+                const winnerSlot = loserSlot === 'player1' ? 'player2' : 'player1';   // 胜方座位（player1 执红/蓝先手）
                 this._endGame(winnerSlot, rep.loserSide === 'red' ? '红方长将，黑胜' : '黑方长将，红胜');
                 return;
             }
@@ -882,6 +886,7 @@ class HexagonXiangqiRoom extends QiTwoPlayerRoomBase {
         }
         this.resetToEmpty();
         const rawMoves = data.moves || [];
+        this.importReplayNoJudge = true;   // 回放期间不判终局（结果只按棋谱记录）
         for (let i = 0; i < rawMoves.length; i++) {
             let entry = rawMoves[i];
             let player; let from; let to;
@@ -930,14 +935,28 @@ class HexagonXiangqiRoom extends QiTwoPlayerRoomBase {
             this._resolveAfterMove();
             if (this.gameOver) break;
         }
-        if (data.result && !this.gameOver) {
+        this.importReplayNoJudge = false;
+        // 导入不做任何判定：结果只按棋谱记录显示（局面与记录不一致时也以记录为准）。
+        // 记录里的胜负先认出执方颜色（公共层把棋谱里的「黑胜」折成 result='player1'、
+        // 「白胜」折成 result='player2'，所以不能直接当座位名用），再落到本棋种的座位。
+        const recResult = data.result != null && data.result !== '' ? data.result
+            : (data.resultText != null && data.resultText !== '' ? data.resultText : null);
+        if (recResult != null) {
             this.gameOver = true;
-            this.recordResultText = data.resultText || String(data.result);
-            const rt = String(data.resultText || data.result);
-            if (data.result === 'draw' || rt.includes('和')) this.winner = 'draw';
-            else if (data.result === 'player1' || /红胜/.test(rt)) this.winner = 'player1';
-            else if (data.result === 'player2' || /黑胜/.test(rt)) this.winner = 'player2';
-            else this.winner = data.result;
+            this.recordResultText = data.resultText ? String(data.resultText) : String(recResult);
+            const rt = String(this.recordResultText);
+            const SLOT_OF_COLOR = { 红: 'player1', 黑: 'player2' };   // player1 执红、player2 执黑
+            const win = /(黑|白|红|绿|蓝)\s*(?:方)?[^，。]{0,6}胜/.exec(rt);
+            let color = win ? win[1] : null;
+            if (!color) {
+                const lose = /(黑|白|红|绿|蓝)\s*(?:方)?[^，。]{0,6}判负/.exec(rt);
+                if (lose) color = Object.keys(SLOT_OF_COLOR).find((k) => k !== lose[1]) || null;
+                else if (recResult === 'black' || recResult === 'player1') color = '黑';
+                else if (recResult === 'white' || recResult === 'player2') color = '白';
+            }
+            if (recResult === 'draw' || rt.includes('和')) this.winner = 'draw';
+            else if (color && SLOT_OF_COLOR[color]) this.winner = SLOT_OF_COLOR[color];
+            else this.winner = recResult;
         }
         if (!this.matchStarted && this.moveHistory.length > 0) {
             this.matchStarted = true;
@@ -1024,11 +1043,11 @@ class HexagonXiangqiRoom extends QiTwoPlayerRoomBase {
                 break;
             }
             case 'resign':
-                qiProtocol.resign(this, ws, slot);
-                if (this.gameOver && slot) {
+                if (slot && !this.gameOver) {
                     this.recordResultText = slot === 'player1' ? '红方认输，黑胜' : '黑方认输，红胜';
                     this._stopClockTicker();
                 }
+                qiProtocol.resign(this, ws, slot);
                 break;
             case 'requestNewGame':
                 qiProtocol.requestNewGame(this, ws, slot);
@@ -1070,6 +1089,7 @@ class HexagonXiangqiRoom extends QiTwoPlayerRoomBase {
             this.lastTo = null;
         }
         this.gameOver = false;
+        this.importReplayNoJudge = false;
         this.winner = null;
         this.recordResultText = null;
         if (this.tcClock && this.tcClock.timed) this._syncClockAfterTurnChange();
@@ -1077,12 +1097,7 @@ class HexagonXiangqiRoom extends QiTwoPlayerRoomBase {
 
     resetGame() {
         this.resetToEmpty();
-        for (const [client, s] of this.room.players.entries()) {
-            this.room.slotOccupancy.delete(s);
-            this.room.players.delete(client);
-            this.room.observers.add(client);
-            client.send(JSON.stringify({ type: 'slotReleased', slot: s }));
-        }
+        qiProtocol.releaseAllSeats(this);
         this.broadcast({ type: 'newGameStarted', ...this.getState(), slots: { player1: false, player2: false } });
     }
 

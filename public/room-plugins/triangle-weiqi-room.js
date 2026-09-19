@@ -9,8 +9,10 @@ window.RoomPlugins['triangle-weiqi'] = {
         "defaultBoardSize": 27,
         "minLib": 1,
         "recordDownloadPrefix": "三角围棋",
+        "useBenson": true,
         "standardWeiqiMatchTime": true,
         "features": {
+            "woodTexture": true,
             "zoomScroll": false,
             "editBoard": true,
             "compoundPalette": false,
@@ -795,29 +797,6 @@ const scoreTitle = document.getElementById('scoreTitle');
             return out;
         }
 
-        function gridDistance(r1, c1, r2, c2) {
-            if (r1 === r2 && c1 === c2) return 0;
-            const visited = new Set();
-            let frontier = [[r1, c1]];
-            visited.add(r1 + ',' + c1);
-            let dist = 0;
-            while (frontier.length) {
-                dist++;
-                const next = [];
-                for (const [fr, fc] of frontier) {
-                    for (const [nr, nc] of getNeighbors(fr, fc)) {
-                        const key = nr + ',' + nc;
-                        if (visited.has(key)) continue;
-                        if (nr === r2 && nc === c2) return dist;
-                        visited.add(key);
-                        next.push([nr, nc]);
-                    }
-                }
-                frontier = next;
-            }
-            return Infinity;
-        }
-
         // ======================== 围棋规则 ========================
         function deepCopyBoard(src)
         {
@@ -882,163 +861,24 @@ const scoreTitle = document.getElementById('scoreTitle');
         }
 
         // ======================== 形势判断 ========================
-        function removeDeadGroups(srcBoard) {
-            let boardCopy = deepCopyBoard(srcBoard);
-            let changed = true;
-            while (changed) {
-                changed = false;
-                let visited = Array(ROWS).fill().map(() => []);
-                for (let r = 0; r < ROWS; r++) {
-                    for (let c = 0; c < rowLen(r); c++) {
-                        if (boardCopy[r][c] !== 0 && !visited[r][c]) {
-                            let color = boardCopy[r][c];
-                            let queue = [[r, c]];
-                            visited[r][c] = true;
-                            let stones = [[r, c]];
-                            let hasLib = false;
-                            let idx = 0;
-                            while (idx < queue.length) {
-                                let [rr, cc] = queue[idx++];
-                                for (const [nr, nc] of getNeighbors(rr, cc)) {
-                                    if (boardCopy[nr][nc] === 0) {
-                                        hasLib = true;
-                                    } else if (boardCopy[nr][nc] === color && !visited[nr][nc]) {
-                                        visited[nr][nc] = true;
-                                        queue.push([nr, nc]);
-                                        stones.push([nr, nc]);
-                                    }
-                                }
-                            }
-                            if (!hasLib) {
-                                for (let [rr, cc] of stones) boardCopy[rr][cc] = 0;
-                                changed = true;
-                            }
-                        }
-                    }
-                }
-            }
-            return boardCopy;
+        /** 形势判断 / 数点：走公共两档口径（图版几何；档位见 shell.useBenson） */
+        function scoringOps() {
+            return QiWeiqiSquarePageRuntime.gridGraphWeiqiScoringOps(
+                ROWS, ROWS, getNeighbors, isValidCoord, { copyBoard: deepCopyBoard }
+            );
         }
-
-        // 计算领地归属（基于格线距离，范围限制）
-        function assignTerritoryWithRange(liveBoard) {
-            const territory = Array(ROWS).fill().map((_, r) => Array(r + 1).fill(0));
-            // 收集活子坐标
-            let blackStones = [], whiteStones = [];
-            for (let r = 0; r < ROWS; r++) {
-                for (let c = 0; c < rowLen(r); c++) {
-                    if (liveBoard[r][c] === 1) blackStones.push([r, c]);
-                    else if (liveBoard[r][c] === 2) whiteStones.push([r, c]);
-                }
-            }
-            for (let r = 0; r < ROWS; r++) {
-                for (let c = 0; c < rowLen(r); c++) {
-                    if (liveBoard[r][c] !== 0) continue; // 只处理空点
-                    // 确定最大距离：边角（外圈两环）为5，否则4（按形状判断边界）
-                    const isEdge = SHAPE === 'hexagon'
-                        ? (getNeighbors(r, c).length < 6 || r <= 1 || r >= ROWS - 2 || c <= 1 || c >= rowLen(r) - 2)
-                        : (r <= 1 || r >= ROWS - 2 || c <= 1 || c >= rowLen(r) - 2);
-                    const maxDist = isEdge ? 5 : 4;
-                    let minBlack = Infinity, minWhite = Infinity;
-                    for (let [br, bc] of blackStones) {
-                        let d = gridDistance(r, c, br, bc);
-                        if (d < minBlack) minBlack = d;
-                    }
-                    for (let [wr, wc] of whiteStones) {
-                        let d = gridDistance(r, c, wr, wc);
-                        if (d < minWhite) minWhite = d;
-                    }
-                    // 只有距离在范围内的才归属，否则为公共地（0）
-                    if (minBlack <= maxDist && minWhite <= maxDist) {
-                        if (minBlack < minWhite) territory[r][c] = 1;
-                        else if (minWhite < minBlack) territory[r][c] = 2;
-                        else territory[r][c] = 3;
-                    } else if (minBlack <= maxDist) {
-                        territory[r][c] = 1;
-                    } else if (minWhite <= maxDist) {
-                        territory[r][c] = 2;
-                    } else {
-                        territory[r][c] = 3; // 公共地
-                    }
-                }
-            }
-            return territory;
+        function computeScoring() {
+            const RT = QiWeiqiSquarePageRuntime;
+            const run = config.useBenson === false ? RT.computeNearestWeiqiLead : RT.computeBensonWeiqiLead;
+            return run(board, KOMI, scoringOps());
         }
-
-        function computeScore(liveBoard, territory) {
-            let blackStones = 0, whiteStones = 0;
-            let blackTerritory = 0, whiteTerritory = 0, publicTerritory = 0;
-            for (let r = 0; r < ROWS; r++) {
-                for (let c = 0; c < rowLen(r); c++) {
-                    if (liveBoard[r][c] === 1) blackStones++;
-                    else if (liveBoard[r][c] === 2) whiteStones++;
-                    else if (liveBoard[r][c] === 0) {
-                        if (territory[r][c] === 1) blackTerritory++;
-                        else if (territory[r][c] === 2) whiteTerritory++;
-                        else if (territory[r][c] === 3) publicTerritory++;
-                    }
-                }
-            }
-            const blackTotal = blackStones + blackTerritory + publicTerritory / 2;
-            const whiteTotal = whiteStones + whiteTerritory + publicTerritory / 2;
-            return { blackTotal, whiteTotal };
-        }
-
-        // Benson 加成（三角/菱形/六角形棋盘：沿用本棋种邻接）
-        function bensonInfoTri(bd) {
-            return window.QiWeiqiSquarePageRuntime.bensonAliveGrid({
-                width: ROWS, height: ROWS,
-                getNeighbors: (r, c) => getNeighbors(r, c),
-                isValid: (r, c) => isValidCoord(r, c),
-                get: (r, c) => (bd[r] ? bd[r][c] : undefined)
-            });
-        }
-        function bensonRemoveDeadGroups(srcBoard) {
-            const benson = bensonInfoTri(srcBoard);
-            let live = srcBoard.map((row) => row.slice());
-            let changed = true;
-            while (changed) {
-                changed = false;
-                const cleaned = removeDeadGroups(live);
-                for (let r = 0; r < ROWS; r++) {
-                    for (let c = 0; c < rowLen(r); c++) {
-                        const v = srcBoard[r][c];
-                        if (benson.alive[r][c] && (v === 1 || v === 2) && cleaned[r][c] !== v) {
-                            cleaned[r][c] = v;
-                            changed = true;
-                        }
-                    }
-                }
-                live = cleaned;
-            }
-            return live;
-        }
-        function bensonTerritoryTri(liveBoard) {
-            const territory = assignTerritoryWithRange(liveBoard);
-            const secure = bensonInfoTri(liveBoard);
-            for (let r = 0; r < ROWS; r++) {
-                for (let c = 0; c < rowLen(r); c++) {
-                    if (liveBoard[r][c] === 0 && secure.territory[r][c]) territory[r][c] = secure.territory[r][c];
-                }
-            }
-            return territory;
-        }
-
-        function computeLead() {
-            const liveBoard = bensonRemoveDeadGroups(board);
-            const territory = bensonTerritoryTri(liveBoard);
-            const { blackTotal, whiteTotal } = computeScore(liveBoard, territory);
-            return blackTotal - whiteTotal - 2 * KOMI;
-        }
-
         function updateEstimateData() {
-            cachedLiveBoard = bensonRemoveDeadGroups(board);
-            cachedTerritory = bensonTerritoryTri(cachedLiveBoard);
-            const { blackTotal, whiteTotal } = computeScore(cachedLiveBoard, cachedTerritory);
-            const lead = blackTotal - whiteTotal - 2 * KOMI;
+            const r = computeScoring();
+            cachedLiveBoard = r.liveBoard;
+            cachedTerritory = r.territory;
             scoreTitle.innerText = '形势判断';
-            scoreBoard.innerText = `黑: ${Number(blackTotal.toFixed(2))}　白: ${Number(whiteTotal.toFixed(2))}`;
-            leadInfo.innerText = `黑${lead >= 0 ? '+' : ''}${lead.toFixed(1)}点`;
+            scoreBoard.innerText = `黑: ${Number(r.blackTotal.toFixed(2))}　白: ${Number(r.whiteTotal.toFixed(2))}`;
+            leadInfo.innerText = `黑${r.lead >= 0 ? '+' : ''}${r.lead.toFixed(1)}点`;
         }
 
         // ======================== 绘制 ========================
@@ -1940,9 +1780,10 @@ const scoreTitle = document.getElementById('scoreTitle');
             }
         }
 
-        /** 三种形状的客户端显示贴目（沿用合并前各自口径：菱形 3.25，三角/六角 4.75） */
+        /** 三种形状的客户端显示贴目（与服务端 _komi 同口径：菱形 ≤8 路 4.25、其余 3.25） */
         function komiForShape(shape) {
-            return shape === 'rhombus' ? 3.25 : 4.75;
+            if (shape === 'rhombus') return ROWS <= 8 ? 4.25 : 3.25;
+            return 3.25;
         }
         /** 三种形状的可落子总点数（行数按形状，Σ rowLen 的闭式） */
         function totalPointsTri() {
@@ -2024,7 +1865,9 @@ const scoreTitle = document.getElementById('scoreTitle');
             const startedNow = !!(matchStarted || (matchTime && matchTime.settings));
             // 开局（有子/开赛/计时协商中）锁定；终局开新局后盘面清空、未开赛即恢复可选。
             // 是否已就座不影响——否则新局后两名玩家仍在座，下拉会永远隐藏/禁用。
-            const canChange = !hasAnyStone && !gameOver && !startedNow;
+            // 有人入座（含电脑）时服务端会拒绝 setShape：此时必须禁用，否则本地乐观换形状会与服务端脱钩
+            const seated = !!(slots && (slots.player1 || slots.player2));
+            const canChange = !hasAnyStone && !gameOver && !startedNow && !seated;
             const sizeSelect = document.getElementById('boardSizeSelect');
             if (sizeSelect) sizeSelect.style.display = canChange ? 'inline-block' : 'none';
             // 子棋类选择器（形状）：始终显示；开局后锁定不可改，新局时恢复可用

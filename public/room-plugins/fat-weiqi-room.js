@@ -9,8 +9,10 @@ window.RoomPlugins['fat-weiqi'] = {
         "defaultBoardSize": 19,
         "minLib": 1,
         "recordDownloadPrefix": "胖围棋",
+        "useBenson": false,
         "standardWeiqiMatchTime": true,
         "features": {
+            "woodTexture": true,
             "zoomScroll": true,
             "editBoard": true,
             "compoundPalette": false
@@ -379,11 +381,18 @@ const BOARD_MARK_CHAR_LIST = (() => {
             ps.liveReplayStepPlayers = o.liveReplayStepPlayers;
         }
 
+        // 变体：形势判断/数点只用最近归属档（公共钩子；档位见 shell.useBenson）
+        const scoringHooks = QiWeiqiSquarePageRuntime.weiqiScoringHooks(config.useBenson === false, {
+            boardSize: () => ps.BOARD_SIZE,
+            maxWeakLiberties: 2
+        });
+
         const page = QiWeiqiSquarePageRuntime.create(ps, domPage, {
             enableEditBoard: true,
             recordDownloadPrefix,
             minLib,
             maxWeakLiberties: 2,
+            ...scoringHooks,
             gameType,
             roomId,
             roomPassword,

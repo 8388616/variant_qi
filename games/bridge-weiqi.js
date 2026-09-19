@@ -575,12 +575,7 @@ class BridgeWeiqiRoom extends QiTwoPlayerRoomBase
         this.winner = null;
         this.recordResultText = null;
         this.passCounter = 0;
-        for (const [client, slot] of this.room.players.entries()) {
-            this.room.slotOccupancy.delete(slot);
-            this.room.players.delete(client);
-            this.room.observers.add(client);
-            client.send(JSON.stringify({ type: 'slotReleased', slot }));
-        }
+        qiProtocol.releaseAllSeats(this);
         this.broadcast({ type: 'newGameStarted', ...this.getInitialState(), slots: { player1: false, player2: false } });
     }
 

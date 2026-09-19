@@ -2,7 +2,7 @@ window.RoomPlugins = window.RoomPlugins || {};
 window.RoomPlugins["neutreeko"] = {
     shell: {
         "title": "结子棋",
-        "rulesHtml": "每回合可以选择一枚己方棋子，沿直向或斜方滑动至尽头，不能停在途中。<br /><br />"
+        "rulesHtml": "双方轮流行动，白先黑后。每回合选择一枚己方棋子，沿正向或斜向滑动至尽头，不能停在途中。<br /><br />"
             + "某一方的三颗棋子形成直线或斜线且相邻时获胜。<br /><br />"
             + "同一局面出现三次时和棋。<br /><br />",
         "defaultKomiText": "",
@@ -13,6 +13,7 @@ window.RoomPlugins["neutreeko"] = {
         "recordDownloadPrefix": "结子棋",
         "standardWeiqiMatchTime": true,
         "features": {
+            "woodTexture": true,
             "editBoard": true,
             "hideBoardSize": true,
             "customTimeControl": true
@@ -108,7 +109,6 @@ const canvas = document.getElementById('goBoard');
             const scoreTitle = document.getElementById('scoreTitle');
             const colorStatus = document.getElementById('colorStatus');
             const komiInfo = document.getElementById('komiInfo');
-            // 黑白棋不需要这一行文字：整行隐藏（子数在右侧计分显示）
             if (komiInfo) {
                 komiInfo.hidden = true;
                 komiInfo.style.display = 'none';
@@ -397,7 +397,6 @@ const boardSizeSelect = document.getElementById('boardSizeSelect');
             }
 
             function updateScoreBoard() {
-                // 结子棋双方各三子、无子数概念：比分面板一律留空
                 scoreTitle.textContent = '　';
                 scoreBoard.textContent = '　';
                 leadInfo.textContent = ps.gameOver
@@ -706,10 +705,17 @@ const boardSizeSelect = document.getElementById('boardSizeSelect');
                 }
             }
 
+            // 执方名（本棋种白方先行、player1 执白）：落座对话框/colorStatus/计时框/继续执X 文案全按它走
+            const SLOT_UI = {
+                player2: { name: '黑方', emoji: '⚫', continueText: '继续执黑', choiceText: '执黑', youText: '您执黑', absentText: '黑方已退出', statusText: '黑方' },
+                player1: { name: '白方', emoji: '⚪', continueText: '继续执白', choiceText: '执白', youText: '您执白', absentText: '白方已退出', statusText: '白方' }
+            };
+
             const _seatOverlay = QiBoardRoomClient.createWeiqiMessageBindings({
                 pageState: ps,
                 boardSeatOverlay: true,
                 seatOverlayOnly: true,
+                slotUi: SLOT_UI,          // 座位 → 执方名（player1 执白，与国际跳棋一致）
                 standardWeiqiMatchTime,
                 getWs: () => ps.ws,
                 getBoardSize: () => ps.BOARD_SIZE,
@@ -1003,18 +1009,13 @@ const boardSizeSelect = document.getElementById('boardSizeSelect');
                 showNumbersCheck.parentElement.style.display = 'none';
             }
 
-            document.getElementById('newGameBtn').onclick = () => {
-                if (ps.ws && ps.ws.readyState === 1) ps.ws.send(JSON.stringify({ type: 'requestNewGame' }));
-            };
-            document.getElementById('undoBtn').onclick = () => {
-                if (ps.ws && ps.ws.readyState === 1) ps.ws.send(JSON.stringify({ type: 'requestUndo' }));
-            };
-            document.getElementById('resignBtn').onclick = () => {
-                if (ps.ws && ps.ws.readyState === 1) ps.ws.send(JSON.stringify({ type: 'resign' }));
-            };
-            document.getElementById('drawBtn').onclick = () => {
-                if (ps.ws && ps.ws.readyState === 1) ps.ws.send(JSON.stringify({ type: 'requestDraw' }));
-            };
+            // 新局/悔棋/认输/和棋：走公共按钮绑定（带确认对话框，与房间页公共 bindings 同一套口径）
+            QiBoardRoomClient.bindPanelButtons({
+                getWs: () => ps.ws,
+                getMySlot: () => ps.mySlot,
+                getSlots: () => ps.slots,
+                getComputerSlot: () => ps.computerSlot
+            });
             document.getElementById('exportBtn').onclick = () => {
                 if (ps.ws && ps.ws.readyState === 1) ps.ws.send(JSON.stringify({ type: 'exportRecord' }));
             };

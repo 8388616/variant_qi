@@ -1,16 +1,18 @@
 window.RoomPlugins = window.RoomPlugins || {};
-window.RoomPlugins['mirror-image-weiqi'] = {
+window.RoomPlugins['symmetry-weiqi'] = {
     shell: {
-        "title": "镜像围棋",
-        "rulesHtml": "基本规则同围棋。<br /><br />每手棋随机生成一个镜面。落子时，在落子点的镜像点也同时落下一子，除非该点已经有棋子。",
+        "title": "对称围棋",
+        "rulesHtml": "基本规则同围棋。<br /><br />每手棋随机选择一种对称。落子时，在落子点的对称点也同时落下一子，除非该点已经有棋子。<br /><br />对称共7种，包括两种棋盘中线对称、两种棋盘对角线对称、顺时针和逆时针90度旋转对称、中心对称。",
         "defaultKomiText": "黑贴白4.25点",
         "boardSizeMin": 7,
         "boardSizeMax": 21,
         "defaultBoardSize": 19,
         "minLib": 1,
-        "recordDownloadPrefix": "镜像围棋",
+        "recordDownloadPrefix": "对称围棋",
+        "useBenson": true,
         "standardWeiqiMatchTime": true,
         "features": {
+            "woodTexture": true,
             "editBoard": true,
             "compoundPalette": false,
             "zoomScroll": false
@@ -35,7 +37,7 @@ window.RoomPlugins['mirror-image-weiqi'] = {
         var roomId = ctx.roomId;
         var roomPassword = ctx.roomPassword || null;
         var config = ctx.config || {};
-        var recordDownloadPrefix = config.recordDownloadPrefix != null ? config.recordDownloadPrefix : "镜像围棋";
+        var recordDownloadPrefix = config.recordDownloadPrefix != null ? config.recordDownloadPrefix : "对称围棋";
         var minLib = config.minLib != null ? config.minLib : 1;
         var standardWeiqiMatchTime = config.standardWeiqiMatchTime != null ? config.standardWeiqiMatchTime : true;
 
@@ -45,12 +47,12 @@ const C = QiSquareWeiqiCanvas, R = QiWeiqiSquarePageRuntime;
             BOARD_SIZE: 19, KOMI: 4.25, PADDING: 0, CELL_SIZE: 0, numberOfHands: 1, currentPlayer: 1, mySlot: null, gameOver: false, winner: null,
             lastMoveMarkers: [], showEstimateActive: false, cachedLiveBoard: null, cachedTerritory: null, waitingScoreConfirm: false, iRejected: false,
             ws: null, isMyTurn: false, slots: { player1: false, player2: false }, reconnectTimer: null,
-            replayMode: false, replayBoards: [], replayMarkers: [], replayStepPlayers: [], replayMirrorAxes: [], replayStep: 0, replayTotalSteps: 0,
+            replayMode: false, replayBoards: [], replayMarkers: [], replayStepPlayers: [], replaySymmetryAxes: [], replayStep: 0, replayTotalSteps: 0,
             showMoveNumbers: false, moveLog: [],
-            tryPlayMode: false, tryPlayBaseStep: 0, tryPlayBoards: [], tryPlayMarkers: [], tryPlayCurrentPlayer: 1, tryPlayMirrorAxis: 'diag1',
+            tryPlayMode: false, tryPlayBaseStep: 0, tryPlayBoards: [], tryPlayMarkers: [], tryPlayCurrentPlayer: 1, tryPlaySymmetryAxis: 'diag1',
             tryPlayStepAxes: [], tryPlayStep: 0, tryPlayTotalSteps: 0,
-            liveReplayBoards: [], liveReplayMarkers: [], liveReplayStepPlayers: [], liveReplayMirrorAxes: [], liveViewStep: 0, liveFollowLatest: true,
-            mirrorAxis: 'diag1', serverMirrorAxis: 'diag1', matchStarted: false,
+            liveReplayBoards: [], liveReplayMarkers: [], liveReplayStepPlayers: [], liveReplaySymmetryAxes: [], liveViewStep: 0, liveFollowLatest: true,
+            symmetryAxis: 'diag1', serverSymmetryAxis: 'diag1', matchStarted: false, enabledSymmetries: null,
             userBoardMarks: Object.create(null), hoverRow: -1, hoverCol: -1, isHoverValid: false
         };
         (function () {
@@ -77,13 +79,30 @@ const scoreTitle = document.getElementById('scoreTitle'), scoreBoard = document.
         const dc = (b) => b.map(r => r.slice());
         const getMP = (r, c, ax) => {
             const L = ps.BOARD_SIZE - 1;
+            // 四种轴对称
             if (ax === 'horizontal') return { row: L - r, col: c };
             if (ax === 'vertical') return { row: r, col: L - c };
             if (ax === 'diag1') return { row: c, col: r };
             if (ax === 'diag2') return { row: L - c, col: L - r };
+            // 三种旋转（屏幕视角：row 0 在下、col 0 在左）
+            if (ax === 'rotate90cw') return { row: L - c, col: r };
+            if (ax === 'rotate90ccw') return { row: c, col: L - r };
+            if (ax === 'rotate180') return { row: L - r, col: L - c };
             return { row: r, col: c };
         };
-        const nextAxis = (hn) => (hn === 1 ? 'diag1' : hn === 2 ? 'diag2' : ['horizontal', 'vertical', 'diag1', 'diag2'][Math.floor(Math.random() * 4)]);
+        /** 全部七种对称与「启用的对称」——须与 games/symmetry-weiqi.js 的 SYMMETRY_TYPES / ENABLED_SYMMETRIES 一致 */
+        const SYMMETRY_TYPES = ['horizontal', 'vertical', 'diag1', 'diag2', 'rotate90cw', 'rotate90ccw', 'rotate180'];
+        const ENABLED_SYMMETRIES = ['horizontal', 'vertical', 'diag1', 'diag2', 'rotate90cw', 'rotate90ccw', 'rotate180'];
+        const OPENING_SYMMETRIES = ['diag1', 'diag2'];
+        /** 是否为旋转类（绘制时用旋转符号而不是镜像线） */
+        const isRotationAxis = (ax) => typeof ax === 'string' && ax.indexOf('rotate') === 0;
+        const nextAxis = (hn) => {
+            if (hn === 1) return OPENING_SYMMETRIES[0];
+            if (hn === 2) return OPENING_SYMMETRIES[1];
+            const pool = (ps.enabledSymmetries && ps.enabledSymmetries.length) ? ps.enabledSymmetries
+                : (ENABLED_SYMMETRIES.length ? ENABLED_SYMMETRIES : SYMMETRY_TYPES);
+            return pool[Math.floor(Math.random() * pool.length)];
+        };
         const performCap = (brd, pv) => {
             let ch;
             do {
@@ -100,7 +119,7 @@ const scoreTitle = document.getElementById('scoreTitle'), scoreBoard = document.
                 }
             } while (ch);
         };
-        const tryMirror = (bf, r, c, pv, ax) => {
+        const trySymmetry = (bf, r, c, pv, ax) => {
             if (bf[r][c] !== 0) return null;
             const m = getMP(r, c, ax), nb = dc(bf);
             nb[r][c] = pv;
@@ -110,7 +129,7 @@ const scoreTitle = document.getElementById('scoreTitle'), scoreBoard = document.
         };
         function rebuildLive(mc) {
             const n = ps.BOARD_SIZE;
-            ps.liveReplayBoards = []; ps.liveReplayMarkers = []; ps.liveReplayStepPlayers = [0]; ps.liveReplayMirrorAxes = [null];
+            ps.liveReplayBoards = []; ps.liveReplayMarkers = []; ps.liveReplayStepPlayers = [0]; ps.liveReplaySymmetryAxes = [null];
             let cur = Array(n).fill().map(() => Array(n).fill(0));
             ps.liveReplayBoards.push(dc(cur)); ps.liveReplayMarkers.push([]);
             let curAx = 'diag1';
@@ -118,9 +137,9 @@ const scoreTitle = document.getElementById('scoreTitle'), scoreBoard = document.
                 const pv = mv.player === 'player1' ? 1 : 2;
                 ps.liveReplayStepPlayers.push(pv);
                 if (mv.type === 'move') {
-                    const ax = mv.mirrorAxis || curAx;
-                    ps.liveReplayMirrorAxes.push(ax);
-                    const nb = tryMirror(cur, mv.row, mv.col, pv, ax);
+                    const ax = mv.symmetryAxis || curAx;
+                    ps.liveReplaySymmetryAxes.push(ax);
+                    const nb = trySymmetry(cur, mv.row, mv.col, pv, ax);
                     if (nb) cur = nb;
                     const mk = [{ row: mv.row, col: mv.col, color: pv }];
                     const mp = getMP(mv.row, mv.col, ax);
@@ -128,7 +147,7 @@ const scoreTitle = document.getElementById('scoreTitle'), scoreBoard = document.
                     ps.liveReplayBoards.push(dc(cur)); ps.liveReplayMarkers.push(mk);
                     curAx = nextAxis(ps.liveReplayBoards.length);
                 } else if (mv.type === 'pass') {
-                    ps.liveReplayMirrorAxes.push(null);
+                    ps.liveReplaySymmetryAxes.push(null);
                     ps.liveReplayBoards.push(dc(cur)); ps.liveReplayMarkers.push([]);
                     curAx = nextAxis(ps.liveReplayBoards.length);
                 }
@@ -140,8 +159,8 @@ const scoreTitle = document.getElementById('scoreTitle'), scoreBoard = document.
             if (mcs.length <= startLen) return true;
             let cur = dc(ps.liveReplayBoards[ps.liveReplayBoards.length - 1]);
             let curAx = 'diag1';
-            const lastAx = ps.liveReplayMirrorAxes && ps.liveReplayMirrorAxes.length
-                ? ps.liveReplayMirrorAxes[ps.liveReplayMirrorAxes.length - 1]
+            const lastAx = ps.liveReplaySymmetryAxes && ps.liveReplaySymmetryAxes.length
+                ? ps.liveReplaySymmetryAxes[ps.liveReplaySymmetryAxes.length - 1]
                 : null;
             if (lastAx) curAx = nextAxis(ps.liveReplayBoards.length);
             for (let i = startLen; i < mcs.length; i++) {
@@ -149,9 +168,9 @@ const scoreTitle = document.getElementById('scoreTitle'), scoreBoard = document.
                 const pv = mv.player === 'player1' ? 1 : 2;
                 ps.liveReplayStepPlayers.push(pv);
                 if (mv.type === 'move') {
-                    const ax = mv.mirrorAxis || curAx;
-                    ps.liveReplayMirrorAxes.push(ax);
-                    const nb = tryMirror(cur, mv.row, mv.col, pv, ax);
+                    const ax = mv.symmetryAxis || curAx;
+                    ps.liveReplaySymmetryAxes.push(ax);
+                    const nb = trySymmetry(cur, mv.row, mv.col, pv, ax);
                     if (nb) cur = nb;
                     const mk = [{ row: mv.row, col: mv.col, color: pv }];
                     const mp = getMP(mv.row, mv.col, ax);
@@ -159,7 +178,7 @@ const scoreTitle = document.getElementById('scoreTitle'), scoreBoard = document.
                     ps.liveReplayBoards.push(dc(cur)); ps.liveReplayMarkers.push(mk);
                     curAx = nextAxis(ps.liveReplayBoards.length);
                 } else if (mv.type === 'pass') {
-                    ps.liveReplayMirrorAxes.push(null);
+                    ps.liveReplaySymmetryAxes.push(null);
                     ps.liveReplayBoards.push(dc(cur)); ps.liveReplayMarkers.push([]);
                     curAx = nextAxis(ps.liveReplayBoards.length);
                 } else { return false; }
@@ -168,18 +187,18 @@ const scoreTitle = document.getElementById('scoreTitle'), scoreBoard = document.
         }
         function applyLiveView() {
             if (!ps.liveReplayBoards.length) {
-                ps.board = page.initBoardArray(ps.BOARD_SIZE); ps.lastMoveMarkers = []; ps.mirrorAxis = 'diag1'; return;
+                ps.board = page.initBoardArray(ps.BOARD_SIZE); ps.lastMoveMarkers = []; ps.symmetryAxis = 'diag1'; return;
             }
             if (ps.liveViewStep < 0) ps.liveViewStep = 0;
             if (ps.liveViewStep >= ps.liveReplayBoards.length) ps.liveViewStep = ps.liveReplayBoards.length - 1;
             ps.board = dc(ps.liveReplayBoards[ps.liveViewStep]);
             ps.lastMoveMarkers = ps.liveReplayMarkers[ps.liveViewStep].map(m => ({ ...m }));
-            // liveReplayMirrorAxes[step] 是该手「已使用」的轴；跟最新时要用服务端「下一手」轴
+            // liveReplaySymmetryAxes[step] 是该手「已使用」的轴；跟最新时要用服务端「下一手」轴
             const atLatest = ps.liveFollowLatest && ps.liveViewStep === ps.liveReplayBoards.length - 1;
-            ps.mirrorAxis = atLatest ? (ps.serverMirrorAxis || ps.liveReplayMirrorAxes[ps.liveViewStep] || 'diag1')
-                : ps.liveReplayMirrorAxes[ps.liveViewStep];
+            ps.symmetryAxis = atLatest ? (ps.serverSymmetryAxis || ps.liveReplaySymmetryAxes[ps.liveViewStep] || 'diag1')
+                : ps.liveReplaySymmetryAxes[ps.liveViewStep];
         }
-        function numsMirror() {
+        function numsSymmetry() {
             const nums = Array(ps.BOARD_SIZE).fill().map(() => Array(ps.BOARD_SIZE).fill(0));
             const step = (i, mk, lim) => {
                 if (!mk) return;
@@ -199,47 +218,96 @@ const scoreTitle = document.getElementById('scoreTitle'), scoreBoard = document.
             }
             return nums;
         }
-        /** 试下用分支下一手轴；否则用 ps.mirrorAxis（跟最新时已在 applyLiveView 换成服务端下一手轴） */
-        function getCurrentMirrorAxis() {
-            if (ps.tryPlayMode && ps.replayMode) return ps.tryPlayMirrorAxis;
-            return ps.mirrorAxis;
+        /** 试下用分支下一手轴；否则用 ps.symmetryAxis（跟最新时已在 applyLiveView 换成服务端下一手轴） */
+        function getCurrentSymmetryAxis() {
+            if (ps.tryPlayMode && ps.replayMode) return ps.tryPlaySymmetryAxis;
+            return ps.symmetryAxis;
         }
-        function drawMirrorAxisLine() {
+        /**
+         * 旋转类对称的符号：棋盘中心一个弧 + 终点箭头（不画镜像线）。
+         *   顺时针 90°：6 点起，逆时针（视觉）270° 到 9 点，箭头在 9 点、朝行进方向（向下）
+         *   逆时针 90°：6 点起，顺时针（视觉）270° 到 3 点，箭头在 3 点、朝行进方向（向下）
+         *   180°      ：6 点起，逆时针（视觉）180° 到 12 点，箭头在 12 点、朝行进方向（向左）
+         * 半径 = 80px（画布固定 600；19 路时约 2.7 格；曾试过 1/10=60 与 1/5=120，用户最终定 80）；
+         * 箭头长/宽固定为「半径 60 时的大小」（20.4 / 15.6px，用户要求不随半径变）。线宽/配色/阴影与镜像线完全一致。
+         */
+        function drawRotationSymbol(axis, symmetryColor) {
+            const P = ps.PADDING, z = ps.CELL_SIZE, cs = C.DEFAULT_CANVAS_SIZE;
+            const cx = P + (ps.BOARD_SIZE - 1) * z / 2;
+            const cy = P + (ps.BOARD_SIZE - 1) * z / 2;
+            const r = 80;                                       // 圆弧半径（px；画布固定 600）
+            const D = Math.PI / 180;
+            // 点钟方向 → 画布角度：画布 y 轴向下，故 0=3 点、90=6 点、180=9 点、270=12 点
+            const h2a = (h) => (h - 3) * 30 * D;
+            let start, end, anticlockwise;                      // anticlockwise = 画布角度递减（视觉逆时针）
+            if (axis === 'rotate90cw') {
+                start = h2a(6); end = h2a(9); anticlockwise = true;
+            } else if (axis === 'rotate90ccw') {
+                start = h2a(6); end = h2a(3); anticlockwise = false;
+            } else {
+                start = h2a(6); end = h2a(12); anticlockwise = true;
+            }
+            ctx.beginPath();
+            ctx.arc(cx, cy, r, start, end, anticlockwise);
+            ctx.stroke();
+            // 终点箭头：**根部（两后角连线的中点）对齐弧的终点**，箭尖沿行进方向再往前一个箭头长。
+            // 弧的终点 = 中心 + r(cosθ, sinθ)；画布角度递增（视觉顺时针）的切线 = (-sinθ, cosθ)，逆时针取反
+            const sign = anticlockwise ? -1 : 1;
+            const tx = sign * -Math.sin(end), ty = sign * Math.cos(end);
+            const baseX = cx + Math.cos(end) * r, baseY = cy + Math.sin(end) * r;
+            const nx = -ty, ny = tx;
+            const AL = 60 * 0.34, AW = 60 * 0.26;               // 箭头长/宽：保持半径 60 时的大小（不随半径变）
+            ctx.fillStyle = symmetryColor === 1 ? '#000000' : '#ffffff';
+            ctx.beginPath();
+            ctx.moveTo(baseX + tx * AL, baseY + ty * AL);        // 箭尖（终点前方一个箭头长）
+            ctx.lineTo(baseX + nx * (AW / 2), baseY + ny * (AW / 2));   // 后角 1（落在弧的终点上）
+            ctx.lineTo(baseX - nx * (AW / 2), baseY - ny * (AW / 2));   // 后角 2（落在弧的终点上）
+            ctx.closePath();
+            ctx.fill();
+        }
+
+        function drawSymmetryAxisLine() {
             if (ps.showEstimateActive) return;
             if (!ps.replayMode && !ps.matchStarted) return;
-            const axis = getCurrentMirrorAxis();
+            const axis = getCurrentSymmetryAxis();
             const last = ps.BOARD_SIZE - 1;
             if (!axis) return;
-            let mirrorColor;
+            let symmetryColor;
             if (ps.replayMode && !ps.tryPlayMode) {
-                mirrorColor = ps.replayStepPlayers[ps.replayStep] || 1;
+                symmetryColor = ps.replayStepPlayers[ps.replayStep] || 1;
             } else if (!ps.replayMode && ps.liveReplayBoards.length > 0 && ps.liveViewStep < ps.liveReplayBoards.length - 1) {
-                mirrorColor = ps.liveReplayStepPlayers[ps.liveViewStep] || 1;
+                symmetryColor = ps.liveReplayStepPlayers[ps.liveViewStep] || 1;
             } else if (ps.tryPlayMode) {
-                if (ps.tryPlayStep === 0) mirrorColor = ps.replayStepPlayers[ps.tryPlayBaseStep] || 1;
-                else mirrorColor = 3 - ps.tryPlayCurrentPlayer;
+                if (ps.tryPlayStep === 0) symmetryColor = ps.replayStepPlayers[ps.tryPlayBaseStep] || 1;
+                else symmetryColor = 3 - ps.tryPlayCurrentPlayer;
             } else {
-                mirrorColor = ps.currentPlayer;
+                symmetryColor = ps.currentPlayer;
             }
             const P = ps.PADDING, z = ps.CELL_SIZE, edge = C.DEFAULT_CANVAS_SIZE - P;
             ctx.save();
             ctx.lineWidth = 3;
-            ctx.strokeStyle = mirrorColor === 1 ? '#000000' : '#ffffff';
+            ctx.strokeStyle = symmetryColor === 1 ? '#000000' : '#ffffff';
             ctx.shadowBlur = 4;
-            ctx.shadowColor = mirrorColor === 1 ? '#aaa' : '#333';
+            ctx.shadowColor = symmetryColor === 1 ? '#aaa' : '#333';
             ctx.shadowOffsetY = 1;
             ctx.setLineDash([]);
+            // 旋转类：在棋盘中心画旋转符号（弧 + 箭头），不画镜像线
+            if (isRotationAxis(axis)) {
+                drawRotationSymbol(axis, symmetryColor);
+                ctx.restore();
+                return;
+            }
             ctx.beginPath();
             // 统一显示变换（与 stones/hover 一致）：数据行 0 显示在底边，
             // 四个轴都先取"数据坐标下的两个端点"再经 show() 落到像素，避免按画布直觉另写一套
             const show = (r, c) => ({ x: P + c * z, y: P + (last - r) * z });
             let pa = null, pb = null;
             if (axis === 'horizontal') {
-                // 镜像规则 r ↔ last-r：中轴为数据行 last/2
+                // 对称规则 r ↔ last-r：中轴为数据行 last/2
                 const mid = last / 2;
                 pa = show(mid, 0); pb = show(mid, last);
             } else if (axis === 'vertical') {
-                // 镜像规则 c ↔ last-c：中轴为数据列 last/2
+                // 对称规则 c ↔ last-c：中轴为数据列 last/2
                 const mid = last / 2;
                 pa = show(0, mid); pb = show(last, mid);
             } else if (axis === 'diag1') {
@@ -258,26 +326,26 @@ const scoreTitle = document.getElementById('scoreTitle'), scoreBoard = document.
             ctx.shadowOffsetY = 0;
             ctx.restore();
         }
-        function drawBoardMirror() {
+        function drawBoardSymmetry() {
             const d = C.draw, cs = C.DEFAULT_CANVAS_SIZE, z = ps.CELL_SIZE, low = ps.showMoveNumbers || ps.showEstimateActive;
             d.clear(ctx, cs); d.grid(ctx, ps.BOARD_SIZE, ps.PADDING, z, cs); d.starPoints(ctx, ps.BOARD_SIZE, ps.PADDING, z);
             d.coordLabels(ctx, ps.BOARD_SIZE, ps.PADDING, z);
-            drawMirrorAxisLine();
+            drawSymmetryAxisLine();
             const sr = z * 0.44, ml = z * 0.352;
             if (low) d.lastMoveMarkersLower(ctx, ps.lastMoveMarkers, ps.PADDING, z, sr, ps.BOARD_SIZE);
             d.stonesBlackWhite(ctx, ps.board, ps.BOARD_SIZE, ps.PADDING, z, sr, ps.showMoveNumbers);
             if (!low) d.lastMoveMarkersUpper(ctx, ps.lastMoveMarkers, ps.PADDING, z, ml, ps.BOARD_SIZE);
             d.userBoardMarks(ctx, ps.userBoardMarks, ps.BOARD_SIZE, ps.PADDING, z, (r, c) =>
                 !ps.showEstimateActive && r >= 0 && r < ps.BOARD_SIZE && c >= 0 && c < ps.BOARD_SIZE && ps.board[r][c] === 0);
-            if (ps.showMoveNumbers) d.moveNumbersOnStones(ctx, numsMirror(), ps.board, ps.BOARD_SIZE, ps.PADDING, z);
+            if (ps.showMoveNumbers) d.moveNumbersOnStones(ctx, numsSymmetry(), ps.board, ps.BOARD_SIZE, ps.PADDING, z);
             const hoverOpts = {
                 tryPlayMode: ps.tryPlayMode, tryPlayCurrentPlayer: ps.tryPlayCurrentPlayer, gameOver: ps.gameOver,
                 isMyTurn: ps.isMyTurn, mySlot: ps.mySlot, isHoverValid: ps.isHoverValid,
                 pageState: ps, editModeEnabled: !!ps.editModeEnabled, editTool: ps.editTool
             };
             d.hoverPreviewStone(ctx, ps.hoverRow, ps.hoverCol, ps.board, ps.PADDING, z, hoverOpts);
-            // 镜像点同步悬停（须用下一手镜面轴，否则白方会画到上一手轴的错误位置）
-            const axis = getCurrentMirrorAxis();
+            // 对称点同步悬停（须用下一手镜面轴，否则白方会画到上一手轴的错误位置）
+            const axis = getCurrentSymmetryAxis();
             if (ps.isHoverValid && ps.hoverRow >= 0 && ps.hoverCol >= 0 && axis) {
                 const mp = getMP(ps.hoverRow, ps.hoverCol, axis);
                 if (!(mp.row === ps.hoverRow && mp.col === ps.hoverCol))
@@ -288,7 +356,7 @@ const scoreTitle = document.getElementById('scoreTitle'), scoreBoard = document.
         }
 
         var page;
-        function mirrorSync(state) {
+        function symmetrySync(state) {
             page.clearMobileMovePreview();
             if (state.boardSize && state.boardSize !== ps.BOARD_SIZE) {
                 ps.BOARD_SIZE = state.boardSize;
@@ -300,11 +368,15 @@ const scoreTitle = document.getElementById('scoreTitle'), scoreBoard = document.
             ps.numberOfHands = state.numberOfHands || 1; ps.currentPlayer = state.currentPlayer;
             ps.gameOver = state.gameOver || false; ps.winner = state.winner || null;
             if (state.matchStarted !== undefined) ps.matchStarted = !!state.matchStarted;
-            ps.serverMirrorAxis = state.mirrorAxis || 'diag1';
+            ps.serverSymmetryAxis = state.symmetryAxis || 'diag1';
+            // 「启用的对称」以服务端为准（停用只改 games/symmetry-weiqi.js 一处；这里只是兜底默认）
+            if (Array.isArray(state.enabledSymmetries) && state.enabledSymmetries.length) {
+                ps.enabledSymmetries = state.enabledSymmetries.filter((ax) => SYMMETRY_TYPES.indexOf(ax) >= 0);
+            }
             if (state.moveCoords) ps.moveLog = state.moveCoords.map(m => {
                 if (m.type !== 'move') return null;
                 const en = [{ row: m.row, col: m.col }];
-                if (m.mirrorAxis) { const mp = getMP(m.row, m.col, m.mirrorAxis); if (!(mp.row === m.row && mp.col === m.col)) en.push({ row: mp.row, col: mp.col }); }
+                if (m.symmetryAxis) { const mp = getMP(m.row, m.col, m.symmetryAxis); if (!(mp.row === m.row && mp.col === m.col)) en.push({ row: mp.row, col: mp.col }); }
                 return en;
             });
             if (state.slots) ps.slots = state.slots;
@@ -322,11 +394,11 @@ const scoreTitle = document.getElementById('scoreTitle'), scoreBoard = document.
                 else { ps.liveViewStep = Math.min(ps.liveViewStep, newT); if (ps.liveViewStep === newT) ps.liveFollowLatest = true; }
                 if (!ps.tryPlayMode) {
                     applyLiveView();
-                    if (ps.liveFollowLatest && ps.liveViewStep === newT) ps.mirrorAxis = ps.serverMirrorAxis;
+                    if (ps.liveFollowLatest && ps.liveViewStep === newT) ps.symmetryAxis = ps.serverSymmetryAxis;
                     page.updateLiveReplayPanelUI();
                 }
             } else if (!ps.tryPlayMode) {
-                ps.board = state.board; ps.lastMoveMarkers = state.lastMoveMarkers || []; ps.mirrorAxis = state.mirrorAxis || 'diag1';
+                ps.board = state.board; ps.lastMoveMarkers = state.lastMoveMarkers || []; ps.symmetryAxis = state.symmetryAxis || 'diag1';
             }
             const hasS = ps.board.some(row => row.some(v => v !== 0)), hasP = ps.slots.player1 || ps.slots.player2;
             const sel = document.getElementById('boardSizeSelect');
@@ -336,52 +408,21 @@ const scoreTitle = document.getElementById('scoreTitle'), scoreBoard = document.
             page.updateReplayUI();
         }
 
-        // 标准/变体围棋形势判断：Benson 无条件活加成（保活 + 确定领地覆盖）
-        function bensonRemoveDead(srcBoard) {
-            const RT = window.QiWeiqiSquarePageRuntime;
-            const size = ps.BOARD_SIZE;
-            const copy = (b) => QiSquareWeiqiCanvas.deepCopyBoard(b);
-            const benson = RT.bensonAlive(srcBoard, size);
-            let live = copy(srcBoard);
-            let changed = true;
-            while (changed) {
-                changed = false;
-                const cleaned = RT.removeDeadAndDying(live, size, copy, 2);
-                for (let r = 0; r < size; r++) {
-                    for (let c = 0; c < size; c++) {
-                        const v = srcBoard[r][c];
-                        if (benson.alive[r][c] && (v === 1 || v === 2) && cleaned[r][c] !== v) {
-                            cleaned[r][c] = v;
-                            changed = true;
-                        }
-                    }
-                }
-                live = cleaned;
-            }
-            return live;
-        }
-        function bensonTerritory(liveBoard) {
-            const RT = window.QiWeiqiSquarePageRuntime;
-            const size = ps.BOARD_SIZE;
-            const territory = RT.assignTerritoryWithRange(liveBoard, size);
-            const secure = RT.bensonAlive(liveBoard, size);
-            for (let r = 0; r < size; r++) {
-                for (let c = 0; c < size; c++) {
-                    if (liveBoard[r][c] === 0 && secure.territory[r][c]) territory[r][c] = secure.territory[r][c];
-                }
-            }
-            return territory;
-        }
+        // 标准围棋：形势判断/数点用 Benson 档（公共钩子；档位见 shell.useBenson）
+        const scoringHooks = QiWeiqiSquarePageRuntime.weiqiScoringHooks(config.useBenson !== false, {
+            boardSize: () => ps.BOARD_SIZE,
+            maxWeakLiberties: 2
+        });
 
         page = R.create(ps, domPage, {
             recordDownloadPrefix, minLib, maxWeakLiberties: 2, gameType, roomId, roomPassword, isMouseDevice,
-            removeDeadAndDying: bensonRemoveDead, assignTerritoryWithRange: bensonTerritory,
+            ...scoringHooks,
             enableEditBoard: true,
-            drawBoard: drawBoardMirror, syncState: mirrorSync,
+            drawBoard: drawBoardSymmetry, syncState: symmetrySync,
             rebuildLiveReplayFromMoveCoords: rebuildLive, applyLiveViewBoard: applyLiveView,
             enterReplayMode(data) {
                 const n = ps.BOARD_SIZE;
-                ps.replayBoards = []; ps.replayMarkers = []; ps.replayStepPlayers = [0]; ps.replayMirrorAxes = [null];
+                ps.replayBoards = []; ps.replayMarkers = []; ps.replayStepPlayers = [0]; ps.replaySymmetryAxes = [null];
                 let cur = Array(n).fill().map(() => Array(n).fill(0));
                 if (data.initialPosition) {
                     if (Array.isArray(data.initialPosition)) R.applyInitialPositionCompact(cur, n, data.initialPosition);
@@ -396,9 +437,9 @@ const scoreTitle = document.getElementById('scoreTitle'), scoreBoard = document.
                     const pv = mv.player === 'player1' ? 1 : 2;
                     ps.replayStepPlayers.push(pv);
                     if (mv.type === 'move') {
-                        const ax = mv.mirrorAxis || curAx;
-                        ps.replayMirrorAxes.push(ax);
-                        const nb = tryMirror(cur, mv.row, mv.col, pv, ax);
+                        const ax = mv.symmetryAxis || curAx;
+                        ps.replaySymmetryAxes.push(ax);
+                        const nb = trySymmetry(cur, mv.row, mv.col, pv, ax);
                         if (nb) cur = nb;
                         const mk = [{ row: mv.row, col: mv.col, color: pv }];
                         const mp = getMP(mv.row, mv.col, ax);
@@ -406,7 +447,7 @@ const scoreTitle = document.getElementById('scoreTitle'), scoreBoard = document.
                         ps.replayBoards.push(dc(cur)); ps.replayMarkers.push(mk);
                         curAx = nextAxis(ps.replayBoards.length);
                     } else if (mv.type === 'pass') {
-                        ps.replayMirrorAxes.push(null); ps.replayBoards.push(dc(cur)); ps.replayMarkers.push([]);
+                        ps.replaySymmetryAxes.push(null); ps.replayBoards.push(dc(cur)); ps.replayMarkers.push([]);
                         curAx = nextAxis(ps.replayBoards.length);
                     }
                 }
@@ -417,7 +458,7 @@ const scoreTitle = document.getElementById('scoreTitle'), scoreBoard = document.
             exitReplayMode() {
                 page.clearMobileMovePreview();
                 ps.tryPlayMode = false; ps.tryPlayBoards = []; ps.tryPlayMarkers = []; ps.tryPlayStepAxes = []; ps.tryPlayStep = 0; ps.tryPlayTotalSteps = 0;
-                ps.replayMode = false; ps.replayBoards = []; ps.replayMarkers = []; ps.replayStepPlayers = []; ps.replayMirrorAxes = [];
+                ps.replayMode = false; ps.replayBoards = []; ps.replayMarkers = []; ps.replayStepPlayers = []; ps.replaySymmetryAxes = [];
                 ps.replayStep = 0; ps.replayTotalSteps = 0;
                 page.updateReplayUI();
             },
@@ -425,19 +466,19 @@ const scoreTitle = document.getElementById('scoreTitle'), scoreBoard = document.
                 page.clearMobileMovePreview();
                 if (step < 0) step = 0; if (step > ps.replayTotalSteps) step = ps.replayTotalSteps;
                 ps.replayStep = step; ps.board = dc(ps.replayBoards[step]); ps.lastMoveMarkers = ps.replayMarkers[step].map(m => ({ ...m }));
-                ps.mirrorAxis = ps.replayMirrorAxes[step];
+                ps.symmetryAxis = ps.replaySymmetryAxes[step];
                 document.getElementById('replaySlider').value = step;
                 document.getElementById('replayStepDisplay').innerText = `${step} / ${ps.replayTotalSteps}`;
                 turnDisplay.innerText = step === 0 ? '初始局面' : `${ps.replayStepPlayers[step] === 1 ? '⚫' : '⚪'} 第${step}手`;
                 ps.isMyTurn = false;
-                if (ps.showEstimateActive) page.showEstimate(); else drawBoardMirror();
+                if (ps.showEstimateActive) page.showEstimate(); else drawBoardSymmetry();
             },
             enterTryPlay() {
                 page.clearMobileMovePreview(); const fromLive = !ps.replayMode;
                 ps.tryPlayFromLive = fromLive; ps.tryPlayFromLiveStep = ps.liveViewStep || 0;
                 ps.tryPlayMode = true; ps.tryPlayBaseStep = ps.replayStep;
                 ps.tryPlayBoards = [dc(ps.board)]; ps.tryPlayMarkers = [ps.lastMoveMarkers.map(m => ({ ...m }))];
-                ps.tryPlayMirrorAxis = ps.mirrorAxis; ps.tryPlayStepAxes = [ps.replayMirrorAxes[ps.replayStep]];
+                ps.tryPlaySymmetryAxis = ps.symmetryAxis; ps.tryPlayStepAxes = [ps.replaySymmetryAxes[ps.replayStep]];
                 {
                     const RT = typeof QiWeiqiSquarePageRuntime !== 'undefined' ? QiWeiqiSquarePageRuntime : null;
                     ps.tryPlayCurrentPlayer = RT && RT.resolveTryPlaySideToMove
@@ -510,22 +551,22 @@ const scoreTitle = document.getElementById('scoreTitle'), scoreBoard = document.
             },
             tryPlayMove(row, col) {
                 if (ps.board[row][col] !== 0) return false;
-                const pv = ps.tryPlayCurrentPlayer, nb = tryMirror(ps.board, row, col, pv, ps.tryPlayMirrorAxis);
+                const pv = ps.tryPlayCurrentPlayer, nb = trySymmetry(ps.board, row, col, pv, ps.tryPlaySymmetryAxis);
                 if (!nb) return false;
                 if (ps.tryPlayStep < ps.tryPlayTotalSteps) {
                     ps.tryPlayBoards.length = ps.tryPlayStep + 1; ps.tryPlayMarkers.length = ps.tryPlayStep + 1; ps.tryPlayStepAxes.length = ps.tryPlayStep + 1;
                 }
-                ps.tryPlayStepAxes.push(ps.tryPlayMirrorAxis);
-                const mk = [{ row, col, color: pv }], mp = getMP(row, col, ps.tryPlayMirrorAxis);
+                ps.tryPlayStepAxes.push(ps.tryPlaySymmetryAxis);
+                const mk = [{ row, col, color: pv }], mp = getMP(row, col, ps.tryPlaySymmetryAxis);
                 if (!(mp.row === row && mp.col === col) && nb[mp.row][mp.col] === pv) mk.push({ row: mp.row, col: mp.col, color: pv });
                 ps.tryPlayBoards.push(dc(nb)); ps.tryPlayMarkers.push(mk);
                 ps.tryPlayTotalSteps = ps.tryPlayBoards.length - 1; ps.tryPlayStep = ps.tryPlayTotalSteps;
                 ps.tryPlayCurrentPlayer = 3 - ps.tryPlayCurrentPlayer;
-                ps.tryPlayMirrorAxis = nextAxis(ps.tryPlayBaseStep + ps.tryPlayStep + 1);
+                ps.tryPlaySymmetryAxis = nextAxis(ps.tryPlayBaseStep + ps.tryPlayStep + 1);
                 ps.board = dc(nb); ps.lastMoveMarkers = mk.map(m => ({ ...m }));
                 const sl = document.getElementById('replaySlider'); sl.max = ps.tryPlayTotalSteps; sl.value = ps.tryPlayStep;
                 page.updateTryPlayDisplay();
-                if (ps.showEstimateActive) page.showEstimate(); else drawBoardMirror();
+                if (ps.showEstimateActive) page.showEstimate(); else drawBoardSymmetry();
                 return true;
             },
             setTryPlayStep(step) {
@@ -536,18 +577,18 @@ const scoreTitle = document.getElementById('scoreTitle'), scoreBoard = document.
                     ? ps.tryPlayBasePlayer
                     : (ps.tryPlayBaseStep === 0 ? 1 : (3 - ps.replayStepPlayers[ps.tryPlayBaseStep]));
                 ps.tryPlayCurrentPlayer = step % 2 === 0 ? baseP : (3 - baseP);
-                ps.tryPlayMirrorAxis = nextAxis(ps.tryPlayBaseStep + step + 1);
+                ps.tryPlaySymmetryAxis = nextAxis(ps.tryPlayBaseStep + step + 1);
                 document.getElementById('replaySlider').value = step; page.updateTryPlayDisplay();
-                if (ps.showEstimateActive) page.showEstimate(); else drawBoardMirror();
+                if (ps.showEstimateActive) page.showEstimate(); else drawBoardSymmetry();
             }
         });
         const _setLive = page.setLiveViewStep;
         page.setLiveViewStep = function (step) {
             _setLive(step);
-            // applyLiveView 在跟最新时已写入 serverMirrorAxis；此处仅兜底
+            // applyLiveView 在跟最新时已写入 serverSymmetryAxis；此处仅兜底
             const t = Math.max(0, ps.liveReplayBoards.length - 1);
             if (ps.liveFollowLatest && ps.liveViewStep === t)
-                ps.mirrorAxis = ps.serverMirrorAxis || ps.mirrorAxis || 'diag1';
+                ps.symmetryAxis = ps.serverSymmetryAxis || ps.symmetryAxis || 'diag1';
         };
         const {
             mobileTwoStepPlacing, clearMobileMovePreview, drawBoard, updateTurn, showEstimate, clearEstimate, downloadRecord,

@@ -11,6 +11,7 @@ window.RoomPlugins["continuous-weiqi"] = {
         "recordDownloadPrefix": "连续围棋",
         "standardWeiqiMatchTime": true,
         "features": {
+            "woodTexture": true,
             "editBoard": true,
             "continuousExtras": true
         },

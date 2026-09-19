@@ -257,6 +257,7 @@ class ChoiceWuziqiRoom extends QiTwoPlayerRoomBase {
         this.historyBoards = [];
         this.lastMoveMarkers = [];
         this.gameOver = false;
+        this.importReplayNoJudge = false;
         this.winner = null;
         this.moveLog = [];
         this.pendingNewGame = null;
@@ -283,7 +284,8 @@ class ChoiceWuziqiRoom extends QiTwoPlayerRoomBase {
         }
         this.BOARD_SIZE = n;
         this.resetToEmpty();
-        this.broadcast({ type: 'boardSizeChanged', ...this.getState() });
+        this.broadcast({ type: 'boardSizeChanged', boardSize: this.BOARD_SIZE });
+        this.broadcast({ type: 'gameState', ...this.getState() });
         return true;
     }
 
@@ -312,6 +314,8 @@ class ChoiceWuziqiRoom extends QiTwoPlayerRoomBase {
         this.tcNego = null;
         this.tcSettings = null;
         this.tcClock = null;
+
+        this.importReplayNoJudge = true;   // 回放期间不判终局（结果只按棋谱记录）
 
         for (let i = 0; i < rawMoves.length; i++) {
             const m = ChoiceWuziqiRoom.parseMoveEntry(rawMoves[i]);
@@ -356,14 +360,14 @@ class ChoiceWuziqiRoom extends QiTwoPlayerRoomBase {
             this.board[row][col] = playerVal;
             this.lastMoveMarkers = [{ row, col, color: playerVal }];
 
-            if (this.checkWin(row, col, playerVal)) {
+            if (!this.importReplayNoJudge && this.checkWin(row, col, playerVal)) {
                 this.gameOver = true;
                 this.winner = slot;
                 break;
             }
 
             this.currentPlayer = this.currentPlayer === 'player1' ? 'player2' : 'player1';
-            if (squareWuziqiRules.isBoardFull(this.board, this.BOARD_SIZE)) {
+            if (!this.importReplayNoJudge && squareWuziqiRules.isBoardFull(this.board, this.BOARD_SIZE)) {
                 this.gameOver = true;
                 this.winner = 'draw';
                 break;
@@ -371,9 +375,28 @@ class ChoiceWuziqiRoom extends QiTwoPlayerRoomBase {
             this.generateCandidates();
         }
 
-        if (data.result && !this.gameOver) {
+        this.importReplayNoJudge = false;
+        // 导入不做任何判定：结果只按棋谱记录显示（局面与记录不一致时也以记录为准）。
+        // 记录里的胜负先认出执方颜色（公共层把棋谱里的「黑胜」折成 result='player1'、
+        // 「白胜」折成 result='player2'，所以不能直接当座位名用），再落到本棋种的座位。
+        const recResult = data.result != null && data.result !== '' ? data.result
+            : (data.resultText != null && data.resultText !== '' ? data.resultText : null);
+        if (recResult != null) {
             this.gameOver = true;
-            this.winner = data.result;
+            this.recordResultText = data.resultText ? String(data.resultText) : String(recResult);
+            const rt = String(this.recordResultText);
+            const SLOT_OF_COLOR = { 黑: 'player1', 白: 'player2' };   // player1 执黑、player2 执白
+            const win = /(黑|白|红|绿|蓝)\s*(?:方)?[^，。]{0,6}胜/.exec(rt);
+            let color = win ? win[1] : null;
+            if (!color) {
+                const lose = /(黑|白|红|绿|蓝)\s*(?:方)?[^，。]{0,6}判负/.exec(rt);
+                if (lose) color = Object.keys(SLOT_OF_COLOR).find((k) => k !== lose[1]) || null;
+                else if (recResult === 'black' || recResult === 'player1') color = '黑';
+                else if (recResult === 'white' || recResult === 'player2') color = '白';
+            }
+            if (recResult === 'draw' || rt.includes('和')) this.winner = 'draw';
+            else if (color && SLOT_OF_COLOR[color]) this.winner = SLOT_OF_COLOR[color];
+            else this.winner = recResult;
         }
 
         const payload = {
@@ -555,6 +578,7 @@ class ChoiceWuziqiRoom extends QiTwoPlayerRoomBase {
         this.historyBoards = [];
         this.lastMoveMarkers = [];
         this.gameOver = false;
+        this.importReplayNoJudge = false;
         this.winner = null;
         this.moveLog = [];
         this.candidates = [];
@@ -564,12 +588,7 @@ class ChoiceWuziqiRoom extends QiTwoPlayerRoomBase {
         this.tcSettings = null;
         this.tcClock = null;
         const room = this.room;
-        for (const [client, slot] of room.players.entries()) {
-            room.slotOccupancy.delete(slot);
-            room.players.delete(client);
-            room.observers.add(client);
-            client.send(JSON.stringify({ type: 'slotReleased', slot }));
-        }
+        qiProtocol.releaseAllSeats(this);
         this.broadcast({ type: 'newGameStarted', ...this.getState(), slots: { player1: false, player2: false } });
     }
 

@@ -9,7 +9,7 @@ window.RoomPlugins["hexagon-xiangqi"] = {
         defaultBoardSize: 5,
         recordDownloadPrefix: "六角象棋",
         standardWeiqiMatchTime: true,
-        features: { editBoard: false, xiangqi: true, hexagonXiangqi: true, hideBoardSize: true, transparentCanvas: true }
+        features: {  "woodTexture": true,editBoard: false, xiangqi: true, hexagonXiangqi: true, hideBoardSize: true, transparentCanvas: true }
     },
     mount: function (ctx) {
         var gameType = ctx.gameType;

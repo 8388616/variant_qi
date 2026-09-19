@@ -9,8 +9,10 @@ window.RoomPlugins['sync-weiqi'] = {
         "defaultBoardSize": 19,
         "minLib": 1,
         "recordDownloadPrefix": "同步围棋",
+        "useBenson": true,
         "standardWeiqiMatchTime": true,
         "features": {
+            "woodTexture": true,
             "editBoard": true,
             "compoundPalette": false,
             "zoomScroll": false
@@ -389,55 +391,24 @@ const scoreTitle = document.getElementById('scoreTitle');
         };
 
         const pageHolder = {};
-        // 形势判断：Benson 加成（保活 + 确定领地覆盖）
-        function bensonRemoveDeadLocal(srcBoard) {
-            const RT = window.QiWeiqiSquarePageRuntime;
-            const size = ps.BOARD_SIZE;
-            const copy = (b) => QiSquareWeiqiCanvas.deepCopyBoard(b);
-            const benson = RT.bensonAlive(srcBoard, size);
-            let live = copy(srcBoard);
-            let changed = true;
-            while (changed) {
-                changed = false;
-                const cleaned = RT.removeDeadAndDying(live, size, copy, 2);
-                for (let r = 0; r < size; r++) {
-                    for (let c = 0; c < size; c++) {
-                        const v = srcBoard[r][c];
-                        if (benson.alive[r][c] && (v === 1 || v === 2) && cleaned[r][c] !== v) {
-                            cleaned[r][c] = v;
-                            changed = true;
-                        }
-                    }
-                }
-                live = cleaned;
-            }
-            return live;
-        }
-        function bensonTerritoryLocal(liveBoard) {
-            const RT = window.QiWeiqiSquarePageRuntime;
-            const size = ps.BOARD_SIZE;
-            const territory = RT.assignTerritoryWithRange(liveBoard, size);
-            const secure = RT.bensonAlive(liveBoard, size);
-            for (let r = 0; r < size; r++) {
-                for (let c = 0; c < size; c++) {
-                    if (liveBoard[r][c] === 0 && secure.territory[r][c]) territory[r][c] = secure.territory[r][c];
-                }
-            }
-            return territory;
-        }
+        // 标准围棋：形势判断/数点用 Benson 档（公共钩子；档位见 shell.useBenson）
+        const scoringHooks = QiWeiqiSquarePageRuntime.weiqiScoringHooks(config.useBenson !== false, {
+            boardSize: () => ps.BOARD_SIZE,
+            maxWeakLiberties: 2
+        });
+
         const page = QiWeiqiSquarePageRuntime.create(ps, domPage, {
             enableEditBoard: true,
             recordDownloadPrefix,
             minLib,
             maxWeakLiberties: 2,
+            ...scoringHooks,
             gameType,
             roomId,
             roomPassword,
             isMouseDevice,
             tryPlaceStone: syncTryPlaceStone,
             drawBoard: holeDrawBoard,
-            removeDeadAndDying: bensonRemoveDeadLocal,
-            assignTerritoryWithRange: bensonTerritoryLocal,
             rebuildLiveReplayFromMoveCoords(coords) {
                 rebuildSyncLiveReplay(coords);
             },

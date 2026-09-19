@@ -11,6 +11,7 @@ window.RoomPlugins["random-instability-wuziqi"] = {
         "recordDownloadPrefix": "随机不稳定五子棋",
         "standardWeiqiMatchTime": true,
         "features": {
+            "woodTexture": true,
             "editBoard": true
         },
         "editTools": [

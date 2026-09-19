@@ -85,6 +85,37 @@ body.qi-room .color-status {
     white-space: nowrap;
 }
 
+/* 自定义围棋的「自定义规则」按钮：观感与贴点条一致，但看得出是按钮（右端 ▾ + 轻阴影 + 按下反馈） */
+body.qi-room .custom-rules-btn {
+    background: rgba(255, 250, 241, 0.92);
+    color: var(--qi-room-ink);
+    padding: 5px 14px;
+    border: 1px solid var(--qi-room-line);
+    border-radius: 999px;
+    font-family: var(--qi-room-font);
+    font-size: 0.95rem;
+    font-weight: 500;
+    white-space: nowrap;
+    cursor: pointer;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.8);
+    transition: background 0.15s ease, transform 0.05s ease;
+}
+
+body.qi-room .custom-rules-btn:hover:not(:disabled) {
+    background: #fff6e6;
+}
+
+body.qi-room .custom-rules-btn:active:not(:disabled) {
+    transform: translateY(1px);
+    box-shadow: none;
+}
+
+body.qi-room .custom-rules-btn:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+    box-shadow: none;
+}
+
 body.qi-room .board-size-select,
 body.qi-room .edit-tool-select {
     min-height: 34px;
@@ -2526,6 +2557,38 @@ body.qi-room .qi-time-control-wait {
     margin-top: 14px;
     font-size: 0.95rem;
     font-weight: 500;
+}
+
+/* 自定义围棋：自定义规则对话框（沿用限时对话框外观） */
+body.qi-room .custom-rules-modal .qi-time-control-dialog {
+    max-width: 420px;
+}
+
+body.qi-room .custom-rules-row {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;   /* 下拉框靠左紧贴 label（原先 space-between 会把它推到右边） */
+    gap: 8px;
+    margin: 18px 0;                 /* 行距：原先 10px 太紧凑 */
+}
+
+body.qi-room .custom-rules-row .custom-rules-label {
+    font-size: 0.95rem;
+}
+
+body.qi-room .custom-rules-extras {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 16px;                 /* 勾选项换行时的行距 */
+    margin: 20px 0 6px;
+}
+
+body.qi-room .custom-rules-check {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.95rem;
+    cursor: pointer;
 }
 
 body.qi-room .qi-time-control-dialog input:disabled,

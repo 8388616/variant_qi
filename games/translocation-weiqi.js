@@ -1,5 +1,5 @@
 const crypto = require('crypto');
-const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, encodeInitialPositionCompact, applyInitialPositionCompact, qiBoardSeatOverlay } = require('../common');
+const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, encodeInitialPositionCompact, applyInitialPositionCompact, qiBoardSeatOverlay, computeBensonWeiqiLead, squareWeiqiScoringOps } = require('../common');
 
 function komiForSize(boardSize) {
     if (boardSize === 7) 
@@ -281,36 +281,12 @@ class TranspositionWeiqiRoom extends QiTwoPlayerRoomBase
         return squareWeiqiRules.computeScore(liveBoard, territory, this.boardSize);
     }
 
+    /** 形势判断 / 数点：用 Benson 档（公共口径：弱气去死子 ↔ Benson 保活 → 最近归属 → 确定领地覆盖） */
     computeLead() {
-        // Benson 加成：保活无条件活棋链 + 确定领地覆盖（其余保持原启发式）
-        const size = this.boardSize;
-        const benson = squareWeiqiRules.bensonAlive(this.board, size);
-        let liveBoard = this.board.map((row) => row.slice());
-        let changed = true;
-        while (changed) {
-            changed = false;
-            const cleaned = this.removeDeadAndDying(liveBoard);
-            for (let r = 0; r < size; r++) {
-                for (let c = 0; c < size; c++) {
-                    const v = this.board[r][c];
-                    if (benson.alive[r][c] && (v === 1 || v === 2) && cleaned[r][c] !== v) {
-                        cleaned[r][c] = v;
-                        changed = true;
-                    }
-                }
-            }
-            liveBoard = cleaned;
-        }
-        const territory = this.assignTerritoryWithRange(liveBoard);
-        const secure = squareWeiqiRules.bensonAlive(liveBoard, size);
-        for (let r = 0; r < size; r++) {
-            for (let c = 0; c < size; c++) {
-                if (liveBoard[r][c] === 0 && secure.territory[r][c]) territory[r][c] = secure.territory[r][c];
-            }
-        }
-        const { blackTotal, whiteTotal } = this.computeScore(liveBoard, territory);
-        const KOMI = komiForSize(this.boardSize);
-        return blackTotal - whiteTotal - 2 * KOMI;
+        const { lead } = computeBensonWeiqiLead(this.board, komiForSize(this.boardSize), squareWeiqiScoringOps(this.boardSize, {
+            copyBoard: (b) => this.copyBoard(b)
+        }));
+        return lead;
     }
 
     // ---------- 状态同步 ----------
@@ -405,12 +381,7 @@ class TranspositionWeiqiRoom extends QiTwoPlayerRoomBase
         this.moveCount = 0;
         this.moveCoords = [];
         // 释放所有玩家槽位
-        for (let [client, slot] of this.room.players.entries()) {
-            this.room.slotOccupancy.delete(slot);
-            this.room.players.delete(client);
-            this.room.observers.add(client);
-            client.send(JSON.stringify({ type: 'slotReleased', slot }));
-        }
+        qiProtocol.releaseAllSeats(this);
         this.broadcast({ type: 'newGameStarted', ...this.getState(), slots: { player1: false, player2: false } });
     }
 

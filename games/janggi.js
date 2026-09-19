@@ -554,7 +554,7 @@ class JanggiRoom extends QiTwoPlayerRoomBase {
         this._maybeBeginTimeNegotiation();
     }
     _beginOpeningSetup() {
-        this.openingSetup = 'player1'; // 红方先配置（player1 座执红）
+        this.openingSetup = 'player2'; // 红方（player2 座）先配置：规则是「红方先交换」，蓝方（player1）先走
         this.setupBoard = null;
         this.sideToMove = 'red';
         this.currentPlayer = 1;
@@ -693,6 +693,7 @@ class JanggiRoom extends QiTwoPlayerRoomBase {
         this.lastTo = null;
         this.moveHistory = [];
         this.gameOver = false;
+        this.importReplayNoJudge = false;
         this.winner = null;
         this.recordResultText = null;
         this.pendingNewGame = null;
@@ -709,6 +710,8 @@ class JanggiRoom extends QiTwoPlayerRoomBase {
     }
 
     _endGame(winnerSlot, resultText) {
+        // 导入棋谱回放期间不判终局：只摆棋，结果以棋谱记录为准
+        if (this.importReplayNoJudge) return;
         this.gameOver = true;
         this.winner = winnerSlot;
         this.recordResultText = resultText;
@@ -799,28 +802,33 @@ class JanggiRoom extends QiTwoPlayerRoomBase {
         return false;
     }
 
-    /** 开局（时间协商完成/双方入座即开始）时判定：编辑盘面某方无楚/漢则直接判负 */
+    /** 开局（时间协商完成/双方入座即开始）时判定：编辑盘面某方无楚/漢则直接判负；再判行棋方是否被将死 */
     onMatchStarted() {
         this._resolveTurnStartLoss();
+        if (this.gameOver) return;
+        this._judgeStuckSide();
+    }
+
+    /** 轮到的一方被将死（在将军且无可行着法）→ 判负（对局中与开赛时共用，勿只写在一处）。
+     *  本棋种没有「困毙」：没被将军而无子可动时可以虚着，不判负（规则弹窗也是这个口径）。 */
+    _judgeStuckSide() {
+        const side = this.sideToMove;
+        if (R.hasLegalMove(this.board, side)) return false;
+        // 纯照面且无法化解：不判将死，由虚着接受作和（与对局中同口径）
+        if (R.kingsFaceEachOther(this.board) && !R.isInCheckExceptFacingKing(this.board, side)) return false;
+        if (!R.isInCheck(this.board, side)) return false;      // 无子可动但未被将军：允许虚着
+        const winnerSlot = R.slotFromSide(R.oppositeSide(side));
+        this._endGame(winnerSlot, side === 'red' ? '红胜' : '蓝胜');
+        return true;
     }
 
     _resolveAfterMove() {
+        if (this.importReplayNoJudge) return;
         if (this._resolveTurnStartLoss()) return;
         const side = this.sideToMove;
         const inCheck = R.isInCheck(this.board, side);
-        const canMove = R.hasLegalMove(this.board, side);
-        const faceOnly = R.kingsFaceEachOther(this.board) && !R.isInCheckExceptFacingKing(this.board, side);
 
-        if (!canMove) {
-            // 纯照面且无法化解：不判将死，由虚着接受作和
-            if (faceOnly) return;
-            const winnerSlot = R.slotFromSide(R.oppositeSide(side));
-            const text = inCheck
-                ? (side === 'red' ? '红胜' : '蓝胜')
-                : (side === 'red' ? '蓝方困毙，红胜' : '红方困毙，蓝胜');
-            this._endGame(winnerSlot, text);
-            return;
-        }
+        if (this._judgeStuckSide()) return;
 
         if (R.isInsufficientMaterial(this.board)) {
             this._endGame('draw', '子力不足作和');
@@ -835,7 +843,7 @@ class JanggiRoom extends QiTwoPlayerRoomBase {
             }
             if (rep.result === 'loss') {
                 const loserSlot = R.slotFromSide(rep.loserSide);
-                const winnerSlot = loserSlot === 'player1' ? 'white' : 'black';
+                const winnerSlot = loserSlot === 'player1' ? 'player2' : 'player1';   // 胜方座位（player1 执红/蓝先手）
                 this._endGame(winnerSlot, rep.loserSide === 'red' ? '蓝长将红胜' : '红长将蓝胜');
                 return;
             }
@@ -859,6 +867,7 @@ class JanggiRoom extends QiTwoPlayerRoomBase {
         }
         this.openingSetup = null;
         const rawMoves = data.moves || [];
+        this.importReplayNoJudge = true;   // 回放期间不判终局（结果只按棋谱记录）
         for (let i = 0; i < rawMoves.length; i++) {
             let entry = rawMoves[i];
             let player; let fromRow; let fromCol; let toRow; let toCol;
@@ -915,14 +924,28 @@ class JanggiRoom extends QiTwoPlayerRoomBase {
             this._resolveAfterMove();
             if (this.gameOver) break;
         }
-        if (data.result && !this.gameOver) {
+        this.importReplayNoJudge = false;
+        // 导入不做任何判定：结果只按棋谱记录显示（局面与记录不一致时也以记录为准）。
+        // 记录里的胜负先认出执方颜色（公共层把棋谱里的「黑胜」折成 result='player1'、
+        // 「白胜」折成 result='player2'，所以不能直接当座位名用），再落到本棋种的座位。
+        const recResult = data.result != null && data.result !== '' ? data.result
+            : (data.resultText != null && data.resultText !== '' ? data.resultText : null);
+        if (recResult != null) {
             this.gameOver = true;
-            this.recordResultText = data.resultText || String(data.result);
-            const rt = String(data.resultText || data.result);
-            if (data.result === 'draw' || rt.includes('和')) this.winner = 'draw';
-            else if (data.result === 'player1' || /蓝胜/.test(rt)) this.winner = 'player1';
-            else if (data.result === 'player2' || /红胜/.test(rt)) this.winner = 'player2';
-            else this.winner = data.result;
+            this.recordResultText = data.resultText ? String(data.resultText) : String(recResult);
+            const rt = String(this.recordResultText);
+            const SLOT_OF_COLOR = { 蓝: 'player1', 红: 'player2' };   // player1 执蓝、player2 执红
+            const win = /(黑|白|红|绿|蓝)\s*(?:方)?[^，。]{0,6}胜/.exec(rt);
+            let color = win ? win[1] : null;
+            if (!color) {
+                const lose = /(黑|白|红|绿|蓝)\s*(?:方)?[^，。]{0,6}判负/.exec(rt);
+                if (lose) color = Object.keys(SLOT_OF_COLOR).find((k) => k !== lose[1]) || null;
+                else if (recResult === 'black' || recResult === 'player1') color = '黑';
+                else if (recResult === 'white' || recResult === 'player2') color = '白';
+            }
+            if (recResult === 'draw' || rt.includes('和')) this.winner = 'draw';
+            else if (color && SLOT_OF_COLOR[color]) this.winner = SLOT_OF_COLOR[color];
+            else this.winner = recResult;
         }
         if (!this.matchStarted && this.moveHistory.length > 0) {
             this.matchStarted = true;
@@ -1016,8 +1039,8 @@ class JanggiRoom extends QiTwoPlayerRoomBase {
                 if (this.gameOver || !this.openingSetup || !slot) return;
                 if (slot !== this.openingSetup) return;
                 if (!this._drainClockBeforeMove(slot)) return;
-                if (this.openingSetup === 'player1') {
-                    this.openingSetup = 'player2';
+                if (this.openingSetup === 'player2') {
+                    this.openingSetup = 'player1';   // 红方先配完，接着蓝方
                 } else {
                     this.openingSetup = null;
                     this.setupBoard = R.copyBoard(this.board);
@@ -1060,11 +1083,11 @@ class JanggiRoom extends QiTwoPlayerRoomBase {
                 break;
             }
             case 'resign':
-                qiProtocol.resign(this, ws, slot);
-                if (this.gameOver && slot) {
+                if (slot && !this.gameOver) {
                     this.recordResultText = slot === 'player1' ? '蓝认输红胜' : '红认输蓝胜';
                     this._stopClockTicker();
                 }
+                qiProtocol.resign(this, ws, slot);
                 break;
             case 'requestNewGame':
                 qiProtocol.requestNewGame(this, ws, slot);
@@ -1106,6 +1129,7 @@ class JanggiRoom extends QiTwoPlayerRoomBase {
             this.lastTo = null;
         }
         this.gameOver = false;
+        this.importReplayNoJudge = false;
         this.winner = null;
         this.recordResultText = null;
         if (this.tcClock && this.tcClock.timed) this._syncClockAfterTurnChange();
@@ -1113,12 +1137,7 @@ class JanggiRoom extends QiTwoPlayerRoomBase {
 
     resetGame() {
         this.resetToEmpty();
-        for (const [client, s] of this.room.players.entries()) {
-            this.room.slotOccupancy.delete(s);
-            this.room.players.delete(client);
-            this.room.observers.add(client);
-            client.send(JSON.stringify({ type: 'slotReleased', slot: s }));
-        }
+        qiProtocol.releaseAllSeats(this);
         this.broadcast({ type: 'newGameStarted', ...this.getState(), slots: { player1: false, player2: false } });
     }
 

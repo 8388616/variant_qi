@@ -203,6 +203,7 @@ class ReversiRoom extends QiTwoPlayerRoomBase {
 
     /** 终局：按子数判定并生成提示文案 */
     finishByCount() {
+        if (this.importReplayNoJudge) return;
         const { black, white } = this.countStones();
         this.gameOver = true;
         this.winner = this.computeFinalWinner();
@@ -217,7 +218,7 @@ class ReversiRoom extends QiTwoPlayerRoomBase {
     applyMove(slot, row, col) {
         if (this.gameOver) return false;
         const playerVal = slot === 'player1' ? BLACK_VAL : WHITE_VAL;
-        const expect = this.currentPlayer === BLACK_VAL ? 'player2' : 'player1';
+        const expect = this.currentPlayer === BLACK_VAL ? 'player1' : 'player2';
         if (slot !== expect) return false;
         const n = this.boardSize;
         const flips = reversiFlips(this.board, n, row, col, playerVal);
@@ -241,9 +242,9 @@ class ReversiRoom extends QiTwoPlayerRoomBase {
         } else if (oppCan) {
             this.currentPlayer = oppVal;
         } else {
-            // 对方无棋可下 → 过手，自己继续下一手
+            // 对方无棋可下 → 过手，自己继续下一手（passNotice = 过手那一方的座位）
             this.currentPlayer = playerVal;
-            this.passNotice = oppVal === BLACK_VAL ? 'player2' : 'player1';
+            this.passNotice = oppVal === BLACK_VAL ? 'player1' : 'player2';
         }
         return true;
     }
@@ -322,6 +323,7 @@ class ReversiRoom extends QiTwoPlayerRoomBase {
         this.moveHistory = [];
         this.historySnapshots = [];
         this.gameOver = false;
+        this.importReplayNoJudge = false;
         this.winner = null;
         this.slotJoinedAt = { player1: null, player2: null };
         this.tcNego = null;
@@ -333,12 +335,7 @@ class ReversiRoom extends QiTwoPlayerRoomBase {
 
     resetGame() {
         this.resetToInitial();
-        for (const [client, slot] of this.room.players.entries()) {
-            this.room.slotOccupancy.delete(slot);
-            this.room.players.delete(client);
-            this.room.observers.add(client);
-            client.send(JSON.stringify({ type: 'slotReleased', slot }));
-        }
+        qiProtocol.releaseAllSeats(this);
         this.broadcast({ type: 'newGameStarted', ...this.getState(), slots: { player1: false, player2: false } });
     }
 
@@ -391,9 +388,11 @@ class ReversiRoom extends QiTwoPlayerRoomBase {
             return { player, row: r, col: c };
         }).filter(Boolean);
 
+        this.importReplayNoJudge = true;   // 回放期间不判终局（结果只按棋谱记录）
+
         for (let i = 0; i < moves.length; i++) {
             const m = moves[i];
-            const expect = this.currentPlayer === BLACK_VAL ? 'player2' : 'player1';
+            const expect = this.currentPlayer === BLACK_VAL ? 'player1' : 'player2';
             // 对方过手时棋谱里会跳过一手，此时轮到的一方仍是同一人，直接按 applyMove 判定即可
             if (m.player !== expect && this.hasMove(this.currentPlayer)) {
                 this.resetToInitial();
@@ -410,9 +409,28 @@ class ReversiRoom extends QiTwoPlayerRoomBase {
             if (this.gameOver) break;
         }
 
-        if (data.result && !this.gameOver) {
+        this.importReplayNoJudge = false;
+        // 导入不做任何判定：结果只按棋谱记录显示（局面与记录不一致时也以记录为准）。
+        // 记录里的胜负先认出执方颜色（公共层把棋谱里的「黑胜」折成 result='player1'、
+        // 「白胜」折成 result='player2'，所以不能直接当座位名用），再落到本棋种的座位。
+        const recResult = data.result != null && data.result !== '' ? data.result
+            : (data.resultText != null && data.resultText !== '' ? data.resultText : null);
+        if (recResult != null) {
             this.gameOver = true;
-            this.winner = data.result;
+            this.recordResultText = data.resultText ? String(data.resultText) : String(recResult);
+            const rt = String(this.recordResultText);
+            const SLOT_OF_COLOR = { 黑: 'player1', 白: 'player2' };   // player1 执黑、player2 执白
+            const win = /(黑|白|红|绿|蓝)\s*(?:方)?[^，。]{0,6}胜/.exec(rt);
+            let color = win ? win[1] : null;
+            if (!color) {
+                const lose = /(黑|白|红|绿|蓝)\s*(?:方)?[^，。]{0,6}判负/.exec(rt);
+                if (lose) color = Object.keys(SLOT_OF_COLOR).find((k) => k !== lose[1]) || null;
+                else if (recResult === 'black' || recResult === 'player1') color = '黑';
+                else if (recResult === 'white' || recResult === 'player2') color = '白';
+            }
+            if (recResult === 'draw' || rt.includes('和')) this.winner = 'draw';
+            else if (color && SLOT_OF_COLOR[color]) this.winner = SLOT_OF_COLOR[color];
+            else this.winner = recResult;
         }
         this.broadcast({ type: 'importSuccess', ...this.getState(), replayData: { moves: this.moveCoords.map((m) => ({ ...m })) } });
     }

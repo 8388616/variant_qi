@@ -11,6 +11,7 @@ window.RoomPlugins["rotation-wuziqi"] = {
         "recordDownloadPrefix": "旋转五子棋",
         "standardWeiqiMatchTime": true,
         "features": {
+            "woodTexture": true,
             "editBoard": true
         },
         "boardSizeStep": 2,

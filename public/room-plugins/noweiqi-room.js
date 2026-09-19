@@ -11,6 +11,7 @@ window.RoomPlugins['noweiqi'] = {
         "recordDownloadPrefix": "不围棋",
         "standardWeiqiMatchTime": true,
         "features": {
+            "woodTexture": true,
             "editBoard": true,
             "compoundPalette": false,
             "zoomScroll": false
@@ -103,6 +104,11 @@ const BOARD_MARK_CHAR_LIST = (() => {
         })();
 
         const komiInfo = document.getElementById('komiInfo');
+        // 本棋种没有贴目：隐藏贴目位（按 id 取，别按 .komi-info 类——#gameTitleInfo 也带这个类）
+        if (komiInfo) {
+            komiInfo.hidden = true;
+            komiInfo.style.display = 'none';
+        }
         const canvas = document.getElementById('goBoard');
         const ctx = canvas.getContext('2d');
         const turnDisplay = document.getElementById('turnDisplay');

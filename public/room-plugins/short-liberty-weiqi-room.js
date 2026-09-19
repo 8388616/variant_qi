@@ -6,11 +6,13 @@ window.RoomPlugins['short-liberty-weiqi'] = {
         "defaultKomiText": "黑贴白2.75点",
         "boardSizeMin": 7,
         "boardSizeMax": 21,
-        "defaultBoardSize": 9,
+        "defaultBoardSize": 19,
         "minLib": 2,
         "recordDownloadPrefix": "短气围棋",
+        "useBenson": true,
         "standardWeiqiMatchTime": true,
         "features": {
+            "woodTexture": true,
             "zoomScroll": false,
             "editBoard": true,
             "compoundPalette": false
@@ -53,8 +55,8 @@ window.RoomPlugins['short-liberty-weiqi'] = {
             if (boardSize === 6) return 0.5;
             if (boardSize === 7) return 5.5;
             if (boardSize === 8) return 3.0;
-            if (boardSize % 2 === 0) return 3.25;
-            return 2.75;
+            if (boardSize === 9) return 3.0;
+            return 3.5;
         }
 
         /** 三气围棋贴目（按路数）；其余奇数路数默认 2.75 */
@@ -88,8 +90,8 @@ window.RoomPlugins['short-liberty-weiqi'] = {
         }
 
         const ps = {
-            BOARD_SIZE: 9,
-            KOMI: komiForLiberty('bi', 9),
+            BOARD_SIZE: 19,
+            KOMI: komiForLiberty('bi', 19),
             PADDING: 0,
             CELL_SIZE: 0,
             numberOfHands: 1,
@@ -183,14 +185,6 @@ const scoreTitle = document.getElementById('scoreTitle');
             );
         }
 
-        /** 死棋判定（数点预览/估目）：随子棋类动态取 minLib，避免 create 时闭包固定值在切换后失配 */
-        function shortLibertyRemoveDeadAndDying(srcBoard) {
-            return R().removeDeadAndDying(
-                srcBoard, ps.BOARD_SIZE,
-                (b) => QiSquareWeiqiCanvas.deepCopyBoard(b), MIN_LIB[LIBERTY]
-            );
-        }
-
         const domPage = {
             turnDisplay,
             scoreTitle,
@@ -204,14 +198,20 @@ const scoreTitle = document.getElementById('scoreTitle');
             boardMarkSelect,
             colorStatus
         };
+        // 短气围棋：Benson 档，弱气阈值随子棋类动态取（气数=档位气数）
+        const scoringHooks = QiWeiqiSquarePageRuntime.weiqiScoringHooks(config.useBenson !== false, {
+            boardSize: () => ps.BOARD_SIZE,
+            maxWeakLiberties: () => MIN_LIB[LIBERTY]
+        });
+
         const page = QiWeiqiSquarePageRuntime.create(ps, domPage, {
             enableEditBoard: true,
             editTools: config.editTools,
             recordDownloadPrefix,
             minLib: MIN_LIB[LIBERTY],
             maxWeakLiberties: MIN_LIB[LIBERTY],
+            ...scoringHooks,
             tryPlaceStone: shortLibertyTryPlaceStone,
-            removeDeadAndDying: shortLibertyRemoveDeadAndDying,
             gameType,
             roomId,
             roomPassword,

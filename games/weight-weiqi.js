@@ -515,8 +515,13 @@ class WeightWeiqiRoom extends QiTwoPlayerRoomBase {
                 break;
 
             case 'setSubGame':
-                if (!slot && !room.players.size)
+                if (!slot && !room.players.size) {
                     this.setSubGame(msg.subGameId, ws);
+                } else {
+                    // 被拒绝：必须把当前（未变的）子棋类/权重回推，否则客户端本地「乐观换权重」与服务端
+                    // 权重脱钩——显示的是本地随机权重，电脑下的却是服务端权重
+                    this.sendState(ws);
+                }
                 break;
 
             case 'move': {
@@ -724,12 +729,7 @@ class WeightWeiqiRoom extends QiTwoPlayerRoomBase {
         this.blackScore = 0;
         this.whiteScore = 0;
         // 清除所有玩家槽位
-        for (let [client, slot] of this.room.players.entries()) {
-            this.room.slotOccupancy.delete(slot);
-            this.room.players.delete(client);
-            this.room.observers.add(client);
-            client.send(JSON.stringify({ type: 'slotReleased', slot }));
-        }
+        qiProtocol.releaseAllSeats(this);
         this.broadcast({ type: 'newGameStarted', ...this.getState(), slots: { player1: false, player2: false } });
     }
 

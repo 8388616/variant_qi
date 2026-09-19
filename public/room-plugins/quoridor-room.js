@@ -597,10 +597,17 @@ const scoreBoard = document.getElementById('scoreBoard');
                 }
             }
 
+            // 执方名（本棋种白方先行、player1 执白）：落座对话框/colorStatus/计时框 文案全按它走
+            const SLOT_UI = {
+                player2: { name: '黑方', emoji: '⚫', continueText: '继续执黑', choiceText: '执黑', youText: '您执黑', absentText: '黑方已退出', statusText: '黑方' },
+                player1: { name: '白方', emoji: '⚪', continueText: '继续执白', choiceText: '执白', youText: '您执白', absentText: '白方已退出', statusText: '白方' }
+            };
+
             const _seatOverlay = QiBoardRoomClient.createWeiqiMessageBindings({
                 pageState: ps,
                 boardSeatOverlay: true,
                 seatOverlayOnly: true,
+                slotUi: SLOT_UI,          // 座位 → 执方名（player1 执白，与国际跳棋一致）
                 standardWeiqiMatchTime,
                 getWs: () => ps.ws,
                 getBoardSize: () => N,
@@ -1568,18 +1575,13 @@ const scoreBoard = document.getElementById('scoreBoard');
                 });
             }
 
-            document.getElementById('newGameBtn').onclick = () => {
-                if (ps.ws && ps.ws.readyState === 1) ps.ws.send(JSON.stringify({ type: 'requestNewGame' }));
-            };
-            document.getElementById('undoBtn').onclick = () => {
-                if (ps.ws && ps.ws.readyState === 1) ps.ws.send(JSON.stringify({ type: 'requestUndo' }));
-            };
-            document.getElementById('resignBtn').onclick = () => {
-                if (ps.ws && ps.ws.readyState === 1) ps.ws.send(JSON.stringify({ type: 'resign' }));
-            };
-            document.getElementById('drawBtn').onclick = () => {
-                if (ps.ws && ps.ws.readyState === 1) ps.ws.send(JSON.stringify({ type: 'requestDraw' }));
-            };
+            // 新局/悔棋/认输/和棋：走公共按钮绑定（带确认对话框，与房间页公共 bindings 同一套口径）
+            QiBoardRoomClient.bindPanelButtons({
+                getWs: () => ps.ws,
+                getMySlot: () => ps.mySlot,
+                getSlots: () => ps.slots,
+                getComputerSlot: () => ps.computerSlot
+            });
             document.getElementById('exportBtn').onclick = () => {
                 if (ps.ws && ps.ws.readyState === 1) ps.ws.send(JSON.stringify({ type: 'exportRecord' }));
             };

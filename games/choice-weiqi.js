@@ -1,4 +1,4 @@
-const { QiTwoPlayerRoomBase, qiMatchTimeControl, squareWeiqiRules, applyInitialPositionCompact, qiBoardSeatOverlay, encodeOpeningPositionCompact, qiProtocol } = require('../common');
+const { QiTwoPlayerRoomBase, qiMatchTimeControl, squareWeiqiRules, applyInitialPositionCompact, qiBoardSeatOverlay, encodeOpeningPositionCompact, qiProtocol, computeNearestWeiqiLead, squareWeiqiScoringOps } = require('../common');
 const {
     acquireKatagoSession,
     releaseKatagoSession,
@@ -85,6 +85,7 @@ class ChoiceWeiqiRoom extends QiTwoPlayerRoomBase {
                 this._stopClockTicker();
                 this.gameOver = true;
                 this.winner = winnerSlot;
+                this.recordResultText = lostSlot === 'player1' ? '黑方超时，白胜' : '白方超时，黑胜';
                 this.broadcast({ type: 'broadcast', action: 'timeLoss', player: lostSlot, winner: winnerSlot, ...this.getState() });
                 return;
             }
@@ -140,6 +141,7 @@ class ChoiceWeiqiRoom extends QiTwoPlayerRoomBase {
             this._stopClockTicker();
             this.gameOver = true;
             this.winner = winnerSlot;
+            this.recordResultText = lostSlot === 'player1' ? '黑方超时，白胜' : '白方超时，黑胜';
             this.broadcast({ type: 'broadcast', action: 'timeLoss', player: lostSlot, winner: winnerSlot, ...this.getState() });
             return false;
         }
@@ -172,24 +174,12 @@ class ChoiceWeiqiRoom extends QiTwoPlayerRoomBase {
         );
     }
 
-    removeDeadAndDying(srcBoard) {
-        return squareWeiqiRules.removeDeadAndDying(srcBoard, this.boardSize, (b) => this.copyBoard(b));
-    }
-
-    assignTerritoryWithRange(liveBoard) {
-        return squareWeiqiRules.assignTerritoryWithRange(liveBoard, this.boardSize);
-    }
-
-    computeScore(liveBoard, territory) {
-        return squareWeiqiRules.computeScore(liveBoard, territory, this.boardSize);
-    }
-
+    /** 形势判断 / 数点：只用最近归属档（公共口径）；不判死子、不叠 Benson */
     computeLead() {
-        const liveBoard = this.removeDeadAndDying(this.board);
-        const territory = this.assignTerritoryWithRange(liveBoard);
-        const { blackTotal, whiteTotal } = this.computeScore(liveBoard, territory);
-        const KOMI = 2.25;
-        return blackTotal - whiteTotal - 2 * KOMI;
+        const { lead } = computeNearestWeiqiLead(this.board, 2.25, squareWeiqiScoringOps(this.boardSize, {
+            copyBoard: (b) => this.copyBoard(b)
+        }));
+        return lead;
     }
 
     edgeDist(row, col) {
@@ -342,11 +332,19 @@ class ChoiceWeiqiRoom extends QiTwoPlayerRoomBase {
             this._engineDirty = false;
             return;
         }
+        let unknownType = null;
         for (let i = synced; i < mcs.length; i++) {
             const m = mcs[i];
             if (m.type === 'pass') await session.play(m.player, null, null);
             else if (m.type === 'move' && Number.isInteger(m.row) && Number.isInteger(m.col))
                 await session.play(m.player, m.row, m.col);
+            else if (unknownType == null) unknownType = m && m.type;
+        }
+        if (unknownType != null) {
+            // 未识别的着法类型没有对应的引擎同步方式：绝不能静默跳过再推进计数——
+            // 那样这一手就永久不在引擎盘面里（此后候选/分析都基于错误局面）。全盘重设兜底。
+            console.warn(`[choice-weiqi] 未识别的着法类型（${unknownType}），无法增量同步：全盘重设引擎局面`);
+            await session.setupGame(this._buildSetupOpts());
         }
         this._engineSyncedMoves = mcs.length;
     }
@@ -597,6 +595,7 @@ class ChoiceWeiqiRoom extends QiTwoPlayerRoomBase {
                 if (!slot || this.gameOver) return;
                 this.gameOver = true;
                 this.winner = slot === 'player1' ? 'player2' : 'player1';
+                this.recordResultText = slot === 'player1' ? '白中盘胜' : '黑中盘胜';
                 this._stopClockTicker();
                 this.broadcast({ type: 'broadcast', action: 'resign', player: slot, winner: this.winner, ...this.getState() });
                 break;
@@ -779,12 +778,7 @@ class ChoiceWeiqiRoom extends QiTwoPlayerRoomBase {
         this.tcNego = null;
         this.tcSettings = null;
         this.tcClock = null;
-        for (let [client, slot] of this.room.players.entries()) {
-            this.room.slotOccupancy.delete(slot);
-            this.room.players.delete(client);
-            this.room.observers.add(client);
-            client.send(JSON.stringify({ type: 'slotReleased', slot }));
-        }
+        qiProtocol.releaseAllSeats(this);
         this.broadcast({ type: 'newGameStarted', ...this.getState(), slots: { player1: false, player2: false } });
     }
 

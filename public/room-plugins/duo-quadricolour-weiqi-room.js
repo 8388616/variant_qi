@@ -9,8 +9,10 @@ window.RoomPlugins['duo-quadricolour-weiqi'] = {
         "defaultBoardSize": 19,
         "minLib": 1,
         "recordDownloadPrefix": "双人四色围棋",
+        "useBenson": false,
         "standardWeiqiMatchTime": true,
         "features": {
+            "woodTexture": true,
             "zoomScroll": true,
             "editBoard": true,
             "compoundPalette": false
@@ -605,7 +607,8 @@ const BOARD_MARK_CHAR_LIST = (() => {
             exitReplayMode,
             clearEstimate,
             hideScoreConfirm,
-            showEstimate,
+            /** 数点提案/结束时弹的盘面图必须走四色口径（公共 showEstimate 是两色，红蓝只当阻挡，与本棋种算分不符） */
+            showEstimate: () => { if (ps.showEstimateActive) showFourEstimate(); else clearEstimate(); },
             clearMobileMovePreview,
             downloadRecord,
             enterReplayMode,

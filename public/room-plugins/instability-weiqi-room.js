@@ -9,8 +9,10 @@ window.RoomPlugins['instability-weiqi'] = {
         "defaultBoardSize": 19,
         "minLib": 1,
         "recordDownloadPrefix": "不稳定围棋",
+        "useBenson": true,
         "standardWeiqiMatchTime": true,
         "features": {
+            "woodTexture": true,
             "editBoard": true,
             "compoundPalette": false,
             "zoomScroll": false
@@ -255,109 +257,6 @@ function unstableLifetimeForSize(size) {
 
         function tryInstabilityPlace(boardBefore, unstableBefore, moveCountBefore, row, col, playerVal) {
             return applyInstabilityPly(boardBefore, unstableBefore, moveCountBefore, row, col, playerVal);
-        }
-
-        function isLibertySurroundedByOpponent(board, libertyRow, libertyCol, opponentColor) {
-            const dirs = [[-1, 0], [1, 0], [0, -1], [0, 1]];
-            for (const [dr, dc] of dirs) {
-                const nr = libertyRow + dr, nc = libertyCol + dc;
-                if (nr >= 0 && nr < ps.BOARD_SIZE && nc >= 0 && nc < ps.BOARD_SIZE && board[nr][nc] === opponentColor) return true;
-            }
-            return false;
-        }
-
-        function removeDeadAndDyingLocal(srcBoard) {
-            let boardCopy = C().deepCopyBoard(srcBoard);
-            let changed = true;
-            while (changed) {
-                changed = false;
-                const visited = Array(ps.BOARD_SIZE).fill().map(() => Array(ps.BOARD_SIZE).fill(false));
-                for (let r = 0; r < ps.BOARD_SIZE; r++) {
-                    for (let c = 0; c < ps.BOARD_SIZE; c++) {
-                        const val = boardCopy[r][c];
-                        if ((val === 1 || val === 2) && !visited[r][c]) {
-                            const color = val;
-                            const queue = [[r, c]];
-                            visited[r][c] = true;
-                            const stones = [[r, c]];
-                            const liberties = new Set();
-                            let idx = 0;
-                            const dirs = [[-1, 0], [1, 0], [0, -1], [0, 1]];
-                            while (idx < queue.length) {
-                                const [rr, cc] = queue[idx++];
-                                for (const [dr, dc] of dirs) {
-                                    const nr = rr + dr, nc = cc + dc;
-                                    if (nr < 0 || nr >= ps.BOARD_SIZE || nc < 0 || nc >= ps.BOARD_SIZE) continue;
-                                    if (boardCopy[nr][nc] === 0) liberties.add(nr + ',' + nc);
-                                    else if (boardCopy[nr][nc] === color && !visited[nr][nc]) {
-                                        visited[nr][nc] = true;
-                                        queue.push([nr, nc]);
-                                        stones.push([nr, nc]);
-                                    }
-                                }
-                            }
-                            if (liberties.size === 0) {
-                                for (const [rr, cc] of stones) boardCopy[rr][cc] = 0;
-                                changed = true;
-                                continue;
-                            }
-                            if (liberties.size <= 2) {
-                                let allControlled = true;
-                                for (const lib of liberties) {
-                                    const [lr, lc] = lib.split(',').map(Number);
-                                    if (!isLibertySurroundedByOpponent(boardCopy, lr, lc, 3 - color)) {
-                                        allControlled = false;
-                                        break;
-                                    }
-                                }
-                                if (allControlled) {
-                                    for (const [rr, cc] of stones) boardCopy[rr][cc] = 0;
-                                    changed = true;
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            return boardCopy;
-        }
-
-        function assignTerritoryWithRangeLocal(liveBoard) {
-            const territory = Array(ps.BOARD_SIZE).fill().map(() => Array(ps.BOARD_SIZE).fill(0));
-            for (let r = 0; r < ps.BOARD_SIZE; r++) {
-                for (let c = 0; c < ps.BOARD_SIZE; c++) {
-                    if (liveBoard[r][c] !== 0) continue;
-                    const maxDist = (r <= 1 || r >= ps.BOARD_SIZE - 2 || c <= 1 || c >= ps.BOARD_SIZE - 2) ? 5 : 4;
-                    let blackMin = Infinity, whiteMin = Infinity;
-                    const dist = Array(ps.BOARD_SIZE).fill().map(() => Array(ps.BOARD_SIZE).fill(Infinity));
-                    dist[r][c] = 0;
-                    const queue = [[r, c]];
-                    const dirs = [[-1, 0], [1, 0], [0, -1], [0, 1]];
-                    let front = 0;
-                    while (front < queue.length) {
-                        const [cr, cc] = queue[front++];
-                        const d = dist[cr][cc];
-                        if (d > maxDist) continue;
-                        if (liveBoard[cr][cc] === 1 && d < blackMin) blackMin = d;
-                        if (liveBoard[cr][cc] === 2 && d < whiteMin) whiteMin = d;
-                        for (const [dr, dc] of dirs) {
-                            const nr = cr + dr, nc = cc + dc;
-                            if (nr >= 0 && nr < ps.BOARD_SIZE && nc >= 0 && nc < ps.BOARD_SIZE && liveBoard[nr][nc] !== -1 && dist[nr][nc] === Infinity) {
-                                dist[nr][nc] = d + 1;
-                                queue.push([nr, nc]);
-                            }
-                        }
-                    }
-                    if (blackMin <= maxDist && whiteMin <= maxDist) {
-                        if (blackMin < whiteMin) territory[r][c] = 1;
-                        else if (whiteMin < blackMin) territory[r][c] = 2;
-                        else territory[r][c] = 3;
-                    } else if (blackMin <= maxDist) territory[r][c] = 1;
-                    else if (whiteMin <= maxDist) territory[r][c] = 2;
-                    else territory[r][c] = 3;
-                }
-            }
-            return territory;
         }
 
         function computeStoneNumbers() {
@@ -684,8 +583,6 @@ function unstableLifetimeForSize(size) {
                 boardSizeSelect.style.display = 'none';
 
             if (ps.showEstimateActive) {
-                ps.cachedLiveBoard = removeDeadAndDyingLocal(ps.board);
-                ps.cachedTerritory = assignTerritoryWithRangeLocal(ps.cachedLiveBoard);
                 page.showEstimate();
             } else {
                 page.updateTurn();
@@ -1003,53 +900,22 @@ const scoreTitle = document.getElementById('scoreTitle');
         let page = null;
         let _weiqiBindings = null;
 
-        // 形势判断：Benson 加成（保活 + 确定领地覆盖）
-        function bensonRemoveDeadInst(srcBoard) {
-            const RT = window.QiWeiqiSquarePageRuntime;
-            const size = ps.BOARD_SIZE;
-            const benson = RT.bensonAlive(srcBoard, size);
-            let live = srcBoard.map((row) => row.slice());
-            let changed = true;
-            while (changed) {
-                changed = false;
-                const cleaned = removeDeadAndDyingLocal(live);
-                for (let r = 0; r < size; r++) {
-                    for (let c = 0; c < size; c++) {
-                        const v = srcBoard[r][c];
-                        if (benson.alive[r][c] && (v === 1 || v === 2) && cleaned[r][c] !== v) {
-                            cleaned[r][c] = v;
-                            changed = true;
-                        }
-                    }
-                }
-                live = cleaned;
-            }
-            return live;
-        }
-        function bensonTerritoryInst(liveBoard) {
-            const RT = window.QiWeiqiSquarePageRuntime;
-            const size = ps.BOARD_SIZE;
-            const territory = assignTerritoryWithRangeLocal(liveBoard);
-            const secure = RT.bensonAlive(liveBoard, size);
-            for (let r = 0; r < size; r++) {
-                for (let c = 0; c < size; c++) {
-                    if (liveBoard[r][c] === 0 && secure.territory[r][c]) territory[r][c] = secure.territory[r][c];
-                }
-            }
-            return territory;
-        }
-        
+        // 标准围棋：形势判断/数点用 Benson 档（公共钩子；档位见 shell.useBenson）
+        const scoringHooks = QiWeiqiSquarePageRuntime.weiqiScoringHooks(config.useBenson !== false, {
+            boardSize: () => ps.BOARD_SIZE,
+            maxWeakLiberties: 2
+        });
+
         page = QiWeiqiSquarePageRuntime.create(ps, domPage, {
             enableEditBoard: true,
             recordDownloadPrefix,
             minLib,
             maxWeakLiberties: 2,
+            ...scoringHooks,
             gameType,
             roomId,
             roomPassword,
             isMouseDevice,
-            removeDeadAndDying: bensonRemoveDeadInst,
-            assignTerritoryWithRange: bensonTerritoryInst,
             komiInfoText: (p) => QiWeiqiSquarePageRuntime.formatKomiInfoText(p.KOMI, QiWeiqiSquarePageRuntime.defaultKomiTotalPoints(p)) + ` · 不稳定子寿命${p.unstableLifetime}手`,
             drawBoard: drawBoardImpl,
             syncState: syncStateImpl,

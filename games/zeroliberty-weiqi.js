@@ -1,4 +1,4 @@
-const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, applyInitialPositionCompact, encodeInitialPositionCompact, qiBoardSeatOverlay, encodeOpeningPositionCompact } = require('../common');
+const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, applyInitialPositionCompact, encodeInitialPositionCompact, qiBoardSeatOverlay, encodeOpeningPositionCompact, computeNearestWeiqiLead, squareWeiqiScoringOps } = require('../common');
 class ZeroLibertyWeiqiRoom extends QiTwoPlayerRoomBase
 {
     constructor(room, initialSize = 19) {
@@ -184,26 +184,12 @@ class ZeroLibertyWeiqiRoom extends QiTwoPlayerRoomBase
         );
     }
 
-    /** 形势判断：盘上棋子均视为实子，不自动清除零气块 */
-    removeDeadAndDying(srcBoard) {
-        return this.copyBoard(srcBoard);
-    }
-
-    assignTerritoryWithRange(liveBoard) {
-        return squareWeiqiRules.assignTerritoryWithRange(liveBoard, this.boardSize);
-    }
-
-    computeScore(liveBoard, territory) {
-        return squareWeiqiRules.computeScore(liveBoard, territory, this.boardSize);
-    }
-
-    computeLead()
-    {
-        const liveBoard = this.removeDeadAndDying(this.board);
-        const territory = this.assignTerritoryWithRange(liveBoard);
-        const { blackTotal, whiteTotal } = this.computeScore(liveBoard, territory);
-        const KOMI = this.boardSize <= 8 ? 4.25 : 3.25;
-        return blackTotal - whiteTotal - 2 * KOMI;
+    /** 形势判断 / 数点：只用最近归属档（公共口径）；盘上棋子均视为实子，不自动清除零气块 */
+    computeLead() {
+        const { lead } = computeNearestWeiqiLead(this.board, this.boardSize <= 8 ? 4.25 : 3.25, squareWeiqiScoringOps(this.boardSize, {
+            copyBoard: (b) => this.copyBoard(b)
+        }));
+        return lead;
     }
 
     onResignResolved(resignSlot) {
@@ -508,13 +494,7 @@ class ZeroLibertyWeiqiRoom extends QiTwoPlayerRoomBase
         this.winner = null;
         this.passCounter = 0;
         this.moveCoords = [];
-        for (const [client, slot] of this.room.players.entries())
-        {
-            this.room.slotOccupancy.delete(slot);
-            this.room.players.delete(client);
-            this.room.observers.add(client);
-            client.send(JSON.stringify({ type: 'slotReleased', slot }));
-        }
+        qiProtocol.releaseAllSeats(this);
         this.broadcast({ type: 'newGameStarted', ...this.getState(), slots: { player1: false, player2: false } });
     }
 

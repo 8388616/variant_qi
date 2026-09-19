@@ -9,7 +9,7 @@ window.RoomPlugins['schulte-grid'] = {
         "defaultBoardSize": 9,
         "minLib": 1,
         "recordDownloadPrefix": "舒尔特方格",
-        "features": {}
+        "features": { "woodTexture": true,}
     },
     mount: function (ctx) {
         var gameType = ctx.gameType;
@@ -83,7 +83,9 @@ window.RoomPlugins['schulte-grid'] = {
                 }
                 if (newGameBtn) {
                     newGameBtn.style.display = '';
-                    newGameBtn.onclick = () => resetToAwaiting(true);
+                    newGameBtn.onclick = () => {
+                        qiConfirm('确定开始新局吗？').then((ok) => { if (ok) resetToAwaiting(true); });
+                    };
                 }
                 if (gameTitleInfo) gameTitleInfo.textContent = '舒尔特方格';
                 // 隐藏公共状态胶囊与说明行（房间人数/leadInfo 不展示）

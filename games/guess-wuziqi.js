@@ -396,6 +396,7 @@ class GuessWuziqiRoom extends QiTwoPlayerRoomBase {
         this.historyBoards = [];
         this.lastMoveMarkers = [];
         this.gameOver = false;
+        this.importReplayNoJudge = false;
         this.phase = 'select';
         this.selectedMove = null;
         this.guessCandidates = [];
@@ -476,6 +477,8 @@ class GuessWuziqiRoom extends QiTwoPlayerRoomBase {
         this.candidates = [];
         this.generateCandidates();
 
+        this.importReplayNoJudge = true;   // 回放期间不判终局（结果只按棋谱记录）
+
         for (let i = 0; i < events.length; i++) {
             const ev = events[i];
             if (ev.type === 'select') {
@@ -546,7 +549,7 @@ class GuessWuziqiRoom extends QiTwoPlayerRoomBase {
                     const playerVal = this.currentPlayer === 'player1' ? 1 : 2;
                     this.board[this.selectedMove.row][this.selectedMove.col] = playerVal;
                     this.lastMoveMarkers = [{ row: this.selectedMove.row, col: this.selectedMove.col, color: playerVal }];
-                    if (this.checkWin(this.selectedMove.row, this.selectedMove.col, playerVal)) {
+                    if (!this.importReplayNoJudge && this.checkWin(this.selectedMove.row, this.selectedMove.col, playerVal)) {
                         this.gameOver = true;
                         winner = this.currentPlayer;
                         this.winner = winner;
@@ -567,7 +570,7 @@ class GuessWuziqiRoom extends QiTwoPlayerRoomBase {
 
                 this.currentPlayer = this.currentPlayer === 'player1' ? 'player2' : 'player1';
                 const empty = this.getEmptyCells();
-                if (empty.length < 4) {
+                if (!this.importReplayNoJudge && empty.length < 4) {
                     this.gameOver = true;
                     this.winner = 'draw';
                     this.phase = 'select';
@@ -593,9 +596,28 @@ class GuessWuziqiRoom extends QiTwoPlayerRoomBase {
             }
         }
 
-        if (data.result && !this.gameOver) {
+        this.importReplayNoJudge = false;
+        // 导入不做任何判定：结果只按棋谱记录显示（局面与记录不一致时也以记录为准）。
+        // 记录里的胜负先认出执方颜色（公共层把棋谱里的「黑胜」折成 result='player1'、
+        // 「白胜」折成 result='player2'，所以不能直接当座位名用），再落到本棋种的座位。
+        const recResult = data.result != null && data.result !== '' ? data.result
+            : (data.resultText != null && data.resultText !== '' ? data.resultText : null);
+        if (recResult != null) {
             this.gameOver = true;
-            this.winner = data.result;
+            this.recordResultText = data.resultText ? String(data.resultText) : String(recResult);
+            const rt = String(this.recordResultText);
+            const SLOT_OF_COLOR = { 黑: 'player1', 白: 'player2' };   // player1 执黑、player2 执白
+            const win = /(黑|白|红|绿|蓝)\s*(?:方)?[^，。]{0,6}胜/.exec(rt);
+            let color = win ? win[1] : null;
+            if (!color) {
+                const lose = /(黑|白|红|绿|蓝)\s*(?:方)?[^，。]{0,6}判负/.exec(rt);
+                if (lose) color = Object.keys(SLOT_OF_COLOR).find((k) => k !== lose[1]) || null;
+                else if (recResult === 'black' || recResult === 'player1') color = '黑';
+                else if (recResult === 'white' || recResult === 'player2') color = '白';
+            }
+            if (recResult === 'draw' || rt.includes('和')) this.winner = 'draw';
+            else if (color && SLOT_OF_COLOR[color]) this.winner = SLOT_OF_COLOR[color];
+            else this.winner = recResult;
         }
         if (!this.matchStarted && this.eventLog.length > 0) {
             this.matchStarted = true;
@@ -848,12 +870,7 @@ class GuessWuziqiRoom extends QiTwoPlayerRoomBase {
     resetGame() {
         this.resetToEmpty();
         const room = this.room;
-        for (let [client, slot] of room.players.entries()) {
-            room.slotOccupancy.delete(slot);
-            room.players.delete(client);
-            room.observers.add(client);
-            client.send(JSON.stringify({ type: 'slotReleased', slot }));
-        }
+        qiProtocol.releaseAllSeats(this);
         this.broadcast({ type: 'newGameStarted', ...this.getState(), slots: { player1: false, player2: false } });
     }
 }

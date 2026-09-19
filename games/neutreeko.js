@@ -149,7 +149,7 @@ class NeutreekoRoom extends QiTwoPlayerRoomBase {
                 this.gameOver = true;
                 this.winner = lostSlot === 'player2' ? 'player1' : 'player2';
                 this.recordResultText = lostSlot === 'player2' ? '黑方超时，白胜' : '白方超时，黑胜';
-                this.broadcast({ type: 'broadcast', action: 'timeLoss', ...this.getState() });
+                this.broadcast({ type: 'broadcast', action: 'timeLoss', player: lostSlot, winner: this.winner, ...this.getState() });
                 return;
             }
             this._broadcastClock();
@@ -197,7 +197,7 @@ class NeutreekoRoom extends QiTwoPlayerRoomBase {
             this.gameOver = true;
             this.winner = lostSlot === 'player2' ? 'player1' : 'player2';
             this.recordResultText = lostSlot === 'player2' ? '黑方超时，白胜' : '白方超时，黑胜';
-            this.broadcast({ type: 'broadcast', action: 'timeLoss', ...this.getState() });
+            this.broadcast({ type: 'broadcast', action: 'timeLoss', player: lostSlot, winner: this.winner, ...this.getState() });
             return false;
         }
         return true;
@@ -240,6 +240,10 @@ class NeutreekoRoom extends QiTwoPlayerRoomBase {
         const opp = mine === BLACK_VAL ? WHITE_VAL : BLACK_VAL;
         this.historyKeys.push(positionKey(this.board, opp));
 
+        if (this.importReplayNoJudge) {          // 回放棋谱期间不判终局
+            this.currentPlayer = opp;
+            return true;
+        }
         if (hasLine(this.board, mine)) {
             this.gameOver = true;
             this.winner = slot;
@@ -326,6 +330,7 @@ class NeutreekoRoom extends QiTwoPlayerRoomBase {
 
     /** 重置为开局：白方三子在下、黑方三子在上，白先 */
     resetToInitial() {
+        this.importReplayNoJudge = false;
         this.board = initialBoard();
         this.openingBoard = copyBoard(this.board);
         this.currentPlayer = WHITE_VAL;
@@ -386,6 +391,8 @@ class NeutreekoRoom extends QiTwoPlayerRoomBase {
             return;
         }
         this.resetToInitial();
+        // 回放期间不做任何终局判定：只把棋谱里的着法摆上去，结果按记录显示
+        this.importReplayNoJudge = true;
         const rawMoves = data.moves || [];
         for (let i = 0; i < rawMoves.length; i++) {
             const entry = rawMoves[i];
@@ -421,14 +428,28 @@ class NeutreekoRoom extends QiTwoPlayerRoomBase {
             if (this.gameOver) break;
         }
 
-        if (data.result && !this.gameOver) {
+        this.importReplayNoJudge = false;
+        // 导入不做任何判定：结果只按棋谱记录显示（局面与记录不一致时也以记录为准）。
+        // 记录里的胜负先认出执方颜色（公共层把棋谱里的「黑胜」折成 result='player1'、
+        // 「白胜」折成 result='player2'，所以不能直接当座位名用），再落到本棋种的座位。
+        const recResult = data.result != null && data.result !== '' ? data.result
+            : (data.resultText != null && data.resultText !== '' ? data.resultText : null);
+        if (recResult != null) {
             this.gameOver = true;
-            this.recordResultText = data.resultText || String(data.result);
-            const rt = String(data.resultText || data.result);
-            if (data.result === 'draw' || rt.includes('和')) this.winner = 'draw';
-            else if (data.result === 'player2' || /白胜/.test(rt)) this.winner = 'player2';
-            else if (data.result === 'player1' || /黑胜/.test(rt)) this.winner = 'player1';
-            else this.winner = data.result;
+            this.recordResultText = data.resultText ? String(data.resultText) : String(recResult);
+            const rt = String(this.recordResultText);
+            const SLOT_OF_COLOR = { 白: 'player1', 黑: 'player2' };   // player1 执白、player2 执黑
+            const win = /(黑|白|红|绿|蓝)\s*(?:方)?[^，。]{0,6}胜/.exec(rt);
+            let color = win ? win[1] : null;
+            if (!color) {
+                const lose = /(黑|白|红|绿|蓝)\s*(?:方)?[^，。]{0,6}判负/.exec(rt);
+                if (lose) color = Object.keys(SLOT_OF_COLOR).find((k) => k !== lose[1]) || null;
+                else if (recResult === 'black' || recResult === 'player1') color = '黑';
+                else if (recResult === 'white' || recResult === 'player2') color = '白';
+            }
+            if (recResult === 'draw' || rt.includes('和')) this.winner = 'draw';
+            else if (color && SLOT_OF_COLOR[color]) this.winner = SLOT_OF_COLOR[color];
+            else this.winner = recResult;
         }
         if (!this.matchStarted && this.moveHistory.length > 0) {
             this.matchStarted = true;
@@ -439,6 +460,26 @@ class NeutreekoRoom extends QiTwoPlayerRoomBase {
             ...this.getState(),
             replayData: { moves: this.moveCoords.map((m) => ({ ...m })) }
         });
+    }
+
+    /**
+     * 开赛（编辑盘面后开局）即判定，**只判行棋方**：成线则胜、无子可动则负（与对局中同口径）。
+     */
+    onMatchStarted() {
+        if (this.gameOver) return;
+        const mine = this.currentPlayer;
+        const slot = mine === BLACK_VAL ? 'player2' : 'player1';
+        if (hasLine(this.board, mine)) {
+            this.gameOver = true;
+            this.winner = slot;
+            this.recordResultText = slot === 'player2' ? '黑胜' : '白胜';
+            return;
+        }
+        if (!hasMove(this.board, mine)) {
+            this.gameOver = true;
+            this.winner = slot === 'player2' ? 'player1' : 'player2';
+            this.recordResultText = slot === 'player2' ? '黑方无子可动，白胜' : '白方无子可动，黑胜';
+        }
     }
 
     performUndo(steps) {

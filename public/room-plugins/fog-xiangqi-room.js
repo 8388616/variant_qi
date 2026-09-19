@@ -11,6 +11,7 @@ window.RoomPlugins["fog-xiangqi"] = {
         "recordDownloadPrefix": "迷雾象棋",
         "standardWeiqiMatchTime": true,
         "features": {
+            "woodTexture": true,
             "editBoard": true,
             "xiangqi": true,
             "hideBoardSize": true

@@ -1,32 +1,26 @@
 window.RoomPlugins = window.RoomPlugins || {};
-window.RoomPlugins["hexagon-weiqi"] = {
+window.RoomPlugins['non-rectangular-weiqi'] = {
     shell: {
-        "title": "六角围棋",
-        "rulesHtml": "基本规则同标准围棋。<br /><br />采用六角棋盘。<br />",
+        "title": "非四角围棋",
+        "rulesHtml": "基本规则同标准围棋。<br /><br />采用非四角棋盘。<br />",
         "defaultKomiText": "黑贴白3.25点",
         "boardSizeMin": 4,
         "boardSizeMax": 11,
         "defaultBoardSize": 9,
         "minLib": 1,
-        "recordDownloadPrefix": "六角围棋",
+        "recordDownloadPrefix": "非四角围棋",
         "standardWeiqiMatchTime": true,
         "features": {
+            "woodTexture": true,
+            "zoomScroll": false,
             "editBoard": true,
+            "compoundPalette": false,
             "transparentCanvas": true
         },
         "editTools": [
-            {
-                "value": "empty",
-                "label": "空"
-            },
-            {
-                "value": "black",
-                "label": "黑子"
-            },
-            {
-                "value": "white",
-                "label": "白子"
-            }
+            { "value": "empty", "label": "空" },
+            { "value": "black", "label": "黑子" },
+            { "value": "white", "label": "白子" }
         ]
     },
     mount: function (ctx) {
@@ -34,52 +28,204 @@ window.RoomPlugins["hexagon-weiqi"] = {
         var roomId = ctx.roomId;
         var roomPassword = ctx.roomPassword || null;
         var config = ctx.config || {};
-        var recordDownloadPrefix = config.recordDownloadPrefix != null ? config.recordDownloadPrefix : "六角围棋";
         var minLib = config.minLib != null ? config.minLib : 1;
         var standardWeiqiMatchTime = config.standardWeiqiMatchTime != null ? config.standardWeiqiMatchTime : true;
 
-
         (function () {
-// ======================== 棋盘生成（与后端一致：路数 n，交点数 6(n−1)²） ========================
-        const CANVAS_SIZE = 600;
-        const FRAME_CENTER = CANVAS_SIZE / 2;
-        /** 木质外框正六边形顶点圆（与外接圆同心），与路数无关，保持视觉大小不变 */
-        const OUTER_HEX_RADIUS = 280;
-        /** 外框圆角半径（px），固定，不随 cellSize 变化 */
-        const FRAME_CORNER_RADIUS = 12;
+/* ============================================================================
+ * 非四角围棋（non-rectangular-weiqi）：一个插件，四个子棋类（subGameId = 原棋种 id）
+ *   六角围棋 hexagon-weiqi / 花形五角围棋 floret-pentagon-weiqi /
+ *   开罗五角围棋 cairo-pentagon-weiqi / 扭棱四角围棋 snub-quadrangle-weiqi
+ *
+ * 统一模型：内部盘 = 一维「点」数组（0/1/2），每种子棋类只提供几何（GEOMETRY[SUB]）：
+ *   VIEW = { vertexCount, pos[i]={x,y}, neighbors[i]=[i…], koordOf[i]=[行,列],
+ *            indexOf(行,列)->i, cellSize, clickThreshold, frame?, komi, totalPoints,
+ *            twoStepPlacing, seatOverlayShape, pick(x,y)->i }
+ *   规则（气/提子/禁全同/Benson/数点）、回放、试下、编辑盘面、棋子与标记绘制只写一份，
+ *   全部跑在 VIEW 上；协议与棋谱一律用坐标 行,列（boardFromWire/wireBoard 里换算）。
+ * ========================================================================== */
 
-        /** 桌面端：左缘固定，展开向右；距画布右缘 56px（原 6px 再向左 50px）、距底 6px */
-        function updateBoardMarkOuterPosition() {
-            const el = document.getElementById('boardMarkOuter');
-            if (!el) return;
-            if (window.matchMedia('(max-width: 700px)').matches) {
-                el.style.left = '';
-                el.style.top = '';
-                el.style.bottom = '';
-                el.style.right = '';
-                el.style.marginLeft = '';
-                return;
+        /* ---------------------------- 子棋类目录 ---------------------------- */
+        /** 每种子棋类的壳配置：名称、路数范围与默认路数、贴目、规则说明、棋谱前缀 */
+        const SUB_META = {
+            'hexagon-weiqi': {
+                name: '六角围棋', min: 4, max: 11, def: 9,
+                komi: () => 3.25,
+                rulesHtml: '基本规则同标准围棋。<br /><br />采用六角棋盘。<br />',
+                prefix: '六角围棋'
+            },
+            'floret-pentagon-weiqi': {
+                name: '花形五角围棋', min: 3, max: 9, def: 7,
+                komi: () => 3.25,
+                rulesHtml: '基本规则同标准围棋。<br /><br />采用花形五角棋盘。<br />',
+                prefix: '花形五角围棋'
+            },
+            'cairo-pentagon-weiqi': {
+                name: '开罗五角围棋', min: 3, max: 9, def: 7,
+                komi: (lanes) => (lanes === 4 ? 2.5 : 2),
+                rulesHtml: '基本规则同围棋。<br /><br />采用开罗五角棋盘。<br />',
+                prefix: '开罗五角围棋'
+            },
+            'snub-quadrangle-weiqi': {
+                name: '扭棱四角围棋', min: 3, max: 9, def: 7,
+                komi: (lanes) => (lanes === 3 ? 3 : 2),
+                rulesHtml: '基本规则同围棋。<br /><br />采用扭棱四角棋盘。<br />',
+                prefix: '扭棱四角围棋'
             }
-            const gapBottom = 6;
-            const gapFromCanvasRight = 56;
-            const collapsedTabW = 36;
-            el.style.left = `calc(100% - 140px)`;
-            el.style.right = 'auto';
-            el.style.top = 'auto';
-            el.style.bottom = `${gapBottom + 36}px`;
-            el.style.marginLeft = '0';
+        };
+        const SUB_GAMES = Object.keys(SUB_META);
+        const DEFAULT_SUB_GAME = 'hexagon-weiqi';
+
+        /** 当前子棋类、当前路数、各子棋类上次用的路数（首次进入某子棋类用它自己的默认路数） */
+        let SUB = DEFAULT_SUB_GAME;
+        let LANES = SUB_META[SUB].def;
+        const sizeBySubGame = Object.create(null);
+        function subCfg() { return SUB_META[SUB] || SUB_META[DEFAULT_SUB_GAME]; }
+        function recordSize() { sizeBySubGame[SUB] = LANES; }
+        function rememberedOrDef(subGameId) {
+            const v = sizeBySubGame[subGameId];
+            return Number.isInteger(v) ? v : (SUB_META[subGameId] || SUB_META[DEFAULT_SUB_GAME]).def;
         }
 
-        let BOARD_SIZE = 9;
-        let V;
-        let transformed;
-        let neighbors;
-        let hexagons;
-        let clickThreshold;
-        let cellSize;
-        let centerX;
-        let centerY;
+        /* ---------------------------- 统一视图 ---------------------------- */
+        const CANVAS_SIZE = 600;
+        const FRAME_CENTER = CANVAS_SIZE / 2;
+        /** 当前子棋类的几何（由 GEOMETRY[SUB].build(LANES) 生成） */
+        let VIEW = null;
 
+        /** 顶点型棋盘（六角/花形）→ 统一视图 */
+        function vertexViewFromGeo(geo, lanes, extra) {
+            const V = geo.vertexCount;
+            const koordOf = geo.koordOf;
+            const indexByKoord = new Map();
+            for (let i = 0; i < V; i++) indexByKoord.set(koordOf[i][0] + ',' + koordOf[i][1], i);
+            return Object.assign({
+                vertexCount: V,
+                pos: geo.transformed,
+                neighbors: geo.neighbors,
+                koordOf,
+                indexOf: (row, col) => {
+                    const i = indexByKoord.get(Number(row) + ',' + Number(col));
+                    return i === undefined ? -1 : i;
+                },
+                cellSize: geo.cellSize,
+                clickThreshold: geo.clickThreshold,
+                frame: geo.frame || null,
+                geo
+            }, extra || {});
+        }
+
+        /** 掩码网格棋盘（开罗/扭棱）→ 统一视图 */
+        function gridViewFromSpec(spec, lanes, extra) {
+            const pos = [];
+            const koordOf = [];
+            const indexByKoord = new Map();
+            for (let r = 0; r < spec.gridW; r++) {
+                for (let c = 0; c < spec.gridH; c++) {
+                    if (!spec.isValid(r, c)) continue;
+                    indexByKoord.set(r + ',' + c, pos.length);
+                    koordOf.push([r, c]);
+                    pos.push(spec.unitPos(r, c));
+                }
+            }
+            const neighbors = koordOf.map(([r, c]) => {
+                const out = [];
+                for (const [nr, nc] of spec.neighborList(r, c)) {
+                    const i = indexByKoord.get(nr + ',' + nc);
+                    if (i !== undefined) out.push(i);
+                }
+                return out;
+            });
+            return Object.assign({
+                vertexCount: pos.length,
+                pos,
+                neighbors,
+                koordOf,
+                indexOf: (row, col) => {
+                    const i = indexByKoord.get(Number(row) + ',' + Number(col));
+                    return i === undefined ? -1 : i;
+                },
+                frame: null,
+                geo: spec
+            }, extra || {});
+        }
+
+        /* ---------------------------- 共用绘图小件 ---------------------------- */
+        function drawRoundedPolygon(ctx2, vertices, radius, skipStroke) {
+            const n = vertices.length;
+            if (n < 3) return;
+            const startPoints = [];
+            const endPoints = [];
+            for (let i = 0; i < n; i++) {
+                const curr = vertices[i];
+                const prev = vertices[(i - 1 + n) % n];
+                const next = vertices[(i + 1) % n];
+                const v1 = { x: prev.x - curr.x, y: prev.y - curr.y };
+                const v2 = { x: next.x - curr.x, y: next.y - curr.y };
+                const len1 = Math.hypot(v1.x, v1.y), len2 = Math.hypot(v2.x, v2.y);
+                startPoints.push({ x: curr.x + (v1.x / len1) * radius, y: curr.y + (v1.y / len1) * radius });
+                endPoints.push({ x: curr.x + (v2.x / len2) * radius, y: curr.y + (v2.y / len2) * radius });
+            }
+            ctx2.beginPath();
+            ctx2.moveTo(startPoints[0].x, startPoints[0].y);
+            for (let i = 0; i < n; i++) {
+                ctx2.arcTo(vertices[i].x, vertices[i].y, endPoints[i].x, endPoints[i].y, radius);
+                if (i < n - 1) ctx2.lineTo(startPoints[i + 1].x, startPoints[i + 1].y);
+            }
+            ctx2.lineTo(startPoints[0].x, startPoints[0].y);
+            ctx2.closePath();
+            ctx2.fill();
+            if (!skipStroke) ctx2.stroke();
+        }
+
+        function pointInPolygon(px, py, verts) {
+            let inside = false;
+            for (let i = 0, j = verts.length - 1; i < verts.length; j = i++) {
+                const xi = verts[i].x, yi = verts[i].y;
+                const xj = verts[j].x, yj = verts[j].y;
+                if (((yi > py) !== (yj > py)) && (px < (xj - xi) * (py - yi) / (yj - yi) + xi)) {
+                    inside = !inside;
+                }
+            }
+            return inside;
+        }
+
+        /** 顶点型棋盘的选点：先在木框内（若有框），再取阈值内最近顶点 */
+        function vertexPick(view, x, y) {
+            if (view.frame && !pointInPolygon(x, y, view.frame)) return -1;
+            let minDist = Infinity, best = -1;
+            for (let i = 0; i < view.vertexCount; i++) {
+                const p = view.pos[i];
+                const dx = p.x - x, dy = p.y - y;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                if (dist < minDist) { minDist = dist; best = i; }
+            }
+            return minDist < view.clickThreshold ? best : -1;
+        }
+
+        /** 正多边形木框（按中心与半径等分取点） */
+        function polygonFrame(radius, sides, rotateDeg) {
+            const rot = (rotateDeg || 0) * Math.PI / 180;
+            return Array.from({ length: sides }, (_, i) => {
+                const a = rot + (i * 2 * Math.PI) / sides;
+                return { x: FRAME_CENTER + radius * Math.cos(a), y: FRAME_CENTER + radius * Math.sin(a) };
+            });
+        }
+
+        /* ---------------------------- 六角围棋几何 ---------------------------- */
+        const HEX_OUTER_HEX_RADIUS = 280;
+        const HEX_FRAME_CORNER_RADIUS = 12;
+        function hexFrameVerts() {
+            return Array.from({ length: 6 }, (_, i) => {
+                const a = i * Math.PI / 3;
+                return {
+                    x: FRAME_CENTER + HEX_OUTER_HEX_RADIUS * Math.cos(a),
+                    y: FRAME_CENTER + HEX_OUTER_HEX_RADIUS * Math.sin(a)
+                };
+            });
+        }
+
+        /** 六角棋盘：蜂窝密铺的顶点图（与后端 generateHexBoardData 同源，另算屏幕坐标与木框） */
         function generateHexBoard(n) {
             const S = n - 1;
             const R = 2;
@@ -110,149 +256,819 @@ window.RoomPlugins["hexagon-weiqi"] = {
                     hexList.push(hexIds);
                 }
             }
-
             for (let i = 0; i < vertices.length; i++) {
                 const { x, y } = vertices[i];
                 vertices[i] = { x: -y, y: x };
             }
-
             const vc = vertices.length;
             const neighborSets = Array.from({ length: vc }, () => new Set());
             for (const hex of hexList) {
                 for (let i = 0; i < 6; i++) {
                     const a = hex[i];
                     const b = hex[(i + 1) % 6];
-                    if (a !== b) {
-                        neighborSets[a].add(b);
-                        neighborSets[b].add(a);
-                    }
+                    if (a !== b) { neighborSets[a].add(b); neighborSets[b].add(a); }
                 }
             }
-            const neighborList = neighborSets.map(set => Array.from(set));
-
             const PADDING = 72 - 4 * n;
-            const R_inner = OUTER_HEX_RADIUS - PADDING;
-
+            const R_inner = HEX_OUTER_HEX_RADIUS - PADDING;
             let cx = 0, cy = 0;
-            for (const v of vertices) {
-                cx += v.x;
-                cy += v.y;
-            }
-            cx /= vc;
-            cy /= vc;
+            for (const v of vertices) { cx += v.x; cy += v.y; }
+            cx /= vc; cy /= vc;
             let maxDist = 0;
             for (const v of vertices) {
                 const d = Math.hypot(v.x - cx, v.y - cy);
                 if (d > maxDist) maxDist = d;
             }
             const scale = maxDist > 0 ? R_inner / maxDist : 1;
-
-            const transformedPts = vertices.map(v => ({
+            const transformed = vertices.map(v => ({
                 x: FRAME_CENTER + (v.x - cx) * scale,
                 y: FRAME_CENTER - (v.y - cy) * scale   // 棋盘显示上下翻折(y 镜像)
             }));
-
-            let totalDist = 0;
-            let edgeCount = 0;
+            let totalDist = 0, edgeCount = 0;
             for (const hex of hexList) {
                 for (let i = 0; i < 6; i++) {
-                    const a = hex[i];
-                    const b = hex[(i + 1) % 6];
-                    const ddx = transformedPts[a].x - transformedPts[b].x;
-                    const ddy = transformedPts[a].y - transformedPts[b].y;
-                    totalDist += Math.sqrt(ddx * ddx + ddy * ddy);
+                    const a = hex[i], b = hex[(i + 1) % 6];
+                    totalDist += Math.hypot(transformed[a].x - transformed[b].x, transformed[a].y - transformed[b].y);
                     edgeCount++;
                 }
             }
-            const cs = totalDist / edgeCount;
-            const ct = cs * 0.4;
-
-            return {
-                vertexCount: vc,
-                transformed: transformedPts,
-                neighborList,
-                hexagons: hexList,
-                clickThreshold: ct,
-                cellSize: cs,
-                centerX: FRAME_CENTER,
-                centerY: FRAME_CENTER
-            };
-        }
-
-
-        /* ===== 协议/棋谱用坐标 行,列；客户端内部一律顶点号，这里负责两边换算 =====
-           行 0 = 屏幕最上面一行（与显示一致），列 = 该行内自左往右 */
-        let koordOfVertex = [];
-        let vertexOfKoordMap = new Map();
-        function buildKoordTables() {
+            const cellSize = totalDist / edgeCount;
+            // 显示坐标表：行 0 = 屏幕最上面一行（显示 y 已翻折，按 y 从小到大排行），列 = 行内自左往右
             const rows = [];
-            for (let v = 0; v < (transformed ? transformed.length : 0); v++) {
+            for (let v = 0; v < vc; v++) {
                 const y = transformed[v].y;
                 let row = rows.find(r => Math.abs(r.y - y) < 0.01);
                 if (!row) { row = { y, pts: [] }; rows.push(row); }
                 row.pts.push(v);
             }
             rows.sort((a, b) => a.y - b.y);
-            koordOfVertex = new Array(rows.length ? transformed.length : 0);
-            vertexOfKoordMap = new Map();
+            const koordOf = new Array(vc);
             rows.forEach((row, ri) => {
                 row.pts.sort((a, b) => transformed[a].x - transformed[b].x);
-                row.pts.forEach((v, ci) => { koordOfVertex[v] = [ri, ci]; vertexOfKoordMap.set(ri + ',' + ci, v); });
+                row.pts.forEach((v, ci) => { koordOf[v] = [ri, ci]; });
             });
+            return {
+                vertexCount: vc,
+                transformed,
+                neighbors: neighborSets.map(set => Array.from(set)),
+                hexagons: hexList,
+                clickThreshold: cellSize * 0.4,
+                cellSize,
+                koordOf,
+                frame: hexFrameVerts()
+            };
         }
-        function vertexOfKoord(row, col) {
-            const v = vertexOfKoordMap.get(Number(row) + ',' + Number(col));
-            return v === undefined ? -1 : v;
+
+        function hexDrawSkeleton(c2, view) {
+            c2.lineWidth = 0.5;
+            c2.strokeStyle = '#3a281c';
+            c2.fillStyle = QiSquareWeiqiCanvas.getWoodFill(c2, document.getElementById('goBoard')) || '#fdcc90';
+            drawRoundedPolygon(c2, hexFrameVerts(), HEX_FRAME_CORNER_RADIUS, false);
+            c2.lineWidth = 1.5;
+            c2.strokeStyle = '#3a281c';
+            c2.lineJoin = 'miter';
+            for (const hex of view.geo.hexagons) {
+                for (let i = 0; i < 6; i++) {
+                    const a = hex[i], b = hex[(i + 1) % 6];
+                    c2.beginPath();
+                    c2.moveTo(view.pos[a].x, view.pos[a].y);
+                    c2.lineTo(view.pos[b].x, view.pos[b].y);
+                    c2.stroke();
+                }
+            }
         }
-        /** 协议里的棋盘 board[行][列]（锯齿）→ 顶点扁平数组 */
+
+
+        /* ---------------------------- 花形五角围棋几何 ---------------------------- */
+        const FLORET_OUTER_HEX_RADIUS = 420;
+        const FLORET_FRAME_CORNER_RADIUS = 12;
+        const FLORET_SQRT3 = Math.sqrt(3);
+        const FLORET_SIGMA = FLORET_SQRT3 / 2;
+        const FLORET_PENT_UNSCALED = {
+            A: [0, 0], B: [-1, FLORET_SQRT3], C: [-2, FLORET_SQRT3], D: [-2.5, FLORET_SQRT3 / 2], E: [-2, 0]
+        };
+        /** 各路数的总点数（与后端生成器实测一致；含 √3 浮点边界，无简洁闭式，写死） */
+        const FLORET_TOTAL_POINTS = {
+            3: 106, 4: 214, 5: 427, 6: 712, 7: 1069, 8: 1375,
+            9: 1858, 10: 2413, 11: 3040, 12: 3544, 13: 4297
+        };
+
+        function floretRotPt(p, r) {
+            const c = Math.cos(r), s = Math.sin(r);
+            return [c * p[0] - s * p[1], s * p[0] + c * p[1]];
+        }
+        function floretOneFlower(ox, oy) {
+            const out = [];
+            for (let pet = 0; pet < 6; pet++) {
+                const pts = {};
+                for (const key of Object.keys(FLORET_PENT_UNSCALED)) {
+                    let q = floretRotPt(FLORET_PENT_UNSCALED[key], pet * Math.PI / 3 - Math.atan(FLORET_SQRT3 / 9));
+                    q = [q[0] * FLORET_SIGMA, q[1] * FLORET_SIGMA];
+                    pts[key] = [q[0] + ox, q[1] + oy];
+                }
+                out.push(pts);
+            }
+            return out;
+        }
+        function floretVertexKey(x, y) {
+            return `${Math.round(x * 1e6) / 1e6},${Math.round(y * 1e6) / 1e6}`;
+        }
+
+        /** 花形五角棋盘：六个花瓣五边形铺一格；返回顶点、边、屏幕坐标与显示坐标表 */
+        function generateFloretBoard(n) {
+            const ux = 1.5 * Math.sqrt(7), uy = 0, vx = 0, vy = 1.5 * Math.sqrt(21);
+            const vertexMap = new Map();
+            const vertices = [];
+            const edgeSet = new Set();
+            function addVertex(x, y) {
+                const k = floretVertexKey(x, y);
+                if (!vertexMap.has(k)) { vertexMap.set(k, vertices.length); vertices.push({ x, y }); }
+                return vertexMap.get(k);
+            }
+            function addEdge(a, b) { if (a !== b) edgeSet.add(a < b ? a + ',' + b : b + ',' + a); }
+            function addFlowerAtGrid(px, py) {
+                const ox = px * ux + py * vx, oy = px * uy + py * vy;
+                for (const P of floretOneFlower(ox, oy)) {
+                    const ids = ['A', 'B', 'C', 'D', 'E'].map(k => addVertex(P[k][0], P[k][1]));
+                    for (let k = 0; k < 5; k++) addEdge(ids[k], ids[(k + 1) % 5]);
+                }
+            }
+            for (let i = 0; i <= FLORET_SQRT3 * n - 3; i++)
+                for (let j = 0; j <= n - 2; j++) addFlowerAtGrid(i, j);
+            for (let i = 0; i <= FLORET_SQRT3 * n - 4; i++)
+                for (let j = 0; j <= n - 3; j++) addFlowerAtGrid(i + 0.5, j + 0.5);
+
+            // 与后端、旧插件一致：整体旋转 90°（x,y → -y,x），棋盘显示方向才对
+            for (let i = 0; i < vertices.length; i++) {
+                const { x, y } = vertices[i];
+                vertices[i] = { x: -y, y: x };
+            }
+            const vc = vertices.length;
+            const pairs = [];
+            for (const e of edgeSet) { const [a, b] = e.split(',').map(Number); pairs.push([a, b]); }
+            const PADDING = Math.max(32, 144 - 16 * n);
+            const R_inner = FLORET_OUTER_HEX_RADIUS - PADDING;
+            let cx = 0, cy = 0;
+            for (const v of vertices) { cx += v.x; cy += v.y; }
+            cx /= vc; cy /= vc;
+            let maxDist = 0;
+            for (const v of vertices) {
+                const d = Math.hypot(v.x - cx, v.y - cy);
+                if (d > maxDist) maxDist = d;
+            }
+            const scale = maxDist > 0 ? R_inner / maxDist : 1;
+            const transformed = vertices.map(v => ({
+                x: FRAME_CENTER + (v.x - cx) * scale,
+                y: FRAME_CENTER - (v.y - cy) * scale   // 棋盘显示上下翻折(y 镜像)
+            }));
+            let totalDist = 0;
+            for (const [a, b] of pairs)
+                totalDist += Math.hypot(transformed[a].x - transformed[b].x, transformed[a].y - transformed[b].y);
+            const cellSize = pairs.length ? totalDist / pairs.length : 12;
+            const neighborSets = Array.from({ length: vc }, () => new Set());
+            for (const [a, b] of pairs) { neighborSets[a].add(b); neighborSets[b].add(a); }
+            // 显示坐标表：行 0 = 屏幕最上面一行（按显示 y 从小到大），列 = 行内自左往右
+            const rows = [];
+            for (let v = 0; v < vc; v++) {
+                const y = transformed[v].y;
+                let row = rows.find(r => Math.abs(r.y - y) < 0.01);
+                if (!row) { row = { y, pts: [] }; rows.push(row); }
+                row.pts.push(v);
+            }
+            rows.sort((a, b) => a.y - b.y);
+            const koordOf = new Array(vc);
+            rows.forEach((row, ri) => {
+                row.pts.sort((a, b) => transformed[a].x - transformed[b].x);
+                row.pts.forEach((v, ci) => { koordOf[v] = [ri, ci]; });
+            });
+            return {
+                vertexCount: vc,
+                transformed,
+                neighbors: neighborSets.map(set => Array.from(set)),
+                edgePairs: pairs,
+                clickThreshold: cellSize * 0.4,
+                cellSize,
+                koordOf,
+                frame: polygonFrame(FLORET_OUTER_HEX_RADIUS, 6, 0)
+            };
+        }
+
+        let floretGridLayer = null;
+        function floretDrawSkeleton(c2, view) {
+            if (!floretGridLayer) {
+                const dpr = window.devicePixelRatio || 1;
+                const c = document.createElement('canvas');
+                c.width = CANVAS_SIZE * dpr;
+                c.height = CANVAS_SIZE * dpr;
+                const g = c.getContext('2d');
+                g.setTransform(dpr, 0, 0, dpr, 0, 0);
+                g.lineWidth = 1.5;
+                g.strokeStyle = '#3a281c';
+                g.lineJoin = 'miter';
+                const path = new Path2D();
+                for (const [a, b] of view.geo.edgePairs) {
+                    path.moveTo(view.pos[a].x, view.pos[a].y);
+                    path.lineTo(view.pos[b].x, view.pos[b].y);
+                }
+                g.stroke(path);
+                floretGridLayer = c;
+            }
+            c2.drawImage(floretGridLayer, 0, 0, CANVAS_SIZE, CANVAS_SIZE);
+        }
+
+        /* ---------------------------- 开罗五角围棋几何 ---------------------------- */
+        /** 网格合法性/邻接：与后端 CairoPentagonWeiqiRoom 一致 */
+        const Cairo = {
+            gridDims(lanes) { return { gw: 4 * lanes - 5, gh: 4 * lanes - 3 }; },
+            isValidVertex(row, col, gw, gh) {
+                if (row < 0 || col < 0 || row >= gw || col >= gh) return false;
+                return !((row & 1) === 1 && (col & 1) === 0);
+            },
+            getNeighbors(row, col, gw, gh) {
+                const arr = [];
+                if ((col & 1) === 1) arr.push([row - 1, col], [row + 1, col]);
+                if ((row & 1) === 0) arr.push([row, col - 1], [row, col + 1]);
+                const rm = row & 3, cm = col & 3;
+                if (rm === 1) {
+                    if (cm === 1) arr.push([row, col + 2]);
+                    else if (cm === 3) arr.push([row, col - 2]);
+                } else if (rm === 3) {
+                    if (cm === 3) arr.push([row, col + 2]);
+                    else if (cm === 1) arr.push([row, col - 2]);
+                }
+                if (cm === 0) {
+                    if (rm === 0) arr.push([row + 2, col]);
+                    else if (rm === 2) arr.push([row - 2, col]);
+                } else if (cm === 2) {
+                    if (rm === 2) arr.push([row + 2, col]);
+                    else if (rm === 0) arr.push([row - 2, col]);
+                }
+                const out = [];
+                for (const [a, b] of arr) if (Cairo.isValidVertex(a, b, gw, gh)) out.push([a, b]);
+                return out;
+            }
+        };
+
+        function vertexUnitPos(row, col) {
+            const dx = Math.sqrt(3) / 2, dy = Math.sqrt(3) / 2, WG = 0.5;
+            let y = row * dy;
+            if ((row & 1) === 0) {
+                const rm = row & 3, cm = col & 3;
+                if (rm === 0) { if (cm === 2) y -= WG; else if (cm === 0) y += WG; }
+                else if (rm === 2) { if (cm === 0) y -= WG; else if (cm === 2) y += WG; }
+            }
+            let x = col * dx;
+            if ((col & 1) === 1) {
+                const rm = row & 3, cm = col & 3;
+                if (cm === 1) { if (rm === 3) x -= WG; else if (rm === 1) x += WG; }
+                else if (cm === 3) { if (rm === 3) x += WG; else if (rm === 1) x -= WG; }
+            }
+            return { x, y };
+        }
+
+        function buildCairoLayout(lanes) {
+            const gw = 4 * lanes - 5;   // 行数
+            const gh = 4 * lanes - 3;   // 列数
+            const raw = [];
+            for (let r = 0; r < gw; r++) {
+                for (let c = 0; c < gh; c++) {
+                    if (!Cairo.isValidVertex(r, c, gw, gh)) continue;
+                    const u = vertexUnitPos(gw - 1 - r, c);   // row=0 在底部:物理位置按翻转行计算
+                    raw.push({ r, c, x: u.x, y: u.y });
+                }
+            }
+            let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+            for (const v of raw) {
+                minX = Math.min(minX, v.x); minY = Math.min(minY, v.y);
+                maxX = Math.max(maxX, v.x); maxY = Math.max(maxY, v.y);
+            }
+            const pad = 60 - 5 * lanes;
+            const scale = Math.min((600 - 2 * pad) / (maxX - minX || 1), (600 - 2 * pad) / (maxY - minY || 1));
+            // 水平/垂直均居中：内容未占满画布时，两侧留白相等（否则格线会整体偏上/偏左）
+            const contentW = (maxX - minX) * scale;
+            const contentH = (maxY - minY) * scale;
+            const offsetX = pad + (600 - 2 * pad - contentW) / 2;
+            const offsetY = pad + (600 - 2 * pad - contentH) / 2;
+            const pos = new Map();
+            for (const v of raw) {
+                pos.set(`${v.r},${v.c}`, { x: offsetX + (v.x - minX) * scale, y: offsetY + (v.y - minY) * scale });
+            }
+            // 均匀基准线（坐标标签用）：行号沿行距均匀分布，列字母沿列距均匀分布（与格线同基准）
+            const rowLines = [];
+            for (let r1 = 1; r1 <= gw; r1++)
+                rowLines.push(offsetY + ((r1 - 1) * (Math.sqrt(3) / 2) - minY) * scale);
+            const colLines = [];
+            for (let c1 = 1; c1 <= gh; c1++)
+                colLines.push(offsetX + ((c1 - 1) * (Math.sqrt(3) / 2) - minX) * scale);
+            const edgePath = new Path2D();
+            const edgeSeen = new Set();
+            for (let r = 0; r < gw; r++) {
+                for (let c = 0; c < gh; c++) {
+                    if (!Cairo.isValidVertex(r, c, gw, gh)) continue;
+                    const p0 = pos.get(`${r},${c}`);
+                    for (const [nr, nc] of Cairo.getNeighbors(r, c, gw, gh)) {
+                        const k = r < nr || (r === nr && c < nc) ? `${r},${c}|${nr},${nc}` : `${nr},${nc}|${r},${c}`;
+                        if (edgeSeen.has(k)) continue;
+                        edgeSeen.add(k);
+                        const p1 = pos.get(`${nr},${nc}`);
+                        edgePath.moveTo(p0.x, p0.y);
+                        edgePath.lineTo(p1.x, p1.y);
+                    }
+                }
+            }
+            return { pos, edgePath, rowLines, colLines, gridW: gw, gridH: gh };
+        }
+
+        /** 坐标标签：行号 1..H 在左（沿均匀行线），列字母 A.. 在上（沿均匀列线） */
+        function cairoDrawCoords(tctx, lanes, gridW, gridH, rowLines, colLines) {
+            if (rowLines.length === 0 || colLines.length === 0) return;
+            const pad = 60 - 5 * lanes;
+            tctx.font = `bold ${Math.max(9, Math.round(170 / gridW))}px Arial`;
+            tctx.fillStyle = '#3a281c';
+            tctx.textAlign = 'center';
+            tctx.textBaseline = 'middle';
+            for (let c = 0; c < gridH; c++) {
+                let letter = String.fromCharCode(65 + c);
+                if (c >= 26) letter = String.fromCharCode(64 + Math.floor(c / 26)) + String.fromCharCode(65 + c % 26);
+                tctx.fillText(letter, colLines[c], 0.9 * pad);
+            }
+            for (let r = 0; r < gridW; r++) tctx.fillText((gridW - r).toString(), 0.5 * pad, rowLines[r]);
+        }
+
+        let cairoGridLayer = null;
+        function cairoDrawSkeleton(c2, view) {
+            if (!cairoGridLayer || cairoGridLayer.__lanes !== LANES) {
+                const dpr = window.devicePixelRatio || 1;
+                const c = document.createElement('canvas');
+                c.width = CANVAS_SIZE * dpr;
+                c.height = CANVAS_SIZE * dpr;
+                const g = c.getContext('2d');
+                g.setTransform(dpr, 0, 0, dpr, 0, 0);
+                g.lineWidth = 1.5;
+                g.strokeStyle = '#3a281c';
+                g.stroke(view.geo.edgePath);
+                cairoDrawCoords(g, LANES, view.geo.gridW, view.geo.gridH, view.geo.rowLines, view.geo.colLines);
+                c.__lanes = LANES;
+                cairoGridLayer = c;
+            }
+            c2.drawImage(cairoGridLayer, 0, 0, CANVAS_SIZE, CANVAS_SIZE);
+        }
+
+        /** 选点：最近的合法交点（阈值 26px，与旧开罗插件一致） */
+        function cairoPick(view, x, y) {
+            let best = -1, bestD = 26;
+            for (let i = 0; i < view.vertexCount; i++) {
+                const p = view.pos[i];
+                const d = Math.hypot(x - p.x, y - p.y);
+                if (d < bestD) { bestD = d; best = i; }
+            }
+            return best;
+        }
+
+        /* ---------------------------- 扭棱四角围棋几何 ---------------------------- */
+        /** 网格合法性/邻接：与后端 SnubQuadrangleWeiqiRoom 一致 */
+        const Snub = {
+            gridDims(lanes) { return { w: 3 * lanes - 2, h: 3 * lanes - 2 }; },
+            isValidVertex(row, col, gridW, gridH) {
+                if (row < 0 || col < 0 || row >= gridW || col >= gridH) return false;
+                if (row % 3 === 2 && col % 3 === 2) return false;
+                if (row === gridW - 1 && row % 3 === 0 && col % 3 === 1) return false;
+                if (col === gridH - 1 && row % 3 === 0 && col % 3 === 0) return false;
+                return true;
+            },
+            getNeighbors(row, col, gridW, gridH) {
+                let arr = [];
+                if (row % 3 === 0 && col % 3 === 0) arr = [[row - 1, col], [row - 1, 1 + col], [row, col - 1], [row, 1 + col], [1 + row, col]];
+                else if (row % 3 === 1 && col % 3 === 0) arr = [[row - 1, col - 1], [row - 1, col], [row, col - 1], [row, 1 + col], [1 + row, col]];
+                else if (row % 3 === 2 && col % 3 === 0) arr = [[row - 1, col - 1], [row - 1, col], [row - 1, 1 + col], [1 + row, col - 1], [1 + row, col]];
+                else if (row % 3 === 0 && col % 3 === 1) arr = [[row - 1, col], [row, col - 1], [row, 1 + col], [1 + row, col], [1 + row, 1 + col]];
+                else if (row % 3 === 1 && col % 3 === 1) arr = [[row - 1, col], [row, col - 1], [row, 1 + col], [1 + row, col - 1], [1 + row, col]];
+                else if (row % 3 === 2 && col % 3 === 1) arr = [[row - 1, col], [row - 1, 1 + col], [1 + row, col - 1], [1 + row, col], [1 + row, 1 + col]];
+                else if (row % 3 === 0 && col % 3 === 2) arr = [[row - 1, col - 1], [row - 1, 1 + col], [row, col - 1], [row, 1 + col], [1 + row, 1 + col]];
+                else if (row % 3 === 1 && col % 3 === 2) arr = [[row - 1, col - 1], [row, col - 1], [row, 1 + col], [1 + row, col - 1], [1 + row, 1 + col]];
+                const out = [];
+                for (const [a, b] of arr) if (Snub.isValidVertex(a, b, gridW, gridH)) out.push([a, b]);
+                return out;
+            }
+        };
+
+        function buildSnubLayout(lanes) {
+            const gw = 3 * lanes - 2, gh = gw;
+            const SM = 1;
+            const MID = Math.sqrt(3) * SM;
+            const LG = 2 * SM;
+            const colW = i => (i % 3 === 2) ? LG : MID;
+            const rowH = i => (i % 3 === 2) ? LG : MID;
+            const cumCol = (k) => {
+                let s = 0;
+                for (let i = 0; i < k; i++) s += colW(i);
+                return s;
+            };
+            const cumRow = (k) => {
+                let s = 0;
+                for (let i = 0; i < k; i++) s += rowH(i);
+                return s;
+            };
+            const cellW = (gc, span) => {
+                let w = 0;
+                for (let i = 0; i < span; i++) w += colW(gc + i);
+                return w;
+            };
+            const cellH = (gr, span) => {
+                let h = 0;
+                for (let i = 0; i < span; i++) h += rowH(gr + i);
+                return h;
+            };
+            function cellSpan(r, c) {
+                let colOff = 0, colSpan = 1, rowOff = 0, rowSpan = 1;
+                if (r % 3 === 0 && c % 3 !== 1) {
+                    colOff = -1; colSpan = 2; rowOff = 0; rowSpan = 1;
+                }
+                if (r % 3 >= 1 && c % 3 === 0) {
+                    colOff = -1; colSpan = 2; rowOff = -1; rowSpan = 2;
+                }
+                if (r % 3 !== 1 && c % 3 === 1) {
+                    colOff = 0; colSpan = 1; rowOff = 0; rowSpan = 1;
+                }
+                if (r % 3 === 1 && c % 3 >= 1) {
+                    colOff = 0; colSpan = 1; rowOff = -1; rowSpan = 2;
+                }
+                return { colOff, colSpan, rowOff, rowSpan };
+            }
+            function margins(r, c) {
+                const a = r % 3, b = c % 3;
+                if (a === 0 && b === 0) return { L: MID, T: SM, R: MID, B: MID - SM };
+                if (a === 0 && b === 1) return { L: SM, T: SM, R: MID - SM, B: SM };
+                if (a === 0 && b === 2) return { L: MID, T: MID - SM, R: MID, B: SM };
+                if (a === 1 && b === 0) return { L: MID, T: MID, R: LG, B: MID };
+                if (a === 1 && b === 1) return { L: SM, T: MID, R: SM, B: LG };
+                if (a === 1 && b === 2) return { L: SM, T: LG, R: SM, B: MID };
+                if (a === 2 && b === 0) return { L: LG, T: MID, R: MID, B: MID };
+                if (a === 2 && b === 1) return { L: MID - SM, T: SM, R: SM, B: SM };
+                return null;
+            }
+            function centerInCell(Wp, Hp, L, T, R, B) {
+                return { x: L + (Wp - L - R) / 2, y: T + (Hp - T - B) / 2 };
+            }
+            const raw = [];
+            for (let r = 0; r < gw; r++) {
+                for (let c = 0; c < gh; c++) {
+                    if (!Snub.isValidVertex(r, c, gw, gh)) continue;
+                    const sp = cellSpan(r, c);
+                    const gridCol = 1 + sp.colOff + r;
+                    const gridRow = 1 + sp.rowOff + c;
+                    const Wp = cellW(gridCol, sp.colSpan);
+                    const Hp = cellH(gridRow, sp.rowSpan);
+                    const m = margins(r, c);
+                    if (!m) continue;
+                    const cen = centerInCell(Wp, Hp, m.L, m.T, m.R, m.B);
+                    raw.push({ r, c, x: cumCol(gridCol) + cen.x, y: cumRow(gridRow) + cen.y });
+                }
+            }
+            let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+            for (const v of raw) {
+                minX = Math.min(minX, v.x); minY = Math.min(minY, v.y);
+                maxX = Math.max(maxX, v.x); maxY = Math.max(maxY, v.y);
+            }
+            const pad = 60 - 5 * lanes;
+            const scale = Math.min((600 - 2 * pad) / (maxX - minX || 1), (600 - 2 * pad) / (maxY - minY || 1));
+            const cx0 = 300, cy0 = 300;
+            function rotCW90(px, py) {
+                return { x: cx0 - (py - cy0), y: cy0 + (px - cx0) };
+            }
+            const pos = new Map();
+            for (const v of raw) {
+                const px = pad + (v.x - minX) * scale;
+                const py = pad + (v.y - minY) * scale;
+                const p = rotCW90(px, py);
+                // 棋盘显示上下翻折：物理 y 镜像（600 为画布逻辑尺寸），坐标语义不变
+                pos.set(`${v.r},${v.c}`, { x: p.x, y: 600 - p.y });
+            }
+            const edgePath = new Path2D();
+            const edgeSeen = new Set();
+            for (let r = 0; r < gw; r++) {
+                for (let c = 0; c < gh; c++) {
+                    if (!Snub.isValidVertex(r, c, gw, gh)) continue;
+                    const p0 = pos.get(`${r},${c}`);
+                    for (const [nr, nc] of Snub.getNeighbors(r, c, gw, gh)) {
+                        const k = r < nr || (r === nr && c < nc) ? `${r},${c}|${nr},${nc}` : `${nr},${nc}|${r},${c}`;
+                        if (edgeSeen.has(k)) continue;
+                        edgeSeen.add(k);
+                        const p1 = pos.get(`${nr},${nc}`);
+                        edgePath.moveTo(p0.x, p0.y);
+                        edgePath.lineTo(p1.x, p1.y);
+                    }
+                }
+            }
+            return { pos, edgePath };
+        }
+
+        /** 坐标标签锚点：每列取最上面的点、每行取最左的点（与旧扭棱插件一致） */
+        function computeSnubCoordLabelPos(view) {
+            const gw = view.geo.gridW, gh = view.geo.gridH;
+            const colX = [], rowY = [];
+            for (let c = 0; c < gh; c++) {
+                let topX = Infinity, topY = Infinity;
+                for (let r = 0; r < gw; r++) {
+                    const i = view.indexOf(r, c);
+                    if (i < 0) continue;
+                    const pt = view.pos[i];
+                    if (pt.y < topY) { topY = pt.y; topX = pt.x; }
+                }
+                colX.push(isFinite(topX) ? topX : null);
+            }
+            for (let r = 0; r < gw; r++) {
+                let leftX = Infinity, leftY = Infinity;
+                for (let c = 0; c < gh; c++) {
+                    const i = view.indexOf(r, c);
+                    if (i < 0) continue;
+                    const pt = view.pos[i];
+                    if (pt.x < leftX) { leftX = pt.x; leftY = pt.y; }
+                }
+                rowY.push(isFinite(leftY) ? leftY : null);
+            }
+            return { colX, rowY };
+        }
+
+        /** 坐标标签：列字母 A.. 在上、行号 19..1 在左（与旧扭棱插件一致） */
+        function snubDrawCoords(tctx, view, lanes, labelPos) {
+            if (!labelPos) return;
+            const gw = view.geo.gridW, gh = view.geo.gridH;
+            tctx.font = `bold ${Math.max(9, Math.round(170 / gw))}px Arial`;
+            tctx.fillStyle = '#3a281c';
+            tctx.textAlign = 'center';
+            tctx.textBaseline = 'middle';
+            const pad = 60 - 5 * lanes;
+            for (let c = 0; c < gh; c++) {
+                const topX = labelPos.colX[c];
+                if (topX == null) continue;
+                let idx = gw - 1 - c;
+                let letter = String.fromCharCode(65 + idx);
+                if (idx >= 26) letter = String.fromCharCode(64 + Math.floor(idx / 26)) + String.fromCharCode(65 + idx % 26);
+                tctx.fillText(letter, topX, 0.6 * pad);
+            }
+            for (let r = 0; r < gw; r++) {
+                const leftY = labelPos.rowY[r];
+                if (leftY == null) continue;
+                tctx.fillText((r + 1).toString(), 0.5 * pad, leftY);
+            }
+        }
+
+        let snubGridLayer = null;
+        function snubDrawSkeleton(c2, view) {
+            if (!snubGridLayer || snubGridLayer.__lanes !== LANES) {
+                const dpr = window.devicePixelRatio || 1;
+                const c = document.createElement('canvas');
+                c.width = CANVAS_SIZE * dpr;
+                c.height = CANVAS_SIZE * dpr;
+                const g = c.getContext('2d');
+                g.setTransform(dpr, 0, 0, dpr, 0, 0);
+                g.lineWidth = 1.5;
+                g.strokeStyle = '#3a281c';
+                g.stroke(view.geo.edgePath);
+                snubDrawCoords(g, view, LANES, computeSnubCoordLabelPos(view));
+                c.__lanes = LANES;
+                snubGridLayer = c;
+            }
+            c2.drawImage(snubGridLayer, 0, 0, CANVAS_SIZE, CANVAS_SIZE);
+        }
+
+        /** 选点：最近的合法交点（阈值 26px，与旧扭棱插件一致） */
+        function snubPick(view, x, y) {
+            let best = -1, bestD = 26;
+            for (let i = 0; i < view.vertexCount; i++) {
+                const p = view.pos[i];
+                const d = Math.hypot(x - p.x, y - p.y);
+                if (d < bestD) { bestD = d; best = i; }
+            }
+            return best;
+        }
+
+        /* ---------------------------- 几何注册表 ---------------------------- */
+        /** 子棋类 id → { build(lanes), drawSkeleton(ctx, view), pick(view, x, y) } */
+        const GEOMETRY = {
+            'hexagon-weiqi': {
+                build(lanes) {
+                    const geo = generateHexBoard(lanes);
+                    return vertexViewFromGeo(geo, lanes, {
+                        totalPoints: 6 * (lanes - 1) * (lanes - 1),
+                        twoStepPlacing: lanes > 9,
+                        seatOverlayShape: 'hexagon',
+                        komi: subCfg().komi(lanes)
+                    });
+                },
+                drawSkeleton: hexDrawSkeleton,
+                pick: vertexPick
+            },
+            'floret-pentagon-weiqi': {
+                build(lanes) {
+                    const geo = generateFloretBoard(lanes);
+                    return vertexViewFromGeo(geo, lanes, {
+                        totalPoints: FLORET_TOTAL_POINTS[lanes] || geo.vertexCount,
+                        twoStepPlacing: lanes > 11,
+                        seatOverlayShape: 'square',
+                        komi: subCfg().komi(lanes),
+                        stoneRadius: geo.cellSize * 0.35
+                    });
+                },
+                drawSkeleton: floretDrawSkeleton,
+                pick: vertexPick
+            },
+            'cairo-pentagon-weiqi': {
+                build(lanes) {
+                    const layout = buildCairoLayout(lanes);
+                    const spec = {
+                        gridW: layout.gridW, gridH: layout.gridH,
+                        isValid: (r, c) => Cairo.isValidVertex(r, c, layout.gridW, layout.gridH),
+                        neighborList: (r, c) => Cairo.getNeighbors(r, c, layout.gridW, layout.gridH),
+                        unitPos: (r, c) => layout.pos.get(r + ',' + c),
+                        edgePath: layout.edgePath, rowLines: layout.rowLines, colLines: layout.colLines
+                    };
+                    const stoneR = 54 / (lanes - 1);
+                    return gridViewFromSpec(spec, lanes, {
+                        totalPoints: 12 * (lanes - 1) * (lanes - 1),
+                        twoStepPlacing: false,
+                        seatOverlayShape: 'square',
+                        komi: subCfg().komi(lanes),
+                        stoneRadius: stoneR,
+                        markLen: (r) => r * 0.8,
+                        markBgRadius: (r) => r * 0.56,
+                        markFontPx: (r, ch) => r * (ch === '🚩' ? 1.2 : 1.32),
+                        numberFontPx: (r, len) => r * (len >= 3 ? 0.85 : 1.05),
+                        estimateMarkScale: 0.4
+                    });
+                },
+                drawSkeleton: cairoDrawSkeleton,
+                pick: cairoPick
+            },
+            'snub-quadrangle-weiqi': {
+                build(lanes) {
+                    const layout = buildSnubLayout(lanes);
+                    const dims = Snub.gridDims(lanes);
+                    const spec = {
+                        gridW: dims.w, gridH: dims.h,
+                        isValid: (r, c) => Snub.isValidVertex(r, c, dims.w, dims.h),
+                        neighborList: (r, c) => Snub.getNeighbors(r, c, dims.w, dims.h),
+                        unitPos: (r, c) => layout.pos.get(r + ',' + c),
+                        edgePath: layout.edgePath
+                    };
+                    const stoneR = 75 / (lanes - 1) + 1.32;
+                    return gridViewFromSpec(spec, lanes, {
+                        totalPoints: 4 * (2 * lanes - 1) * (lanes - 1),
+                        twoStepPlacing: false,
+                        seatOverlayShape: 'square',
+                        komi: subCfg().komi(lanes),
+                        stoneRadius: stoneR,
+                        markLen: (r) => r * 0.8,
+                        markBgRadius: (r) => r * 0.56,
+                        markFontPx: (r, ch) => r * (ch === '🚩' ? 1.2 : 1.32),
+                        numberFontPx: (r, len) => r * (len >= 3 ? 0.85 : 1.05),
+                        estimateMarkScale: 0.4
+                    });
+                },
+                drawSkeleton: snubDrawSkeleton,
+                pick: snubPick
+            }
+        };
+        /** 桌面端：左缘固定，展开向右；距画布右缘 56px（原 6px 再向左 50px）、距底 6px */
+        function updateBoardMarkOuterPosition() {
+            const el = document.getElementById('boardMarkOuter');
+            if (!el) return;
+            // 六角围棋的木框是六边形，标记面板要贴它右下角外侧；其余子棋类是方形木纹，用壳默认位置
+            if (SUB !== 'hexagon-weiqi' || window.matchMedia('(max-width: 700px)').matches) {
+                el.style.left = '';
+                el.style.top = '';
+                el.style.bottom = '';
+                el.style.right = '';
+                el.style.marginLeft = '';
+                return;
+            }
+            const gapBottom = 6;
+            const gapFromCanvasRight = 56;
+            const collapsedTabW = 36;
+            el.style.left = `calc(100% - 140px)`;
+            el.style.right = 'auto';
+            el.style.top = 'auto';
+            el.style.bottom = `${gapBottom + 36}px`;
+            el.style.marginLeft = '0';
+        }
+
+        /* ---------------------- 视图构建与坐标换算（四种棋盘共用） ---------------------- */
+        /** 生成当前子棋类的几何；改路数/切子棋类后都要调用 */
+        /** 默认棋子：黑/白径向渐变圆（六角/花形用；开罗/扭棱自带精灵画法） */
+        function defaultDrawStone(c2, x, y, radius, color) {
+            const grad = c2.createRadialGradient(x - 3, y - 3, radius * 0.2, x, y, radius * 1.2);
+            if (color === 1) {
+                grad.addColorStop(0, '#444');
+                grad.addColorStop(0.6, '#222');
+                grad.addColorStop(1, '#111');
+            } else {
+                grad.addColorStop(0, '#fff');
+                grad.addColorStop(0.5, '#eee');
+                grad.addColorStop(1, '#aaa');
+            }
+            c2.beginPath();
+            c2.arc(x, y, radius, 0, 2 * Math.PI);
+            c2.fillStyle = grad;
+            c2.fill();
+        }
+
+        /** 共享绘制需要的尺寸/画法：子棋类没给就按顶格棋盘的常规值补上 */
+        function applyViewDefaults() {
+            const cs = VIEW.cellSize || 12;
+            const r = VIEW.stoneRadius != null ? VIEW.stoneRadius : cs * 0.44;
+            VIEW.stoneRadius = r;
+            VIEW.markLen = VIEW.markLen || ((radius) => radius * 0.68);
+            VIEW.markBgRadius = VIEW.markBgRadius || ((radius) => radius * 0.68);
+            VIEW.markFontPx = VIEW.markFontPx || ((radius, ch) => radius * (ch === '🚩' ? 1.36 : 1.5));
+            VIEW.numberFontPx = VIEW.numberFontPx || ((radius, len) => cs * (len >= 3 ? 0.28 : 0.36));
+            VIEW.stoneDotFactor = VIEW.stoneDotFactor != null ? VIEW.stoneDotFactor : 0.15;
+            // 形势判断/数点的小方块边长系数（× 棋子半径）：顶点类沿用 0.2×格距，网格类 0.4×棋子半径
+            VIEW.estimateMarkScale = VIEW.estimateMarkScale != null ? VIEW.estimateMarkScale : 0.2 / 0.44;
+            VIEW.drawStone = VIEW.drawStone || defaultDrawStone;
+            VIEW.hoverAlpha = VIEW.hoverAlpha != null ? VIEW.hoverAlpha : 0.45;
+        }
+
+        function buildView() {
+            floretGridLayer = null;   // 换棋盘后格线静态层失效
+            cairoGridLayer = null;
+            snubGridLayer = null;
+            const mod = GEOMETRY[SUB];
+            VIEW = mod.build(LANES);
+            VIEW.pick = mod.pick;
+            VIEW.drawSkeleton = mod.drawSkeleton;
+            applyViewDefaults();
+            refreshKomiInfo();
+        }
+
+        /** 贴目条文案（按当前子棋类） */
+        function refreshKomiInfo() {
+            QiWeiqiSquarePageRuntime.writeKomiInfoText(document.getElementById('komiInfo'), VIEW.komi, VIEW.totalPoints);
+        }
+
+        /** 协议里的掩码二维盘 board[行][列]（-1 无效点）→ 一维点数组 */
         function boardFromWire(wire) {
-            const flat = Array(V).fill(0);
+            const flat = Array(VIEW.vertexCount).fill(0);
             if (!Array.isArray(wire)) return flat;
             for (let r = 0; r < wire.length; r++) {
                 const line = wire[r];
                 if (!Array.isArray(line)) continue;
                 for (let c = 0; c < line.length; c++) {
-                    const v = vertexOfKoord(r, c);
-                    if (v >= 0) flat[v] = line[c];
+                    const i = VIEW.indexOf(r, c);
+                    if (i >= 0) flat[i] = line[c];
                 }
             }
             return flat;
         }
+
+        /** 协议二维盘的行数/列数：几何提供，缺省按坐标表推算 */
+        function wireRows() {
+            if (VIEW.geo && VIEW.geo.gridW) return VIEW.geo.gridW;
+            let maxR = 0;
+            for (const rc of VIEW.koordOf) if (rc[0] > maxR) maxR = rc[0];
+            return maxR + 1;
+        }
+        function wireCols() {
+            if (VIEW.geo && VIEW.geo.gridH) return VIEW.geo.gridH;
+            let maxC = 0;
+            for (const rc of VIEW.koordOf) if (rc[1] > maxC) maxC = rc[1];
+            return maxC + 1;
+        }
+
+        /** 一维点数组 → 掩码二维盘（编辑盘面提交用；无效点写 -1） */
+        function wireBoard(flat) {
+            const rows = Array.from({ length: wireRows() }, () => new Array(wireCols()).fill(-1));
+            for (let i = 0; i < VIEW.vertexCount; i++) {
+                const rc = VIEW.koordOf[i];
+                rows[rc[0]][rc[1]] = flat[i];
+            }
+            return rows;
+        }
+
         /** 协议里的着手列表 [{row,col}] → 内部 [{vertex}] */
         function wireMoveCoordsToVertices(list) {
             return (list || []).map((m) => {
                 if (m == null || m.type !== 'move' || m.row == null) return Object.assign({}, m);
-                return { type: 'move', player: m.player, vertex: vertexOfKoord(m.row, m.col) };
+                return { type: 'move', player: m.player, vertex: VIEW.indexOf(m.row, m.col) };
             });
         }
+
         /** 协议里的最近一手标记 [{row,col,color}] → 内部 [{vertex,color}] */
         function markersFromWire(list) {
             return (list || []).map((m) => {
                 if (m == null) return null;
                 if (m.vertex != null) return { vertex: m.vertex, color: m.color };
-                const v = vertexOfKoord(m.row, m.col);
+                const v = VIEW.indexOf(m.row, m.col);
                 return v < 0 ? null : { vertex: v, color: m.color };
             }).filter(Boolean);
         }
 
-        function applyHexGeometry(data) {
-            V = data.vertexCount;
-            transformed = data.transformed;
-            neighbors = data.neighborList;
-            hexagons = data.hexagons;
-            clickThreshold = data.clickThreshold;
-            cellSize = data.cellSize;
-            centerX = data.centerX;
-            centerY = data.centerY;
-            buildKoordTables();
-        }
-
-        applyHexGeometry(generateHexBoard(BOARD_SIZE));
+        buildView();
 
 // ======================== 房间参数 ========================
 
 // ======================== 游戏状态 ========================
-        let board = Array(V).fill(0);
+        let board = Array(VIEW.vertexCount).fill(0);
         let numberOfHands = 1;
         let currentPlayer = 1;
         let mySlot = null;               // 'player1' or 'player2'
@@ -301,7 +1117,7 @@ window.RoomPlugins["hexagon-weiqi"] = {
         let liveViewStep = 0;
         let liveFollowLatest = true;
 
-        /** 本地标记：键为顶点索引字符串 "0".."V-1" */
+        /** 本地标记：键为顶点索引字符串 "0".."VIEW.vertexCount-1" */
         let userBoardMarks = Object.create(null);
         if (typeof QiWeiqiSquarePageRuntime !== 'undefined' && QiWeiqiSquarePageRuntime.bindActiveUserBoardMarks) QiWeiqiSquarePageRuntime.bindActiveUserBoardMarks(userBoardMarks);
         const BOARD_MARK_CHAR_LIST = (() => {
@@ -347,7 +1163,7 @@ const scoreTitle = document.getElementById('scoreTitle');
         const isMouseDevice = window.matchMedia('(hover: hover) and (pointer: fine)').matches;
 
         function mobileTwoStepPlacing() {
-            return !isMouseDevice && BOARD_SIZE > 9;
+            return !isMouseDevice && !!VIEW.twoStepPlacing;
         }
         function clearMobileMovePreview() {
             hoverVertex = -1;
@@ -355,18 +1171,6 @@ const scoreTitle = document.getElementById('scoreTitle');
         }
 
         // ======================== 工具函数 ========================
-        const KOMI = 3.25;
-
-        /** 六角棋盘顶点总数：6(N−1)²（与 generateHexBoardData 生成结果对拍一致） */
-        function hexTotalPoints() {
-            const n = BOARD_SIZE;
-            return 6 * (n - 1) * (n - 1);
-        }
-        function refreshHexKomiInfo() {
-            QiWeiqiSquarePageRuntime.writeKomiInfoText(document.getElementById('komiInfo'), KOMI, hexTotalPoints());
-        }
-        refreshHexKomiInfo();
-
         function formatScore(num) {
             let str = num.toFixed(2);
             return str.replace(/\.?0+$/, '');
@@ -374,7 +1178,7 @@ const scoreTitle = document.getElementById('scoreTitle');
 
         function isUserBoardMarkVisibleAtVertex(v) {
             if (showEstimateActive) return false;
-            if (v < 0 || v >= V) return false;
+            if (v < 0 || v >= VIEW.vertexCount) return false;
             if (board[v] !== 0) return false;
             return true;
         }
@@ -386,12 +1190,12 @@ const scoreTitle = document.getElementById('scoreTitle');
             const color = boardState[start];
             if (color === 0) return false;
             const queue = [start];
-            const visitedLocal = visited || new Array(V).fill(false);
+            const visitedLocal = visited || new Array(VIEW.vertexCount).fill(false);
             visitedLocal[start] = true;
             let idx = 0;
             while (idx < queue.length) {
                 const v = queue[idx++];
-                for (let nb of neighbors[v]) {
+                for (let nb of VIEW.neighbors[v]) {
                     if (boardState[nb] === 0) return true;
                     if (boardState[nb] === color && !visitedLocal[nb]) {
                         visitedLocal[nb] = true;
@@ -410,7 +1214,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             let idx = 0;
             while (idx < queue.length) {
                 const v = queue[idx++];
-                for (let nb of neighbors[v]) {
+                for (let nb of VIEW.neighbors[v]) {
                     if (boardState[nb] === color) {
                         boardState[nb] = 0;
                         queue.push(nb);
@@ -425,7 +1229,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             newBoard[vertex] = playerVal;
 
             // 移除对方无气棋子
-            for (let v = 0; v < V; v++) {
+            for (let v = 0; v < VIEW.vertexCount; v++) {
                 if (newBoard[v] === 3 - playerVal && !hasLiberty(newBoard, v)) {
                     removeGroup(newBoard, v);
                 }
@@ -438,7 +1242,7 @@ const scoreTitle = document.getElementById('scoreTitle');
 
         // 形势判断函数（复用原代码中的）
         function isLibertySurroundedByOpponent(boardState, libertyVertex, opponentColor) {
-            for (let nb of neighbors[libertyVertex]) {
+            for (let nb of VIEW.neighbors[libertyVertex]) {
                 if (boardState[nb] === opponentColor) return true;
             }
             return false;
@@ -449,8 +1253,8 @@ const scoreTitle = document.getElementById('scoreTitle');
             let changed = true;
             while (changed) {
                 changed = false;
-                let visited = new Array(V).fill(false);
-                for (let v = 0; v < V; v++) {
+                let visited = new Array(VIEW.vertexCount).fill(false);
+                for (let v = 0; v < VIEW.vertexCount; v++) {
                     if (newBoard[v] !== 0 && !visited[v]) {
                         let color = newBoard[v];
                         let queue = [v];
@@ -460,7 +1264,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                         let idx = 0;
                         while (idx < queue.length) {
                             let cur = queue[idx++];
-                            for (let nb of neighbors[cur]) {
+                            for (let nb of VIEW.neighbors[cur]) {
                                 if (newBoard[nb] === 0) liberties.add(nb);
                                 else if (newBoard[nb] === color && !visited[nb]) {
                                     visited[nb] = true;
@@ -493,51 +1297,43 @@ const scoreTitle = document.getElementById('scoreTitle');
             return newBoard;
         }
 
-        function multiSourceBFS(liveBoard, color) {
-            let dist = new Array(V).fill(Infinity);
-            let queue = [];
-            for (let v = 0; v < V; v++) {
-                if (liveBoard[v] === color) {
-                    dist[v] = 0;
-                    queue.push(v);
-                }
-            }
-            let head = 0;
-            while (head < queue.length) {
-                let cur = queue[head++];
-                for (let nb of neighbors[cur]) {
-                    if (dist[nb] > dist[cur] + 1) {
-                        dist[nb] = dist[cur] + 1;
-                        queue.push(nb);
+        /**
+         * 领地归属（与后端 gridGraphWeiqiRules.assignTerritoryWithRange 同一套算法）：
+         * 每个空点只在其 maxDist 步内找最近的黑/白子——靠边的行/列给 5 步、其余 4 步；
+         * 双方都超出范围就该点算公共（3），不会「无论多远都按最近的子归属」。
+         */
+        function assignTerritory(liveBoard) {
+            const rows = wireRows(), cols = wireCols();
+            const territory = new Array(VIEW.vertexCount).fill(0);
+            const dist = new Array(VIEW.vertexCount).fill(-1);
+            const queue = new Array(VIEW.vertexCount);
+            for (let start = 0; start < VIEW.vertexCount; start++) {
+                if (liveBoard[start] !== 0) continue;
+                const rc = VIEW.koordOf[start];
+                const maxDist = (rc[0] <= 1 || rc[0] >= rows - 2 || rc[1] <= 1 || rc[1] >= cols - 2) ? 5 : 4;
+                let blackMin = Infinity, whiteMin = Infinity;
+                let head = 0, tail = 0;
+                dist.fill(-1);
+                dist[start] = 0;
+                queue[tail++] = start;
+                while (head < tail) {
+                    const cur = queue[head++];
+                    const d = dist[cur];
+                    if (d > maxDist) continue;
+                    const val = liveBoard[cur];
+                    if (val === 1 && d < blackMin) blackMin = d;
+                    else if (val === 2 && d < whiteMin) whiteMin = d;
+                    for (const nb of VIEW.neighbors[cur]) {
+                        if (dist[nb] === -1) { dist[nb] = d + 1; queue[tail++] = nb; }
                     }
                 }
-            }
-            return dist;
-        }
-
-        function assignTerritory(liveBoard) {
-            let territory = new Array(V).fill(0);
-            let blackCount = 0, whiteCount = 0;
-            for (let v = 0; v < V; v++) {
-                if (liveBoard[v] === 1) blackCount++;
-                else if (liveBoard[v] === 2) whiteCount++;
-            }
-            if (blackCount === 0 && whiteCount === 0) return territory;
-            if (blackCount === 0) {
-                for (let v = 0; v < V; v++) if (liveBoard[v] === 0) territory[v] = 2;
-                return territory;
-            }
-            if (whiteCount === 0) {
-                for (let v = 0; v < V; v++) if (liveBoard[v] === 0) territory[v] = 1;
-                return territory;
-            }
-            let distBlack = multiSourceBFS(liveBoard, 1);
-            let distWhite = multiSourceBFS(liveBoard, 2);
-            for (let v = 0; v < V; v++) {
-                if (liveBoard[v] !== 0) continue;
-                if (distBlack[v] < distWhite[v]) territory[v] = 1;
-                else if (distWhite[v] < distBlack[v]) territory[v] = 2;
-                else territory[v] = 3;
+                if (blackMin <= maxDist && whiteMin <= maxDist) {
+                    if (blackMin < whiteMin) territory[start] = 1;
+                    else if (whiteMin < blackMin) territory[start] = 2;
+                    else territory[start] = 3;
+                } else if (blackMin <= maxDist) territory[start] = 1;
+                else if (whiteMin <= maxDist) territory[start] = 2;
+                else territory[start] = 3;
             }
             return territory;
         }
@@ -545,7 +1341,7 @@ const scoreTitle = document.getElementById('scoreTitle');
         function computeScore(liveBoard, territory) {
             let blackStones = 0, whiteStones = 0;
             let blackTerritory = 0, whiteTerritory = 0, publicTerritory = 0;
-            for (let v = 0; v < V; v++) {
+            for (let v = 0; v < VIEW.vertexCount; v++) {
                 if (liveBoard[v] === 1) blackStones++;
                 else if (liveBoard[v] === 2) whiteStones++;
                 else {
@@ -562,8 +1358,8 @@ const scoreTitle = document.getElementById('scoreTitle');
         // Benson 加成（顶点图棋盘：沿用本棋种邻接）
         function bensonInfoVertex(bd) {
             return window.QiWeiqiSquarePageRuntime.bensonAliveGraph({
-                n: V,
-                neighbors: (i) => neighbors[i] || [],
+                n: VIEW.vertexCount,
+                neighbors: (i) => VIEW.neighbors[i] || [],
                 get: (i) => bd[i]
             });
         }
@@ -574,7 +1370,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             while (changed) {
                 changed = false;
                 const cleaned = removeDeadAndDying(live);
-                for (let i = 0; i < V; i++) {
+                for (let i = 0; i < VIEW.vertexCount; i++) {
                     const v = srcBoard[i];
                     if (benson.alive[i] && (v === 1 || v === 2) && cleaned[i] !== v) {
                         cleaned[i] = v;
@@ -588,7 +1384,7 @@ const scoreTitle = document.getElementById('scoreTitle');
         function bensonTerritoryVertex(liveBoard) {
             const territory = assignTerritory(liveBoard);
             const secure = bensonInfoVertex(liveBoard);
-            for (let i = 0; i < V; i++) {
+            for (let i = 0; i < VIEW.vertexCount; i++) {
                 if (liveBoard[i] === 0 && secure.territory[i]) territory[i] = secure.territory[i];
             }
             return territory;
@@ -602,11 +1398,11 @@ const scoreTitle = document.getElementById('scoreTitle');
 
         function computeLead() {
             let { blackTotal, whiteTotal } = computeScoreFromBoard(board);
-            return blackTotal - whiteTotal - 2 * KOMI;
+            return blackTotal - whiteTotal - 2 * VIEW.komi;
         }
 
         function computeStoneNumbers() {
-            const nums = new Array(V).fill(0);
+            const nums = new Array(VIEW.vertexCount).fill(0);
             if (replayMode && tryPlayMode) {
                 for (let i = 1; i <= tryPlayStep; i++) {
                     const markers = tryPlayMarkers[i];
@@ -677,59 +1473,38 @@ const scoreTitle = document.getElementById('scoreTitle');
         }
 
         function drawEstimateOverlay(liveBoard, territory) {
-            const markSize = cellSize * 0.2;
-            for (let v = 0; v < V; v++) {
+            const markSize = VIEW.stoneRadius * VIEW.estimateMarkScale;
+            for (let v = 0; v < VIEW.vertexCount; v++) {
                 if (board[v] !== 0 && liveBoard[v] === 0) {
-                    let { x, y } = transformed[v];
+                    let { x, y } = VIEW.pos[v];
                     ctx.fillStyle = board[v] === 1 ? '#ffffff' : '#222222';
                     ctx.fillRect(x - markSize, y - markSize, markSize * 2, markSize * 2);
                 }
             }
-            for (let v = 0; v < V; v++) {
+            for (let v = 0; v < VIEW.vertexCount; v++) {
                 if (board[v] !== 0) continue;
                 let owner = territory[v];
                 if (owner === 0 || owner === 3) continue;
                 ctx.fillStyle = owner === 1 ? '#222' : '#f0f0f0';
-                let { x, y } = transformed[v];
+                let { x, y } = VIEW.pos[v];
                 ctx.fillRect(x - markSize, y - markSize, markSize * 2, markSize * 2);
             }
         }
 
         function drawBoard() {
             ctx.clearRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
-            const angles = [0, 60, 120, 180, 240, 300].map(deg => deg * Math.PI / 180);
-            const outerVerts = angles.map(angle => ({
-                x: FRAME_CENTER + OUTER_HEX_RADIUS * Math.cos(angle),
-                y: FRAME_CENTER + OUTER_HEX_RADIUS * Math.sin(angle)
-            }));
-            // 木质外框与 weiqi 统一：无阴影、背景 #fdcc90、边线 #3a281c 0.5px
             ctx.shadowBlur = 0;
             ctx.shadowOffsetY = 0;
-            ctx.fillStyle = QiSquareWeiqiCanvas.getWoodFill(ctx, canvas) || '#fdcc90';
-            ctx.strokeStyle = '#3a281c';
-            ctx.lineWidth = 0.5;
-            drawRoundedHexagon(ctx, outerVerts, FRAME_CORNER_RADIUS, false);
-            ctx.lineWidth = 1.5;
-            ctx.strokeStyle = '#3a281c';
-            ctx.lineJoin = 'miter';
-            for (let hex of hexagons) {
-                for (let i = 0; i < 6; i++) {
-                    const a = hex[i];
-                    const b = hex[(i + 1) % 6];
-                    ctx.beginPath();
-                    ctx.moveTo(transformed[a].x, transformed[a].y);
-                    ctx.lineTo(transformed[b].x, transformed[b].y);
-                    ctx.stroke();
-                }
-            }
+            // 木框、格线、坐标标签由各子棋类的几何模块画；棋子/标记/手数/形势判断由下面共享逻辑画
+            VIEW.drawSkeleton(ctx, VIEW);
 
-            const markSize = cellSize * 0.3;
-            const stoneRadius = cellSize * 0.44;
+            const stoneRadius = VIEW.stoneRadius;
+            const markSize = VIEW.markLen(stoneRadius);
             const lowerLastMoveMarker = showMoveNumbers || showEstimateActive;
             if (lowerLastMoveMarker) {
                 for (let { vertex, color } of lastMoveMarkers) {
                     if (vertex === undefined) continue;
-                    const { x, y } = transformed[vertex];
+                    const { x, y } = VIEW.pos[vertex];
                     ctx.beginPath();
                     ctx.moveTo(x + stoneRadius, y + stoneRadius);
                     ctx.lineTo(x, y + stoneRadius);
@@ -740,32 +1515,19 @@ const scoreTitle = document.getElementById('scoreTitle');
                 }
             }
 
-            for (let v = 0; v < V; v++) {
+            for (let v = 0; v < VIEW.vertexCount; v++) {
                 if (board[v] === 0) continue;
                 const radius = stoneRadius;
-                const { x, y } = transformed[v];
+                const { x, y } = VIEW.pos[v];
                 ctx.shadowBlur = 6;
                 ctx.shadowColor = 'rgba(0,0,0,0.5)';
                 ctx.shadowOffsetY = 2;
-                const gradient = ctx.createRadialGradient(x - 3, y - 3, radius * 0.2, x, y, radius * 1.2);
-                if (board[v] === 1) {
-                    gradient.addColorStop(0, '#444');
-                    gradient.addColorStop(0.6, '#222');
-                    gradient.addColorStop(1, '#111');
-                } else {
-                    gradient.addColorStop(0, '#fff');
-                    gradient.addColorStop(0.5, '#eee');
-                    gradient.addColorStop(1, '#aaa');
-                }
-                ctx.beginPath();
-                ctx.arc(x, y, radius, 0, 2 * Math.PI);
-                ctx.fillStyle = gradient;
-                ctx.fill();
+                VIEW.drawStone(ctx, x, y, radius, board[v]);
                 ctx.shadowBlur = 0;
                 ctx.shadowOffsetY = 0;
                 if (!showMoveNumbers) {
                     ctx.beginPath();
-                    ctx.arc(x - 3, y - 3, radius * 0.15, 0, 2 * Math.PI);
+                    ctx.arc(x - 3, y - 3, radius * VIEW.stoneDotFactor, 0, 2 * Math.PI);
                     ctx.fillStyle = board[v] === 1 ? '#444' : '#fff';
                     ctx.fill();
                 }
@@ -774,11 +1536,11 @@ const scoreTitle = document.getElementById('scoreTitle');
                 const nums = computeStoneNumbers();
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
-                for (let v = 0; v < V; v++) {
+                for (let v = 0; v < VIEW.vertexCount; v++) {
                     if (nums[v] > 0 && board[v] !== 0) {
-                        const { x, y } = transformed[v];
+                        const { x, y } = VIEW.pos[v];
                         const numStr = nums[v].toString();
-                        const fontSize = Math.max(8, Math.floor(cellSize * (numStr.length >= 3 ? 0.28 : 0.36)));
+                        const fontSize = Math.max(8, Math.floor(VIEW.numberFontPx(stoneRadius, numStr.length)));
                         ctx.font = `bold ${fontSize}px Arial`;
                         ctx.fillStyle = board[v] === 1 ? '#fff' : '#000';
                         ctx.fillText(numStr, x, y + 1);
@@ -788,7 +1550,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             if (!lowerLastMoveMarker) {
                 for (let { vertex, color } of lastMoveMarkers) {
                     if (vertex === undefined) continue;
-                    const { x, y } = transformed[vertex];
+                    const { x, y } = VIEW.pos[vertex];
                     ctx.beginPath();
                     ctx.moveTo(x, y);
                     ctx.lineTo(x + markSize, y);
@@ -802,13 +1564,13 @@ const scoreTitle = document.getElementById('scoreTitle');
                 const v = parseInt(key, 10);
                 if (Number.isNaN(v) || !isUserBoardMarkVisibleAtVertex(v)) continue;
                 const ch = userBoardMarks[key];
-                const { x, y } = transformed[v];
-                const markBgR = cellSize * 0.3;
+                const { x, y } = VIEW.pos[v];
+                const markBgR = VIEW.markBgRadius(stoneRadius);
                 ctx.beginPath();
                 ctx.arc(x, y, markBgR, 0, 2 * Math.PI);
                 ctx.fillStyle = '#fdcc90';
                 ctx.fill();
-                const fontPx = cellSize * (ch === '🚩' ? 0.6 : 0.66);
+                const fontPx = VIEW.markFontPx(stoneRadius, ch);
                 ctx.font = `bold ${fontPx}px "Segoe UI", "Apple Color Emoji", "Segoe UI Emoji", sans-serif`;
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
@@ -829,8 +1591,8 @@ const scoreTitle = document.getElementById('scoreTitle');
                 } else if (tryPlayMode) hoverColor = tryPlayCurrentPlayer === 1 ? '#222' : '#fff';
                 else hoverColor = mySlot === 'player1' ? '#222' : '#fff';
                 if (hoverColor) {
-                    const { x, y } = transformed[hoverVertex];
-                    ctx.globalAlpha = 0.45;
+                    const { x, y } = VIEW.pos[hoverVertex];
+                    ctx.globalAlpha = VIEW.hoverAlpha;
                     ctx.beginPath();
                     // 悬停预览与棋子同径（三角五子棋/围棋一致）
                     ctx.arc(x, y, stoneRadius, 0, 2 * Math.PI);
@@ -854,7 +1616,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             cachedLiveBoard = bensonRemoveDeadVertex(board);
             cachedTerritory = bensonTerritoryVertex(cachedLiveBoard);
             let { blackTotal, whiteTotal } = computeScore(cachedLiveBoard, cachedTerritory);
-            let lead = blackTotal - whiteTotal - 2 * KOMI;
+            let lead = blackTotal - whiteTotal - 2 * VIEW.komi;
             scoreTitle.innerText = '形势判断';
             scoreBoard.innerText = `黑: ${formatScore(blackTotal)} | 白: ${formatScore(whiteTotal)}`;
             leadInfo.innerText = `黑${lead >= 0 ? '+' : ''}${formatScore(lead)}点`;
@@ -863,6 +1625,7 @@ const scoreTitle = document.getElementById('scoreTitle');
 
         function clearEstimate()
         {
+            showEstimateActive = false;   // 关形势判断：标志与缓存一起清，避免下次状态同步又算回来
             cachedLiveBoard = null;
             cachedTerritory = null;
             scoreTitle.innerText = '　';
@@ -953,7 +1716,7 @@ const scoreTitle = document.getElementById('scoreTitle');
         }
 
         function downloadRecord(data) {
-            QiSquareWeiqiCanvas.downloadWeiqiJsonRecord(data, recordDownloadPrefix);
+            QiSquareWeiqiCanvas.downloadWeiqiJsonRecord(data, recordPrefix());
         }
 
         function enterReplayMode(data) {
@@ -961,7 +1724,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             replayMarkers = [];
             replayStepPlayers = [0];
 
-            let curBoard = Array(V).fill(0);
+            let curBoard = Array(VIEW.vertexCount).fill(0);
             if (data.initialPosition) {
                 if (Array.isArray(data.initialPosition)) {
                     for (const s of data.initialPosition) {
@@ -970,20 +1733,20 @@ const scoreTitle = document.getElementById('scoreTitle');
                         if (p !== 'B' && p !== 'W') continue;
                         const mm = /^(d+),(d+)$/.exec(s.slice(1));
                         if (!mm) continue;
-                        const vi = vertexOfKoord(Number(mm[1]), Number(mm[2]));
-                        if (vi < 0 || vi >= V) continue;
+                        const vi = VIEW.indexOf(Number(mm[1]), Number(mm[2]));
+                        if (vi < 0 || vi >= VIEW.vertexCount) continue;
                         curBoard[vi] = p === 'B' ? 1 : 2;
                     }
                 } else if (Array.isArray(data.initialPosition.black)) {
                     for (const pos of data.initialPosition.black) {
                         const vi = typeof pos === 'number' ? pos : pos[0];
-                        if (vi >= 0 && vi < V) curBoard[vi] = 1;
+                        if (vi >= 0 && vi < VIEW.vertexCount) curBoard[vi] = 1;
                     }
                 }
                 if (Array.isArray(data.initialPosition.white)) {
                     for (const pos of data.initialPosition.white) {
                         const vi = typeof pos === 'number' ? pos : pos[0];
-                        if (vi >= 0 && vi < V) curBoard[vi] = 2;
+                        if (vi >= 0 && vi < VIEW.vertexCount) curBoard[vi] = 2;
                     }
                 }
             }
@@ -1115,6 +1878,7 @@ const scoreTitle = document.getElementById('scoreTitle');
         }
 
         function exitTryPlay() {
+            if (!tryPlayMode) return;   // 不在试下状态时不动任何局面（公共层开新局也会调用它）
             clearMobileMovePreview();
             // 与公共 exitTryPlay 一致：从直播进入试下的要退回直播局面，而不是走打谱 setReplayStep
             const fromLive = !!tryPlayFromLive;
@@ -1251,7 +2015,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             liveReplayBoards = [];
             liveReplayMarkers = [];
             liveReplayStepPlayers = [0];
-            let curBoard = (openingBoard && openingBoard.length === V) ? deepCopyBoard(openingBoard) : Array(V).fill(0);
+            let curBoard = (openingBoard && openingBoard.length === VIEW.vertexCount) ? deepCopyBoard(openingBoard) : Array(VIEW.vertexCount).fill(0);
             liveReplayBoards.push(deepCopyBoard(curBoard));
             liveReplayMarkers.push([]);
             for (const move of (moveCoords || [])) {
@@ -1304,7 +2068,7 @@ const scoreTitle = document.getElementById('scoreTitle');
 
         function applyLiveViewBoard() {
             if (!liveReplayBoards.length) {
-                board = Array(V).fill(0);
+                board = Array(VIEW.vertexCount).fill(0);
                 lastMoveMarkers = [];
                 return;
             }
@@ -1368,17 +2132,24 @@ const scoreTitle = document.getElementById('scoreTitle');
         function syncState(state)
         {
             clearMobileMovePreview();
+            // 子棋类与路数都可能被服务端改（观战者切子棋类 / 改路数）：先按 state 校正，再同步局面
+            const incomingSub = (state.subGameId && SUB_META[state.subGameId]) ? state.subGameId : null;
             const incomingSize = state.boardSize != null ? Number(state.boardSize) : NaN;
-            const sizeNum = Number(BOARD_SIZE);
-            const needGeometry =
-                Number.isFinite(incomingSize) &&
-                incomingSize !== sizeNum;
-            if (needGeometry) {
-                BOARD_SIZE = incomingSize;
-                applyHexGeometry(generateHexBoard(BOARD_SIZE));
-                refreshHexKomiInfo();
-                const sizeSelect = document.getElementById('boardSizeSelect');
-                if (sizeSelect) sizeSelect.value = String(BOARD_SIZE);
+            const subChanged = !!incomingSub && incomingSub !== SUB;
+            const sizeChanged = Number.isFinite(incomingSize) && incomingSize !== LANES;
+            if (subChanged || sizeChanged) {
+                if (subChanged) {
+                    // 别人切了子棋类（或自己切的回声）：同样按开新局处理
+                    exitTryPlay();
+                    exitReplayMode();
+                    clearEstimate();
+                    SUB = incomingSub;
+                }
+                LANES = Number.isFinite(incomingSize) ? incomingSize : rememberedOrDef(SUB);
+                syncSubGameSelect();
+                rebuildSizeSelect();
+                buildView();
+                applySubShellChrome();
             }
             numberOfHands = state.numberOfHands || 1;
             currentPlayer = state.currentPlayer;
@@ -1433,6 +2204,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                 cachedLiveBoard = removeDeadAndDying(board);
                 cachedTerritory = assignTerritory(cachedLiveBoard);
             }
+            syncSubGameSelect();
             updateTurn();
             updateReplayUI();
         }
@@ -1440,13 +2212,13 @@ const scoreTitle = document.getElementById('scoreTitle');
         let updateRadioStyles = () => {};
         let handleMessage = () => {};
         function initHexBoardArray() {
-            return Array(V).fill(0);
+            return Array(VIEW.vertexCount).fill(0);
         }
         const _weiqiBindings = QiBoardRoomClient.createWeiqiMessageBindings({
             roomId,
             gameType,
             // 物理总点数（顶点数）：开局前对局设置的默认时间按总点数推算
-            getTotalPoints: () => V,
+            getTotalPoints: () => VIEW.vertexCount,
             pageState: {
                 get mySlot() { return mySlot; },
                 set mySlot(v) { mySlot = v; },
@@ -1487,13 +2259,13 @@ const scoreTitle = document.getElementById('scoreTitle');
             setReplayStep,
             setLiveViewStep,
             getWs: () => ws,
-            getBoardSize: () => BOARD_SIZE,
+            getBoardSize: () => LANES,
             setBoardSize: (n) => {
-                BOARD_SIZE = n;
-                applyHexGeometry(generateHexBoard(BOARD_SIZE));
-                refreshHexKomiInfo();
+                LANES = n;
+                recordSize();
+                buildView();
             },
-            getKomi: () => KOMI,
+            getKomi: () => VIEW.komi,
             setKomi: () => {},
             // 公共 updateRecordButtons 期望二维数组，这里提供兼容视图即可复用其逻辑。
             getBoard: () => board.map(v => [v]),
@@ -1532,11 +2304,12 @@ komiInfo,
             onBoardSizeChanged: (msg) => {
                 if (msg.boardSize == null) return;
                 const bs = Number(msg.boardSize);
-                if (Number.isFinite(bs) && bs !== Number(BOARD_SIZE)) {
-                    BOARD_SIZE = bs;
-                    applyHexGeometry(generateHexBoard(BOARD_SIZE));
-                    refreshHexKomiInfo();
-                    board = Array(V).fill(0);
+                if (Number.isFinite(bs) && bs !== Number(LANES)) {
+                    LANES = bs;
+                    recordSize();
+                    buildView();
+                    rebuildSizeSelect();
+                    board = Array(VIEW.vertexCount).fill(0);
                 }
                 const sel = document.getElementById('boardSizeSelect');
                 if (sel) sel.value = String(msg.boardSize);
@@ -1545,7 +2318,7 @@ komiInfo,
             isMouseDevice,
             standardWeiqiMatchTime,
             boardSeatOverlay: true,
-            seatOverlayShape: 'hexagon'
+            get seatOverlayShape() { return VIEW.seatOverlayShape || 'square'; }
         });
         handleMessage = _weiqiBindings.handleMessage;
         updateRecordButtons = _weiqiBindings.updateRecordButtons;
@@ -1555,50 +2328,19 @@ komiInfo,
             if (gameOver) return false;
             if (!isMyTurn) return false;
             if (board[vertex] !== 0) return false;
-            const rc = koordOfVertex[vertex];
+            const rc = VIEW.koordOf[vertex];
             if (!rc) return false;
             ws.send(JSON.stringify({ type: 'move', row: rc[0], col: rc[1] }));
             return true;
         }
 
         /** 木质外框六边形顶点（与 drawBoard 中 outerVerts 一致），用于棋盘内点击判定 */
-        function outerFrameVerts() {
-            return [0, 60, 120, 180, 240, 300].map(deg => {
-                const a = deg * Math.PI / 180;
-                return {
-                    x: FRAME_CENTER + OUTER_HEX_RADIUS * Math.cos(a),
-                    y: FRAME_CENTER + OUTER_HEX_RADIUS * Math.sin(a)
-                };
-            });
-        }
 
         /** 点在多边形内判定（ray casting，顶点按 {x,y} 数组） */
-        function pointInPolygon(px, py, verts) {
-            let inside = false;
-            for (let i = 0, j = verts.length - 1; i < verts.length; j = i++) {
-                const xi = verts[i].x, yi = verts[i].y;
-                const xj = verts[j].x, yj = verts[j].y;
-                if (((yi > py) !== (yj > py)) && (px < (xj - xi) * (py - yi) / (yj - yi) + xi)) {
-                    inside = !inside;
-                }
-            }
-            return inside;
-        }
 
         function getNearestVertex(x, y) {
-            // 点在六边形棋盘之外时无效：避免正方形画布内的外部点击吸附到邻近顶点
-            if (!pointInPolygon(x, y, outerFrameVerts())) return -1;
-            let minDist = Infinity, best = -1;
-            for (let v = 0; v < V; v++) {
-                const { x: vx, y: vy } = transformed[v];
-                const dx = vx - x, dy = vy - y;
-                const dist = Math.sqrt(dx * dx + dy * dy);
-                if (dist < minDist) {
-                    minDist = dist;
-                    best = v;
-                }
-            }
-            return minDist < clickThreshold ? best : -1;
+            // 「点到哪一点」由各子棋类的几何模块决定（木框内的最近点等）
+            return VIEW.pick(VIEW, x, y);
         }
 
         function canvasCoordsFromClient(clientX, clientY) {
@@ -1618,7 +2360,7 @@ komiInfo,
         }
 
         function applyUserBoardMark(vertex) {
-            if (vertex < 0 || vertex >= V) return;
+            if (vertex < 0 || vertex >= VIEW.vertexCount) return;
             if (board[vertex] !== 0) return;
             const { clear, ch } = getSelectedBoardMark();
             const key = String(vertex);
@@ -1828,16 +2570,9 @@ komiInfo,
                 canvas: document.getElementById('goBoard'),
                 mode: 'flat',
                 sendBoard(bd) {
-                    /* 编辑提交也走坐标：一维顶点盘 → 坐标锯齿二维盘 board[行][列] */
-                    const rows = [];
-                    for (let v = 0; v < bd.length; v++) {
-                        const rc = koordOfVertex[v];
-                        if (!rc) continue;
-                        if (!rows[rc[0]]) rows[rc[0]] = [];
-                        rows[rc[0]][rc[1]] = bd[v];
-                    }
+                    /* 编辑提交走坐标：一维点数组 → 掩码二维盘 board[行][列]（无效点 -1） */
                     if (typeof ws !== 'undefined' && ws && ws.readyState === 1) {
-                        ws.send(JSON.stringify({ type: 'editBoard', board: rows }));
+                        ws.send(JSON.stringify({ type: 'editBoard', board: wireBoard(bd) }));
                     }
                 },
 
@@ -1857,7 +2592,7 @@ komiInfo,
                     : (typeof drawBoard === 'function' ? drawBoard : function () {})),
                 getBoard() { return board; },
                 setBoard(b) { board = b; },
-                emptyBoard() { return Array((typeof V !== 'undefined' ? V : board.length)).fill(0); }
+                emptyBoard() { return Array((typeof VIEW.vertexCount !== 'undefined' ? VIEW.vertexCount : board.length)).fill(0); }
             });
             if (typeof syncState === 'function') {
                 const _sync0 = syncState;
@@ -1874,6 +2609,109 @@ komiInfo,
                 };
             }
         }
+
+        /* ---------------------- 子棋类：下拉、路数下拉与壳文案 ---------------------- */
+        /** 棋谱/下载文件前缀按当前子棋类 */
+        function recordPrefix() {
+            return subCfg().prefix;
+        }
+
+        /** 路数下拉按当前子棋类的范围重建 */
+        function rebuildSizeSelect() {
+            const sel = document.getElementById('boardSizeSelect');
+            if (!sel) return;
+            const cfg = subCfg();
+            sel.innerHTML = '';
+            for (let n = cfg.min; n <= cfg.max; n++) {
+                const opt = document.createElement('option');
+                opt.value = String(n);
+                opt.textContent = n + '路';
+                sel.appendChild(opt);
+            }
+            sel.value = String(LANES);
+        }
+
+        /** 子棋类下拉：显示当前项；开局/落座后禁用（服务端也会拒绝） */
+        function syncSubGameSelect() {
+            const sel = document.getElementById('subGameSelect');
+            if (!sel) return;
+            sel.value = SUB;
+            // 与服务端 gate 一致：房内只要有人入座就不能再换子棋类（观战者之间也不行）
+            sel.disabled = (numberOfHands || 1) > 1 || !!matchStarted || !!gameOver || !!(slots.player1 || slots.player2);
+        }
+
+        /**
+         * 木纹外框按子棋类切换：
+         *   六角围棋 —— 隐藏壳统一的方形木纹（body 加 qi-room-transparent-canvas），只画自己的六角形木框；
+         *   其余三种 —— 去掉该 class，并把方形木纹铺回画布（它们的骨架只画格线与坐标标签）。
+         */
+        function applySubWoodFrame() {
+            const hexagon = SUB === 'hexagon-weiqi';
+            document.body.classList.toggle('qi-room-transparent-canvas', hexagon);
+            const canvasEl = document.getElementById('goBoard');
+            if (!canvasEl) return;
+            if (hexagon) {
+                canvasEl.style.backgroundImage = '';
+                canvasEl.style.backgroundSize = '';
+                canvasEl.style.backgroundRepeat = '';
+                canvasEl.style.backgroundPosition = '';
+            } else if (typeof QiSquareWeiqiCanvas !== 'undefined' && QiSquareWeiqiCanvas.applyBoardWoodTexture) {
+                QiSquareWeiqiCanvas.applyBoardWoodTexture(canvasEl);
+            }
+            drawBoardWithOverlay();
+        }
+
+        /** 规则弹层与贴目文案按当前子棋类 */
+        function applySubShellChrome() {
+            const cfg = subCfg();
+            const rulesTitle = document.getElementById('rulesTitle');
+            if (rulesTitle) rulesTitle.textContent = cfg.name;
+            const rulesBody = document.getElementById('rulesBody');
+            if (rulesBody) rulesBody.innerHTML = cfg.rulesHtml;
+            applySubWoodFrame();
+            updateBoardMarkOuterPosition();
+            // 蒙版形状在「创建蒙版」与「窗口 resize」时才会重新解析：换子棋类后补发一次 resize，
+            // 让壳按当前的 ctx.seatOverlayShape（六角=六边形，其余=方形）重画蒙版
+            try { window.dispatchEvent(new Event('resize')); } catch (e) { /* ignore */ }
+            refreshKomiInfo();
+        }
+
+        (function mountSubGameSelect() {
+            const sel = document.getElementById('subGameSelect');
+            if (!sel) return;
+            sel.innerHTML = '';
+            for (const id of SUB_GAMES) {
+                const opt = document.createElement('option');
+                opt.value = id;
+                opt.textContent = SUB_META[id].name;
+                sel.appendChild(opt);
+            }
+            sel.style.display = 'inline-block';
+            sel.addEventListener('change', () => {
+                const v = sel.value;
+                if (!SUB_META[v] || v === SUB) return;
+                // 乐观切换：本地先换几何/路数/贴目并清盘重绘；服务端 subGameChanged 回来再校正
+                // 切子棋类等于开新局：先退出试下（清掉试下棋子）、打谱与形势判断，再换棋盘
+                exitTryPlay();
+                exitReplayMode();
+                clearEstimate();
+                recordSize();
+                SUB = v;
+                LANES = rememberedOrDef(v);
+                rebuildSizeSelect();
+                buildView();
+                applySubShellChrome();
+                board = Array(VIEW.vertexCount).fill(0);
+                lastMoveMarkers = [];
+                userBoardMarks = Object.create(null);
+                if (typeof ws !== 'undefined' && ws && ws.readyState === 1)
+                    ws.send(JSON.stringify({ type: 'setSubGame', subGameId: v }));
+                drawBoardWithOverlay();
+                syncSubGameSelect();
+            });
+            syncSubGameSelect();
+            applySubShellChrome();
+        })();
 
         connectWebSocket();
         })();

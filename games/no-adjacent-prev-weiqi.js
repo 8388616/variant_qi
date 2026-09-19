@@ -1,27 +1,49 @@
-const crypto = require('crypto');
-const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, applyInitialPositionCompact, encodeInitialPositionCompact, qiBoardSeatOverlay, encodeOpeningPositionCompact } = require('../common');
+﻿const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, applyInitialPositionCompact, encodeInitialPositionCompact, qiBoardSeatOverlay, encodeOpeningPositionCompact, computeBensonWeiqiLead, squareWeiqiScoringOps } = require('../common');
 
-function normalizeLegacyInitialToCompact(initialPosition) {
-    if (!initialPosition) return [];
-    if (Array.isArray(initialPosition)) return initialPosition;
-    if (typeof initialPosition !== 'object') return [];
-    const out = [];
-    for (const pos of initialPosition.black || []) {
-        if (Array.isArray(pos) && pos.length === 2) out.push(`B${pos[0]},${pos[1]}`);
-    }
-    for (const pos of initialPosition.white || []) {
-        if (Array.isArray(pos) && pos.length === 2) out.push(`W${pos[0]},${pos[1]}`);
-    }
-    return out;
+/**
+ * 不邻前手围棋（no-adjacent-prev-weiqi）：一个棋种，四个子棋类。
+ *   no-adjacent-prev-weiqi       不邻前手    ：不能落在「前一手」的上下左右四格
+ *   no-adjacent-own-prev-weiqi   不邻己方前手：不能落在「己方前一手」的上下左右四格
+ *   no-near-prev-weiqi           不近前手    ：不能落在「前一手」的上下左右 + 四个斜角（八格）
+ *   no-near-own-prev-weiqi       不近己方前手：不能落在「己方前一手」的上下左右 + 四个斜角
+ *
+ * 判定口径（客户端插件里有一份必须逐字一致的实现，见 public/room-plugins/no-adjacent-prev-weiqi-room.js）：
+ *   - 「前一手」= **全局的最后一手**（双方轮走，实际上就是对方的上一手）：第 N 手只与第 N−1 手比较，
+ *     不往前找更早的棋（第 N−2 手无关）；「己方前一手」= 该方最近一次自己走的那一手；
+ *   - 参考的是那一手的**落子点**（该子后来是否被提掉不影响禁点）；
+ *   - **虚着也算一手**：若参考的那一手是虚着 → 本手不受任何限制（既不比较、也不回退到更早的棋）；
+ *   - 己方从未走过（如开局第一手）→ 不受限；
+ *   - 除这些禁点外，提子/劫/禁全同/贴目/数点(Benson) 与普通围棋完全相同（规则层与 games/weiqi.js 对齐）。
+ *
+ * 人机对战：引擎目录 = katagos/{subGameId}/（四个子棋类各用各的引擎与模型；
+ * 缺 katago / model.bin.gz / gtp.cfg 时该子棋类不显示「与电脑对弈」，走的是 qi-katago-opponent.js 的公共逻辑）。
+ */
+
+/** 子棋类清单（顺序即下拉框顺序） */
+const SUB_GAMES = ['no-adjacent-prev-weiqi', 'no-adjacent-own-prev-weiqi', 'no-near-prev-weiqi', 'no-near-own-prev-weiqi'];
+const DEFAULT_SUB_GAME = 'no-adjacent-prev-weiqi';
+
+/** 子棋类元数据：own = 参考「己方前一手」（否则看紧邻的前一手）；near = 含四个斜角（八格） */
+const SUB_META = {
+    'no-adjacent-prev-weiqi': { own: false, near: false, name: '不邻前手围棋' },
+    'no-adjacent-own-prev-weiqi': { own: true, near: false, name: '不邻己方前手围棋' },
+    'no-near-prev-weiqi': { own: false, near: true, name: '不近前手围棋' },
+    'no-near-own-prev-weiqi': { own: true, near: true, name: '不近己方前手围棋' }
+};
+
+/** 普通围棋贴目：路数 ≤ 8 → 4.25，其余 3.25（与 games/weiqi.js 同口径，四种子棋类相同） */
+function komiForSize(boardSize) {
+    return boardSize <= 8 ? 4.25 : 3.25;
 }
 
-class MirrorImageWeiqiRoom extends QiTwoPlayerRoomBase
+class NoAdjacentPrevWeiqiRoom extends QiTwoPlayerRoomBase
 {
-    constructor(room, initialSize = 19) {
+    constructor(room, initialSize = 19, subGameId = DEFAULT_SUB_GAME) {
         super(room);
+        this.subGameId = SUB_GAMES.includes(subGameId) ? subGameId : DEFAULT_SUB_GAME;   // 子棋类 id（引擎检查用）
         this.boardSize = initialSize;
         this.board = Array(this.boardSize).fill().map(() => Array(this.boardSize).fill(0));
-        if (this.openingBoard === undefined) this.openingBoard = (typeof this.copyBoard === 'function' ? this.copyBoard(this.board) : (Array.isArray(this.board[0]) ? this.board.map(r => r.slice()) : this.board.slice()));
+        this.openingBoard = this.copyBoard(this.board);
         this.currentPlayer = 1;
         this.historyBoards = [];
         this.historyBoardSet = new Set();
@@ -38,8 +60,6 @@ class MirrorImageWeiqiRoom extends QiTwoPlayerRoomBase
         this.pendingScore = null;
         this.scoreProposalData = null;
         this.moveCoords = [];
-        this.mirrorAxis = 'diag1';
-        this.historyMirrorAxis = [];
         this.recordResultText = null;
         /** @type {{ black: number|null, white: number|null }} */
         this.slotJoinedAt = { player1: null, player2: null };
@@ -60,7 +80,8 @@ class MirrorImageWeiqiRoom extends QiTwoPlayerRoomBase
 
     _broadcastClock() {
         if (!this.tcClock || !this.tcClock.timed || this.gameOver) return;
-        this.broadcast({ type: 'clockUpdate', clock: qiMatchTimeControl.snapshotForClient(this.tcClock) });
+        const snap = qiMatchTimeControl.snapshotForClient(this.tcClock);
+        this.broadcast({ type: 'clockUpdate', clock: snap });
     }
 
     _startClockTicker() {
@@ -167,47 +188,6 @@ class MirrorImageWeiqiRoom extends QiTwoPlayerRoomBase
         this._broadcastClock();
     }
 
-    onResignResolved(resignSlot) {
-        this.recordResultText = resignSlot === 'player1' ? '白中盘胜' : '黑中盘胜';
-        this._stopClockTicker();
-    }
-
-    onDrawResolved() {
-        this.recordResultText = '和棋';
-        this._stopClockTicker();
-    }
-
-    setScoreResultTextByLead(lead) {
-        if (!Number.isFinite(lead) || lead === 0) {
-            this.recordResultText = '和棋';
-            return;
-        }
-        const winnerSide = lead > 0 ? '黑' : '白';
-        this.recordResultText = `${winnerSide}胜${Math.abs(lead).toFixed(2)}点`;
-    }
-
-    setTimeLossResultText(lostSlot) {
-        if (lostSlot === 'player1') this.recordResultText = '黑方超时，白胜';
-        else if (lostSlot === 'player2') this.recordResultText = '白方超时，黑胜';
-    }
-
-    getMirrorPoint(row, col, axis) {
-        const last = this.boardSize - 1;
-        if (axis === 'horizontal') return { row: last - row, col };
-        if (axis === 'vertical') return { row, col: last - col };
-        if (axis === 'diag1') return { row: col, col: row };
-        if (axis === 'diag2') return { row: last - col, col: last - row };
-        return { row, col };
-    }
-
-    getNextMirrorAxis(handNumber)
-    {
-        if (handNumber === 1) return 'diag1';
-        if (handNumber === 2) return 'diag2';
-        const axes = ['horizontal', 'vertical', 'diag1', 'diag2'];
-        return axes[Math.floor(Math.random() * axes.length)];
-    }
-
     countGroupLiberties(board, row, col) {
         return squareWeiqiRules.countGroupLiberties(board, row, col, this.boardSize);
     }
@@ -216,50 +196,49 @@ class MirrorImageWeiqiRoom extends QiTwoPlayerRoomBase
         squareWeiqiRules.removeGroup(board, row, col, color, this.boardSize);
     }
 
-    tryPlaceStone(boardBefore, row, col, playerVal) {
-        return squareWeiqiRules.tryPlaceStoneNLiberty(
-            boardBefore, row, col, playerVal, this.boardSize, (b) => this.copyBoard(b), 1
-        );
+    /** 本子棋类元数据（own/near） */
+    _meta() {
+        return SUB_META[this.subGameId] || SUB_META[DEFAULT_SUB_GAME];
     }
 
     /**
-     * 与前端 tryMirror + performCap 一致：主点与镜像点同时落子（镜像点空时），再交替提对方无气块与己方无气块至稳定。
+     * 参考手在 moveCoords 里的下标；-1 = 没有参考（不受限）。
+     * 【己方前手】从末尾往回找最近一次由 playerVal 走的那一手（虚着也算一手）；
+     * 【前一手】 取紧邻的最后一手（双方都算）。
+     * 客户端插件里有同名同逻辑的一份。
      */
-    performMirrorCaptures(board, playerVal) {
-        const n = this.boardSize;
-        let changed;
-        do {
-            changed = false;
-            for (let i = 0; i < n; i++) {
-                for (let j = 0; j < n; j++) {
-                    if (board[i][j] === 3 - playerVal && this.countGroupLiberties(board, i, j) === 0) {
-                        this.removeGroup(board, i, j, 3 - playerVal);
-                        changed = true;
-                    }
-                }
-            }
-            for (let i = 0; i < n; i++) {
-                for (let j = 0; j < n; j++) {
-                    if (board[i][j] === playerVal && this.countGroupLiberties(board, i, j) === 0) {
-                        this.removeGroup(board, i, j, playerVal);
-                        changed = true;
-                    }
-                }
-            }
-        } while (changed);
+    _refMoveIndex(playerVal) {
+        const mcs = this.moveCoords || [];
+        if (!mcs.length) return -1;
+        if (!this._meta().own) return mcs.length - 1;
+        const slot = playerVal === 2 ? 'player2' : 'player1';
+        for (let i = mcs.length - 1; i >= 0; i--) {
+            if (mcs[i] && mcs[i].player === slot) return i;
+        }
+        return -1;
     }
 
-    tryPlaceMirrorStone(boardBefore, row, col, playerVal, axis) {
-        if (row < 0 || row >= this.boardSize || col < 0 || col >= this.boardSize) return null;
-        if (boardBefore[row][col] !== 0) return null;
-        const board = this.copyBoard(boardBefore);
-        const mp = this.getMirrorPoint(row, col, axis);
-        board[row][col] = playerVal;
-        if (!(mp.row === row && mp.col === col) && board[mp.row][mp.col] === 0) {
-            board[mp.row][mp.col] = playerVal;
-        }
-        this.performMirrorCaptures(board, playerVal);
-        return board;
+    /**
+     * (row,col) 是不是禁着点：与参考手（前一手 / 己方前一手）的落子点相邻（邻=上下左右，近=含斜角）。
+     * 参考手是虚着 / 不存在 / 坐标缺失（如编辑盘面导入的开局）→ 不禁。（客户端插件里有同名同逻辑的一份）
+     */
+    isBannedPoint(row, col, playerVal) {
+        const idx = this._refMoveIndex(playerVal);
+        if (idx < 0) return false;
+        const ref = (this.moveCoords || [])[idx];
+        if (!ref || ref.type !== 'move' || !Number.isInteger(ref.row) || !Number.isInteger(ref.col)) return false;
+        const dr = Math.abs(row - ref.row);
+        const dc = Math.abs(col - ref.col);
+        if (this._meta().near) return dr <= 1 && dc <= 1 && (dr + dc) > 0;
+        return (dr === 1 && dc === 0) || (dr === 0 && dc === 1);
+    }
+
+    tryPlaceStone(boardBefore, row, col, playerVal) {
+        // 禁点：与前一手（或己方前一手）相邻/相近（参考手为虚着则不受限）
+        if (this.isBannedPoint(row, col, playerVal)) return null;
+        return squareWeiqiRules.tryPlaceStoneNLiberty(
+            boardBefore, row, col, playerVal, this.boardSize, (b) => this.copyBoard(b), 1
+        );
     }
 
     isLibertySurroundedByOpponent(board, libertyRow, libertyCol, opponentColor) {
@@ -280,52 +259,106 @@ class MirrorImageWeiqiRoom extends QiTwoPlayerRoomBase
         return squareWeiqiRules.computeScore(liveBoard, territory, this.boardSize);
     }
 
-    computeLead()
-    {
-        // Benson 加成：保活无条件活棋链 + 确定领地覆盖（其余保持原启发式）
-        const size = this.boardSize;
-        const benson = squareWeiqiRules.bensonAlive(this.board, size);
-        let liveBoard = this.board.map((row) => row.slice());
-        let changed = true;
-        while (changed) {
-            changed = false;
-            const cleaned = this.removeDeadAndDying(liveBoard);
-            for (let r = 0; r < size; r++) {
-                for (let c = 0; c < size; c++) {
-                    const v = this.board[r][c];
-                    if (benson.alive[r][c] && (v === 1 || v === 2) && cleaned[r][c] !== v) {
-                        cleaned[r][c] = v;
-                        changed = true;
-                    }
-                }
-            }
-            liveBoard = cleaned;
+    /** 贴目：普通围棋口径（四种子棋类相同） */
+    _komi() {
+        return komiForSize(this.boardSize);
+    }
+
+    /**
+     * Benson 加成的盘面净活盘：先用现有启发式去死子，再恢复无条件活棋链
+     * （防止"弱气被围"启发式误杀被动活），迭代到稳定。（与 games/weiqi.js 一致）
+     */
+    /** 形势判断 / 数点：用 Benson 档（公共口径：弱气去死子 ↔ Benson 保活 → 最近归属 → 确定领地覆盖） */
+    computeLead() {
+        const { lead } = computeBensonWeiqiLead(this.board, this._komi(), squareWeiqiScoringOps(this.boardSize, {
+            copyBoard: (b) => this.copyBoard(b)
+        }));
+        return lead;
+    }
+
+    onResignResolved(resignSlot) {
+        this.recordResultText = resignSlot === 'player1' ? '白中盘胜' : '黑中盘胜';
+    }
+
+    onDrawResolved() {
+        this.recordResultText = '和棋';
+    }
+
+    setScoreResultTextByLead(lead) {
+        if (!Number.isFinite(lead) || lead === 0) {
+            this.recordResultText = '和棋';
+            return;
         }
-        const territory = this.assignTerritoryWithRange(liveBoard);
-        const secure = squareWeiqiRules.bensonAlive(liveBoard, size);
-        for (let r = 0; r < size; r++) {
-            for (let c = 0; c < size; c++) {
-                if (liveBoard[r][c] === 0 && secure.territory[r][c]) territory[r][c] = secure.territory[r][c];
-            }
-        }
-        const { blackTotal, whiteTotal } = this.computeScore(liveBoard, territory);
-        const KOMI = this.boardSize <= 8 ? 5.25 : 4.25;
-        return blackTotal - whiteTotal - 2 * KOMI;
+        const winnerSide = lead > 0 ? '黑' : '白';
+        this.recordResultText = `${winnerSide}胜${Math.abs(lead).toFixed(2)}点`;
+    }
+
+    setTimeLossResultText(lostSlot) {
+        if (lostSlot === 'player1') this.recordResultText = '黑方超时，白胜';
+        else if (lostSlot === 'player2') this.recordResultText = '白方超时，黑胜';
+    }
+
+    static parseResultTextToWinner(resultText) {
+        if (!resultText || typeof resultText !== 'string') return null;
+        if (resultText === '和棋' || resultText === 'draw') return 'draw';
+        if (resultText.includes('白胜')) return 'player2';
+        if (resultText.includes('黑胜')) return 'player1';
+        if (resultText === 'player1' || resultText === 'player2' || resultText === 'draw') return resultText;
+        return null;
     }
 
     getState()
     {
+        const initialBoard = this.openingBoard
+            ? this.copyBoard(this.openingBoard)
+            : this.copyBoard(this.board);
         return {
+            subGameId: this.subGameId,
+            subGameName: this._meta().name,
             boardSize: this.boardSize,
-            komi: this.boardSize <= 8 ? 5.25 : 4.25,
             board: this.board,
+            initialBoard,
+            komi: this._komi(),
             numberOfHands: 1 + this.historyBoards.length,
             currentPlayer: this.currentPlayer,
             lastMoveMarkers: this.lastMoveMarkers,
             gameOver: this.gameOver,
             winner: this.winner,
-            mirrorAxis: this.mirrorAxis,
             moveCoords: this.moveCoords,
+            slots: {
+                player1: !!this.room.getPlayerBySlot('player1'),
+                player2: !!this.room.getPlayerBySlot('player2')
+            },
+            matchTime: {
+                negotiation: this.tcNego,
+                settings: this.tcSettings,
+                clock: this.tcClock && this.tcClock.timed
+                    ? qiMatchTimeControl.snapshotForClient(this.tcClock)
+                    : (this.tcSettings && this.tcSettings.timed === false
+                        ? { timed: false, ruleLine: '本局不限时' }
+                        : null)
+            },
+            matchStarted: this.matchStarted
+        };
+    }
+
+    getInitialState() {
+        const initialBoard = this.openingBoard
+            ? this.copyBoard(this.openingBoard)
+            : this.copyBoard(this.board);
+        return {
+            subGameId: this.subGameId,
+            subGameName: this._meta().name,
+            board: this.board,
+            initialBoard,
+            boardSize: this.boardSize,
+            komi: this._komi(),
+            currentPlayer: this.currentPlayer,
+            numberOfHands: 1,
+            lastMoveMarkers: this.lastMoveMarkers,
+            gameOver: this.gameOver,
+            winner: this.winner,
+            moveCoords: [],
             slots: {
                 player1: !!this.room.getPlayerBySlot('player1'),
                 player2: !!this.room.getPlayerBySlot('player2')
@@ -373,118 +406,44 @@ class MirrorImageWeiqiRoom extends QiTwoPlayerRoomBase
                 break;
 
             case 'setBoardSize':
-                if (!slot && !this.room.players.size)
-                    this.setBoardSize(msg.size, ws);
+                qiProtocol.setBoardSizeWeiqiObserver(this, ws, msg, slot);
                 break;
 
-            case 'move':
-                if (this.gameOver) return;
-                if (!slot || slot !== (this.currentPlayer === 1 ? 'player1' : 'player2')) return;
-                if (!this._timeAllowsPlay(slot)) {
-                    if (slot) ws.send(JSON.stringify({ type: 'error', message: '请先与对手确认限时规则。' }));
+            case 'setSubGame':
+                // 被拒绝（已开局/有人入座）时回推当前状态：客户端是「本地乐观切换」，不回推会与服务端脱钩
+                if (!this.setSubGame(msg.subGameId, ws)) this.sendState(ws);
+                break;
+
+            case 'move': {
+                const moveSlot = slot;
+                if (!this._timeAllowsPlay(moveSlot)) {
+                    if (moveSlot) ws.send(JSON.stringify({ type: 'error', message: '请先与对手确认限时规则。' }));
                     return;
                 }
-                if (!this._drainClockBeforeMove(slot)) return;
-                const { row, col } = msg;
-                if (row < 0 || row >= this.boardSize || col < 0 || col >= this.boardSize) return;
-                if (this.board[row][col] !== 0) {
-                    return;
-                }
-                const playerVal = this.currentPlayer === 1 ? 1 : 2;
-                const newBoard = this.tryPlaceMirrorStone(this.board, row, col, playerVal, this.mirrorAxis);
-                if (!newBoard) return;
-                const newBoardStr = this.boardToString(newBoard);
-                if (this.historyBoardSet.has(newBoardStr))
-                {
-                    ws.send(JSON.stringify({ type: 'error', message: '禁全同。' }));
-                    return;
-                }
-
-                this.historyBoards.push(this.copyBoard(newBoard));
-                this.historyBoardSet.add(newBoardStr);
-                this.historyMarkers.push(this.copyMarkers(this.lastMoveMarkers));
-                this.moveHistory.push(slot);
-                this.moveCoords.push({ type: 'move', player: slot, row, col, mirrorAxis: this.mirrorAxis });
-                this.board = newBoard;
-
-                const markers = [{ row, col, color: playerVal }];
-                const mirror = this.getMirrorPoint(row, col, this.mirrorAxis);
-                if (!(mirror.row === row && mirror.col === col) && newBoard[mirror.row][mirror.col] === playerVal) {
-                    markers.push({ row: mirror.row, col: mirror.col, color: playerVal });
-                }
-                this.lastMoveMarkers = markers;
-
-                this.historyMirrorAxis.push(this.mirrorAxis);
-                const nextHandNumber = this.historyBoards.length + 1;
-                this.mirrorAxis = this.getNextMirrorAxis(nextHandNumber);
-
-                this.currentPlayer = 3 - this.currentPlayer;
-                this.passCounter = 0;
-                this.broadcast({ type: 'broadcast', action: 'move', ...this.getState() });
+                const before = () => this._drainClockBeforeMove(moveSlot);
+                qiProtocol.weiqiMove(this, ws, msg, moveSlot, { beforeCommit: before });
                 this._syncClockAfterTurnChange();
                 break;
+            }
 
-            case 'pass':
-                if (this.gameOver) return;
-                if (!slot || slot !== (this.currentPlayer === 1 ? 'player1' : 'player2')) return;
-                if (!this._timeAllowsPlay(slot)) {
-                    if (slot) ws.send(JSON.stringify({ type: 'error', message: '请先与对手确认限时规则。' }));
+            case 'pass': {
+                const passSlot = slot;
+                if (!this._timeAllowsPlay(passSlot)) {
+                    if (passSlot) ws.send(JSON.stringify({ type: 'error', message: '请先与对手确认限时规则。' }));
                     return;
                 }
-                if (!this._drainClockBeforeMove(slot)) return;
-                this.historyBoards.push(this.copyBoard(this.board));
-                this.historyMarkers.push(this.copyMarkers(this.lastMoveMarkers));
-                this.moveHistory.push(slot);
-                this.moveCoords.push({ type: 'pass', player: slot });
-
-                this.historyMirrorAxis.push(this.mirrorAxis);
-                const nextHandPass = this.historyBoards.length + 1;
-                this.mirrorAxis = this.getNextMirrorAxis(nextHandPass);
-
-                this.currentPlayer = this.currentPlayer === 1 ? 2 : 1;
-                this.passCounter++;
-                this.lastMoveMarkers = [];
-                this.broadcast({ type: 'broadcast', action: 'pass', ...this.getState() });
+                const beforeP = () => this._drainClockBeforeMove(passSlot);
+                qiProtocol.weiqiPass(this, ws, passSlot, { beforeCommit: beforeP });
                 this._syncClockAfterTurnChange();
-                if (this.passCounter >= 2) {
-                    this.passCounter = 0;
-                    const blackPlayer = room.getPlayerBySlot('player1');
-                    const whitePlayer = room.getPlayerBySlot('player2');
-                    if (blackPlayer && whitePlayer) {
-                        this.startScoreCounting(blackPlayer, whitePlayer);
-                    } else {
-                        this.gameOver = true;
-                        this.broadcast({ type: 'broadcast', action: 'endAgreed', ...this.getState() });
-                    }
-                }
                 break;
+            }
 
             case 'requestUndo':
-                if (!slot || this.gameOver) return;
-                let steps = 0;
-                for (let i = this.moveHistory.length - 1; i >= 0; i--) {
-                    steps++;
-                    if (this.moveHistory[i] === slot) break;
-                }
-                if (steps === 0 || steps > this.historyBoards.length) {
-                    ws.send(JSON.stringify({ type: 'error', message: '无法悔棋。' }));
-                    return;
-                }
-                const opponentSlot = slot === 'player1' ? 'player2' : 'player1';
-                const opponent = room.getPlayerBySlot(opponentSlot);
-                if (!opponent) this.performUndo(steps, ws);
-                else {
-                    this.pendingUndo = { requester: ws, steps };
-                    opponent.send(JSON.stringify({ type: 'undoRequest' }));
-                }
+                qiProtocol.weiqiRequestUndo(this, ws, slot);
                 break;
 
             case 'undoResponse':
-                if (this.pendingUndo) {
-                    if (msg.accept) this.performUndo(this.pendingUndo.steps, this.pendingUndo.requester);
-                    else this.pendingUndo.requester.send(JSON.stringify({ type: 'error', message: '对方拒绝悔棋。' }));
-                }
-                this.pendingUndo = null;
+                qiProtocol.weiqiUndoResponse(this, ws, msg);
                 break;
 
             case 'resign':
@@ -496,7 +455,7 @@ class MirrorImageWeiqiRoom extends QiTwoPlayerRoomBase
                 break;
 
             case 'newGameResponse':
-                qiProtocol.newGameResponse(this, ws, msg, { newGameDeniedMsg: '对方拒绝新局' });
+                qiProtocol.newGameResponse(this, ws, msg, { newGameDeniedMsg: '对方拒绝开始新局' });
                 break;
 
             case 'requestDraw':
@@ -510,8 +469,9 @@ class MirrorImageWeiqiRoom extends QiTwoPlayerRoomBase
             case 'requestEnd':
                 if (!slot) return;
                 const endOpponent = room.getPlayerBySlot(slot === 'player1' ? 'player2' : 'player1');
-                if (!endOpponent) { this.startScoreCounting(ws, ws); }
-                else {
+                if (!endOpponent) {
+                    this.startScoreCounting(ws, ws);
+                } else {
                     this.pendingEnd = { requester: ws, opponent: endOpponent };
                     endOpponent.send(JSON.stringify({ type: 'requestEnd' }));
                 }
@@ -521,30 +481,31 @@ class MirrorImageWeiqiRoom extends QiTwoPlayerRoomBase
                 if (this.pendingEnd && msg.accept) {
                     this.startScoreCounting(this.pendingEnd.requester, this.pendingEnd.opponent);
                 } else if (this.pendingEnd && !msg.accept) {
-                    this.pendingEnd.requester.send(JSON.stringify({ type: 'error', message: '对方拒绝终局' }));
+                    this.pendingEnd.requester.send(JSON.stringify({ type: 'error', message: '对方拒绝数点。' }));
                 }
                 this.pendingEnd = null;
                 break;
 
             case 'scoreResponse':
-                if (this.pendingScore && (ws === this.pendingScore.requester || ws === this.pendingScore.opponent)) {
-                    if (!msg.accept) {
+                if (this.pendingScore && (ws === this.pendingScore.requester || ws === this.pendingScore.opponent))
+                {
+                    if (msg.accept) {
+                        this.pendingScore.agreed.add(ws);
+                        if (this.pendingScore.agreed.size === 2) {
+                            const lead = this.scoreProposalData.lead;
+                            this.gameOver = true;
+                            this.winner = lead > 0 ? 'player1' : (lead < 0 ? 'player2' : 'draw');
+                            this.setScoreResultTextByLead(lead);
+                            this.broadcast({ type: 'scoreAgreed', winner: this.winner, lead });
+                            this.pendingScore = null;
+                            this.scoreProposalData = null;
+                            this._stopClockTicker();
+                        }
+                    } else {
                         if (this.tcClock && this.tcClock.timed) qiMatchTimeControl.setPaused(this.tcClock, false);
                         this.broadcast({ type: 'scoreRejected' });
                         this.pendingScore = null;
                         this.scoreProposalData = null;
-                        break;
-                    }
-                    this.pendingScore.agreed.add(ws);
-                    if (this.pendingScore.agreed.size === 2) {
-                        const lead = this.scoreProposalData.lead;
-                        this.gameOver = true;
-                        this.winner = lead > 0 ? 'player1' : (lead < 0 ? 'player2' : 'draw');
-                        this.setScoreResultTextByLead(lead);
-                        this.broadcast({ type: 'scoreAgreed', winner: this.winner, lead });
-                        this.pendingScore = null;
-                        this.scoreProposalData = null;
-                        this._stopClockTicker();
                     }
                 }
                 break;
@@ -568,33 +529,39 @@ class MirrorImageWeiqiRoom extends QiTwoPlayerRoomBase
 
     performUndo(steps, requesterWs)
     {
-        if (steps === 0 || steps > this.historyBoards.length) return;
-        for (let i = 0; i < steps; i++) {
+        if (steps === 0 || steps > this.historyBoards.length)
+            return;
+
+        for (let i = 0; i < steps; i++)
+        {
             if (this.historyBoards.length > 0)
                 this.historyBoardSet.delete(this.boardToString(this.historyBoards.pop()));
             if (this.historyMarkers.length > 0)
                 this.lastMoveMarkers = this.historyMarkers.pop() || [];
             else
                 this.lastMoveMarkers = [];
-            if (this.moveHistory.length > 0) this.moveHistory.pop();
-            if (this.moveCoords.length > 0) this.moveCoords.pop();
-            if (this.historyMirrorAxis.length > 0)
-                this.mirrorAxis = this.historyMirrorAxis.pop();
+            if (this.moveHistory.length > 0)
+                this.moveHistory.pop();
+            if (this.moveCoords.length > 0)
+                this.moveCoords.pop();
+
             this.currentPlayer = 3 - this.currentPlayer;
         }
         if (this.historyBoards.length == 0)
-            this.board = Array(this.boardSize).fill().map(() => Array(this.boardSize).fill(0));
+            this.board = this.copyBoard(this.openingBoard);
         else
             this.board = this.copyBoard(this.historyBoards.at(-1));
         this.broadcast({ type: 'broadcast', action: 'undoAccept', ...this.getState() });
         this._syncClockAfterTurnChange();
     }
 
-    copyMarkers(markers) {
+    copyMarkers(markers)
+    {
         return markers.map(m => ({ row: m.row, col: m.col, color: m.color }));
     }
 
-    resetGame() {
+    resetGame()
+    {
         this._stopClockTicker();
         this.slotJoinedAt = { player1: null, player2: null };
         this.tcNego = null;
@@ -603,9 +570,11 @@ class MirrorImageWeiqiRoom extends QiTwoPlayerRoomBase
         this.recordResultText = null;
         this.matchStarted = false;
         this.board = Array(this.boardSize).fill().map(() => Array(this.boardSize).fill(0));
+        this.openingBoard = this.copyBoard(this.board);
         this.currentPlayer = 1;
         this.historyBoards = [];
         this.historyBoardSet.clear();
+        this.historyBoardSet.add(this.boardToString(this.board));
         this.moveHistory = [];
         this.historyMarkers = [];
         this.lastMoveMarkers = [];
@@ -613,20 +582,14 @@ class MirrorImageWeiqiRoom extends QiTwoPlayerRoomBase
         this.winner = null;
         this.passCounter = 0;
         this.moveCoords = [];
-        this.mirrorAxis = 'diag1';
-        this.historyMirrorAxis = [];
-        for (let [client, slot] of this.room.players.entries()) {
-            this.room.slotOccupancy.delete(slot);
-            this.room.players.delete(client);
-            this.room.observers.add(client);
-            client.send(JSON.stringify({ type: 'slotReleased', slot }));
-        }
+        qiProtocol.releaseAllSeats(this);
         this.broadcast({ type: 'newGameStarted', ...this.getState(), slots: { player1: false, player2: false } });
     }
 
-    setBoardSize(newSize, requesterWs) {
+    setBoardSize(newSize, requesterWs)
+    {
         if (!Number.isInteger(newSize) || newSize < 7 || newSize > 21) {
-            requesterWs.send(JSON.stringify({ type: 'error', message: '棋盘大小无效。' }));
+            requesterWs.send(JSON.stringify({ type: 'error', message: '棋盘大小无效' }));
             return false;
         }
         const hasAnyStone = this.board.some(row => row.some(v => v !== 0));
@@ -636,35 +599,71 @@ class MirrorImageWeiqiRoom extends QiTwoPlayerRoomBase
             return false;
         }
         this.boardSize = newSize;
-        this.resetGame(true);
+        this.resetGame();
         this.broadcast({ type: 'boardSizeChanged', boardSize: this.boardSize });
         return true;
     }
 
+    /** 切换子棋类（不邻/不近 × 前手/己方前手）：开局前可改，开局后静默忽略（与 setBoardSize 一致） */
+    setSubGame(subGameId, requesterWs) {
+        if (!SUB_GAMES.includes(subGameId)) {
+            requesterWs.send(JSON.stringify({ type: 'error', message: '子棋类无效' }));
+            return false;
+        }
+        const hasAnyStone = this.board.some(row => row.some(v => v !== 0));
+        const hasPlayer = this.room.getPlayerBySlot('player1') || this.room.getPlayerBySlot('player2');
+        if (hasAnyStone || hasPlayer) {
+            // 开局后静默忽略（客户端此时已隐藏/禁用选择器）
+            return false;
+        }
+        this.subGameId = subGameId;
+        this.broadcast({ type: 'subGameChanged', subGameId, ...this.getState() });
+        return true;
+    }
+
     exportRecord() {
+
+        let resultText = null;
+        if (this.gameOver) {
+            if (this.recordResultText) resultText = this.recordResultText;
+            else if (this.winner === 'draw') resultText = '和棋';
+            else if (this.winner === 'player1') resultText = '黑胜';
+            else if (this.winner === 'player2') resultText = '白胜';
+        }
         return {
             format: 'muzei',
             version: 2,
-            gameType: '镜像围棋',
-            gameId: 'mirror-image-weiqi',
+            gameType: this._meta().name,
+            gameId: 'no-adjacent-prev-weiqi',
+            subGameId: this.subGameId,
             boardSize: this.boardSize,
-            komi: this.boardSize <= 8 ? 5.25 : 4.25,
+            komi: this._komi(),
             players: { player1: null, player2: null },
+            // 开局盘面（编辑模式的开局；默认空盘）——导出当前盘面会让导入时与 moves 重放冲突
             initialPosition: encodeOpeningPositionCompact(this),
             moves: this.moveCoords.map(m => {
                 const p = m.player === 'player1' ? 'B' : 'W';
-                if (m.type === 'pass') return p + 'p';
-                return p + m.row + ',' + m.col + ':' + m.mirrorAxis;
+                return m.type === 'pass' ? p + 'p' : p + m.row + ',' + m.col;
             }),
-            result: this.gameOver ? this.winner : null
+            timeControl: (this.tcSettings && this.tcSettings.timed) ? `S${this.tcSettings.mainMinutes || 0},${this.tcSettings.byoyomiSeconds || 0},${this.tcSettings.maxTimeouts || 0}` : null,
+            result: resultText
         };
     }
 
     resetToEmpty() {
+        this._stopClockTicker();
+        this.slotJoinedAt = { player1: null, player2: null };
+        this.tcNego = null;
+        this.tcSettings = null;
+        this.tcClock = null;
+        this.recordResultText = null;
+        this.matchStarted = false;
         this.board = Array(this.boardSize).fill().map(() => Array(this.boardSize).fill(0));
+        this.openingBoard = this.copyBoard(this.board);
         this.currentPlayer = 1;
         this.historyBoards = [];
         this.historyBoardSet = new Set();
+        this.historyBoardSet.add(this.boardToString(this.board));
         this.moveHistory = [];
         this.moveCoords = [];
         this.historyMarkers = [];
@@ -678,41 +677,25 @@ class MirrorImageWeiqiRoom extends QiTwoPlayerRoomBase
         this.pendingEnd = null;
         this.pendingScore = null;
         this.scoreProposalData = null;
-        this.mirrorAxis = 'diag1';
-        this.historyMirrorAxis = [];
-        this._stopClockTicker();
-        this.slotJoinedAt = { player1: null, player2: null };
-        this.tcNego = null;
-        this.tcSettings = null;
-        this.tcClock = null;
-        this.recordResultText = null;
-        this.matchStarted = false;
     }
 
     static parseMove(entry) {
         if (typeof entry === 'string') {
             const player = entry[0] === 'B' ? 'player1' : 'player2';
             if (entry[1] === 'p') return { type: 'pass', player };
-            const rest = entry.substring(1);
-            const colonIdx = rest.indexOf(':');
-            let coords, mirrorAxis;
-            if (colonIdx >= 0) {
-                coords = rest.substring(0, colonIdx).split(',').map(Number);
-                mirrorAxis = rest.substring(colonIdx + 1);
-            } else {
-                coords = rest.split(',').map(Number);
-                mirrorAxis = 'diag1';
-            }
-            return { type: 'move', player, row: coords[0], col: coords[1], mirrorAxis };
+            const coords = entry.substring(1).split(',').map(Number);
+            return { type: 'move', player, row: coords[0], col: coords[1] };
         }
         return entry;
     }
 
     importRecord(data, requesterWs) {
-        if (!data || data.gameId !== 'mirror-image-weiqi') {
-            requesterWs.send(JSON.stringify({ type: 'error', message: '棋谱格式不匹配（需要镜像围棋棋谱）' }));
+        // 棋谱统一用 gameId=no-adjacent-prev-weiqi，用 subGameId 区分四种子棋类
+        if (!data || data.gameId !== 'no-adjacent-prev-weiqi') {
+            requesterWs.send(JSON.stringify({ type: 'error', message: '棋谱格式不匹配（需要不邻前手围棋棋谱）。' }));
             return;
         }
+        this.subGameId = SUB_GAMES.includes(data.subGameId) ? data.subGameId : DEFAULT_SUB_GAME;
         const newSize = data.boardSize || 19;
         if (!Number.isInteger(newSize) || newSize < 7 || newSize > 21) {
             requesterWs.send(JSON.stringify({ type: 'error', message: '棋谱中棋盘大小无效' }));
@@ -722,32 +705,27 @@ class MirrorImageWeiqiRoom extends QiTwoPlayerRoomBase
         this.boardSize = newSize;
         this.resetToEmpty();
 
-        const compactInit = normalizeLegacyInitialToCompact(data.initialPosition);
-        if (compactInit.length) {
-            applyInitialPositionCompact(this.board, this.boardSize, compactInit);
-            this.historyBoards = [this.copyBoard(this.board)];
-            this.historyBoardSet.add(this.boardToString(this.board));
-        }
+        applyInitialPositionCompact(this.board, this.boardSize, data.initialPosition);
+        this.openingBoard = this.copyBoard(this.board);
 
         const rawMoves = data.moves || [];
-        const moves = rawMoves.map(MirrorImageWeiqiRoom.parseMove);
+        const moves = rawMoves.map(NoAdjacentPrevWeiqiRoom.parseMove);
         for (let i = 0; i < moves.length; i++) {
             const move = moves[i];
             const slot = move.player;
             const playerVal = slot === 'player1' ? 1 : 2;
             if (move.type === 'move') {
-                const { row, col, mirrorAxis } = move;
+                const { row, col } = move;
                 if (row < 0 || row >= this.boardSize || col < 0 || col >= this.boardSize) {
                     this.resetToEmpty();
-                    requesterWs.send(JSON.stringify({ type: 'error', message: '棋谱回放失败：第' + (i + 1) + '手坐标越界' }));
+                    requesterWs.send(JSON.stringify({ type: 'error', message: `棋谱回放失败：第${i + 1}手坐标越界` }));
                     this.broadcast({ type: 'roomReset', ...this.getState() });
                     return;
                 }
-                const axisToUse = mirrorAxis || this.mirrorAxis;
-                const newBoard = this.tryPlaceMirrorStone(this.board, row, col, playerVal, axisToUse);
+                const newBoard = this.tryPlaceStone(this.board, row, col, playerVal);
                 if (!newBoard) {
                     this.resetToEmpty();
-                    requesterWs.send(JSON.stringify({ type: 'error', message: '棋谱回放失败：第' + (i + 1) + '手无法落子' }));
+                    requesterWs.send(JSON.stringify({ type: 'error', message: `棋谱回放失败：第${i + 1}手无法落子` }));
                     this.broadcast({ type: 'roomReset', ...this.getState() });
                     return;
                 }
@@ -756,20 +734,9 @@ class MirrorImageWeiqiRoom extends QiTwoPlayerRoomBase
                 this.historyBoardSet.add(newBoardStr);
                 this.historyMarkers.push(this.copyMarkers(this.lastMoveMarkers));
                 this.moveHistory.push(slot);
-                this.moveCoords.push({ type: 'move', player: slot, row, col, mirrorAxis: axisToUse });
+                this.moveCoords.push({ type: 'move', player: slot, row, col });
                 this.board = newBoard;
-
-                const moveMarkers = [{ row, col, color: playerVal }];
-                const mp = this.getMirrorPoint(row, col, axisToUse);
-                if (!(mp.row === row && mp.col === col) && newBoard[mp.row][mp.col] === playerVal) {
-                    moveMarkers.push({ row: mp.row, col: mp.col, color: playerVal });
-                }
-                this.lastMoveMarkers = moveMarkers;
-
-                this.historyMirrorAxis.push(axisToUse);
-                const nextHand = this.historyBoards.length + 1;
-                this.mirrorAxis = this.getNextMirrorAxis(nextHand);
-
+                this.lastMoveMarkers = [{ row, col, color: playerVal }];
                 this.currentPlayer = 3 - this.currentPlayer;
                 this.passCounter = 0;
             } else if (move.type === 'pass') {
@@ -777,11 +744,6 @@ class MirrorImageWeiqiRoom extends QiTwoPlayerRoomBase
                 this.historyMarkers.push(this.copyMarkers(this.lastMoveMarkers));
                 this.moveHistory.push(slot);
                 this.moveCoords.push({ type: 'pass', player: slot });
-
-                this.historyMirrorAxis.push(this.mirrorAxis);
-                const nextHandP = this.historyBoards.length + 1;
-                this.mirrorAxis = this.getNextMirrorAxis(nextHandP);
-
                 this.currentPlayer = 3 - this.currentPlayer;
                 this.passCounter++;
                 this.lastMoveMarkers = [];
@@ -807,7 +769,7 @@ class MirrorImageWeiqiRoom extends QiTwoPlayerRoomBase
             this.gameOver = true;
             const importedResultText = data.resultText != null ? String(data.resultText) : String(data.result);
             this.recordResultText = importedResultText;
-            this.winner = MirrorImageWeiqiRoom.parseResultTextToWinner(importedResultText);
+            this.winner = NoAdjacentPrevWeiqiRoom.parseResultTextToWinner(importedResultText);
             if (!this.winner && (data.result === 'player1' || data.result === 'player2' || data.result === 'draw'))
                 this.winner = data.result;
         }
@@ -816,7 +778,7 @@ class MirrorImageWeiqiRoom extends QiTwoPlayerRoomBase
             type: 'importSuccess',
             ...this.getState(),
             replayData: {
-                initialPosition: compactInit.length ? compactInit : [],
+                initialPosition: data.initialPosition || [],
                 moves: this.moveCoords.map(m => ({ ...m }))
             }
         });
@@ -826,18 +788,11 @@ class MirrorImageWeiqiRoom extends QiTwoPlayerRoomBase
         return this.moveHistory.length;
     }
 
-    static parseResultTextToWinner(resultText) {
-        if (!resultText || typeof resultText !== 'string') return null;
-        if (resultText === '和棋' || resultText === 'draw') return 'draw';
-        if (resultText.includes('白胜')) return 'white';
-        if (resultText.includes('黑胜')) return 'black';
-        if (resultText === 'black' || resultText === 'white' || resultText === 'draw') return resultText;
-        return null;
-    }
-
-    onPlayerLeave(ws) {
+    onPlayerLeave(ws)
+    {
         const slot = this.room.getSlotByWs(ws);
         if (slot) this.room.broadcast({ type: 'playerLeft', slot });
+
         if (this.pendingUndo && this.pendingUndo.requester === ws) this.pendingUndo = null;
         if (this.pendingNewGame === ws) this.pendingNewGame = null;
         if (this.pendingDraw === ws) this.pendingDraw = null;
@@ -856,8 +811,12 @@ class MirrorImageWeiqiRoom extends QiTwoPlayerRoomBase
 }
 
 module.exports = {
+    SUB_GAMES,
+    SUB_META,
+    DEFAULT_SUB_GAME,
+    NoAdjacentPrevWeiqiRoom,
     initRoom(room) {
-        room.gameLogic = new MirrorImageWeiqiRoom(room);
+        room.gameLogic = new NoAdjacentPrevWeiqiRoom(room);
         qiBoardSeatOverlay.install(room.gameLogic);
         if (typeof qiProtocol.installStandardEditBoard === 'function') qiProtocol.installStandardEditBoard(room.gameLogic);
         room.maxPlayers = 2;

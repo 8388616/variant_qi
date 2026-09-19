@@ -11,6 +11,7 @@ window.RoomPlugins["front-back-weiqi"] = {
         "recordDownloadPrefix": "正反面围棋",
         "standardWeiqiMatchTime": true,
         "features": {
+            "woodTexture": true,
             "editBoard": true,
             "dualBoards": true
         },
@@ -451,7 +452,7 @@ const scoreTitle = document.getElementById('scoreTitle');
         /** 与 front-back-weiqi.js 中 expectedSlot() 一致：第 n 手应由谁下 */
         function expectedSlotForMoveNumber(n) {
             const m = ((n % 4) + 4) % 4;
-            return (m === 0 || m === 1) ? 'black' : 'white';
+            return (m === 0 || m === 1) ? 'player1' : 'player2';
         }
 
         function expectedBoardForMoveNumber(n) {
@@ -969,7 +970,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                 stepDisplay.innerText = `试下 ${ps.tryPlayStep} / ${ps.tryPlayTotalSteps}`;
                 const snap = tryPlaySnaps[ps.tryPlayStep];
                 const mn = snap ? snap.nextMoveNumber : 1;
-                const emoji = expectedSlotForMoveNumber(mn) === 'black' ? '⚫' : '⚪';
+                const emoji = expectedSlotForMoveNumber(mn) === 'player1' ? '⚫' : '⚪';
                 turnDisplay.innerText = `${emoji} 试下`;
             }
         }

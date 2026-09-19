@@ -95,7 +95,12 @@ function isWeightWeiqiEngine(id) {
     return typeof id === 'string' && WEIGHT_SUB_GAME_IDS.has(id);
 }
 
-/** 每点权重矩阵（[row][col]，row 0 = 棋盘最低行，与站点盘面同索引）；非权重围棋或无权重时返回 null */
+/**
+ * 每点权重矩阵（[row][col]，与站点盘面同索引）；非权重围棋或无权重时返回 null。
+ * 索引方向与引擎一致：站点 row r → GTP 顶点行号（路数 − r）→ 引擎内部 y = r
+ * （引擎 `Location::tryOfString` 做 `y = y_size − 行号`，`Board::setWeights` 读 `rawWeights[y*x + x]`；
+ *  `showboard` 也是 `y` 升序打印、行号 `y_size − y`），故权重与棋子同向、无需翻转。
+ */
 function readWeights(self) {
     if (!isWeightWeiqiEngine(engineGameId(self))) return null;
     const w = self && self.weights;
@@ -103,6 +108,25 @@ function readWeights(self) {
     if (!Array.isArray(w) || !Number.isFinite(size) || w.length !== size) return null;
     if (!Array.isArray(w[0]) || w[0].length !== size) return null;
     return w;
+}
+
+/**
+ * 权重下发：**原样下发，不做任何整形**。口径已对引擎源码逐行核实（2026-09），别再往回加：
+ *  1) `weightExponent` 只在自对弈路径存在——`program/play.cpp:128` 解析（键缺失时默认 1.0），
+ *     只在 `WeightWeiqi::placeRandomWeights`（`game/weightweiqi.cpp:79-82`）套用 `pow`，
+ *     而该函数唯一调用点是 `play.cpp:611`（自对弈开局生成棋局）。GTP 侧根本不读它。
+ *  2) `kata-set-weights` → `setWeightsOnBoard`（`command/gtp.cpp:672`）→ `Board::setWeights`
+ *     （`game/board.cpp:665`）只做非负校验 + 除以均值归一化，**没有任何指数**。
+ *  3) 对弈/分析时口径恒为 1：喂什么就是什么（只被均值归一化）。实测亦如此：
+ *     下发 1..361 的排列 → 回读归一化最大 1.9945（= 361/181）。
+ *  4) 训练用指数 1 + uniform mix 时，训练那组权重是 `2(i+1)/N`（i=0..N²-1）即 1..N² 的一个
+ *     排列乘以 2/N，归一化后与站点下发的「1..N² 的排列」**逐值相同** ⇒ 原样下发就是训练口径。
+ *  5) 若将来要 A/B 别的口径，用 `probe-weight-convention.js`（可分别喂原始/整形权重对比策略），
+ *     不要在站点侧偷偷整形——那会让线上输入偏离训练与本站计分口径。
+ * @returns {number[][]} 下发的权重矩阵（原引用，调用方不得修改）
+ */
+function weightsForEngine(weights) {
+    return weights;
 }
 
 function buildKatagoSetupOpts(self, board) {
@@ -119,9 +143,15 @@ function buildKatagoSetupOpts(self, board) {
     }
     const remain = readRemainingTranslocationMoves(self);
     if (remain != null) opts.maxTranslocationMoves = remain;
-    // 权重围棋：把每点权重同步给引擎（kata-set-weights），否则引擎按均权（普通围棋）判断
+    // 权重围棋：把每点权重同步给引擎（kata-set-weights），否则引擎按均权（普通围棋）判断。
+    // 原样下发：口径与训练、本站计分一致（见 weightsForEngine 的注释）。
     const weights = readWeights(self);
-    if (weights) opts.weights = weights;
+    if (weights) {
+        opts.weights = weightsForEngine(weights);
+    } else if (isWeightWeiqiEngine(engineGameId(self))) {
+        // 权重局却拿不到权重矩阵 = 引擎按均权下棋（棋力会明显崩塌），必须显式告警
+        console.warn(`[katago:${engineGameId(self)}] 权重局未取得 self.weights（缺失或尺寸不符），本次同步不含权重`);
+    }
     // set_position 后引擎行棋方（presumedNextMovePla）恒为黑；当前轮到白（player2 座）时，
     // 去掉最后一手再同步、重放最后一手来翻转行棋方，否则 genmove 会被引擎拒绝
     const nextSlot = seatToMove(self);
@@ -335,6 +365,7 @@ function abortVsComputerOnEngineFailure(self, ws, err) {
 }
 
 function canRequestVsComputer(self, ws) {
+    if (!supportsSquareWeiqiGtp(self)) return '该棋类暂不支持与电脑对战。';
     if (!self.katagoAvailable || !isKatagoAvailable(engineDirId(self))) return '该棋类暂不支持与电脑对战。';
     if (self.matchStarted || self.computerSlot || self.gameOver) return '对局已开始。';
     if (Array.isArray(self.moveHistory) && self.moveHistory.length > 0) return '对局已开始。';
@@ -402,6 +433,7 @@ function applyComputerMove(self, row, col) {
     if (Array.isArray(self.historyMarkers)) self.historyMarkers.push(copyMarkers(self, self.lastMoveMarkers));
     if (Array.isArray(self.moveHistory)) self.moveHistory.push(moveSlot);
     if (Array.isArray(self.moveCoords)) self.moveCoords.push({ type: 'move', player: moveSlot, row, col });
+    const prevBoard = self.board;
     self.board = newBoard;
     self.lastMoveMarkers = [{ row, col, color: playerVal }];
     if ('moveHighlightMarkers' in self) self.moveHighlightMarkers = [];
@@ -414,6 +446,13 @@ function applyComputerMove(self, row, col) {
         self.gameOver = true;
         self.winner = otherSlot(moveSlot);
         if (typeof self.setCaptureLossResultText === 'function') self.setCaptureLossResultText(moveSlot);
+        self.broadcast({ type: 'broadcast', action: 'move', ...self.getState() });
+        if (typeof self._syncClockAfterTurnChange === 'function') self._syncClockAfterTurnChange();
+        return true;
+    }
+    // 棋种自带的「落子即终局」判定（吃子围棋：提子即胜 / 自杀即负）——交回棋种自己判，别再在这里漏掉
+    if (typeof self.resolveMoveOutcome === 'function'
+        && self.resolveMoveOutcome(prevBoard, newBoard, row, col, playerVal, moveSlot) === true) {
         self.broadcast({ type: 'broadcast', action: 'move', ...self.getState() });
         if (typeof self._syncClockAfterTurnChange === 'function') self._syncClockAfterTurnChange();
         return true;
@@ -560,6 +599,24 @@ function startScoreVsComputer(self) {
     }
 }
 
+/**
+ * 电脑「回退虚着」留痕（只记非引擎本意的虚着；引擎自己选择虚着是正常的，不记）。
+ * 回退虚着说明服务端落不了引擎给的着手——通常意味着引擎内部局面已与服务端漂移
+ * （genmove 会先把着手落进引擎自己的盘面），是「下着下着完全乱下」的形态之一。
+ * 线索：正常局面模型虚着概率仅 ~5e-5（实测），所以连虚几乎不会是引擎本意。
+ * @param {string} reason 回退原因（写进日志）
+ */
+function logComputerPassFallback(self, reason, detail) {
+    const moves = Array.isArray(self.moveCoords) ? self.moveCoords.length : 0;
+    let d;
+    if (typeof detail === 'string') d = detail;
+    else if (detail instanceof Error) d = detail.message;          // JSON.stringify(Error) 会是 "{}"，别丢原因
+    else {
+        try { d = JSON.stringify(detail); } catch (_) { d = String(detail); }
+    }
+    console.warn(`[katago:${engineGameId(self)}] 电脑回退虚着（${reason}，手数 ${moves}）：${d == null ? String(detail) : String(d).slice(0, 160)}`);
+}
+
 function applyComputerPass(self) {
     if (!self.computerSlot || self.gameOver) return;
     const moveSlot = self.computerSlot;
@@ -598,6 +655,110 @@ function applyComputerPass(self) {
     if (typeof self._syncClockAfterTurnChange === 'function') self._syncClockAfterTurnChange();
 }
 
+/** 最近几手的简写（自检报错时贴出来，一眼看出是哪一手之后开始不同步） */
+function describeRecentMoves(self, n) {
+    const mc = Array.isArray(self.moveCoords) ? self.moveCoords : [];
+    const start = Math.max(0, mc.length - (n || 6));
+    const out = [];
+    for (let i = start; i < mc.length; i++) {
+        const m = mc[i] || {};
+        const at = Number.isInteger(m.row) && Number.isInteger(m.col) ? `(${m.row},${m.col})` : '';
+        const from = m.type === 'swap' && Number.isInteger(m.fromRow) ? `自(${m.fromRow},${m.fromCol})` : '';
+        out.push(`#${i + 1}${m.player ? ' ' + m.player : ''} ${m.type || '?'}${from}${at}`);
+    }
+    return out.join('；');
+}
+
+/** 权重回读的抽样间隔（手）：权重只在 setupGame 里下发并回读校验，中途抽查是防「莫名丢失」的保险 */
+const WEIGHT_PROBE_EVERY = 5;
+function isWeightProbeDue(moveCount) { return moveCount > 0 && moveCount % WEIGHT_PROBE_EVERY === 0; }
+
+/** 权重矩阵（站点 row 序）按站点→引擎的展开顺序拍平（与 setupGame 下发的顺序一致） */
+function flattenWeightsForEngine(self, weights, width, height) {
+    const flat = [];
+    for (let r = 0; r < height; r++) {
+        const row = Array.isArray(weights[r]) ? weights[r] : [];
+        for (let c = 0; c < width; c++) {
+            const v = Number(row[c]);
+            flat.push(Number.isFinite(v) ? v : 0);
+        }
+    }
+    return flat;
+}
+
+/**
+ * 引擎状态自检（每一手之后都做）：引擎内部的盘面、行棋方、权重必须与服务端一致。
+ * 不一致 = 引擎局面已漂移（此后 genmove 都基于错误局面，表现就是「下着下着完全乱下」
+ * 或「突然只有入门水平」）。漂移来源例如：某一手没同步成功（play 失败被吞、着法类型
+ * 未识别、引擎提议的着法服务端落不下去而改成虚着、undo 步数不匹配…）；权重局里
+ * 「引擎手里没有这一局的权重」会让它按普通围棋下（分数全错），也是同一种表现。
+ * 发现不一致 → 记日志（含最近几手与触发点）+ 全量重同步（用服务端盘面与权重重建）。
+ * 纯文本回读（showboard / kata-get-weights），不做推理，每手调用开销可忽略。
+ * @param {string} trigger 触发点说明（写进日志，便于定位是哪条路径之后不同步的）
+ */
+async function verifyEngineState(self, session, gen, trigger) {
+    if (!session || session.dead || typeof session.probeBoard !== 'function') return;
+    if (gen !== self._qiKatagoGen || session !== self._qiKatago) return;
+    const size = Number(self.boardSize);
+    const width = Number(self.katagoBoardWidth) || size;
+    const height = Number(self.katagoBoardHeight) || size;
+    let probed = null;
+    try {
+        probed = await session.probeBoard(height, width);
+    } catch (_) {
+        return;
+    }
+    if (!probed) return;   // 不支持的引擎/特殊格棋盘：无法比对
+    if (gen !== self._qiKatagoGen || session !== self._qiKatago || self.gameOver) return;
+
+    let stoneDiff = 0;
+    for (let r = 0; r < height && stoneDiff === 0; r++) {
+        const row = Array.isArray(self.board[r]) ? self.board[r] : [];
+        for (let c = 0; c < width; c++) {
+            const mine = row[c] === 1 || row[c] === 2 ? row[c] : 0;
+            if (probed.stones[r] && probed.stones[r][c] !== mine) { stoneDiff += 1; break; }
+        }
+    }
+    const expectPla = colorOfSlot(seatToMove(self));
+    const turnDiff = !!probed.nextPlayer && probed.nextPlayer !== expectPla;
+
+    // 权重局：核对引擎手里的权重还是不是本站点这一局的那组（丢了 = 正按普通围棋下、分数全错）。
+    // 权重只可能被 clear_board 作废，而每次 clear_board 之后都会重发并回读校验（见 setupGame），
+    // 所以这里按 WEIGHT_PROBE_EVERY 手抽样即可；盘面/行棋方已发现异常时必查（便于一次性定位）。
+    let weightDiff = null;
+    const moveCount = Array.isArray(self.moveCoords) ? self.moveCoords.length : 0;
+    if (isWeightWeiqiEngine(engineGameId(self)) && typeof session.probeWeights === 'function'
+        && (isWeightProbeDue(moveCount) || stoneDiff > 0 || turnDiff)) {
+        const w = readWeights(self);
+        let pw = null;
+        try { pw = await session.probeWeights(); } catch (_) { pw = null; }
+        if (gen !== self._qiKatagoGen || session !== self._qiKatago) return;
+        if (w && pw) {
+            const flat = flattenWeightsForEngine(self, w, width, height);
+            let am = 0;
+            for (let i = 1; i < flat.length; i++) if (flat[i] > flat[am]) am = i;
+            if (pw.count !== flat.length) weightDiff = `权重个数 ${pw.count}≠${flat.length}`;
+            else if (pw.allEqual) weightDiff = '引擎权重全相等（等于没设权重，正按普通围棋下）';
+            else if (pw.argmax !== am) weightDiff = `最高权重点 ${pw.argmax}≠${am}`;
+        }
+        if (pw) self._qiKatagoWeightProbedAt = moveCount;   // 仅供调试观察，不参与判断
+    }
+
+    if (!stoneDiff && !turnDiff && !weightDiff) return;
+
+    console.warn(`[katago:${engineGameId(self)}] 引擎状态与服务端不一致（触发：${trigger}；`
+        + `${stoneDiff ? '棋盘有差异' : ''}${stoneDiff && (turnDiff || weightDiff) ? '、' : ''}`
+        + `${turnDiff ? `行棋方 ${probed.nextPlayer}≠${expectPla}` : ''}${turnDiff && weightDiff ? '、' : ''}`
+        + `${weightDiff || ''}`
+        + `，手数 ${(self.moveCoords || []).length}）：全量重同步引擎状态。最近几手：${describeRecentMoves(self, 6)}`);
+    try {
+        const snap = typeof self.copyBoard === 'function' ? self.copyBoard(self.board) : self.board.map((r) => r.slice());
+        await session.setupGame(buildKatagoSetupOpts(self, snap));
+    } catch (err) {
+        console.error('KataGo 自检后重同步失败', err && err.message ? err.message : err);
+    }
+}
+
 function maybeScheduleKatago(self) {
     if (!self.computerSlot || self.gameOver || self._qiKatagoBusy || !self.matchStarted) return;
     if (self.pendingScore) return;
@@ -624,18 +785,32 @@ function maybeScheduleKatago(self) {
         touchKatagoActivity(self);
         self._qiKatago.genMove(colorOfSlot(self.computerSlot)).then((mv) => {
             if (gen !== self._qiKatagoGen || self.gameOver || !self.computerSlot) return;
-            if (mv && mv.pass) applyComputerPass(self);
+            if (mv && mv.pass) {
+                applyComputerPass(self);           // 引擎本意虚着：正常，不记日志
+            }
             else if (mv && mv.compound) {
                 // 复合棋子着法（rus-weiqi 等）：一次落 3 子
-                if (!applyComputerCompound(self, mv)) applyComputerPass(self);
+                if (!applyComputerCompound(self, mv)) {
+                    logComputerPassFallback(self, '复合着法落不下去', mv);
+                    applyComputerPass(self);
+                }
             } else if (mv && mv.swap) {
                 if (!applyComputerSwap(self, mv.aRow, mv.aCol, mv.bRow, mv.bCol)) {
+                    logComputerPassFallback(self, '易位落不下去', `ts (${mv.aRow},${mv.aCol}) (${mv.bRow},${mv.bCol})`);
                     applyComputerPass(self);
                 }
             } else if (mv && Number.isInteger(mv.row) && Number.isInteger(mv.col)) {
-                if (!applyComputerMove(self, mv.row, mv.col)) applyComputerPass(self);
-            } else applyComputerPass(self);
+                if (!applyComputerMove(self, mv.row, mv.col)) {
+                    logComputerPassFallback(self, '着法落不下去', `引擎提议 (${mv.row},${mv.col})`);
+                    applyComputerPass(self);
+                }
+            } else {
+                logComputerPassFallback(self, '引擎响应无法解析', mv);
+                applyComputerPass(self);
+            }
             touchKatagoActivity(self);
+            // 自检：引擎内部状态是否仍与服务端一致（漂移要立刻重同步，否则后续着法会「乱下」）
+            verifyEngineState(self, self._qiKatago, gen, '电脑落子').catch(() => { /* ignore */ });
         }).catch((err) => {
             console.error('KataGo genmove 失败', err);
             if (gen !== self._qiKatagoGen || self.gameOver) return;
@@ -648,7 +823,10 @@ function maybeScheduleKatago(self) {
             if (h) {
                 try { h.send(JSON.stringify({ type: 'error', message: '电脑思考失败，已虚着。' })); } catch (_) { /* ignore */ }
             }
+            logComputerPassFallback(self, '思考失败/超时', err && err.message ? err.message : String(err));
             applyComputerPass(self);
+            // 引擎可能已经/没有走子，局面未必与服务端一致：自检并重同步
+            verifyEngineState(self, self._qiKatago, gen, '电脑思考失败').catch(() => { /* ignore */ });
         }).finally(() => {
             if (gen === self._qiKatagoGen) self._qiKatagoBusy = false;
         });
@@ -740,6 +918,8 @@ async function ensureKatagoEngine(self, opts) {
 
         self._qiKatago = session;
         touchKatagoActivity(self);
+        // 刚同步完就核一次：确认盘面/行棋方/权重真的进了引擎（权重没吃下 = 引擎按普通围棋下）
+        await verifyEngineState(self, session, gen, '开局/唤醒同步').catch(() => { /* ignore */ });
         return session;
     })();
 
@@ -891,9 +1071,19 @@ function handleHumanPassVsComputer(self, ws, slot) {
 
     if (self._qiKatago && !self._qiKatago.dead) {
         const gen = self._qiKatagoGen;
-        self._qiKatago.play(colorOfSlot(slot), null, null).then(() => {
-            if (gen === self._qiKatagoGen) maybeScheduleKatago(self);
-        }).catch((err) => console.error('KataGo play pass 失败', err));
+        self._qiKatago.play(colorOfSlot(slot), null, null).then(() => verifyEngineState(self, self._qiKatago, gen, '人类虚着')
+            .catch(() => { /* ignore */ })
+            .then(() => { if (gen === self._qiKatagoGen) maybeScheduleKatago(self); })
+        ).catch((err) => {
+            console.error('KataGo play pass 失败，改用全量同步', err && err.message ? err.message : err);
+            // 虚着没同步进去 → 引擎行棋方会错位，必须整盘重设
+            const session = self._qiKatago;
+            if (!session || session.dead || gen !== self._qiKatagoGen) return;
+            const snap = typeof self.copyBoard === 'function' ? self.copyBoard(self.board) : self.board.map((r) => r.slice());
+            session.setupGame(buildKatagoSetupOpts(self, snap)).then(() => {
+                if (gen === self._qiKatagoGen) maybeScheduleKatago(self);
+            }).catch((e2) => console.error('KataGo 虚着后重同步失败', e2));
+        });
         return;
     }
     // 引擎未就绪：后台拉起；失败则结束人机
@@ -930,10 +1120,14 @@ function install(self, gameId) {
     wrapStateGetter(self, 'getInitialState');
     wrapStateGetter(self, 'getStateForClient');
 
-    // 无引擎、非方格围棋、或已有自带电脑逻辑：不接管对局
-    if (hadBuiltinComputer || !self.katagoAvailable || !supportsSquareWeiqiGtp(self)) {
+    // 棋种自带电脑逻辑：只暴露可用性，绝不接管（其余情况一律继续挂包装）
+    if (hadBuiltinComputer) {
         return self;
     }
+    // 注意：这里**不能**按「当前子棋类有没有引擎」提前返回。
+    // 有子棋类的棋种可以在开局前切换子棋类（例如非四角围棋：六角没引擎、扭棱四角有），
+    // 提前返回会导致切过去之后既没有消息包装、也不能开局——表现就是按钮不出现（刷新才对）与设置窗卡死。
+    // 可用性在收到消息时按当前子棋类重新判定（canRequestVsComputer / prepareKatagoEngine 内）。
 
     const wrapReset = (name) => {
         if (typeof self[name] !== 'function') return;
@@ -1093,9 +1287,10 @@ function install(self, gameId) {
                         : this.board.map((row) => row.slice());
                     const syncOpts = buildKatagoSetupOpts(this, boardSnap);
                     // 优先 GTP undo（不必重设洞）；失败再全量 setupGame
-                    session.undoMoves(steps).then(() => {
-                        if (gen === this._qiKatagoGen) maybeScheduleKatago(this);
-                    }).catch((undoErr) => {
+                    session.undoMoves(steps).then(() => verifyEngineState(this, session, gen, `悔棋 ${steps} 手后`)
+                        .catch(() => { /* ignore */ })
+                        .then(() => { if (gen === this._qiKatagoGen) maybeScheduleKatago(this); })
+                    ).catch((undoErr) => {
                         console.warn('KataGo undo 失败，改用全量同步', undoErr && undoErr.message);
                         return session.setupGame(syncOpts).then(() => {
                             if (gen === this._qiKatagoGen) maybeScheduleKatago(this);
@@ -1124,9 +1319,10 @@ function install(self, gameId) {
                     if (last && last.type === 'swap') {
                         this._qiKatago.playSwap(
                             colorOfSlot(slot), last.fromRow, last.fromCol, last.row, last.col
-                        ).then(() => {
-                            if (gen === this._qiKatagoGen) maybeScheduleKatago(this);
-                        }).catch((err) => {
+                        ).then(() => verifyEngineState(this, this._qiKatago, gen, '人类易位')
+                            .catch(() => { /* ignore */ })
+                            .then(() => { if (gen === this._qiKatagoGen) maybeScheduleKatago(this); })
+                        ).catch((err) => {
                             console.error('KataGo play swap 失败', err);
                             // 易位同步失败时整盘重设，避免引擎落后
                             const session = this._qiKatago;
@@ -1142,9 +1338,10 @@ function install(self, gameId) {
                         if (Number.isInteger(last.shapeIndex) && Number.isInteger(last.row) && Number.isInteger(last.col)) {
                             // 复合棋子着法（rus-weiqi）：服务端 rot/flip → 引擎规范 orient
                             const orient = compoundOrientToEngine(last.shapeIndex, last.rotation, last.flipped);
-                            this._qiKatago.playCompound(colorOfSlot(slot), last.row, last.col, last.shapeIndex, orient).then(() => {
-                                if (gen === this._qiKatagoGen) maybeScheduleKatago(this);
-                            }).catch((err) => {
+                            this._qiKatago.playCompound(colorOfSlot(slot), last.row, last.col, last.shapeIndex, orient).then(() => verifyEngineState(this, this._qiKatago, gen, '人类复合着法')
+                                .catch(() => { /* ignore */ })
+                                .then(() => { if (gen === this._qiKatagoGen) maybeScheduleKatago(this); })
+                            ).catch((err) => {
                                 console.error('KataGo playCompound 失败，全量重同步引擎局面', err);
                                 const session = this._qiKatago;
                                 if (!session || session.dead || gen !== this._qiKatagoGen) return;
@@ -1156,9 +1353,10 @@ function install(self, gameId) {
                                 }).catch((e2) => console.error('KataGo 复合着后重同步失败', e2));
                             });
                         } else {
-                            this._qiKatago.play(colorOfSlot(slot), last.row, last.col).then(() => {
-                                if (gen === this._qiKatagoGen) maybeScheduleKatago(this);
-                            }).catch((err) => {
+                            this._qiKatago.play(colorOfSlot(slot), last.row, last.col).then(() => verifyEngineState(this, this._qiKatago, gen, '人类着法')
+                                .catch(() => { /* ignore */ })
+                                .then(() => { if (gen === this._qiKatagoGen) maybeScheduleKatago(this); })
+                            ).catch((err) => {
                                 console.error('KataGo play 失败，全量重同步引擎局面', err);
                                 // 引擎内部局面与服务器不一致会累积错位（后续 genmove 决策基于错误局面）：
                                 // 全量 set_position 以服务器盘面重建引擎局面
@@ -1173,7 +1371,19 @@ function install(self, gameId) {
                             });
                         }
                     } else {
-                        maybeScheduleKatago(this);
+                        // 未识别的着法类型没有对应的引擎同步方式：绝不能静默跳过（引擎会缺这一手）
+                        console.warn(`[katago:${engineGameId(this)}] 未识别的着法类型（${last ? last.type : '空'}），该手未同步给引擎：全量重同步引擎状态。最近几手：${describeRecentMoves(this, 6)}`);
+                        const session = this._qiKatago;
+                        if (session && !session.dead && gen === this._qiKatagoGen) {
+                            const snap = typeof this.copyBoard === 'function'
+                                ? this.copyBoard(this.board)
+                                : this.board.map((row) => row.slice());
+                            session.setupGame(buildKatagoSetupOpts(this, snap)).then(() => {
+                                if (gen === this._qiKatagoGen) maybeScheduleKatago(this);
+                            }).catch((e2) => console.error('KataGo 未识别着法后重同步失败', e2));
+                        } else {
+                            maybeScheduleKatago(this);
+                        }
                     }
                     return;
                 }
@@ -1207,7 +1417,10 @@ function attachToRoom(room) {
 }
 
 module.exports = {
+    weightsForEngine,
     install,
     attachToRoom,
-    isKatagoAvailable
+    isKatagoAvailable,
+    /** 电脑着法的落子入口（单测直接调用，平时只在本文件内部用） */
+    applyComputerMove
 };

@@ -416,6 +416,7 @@ class SimulatedMakrukRoom extends QiTwoPlayerRoomBase {
         this.moveHistory = [];
         this.gameOver = false;
         this.winner = null;
+        this.importReplayNoJudge = false;
         this.recordResultText = null;
         this.pendingNewGame = null;
         this.pendingUndo = null;
@@ -431,6 +432,7 @@ class SimulatedMakrukRoom extends QiTwoPlayerRoomBase {
     }
 
     _endGame(winnerSlot, resultText) {
+        if (this.importReplayNoJudge) return;   // 导入回放期间不判定（结果只按棋谱记录）
         this.gameOver = true;
         this.winner = winnerSlot;
         this.recordResultText = resultText;
@@ -559,6 +561,7 @@ class SimulatedMakrukRoom extends QiTwoPlayerRoomBase {
             return;
         }
         this.resetToEmpty();
+        this.importReplayNoJudge = true;   // 回放期间不判终局
         const rawMoves = data.moves || [];
         for (let i = 0; i < rawMoves.length; i++) {
             const entry = rawMoves[i];
@@ -593,6 +596,28 @@ class SimulatedMakrukRoom extends QiTwoPlayerRoomBase {
             }
             this._resolveAfterMove();
             if (this.gameOver) break;
+        }
+        this.importReplayNoJudge = false;
+        // 导入不做任何判定：结果只按棋谱记录显示（局面与记录不一致时也以记录为准）。
+        // 本棋种 player1 执红、player2 执黑；公共层会把棋谱里的「红胜」折成 result='player1'。
+        const recResult = data.result != null && data.result !== '' ? data.result
+            : (data.resultText != null && data.resultText !== '' ? data.resultText : null);
+        if (recResult != null) {
+            this.gameOver = true;
+            this.recordResultText = data.resultText ? String(data.resultText) : String(recResult);
+            const rt = String(this.recordResultText);
+            const SLOT_OF_COLOR = { 红: 'player1', 黑: 'player2' };
+            const win = /(黑|白|红|绿|蓝)\s*(?:方)?[^，。]{0,6}胜/.exec(rt);
+            let color = win ? win[1] : null;
+            if (!color) {
+                const lose = /(黑|白|红|绿|蓝)\s*(?:方)?[^，。]{0,6}判负/.exec(rt);
+                if (lose) color = Object.keys(SLOT_OF_COLOR).find((k) => k !== lose[1]) || null;
+                else if (recResult === 'red' || recResult === 'player1') color = '红';
+                else if (recResult === 'black' || recResult === 'player2') color = '黑';
+            }
+            if (recResult === 'draw' || rt.includes('和')) this.winner = 'draw';
+            else if (color && SLOT_OF_COLOR[color]) this.winner = SLOT_OF_COLOR[color];
+            else this.winner = recResult;
         }
         if (!this.matchStarted && this.moveHistory.length > 0) {
             this.matchStarted = true;
@@ -656,11 +681,11 @@ class SimulatedMakrukRoom extends QiTwoPlayerRoomBase {
                 break;
             }
             case 'resign':
-                qiProtocol.resign(this, ws, slot);
-                if (this.gameOver && slot) {
+                if (slot && !this.gameOver) {
                     this.recordResultText = slot === 'player1' ? '红方认输，黑胜' : '黑方认输，红胜';
                     this._stopClockTicker();
                 }
+                qiProtocol.resign(this, ws, slot);
                 break;
             case 'requestNewGame': qiProtocol.requestNewGame(this, ws, slot); break;
             case 'newGameResponse': qiProtocol.newGameResponse(this, ws, msg); break;
@@ -701,12 +726,7 @@ class SimulatedMakrukRoom extends QiTwoPlayerRoomBase {
 
     resetGame() {
         this.resetToEmpty();
-        for (const [client, s] of this.room.players.entries()) {
-            this.room.slotOccupancy.delete(s);
-            this.room.players.delete(client);
-            this.room.observers.add(client);
-            client.send(JSON.stringify({ type: 'slotReleased', slot: s }));
-        }
+        qiProtocol.releaseAllSeats(this);
         this.broadcast({ type: 'newGameStarted', ...this.getState(), slots: { player1: false, player2: false } });
     }
 

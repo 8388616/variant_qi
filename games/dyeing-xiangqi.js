@@ -603,6 +603,7 @@ class DyeingXiangqiRoom extends QiTwoPlayerRoomBase {
         this.lastTo = null;
         this.moveHistory = [];
         this.gameOver = false;
+        this.importReplayNoJudge = false;
         this.winner = null;
         this.recordResultText = null;
         this.pendingNewGame = null;
@@ -618,6 +619,8 @@ class DyeingXiangqiRoom extends QiTwoPlayerRoomBase {
     }
 
     _endGame(winnerSlotOrSide, resultText) {
+        // 导入棋谱回放期间不判终局：只摆棋，结果以棋谱记录为准
+        if (this.importReplayNoJudge) return;
         this.gameOver = true;
         if (winnerSlotOrSide === 'draw') this.winner = 'draw';
         else if (winnerSlotOrSide === 'red' || winnerSlotOrSide === 'green') {
@@ -662,7 +665,30 @@ class DyeingXiangqiRoom extends QiTwoPlayerRoomBase {
         return { ok: true, occupying: sim.occupying, captured: !!captured, gaveCheck };
     }
 
+    /** 开赛（编辑盘面后开局）即判定：先看局面是否已分出胜负，再判行棋方是否无子可动（与对局中同口径） */
+    onMatchStarted() {
+        this._judgePositionOutcome();
+    }
+
+    /** 轮到的一方无子可动 → 判负（对局中与开赛时共用，勿只写在一处） */
+    _judgeStuckSide() {
+        const side = this.sideToMove;
+        if (R.hasLegalMove(this.board, this.bags, side)) return false;
+        const inCheck = R.isInCheck(this.board, side);
+        const winnerSide = R.oppositeSide(side);
+        const text = inCheck
+            ? (side === 'green' ? '红将死绿，红胜' : '绿将死红，绿胜')
+            : (side === 'green' ? '红困毙绿，红胜' : '绿困毙红，绿胜');
+        this._endGame(winnerSide, text);
+        return true;
+    }
+
     _resolveAfterMove() {
+        this._judgePositionOutcome();
+    }
+
+    _judgePositionOutcome() {
+        if (this.importReplayNoJudge) return;
         const outcome = R.evaluateOutcome(this.board);
         if (outcome.over) {
             if (outcome.winner === 'draw') {
@@ -675,16 +701,7 @@ class DyeingXiangqiRoom extends QiTwoPlayerRoomBase {
             return;
         }
 
-        const side = this.sideToMove;
-        const inCheck = R.isInCheck(this.board, side);
-        const canMove = R.hasLegalMove(this.board, this.bags, side);
-        if (!canMove) {
-            const winnerSide = R.oppositeSide(side);
-            const text = inCheck
-                ? (side === 'green' ? '红将死绿，红胜' : '绿将死红，绿胜')
-                : (side === 'green' ? '红困毙绿，红胜' : '绿困毙红，绿胜');
-            this._endGame(winnerSide, text);
-        }
+        this._judgeStuckSide();
     }
 
     importRecord(data, requesterWs) {
@@ -694,6 +711,7 @@ class DyeingXiangqiRoom extends QiTwoPlayerRoomBase {
         }
         this.resetToEmpty();
         const rawMoves = data.moves || [];
+        this.importReplayNoJudge = true;   // 回放期间不判终局（结果只按棋谱记录）
         for (let i = 0; i < rawMoves.length; i++) {
             let entry = rawMoves[i];
             let player; let fromRow; let fromCol; let toRow; let toCol;
@@ -729,14 +747,28 @@ class DyeingXiangqiRoom extends QiTwoPlayerRoomBase {
             this._resolveAfterMove();
             if (this.gameOver) break;
         }
-        if (data.result && !this.gameOver) {
+        this.importReplayNoJudge = false;
+        // 导入不做任何判定：结果只按棋谱记录显示（局面与记录不一致时也以记录为准）。
+        // 记录里的胜负先认出执方颜色（公共层把棋谱里的「黑胜」折成 result='player1'、
+        // 「白胜」折成 result='player2'，所以不能直接当座位名用），再落到本棋种的座位。
+        const recResult = data.result != null && data.result !== '' ? data.result
+            : (data.resultText != null && data.resultText !== '' ? data.resultText : null);
+        if (recResult != null) {
             this.gameOver = true;
-            this.recordResultText = data.resultText || String(data.result);
-            const rt = String(data.resultText || data.result);
-            if (data.result === 'draw' || rt.includes('和')) this.winner = 'draw';
-            else if (data.result === 'player1' || /红胜/.test(rt)) this.winner = 'player1';
-            else if (data.result === 'player2' || /绿胜/.test(rt)) this.winner = 'player2';
-            else this.winner = data.result;
+            this.recordResultText = data.resultText ? String(data.resultText) : String(recResult);
+            const rt = String(this.recordResultText);
+            const SLOT_OF_COLOR = { 红: 'player1', 绿: 'player2' };   // player1 执红、player2 执绿
+            const win = /(黑|白|红|绿|蓝)\s*(?:方)?[^，。]{0,6}胜/.exec(rt);
+            let color = win ? win[1] : null;
+            if (!color) {
+                const lose = /(黑|白|红|绿|蓝)\s*(?:方)?[^，。]{0,6}判负/.exec(rt);
+                if (lose) color = Object.keys(SLOT_OF_COLOR).find((k) => k !== lose[1]) || null;
+                else if (recResult === 'black' || recResult === 'player1') color = '黑';
+                else if (recResult === 'white' || recResult === 'player2') color = '白';
+            }
+            if (recResult === 'draw' || rt.includes('和')) this.winner = 'draw';
+            else if (color && SLOT_OF_COLOR[color]) this.winner = SLOT_OF_COLOR[color];
+            else this.winner = recResult;
         }
         if (!this.matchStarted && this.moveHistory.length > 0) {
             this.matchStarted = true;
@@ -864,6 +896,7 @@ class DyeingXiangqiRoom extends QiTwoPlayerRoomBase {
             this.lastTo = null;
         }
         this.gameOver = false;
+        this.importReplayNoJudge = false;
         this.winner = null;
         this.recordResultText = null;
         if (this.tcClock && this.tcClock.timed) this._syncClockAfterTurnChange();
@@ -871,12 +904,7 @@ class DyeingXiangqiRoom extends QiTwoPlayerRoomBase {
 
     resetGame() {
         this.resetToEmpty();
-        for (const [client, s] of this.room.players.entries()) {
-            this.room.slotOccupancy.delete(s);
-            this.room.players.delete(client);
-            this.room.observers.add(client);
-            client.send(JSON.stringify({ type: 'slotReleased', slot: s }));
-        }
+        qiProtocol.releaseAllSeats(this);
         this.broadcast({ type: 'newGameStarted', ...this.getState(), slots: { player1: false, player2: false } });
     }
 

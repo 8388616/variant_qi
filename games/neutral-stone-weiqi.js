@@ -1,4 +1,4 @@
-const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, encodeInitialPositionCompact, applyInitialPositionCompact, qiBoardSeatOverlay } = require('../common');
+const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, encodeInitialPositionCompact, applyInitialPositionCompact, qiBoardSeatOverlay, computeBensonWeiqiLead, squareWeiqiScoringOps } = require('../common');
 
 const NEUTRAL = 10000;
 
@@ -219,16 +219,19 @@ class NeutralStoneWeiqiRoom extends QiTwoPlayerRoomBase
         self.broadcast({ type: 'broadcast', action: 'move', player: slot, ...self.getState() });
     }
 
+    /**
+     * 形势判断 / 数点：用 Benson 档（公共口径）+ 中立子改造——
+     * Benson 里中立子视同洞（不连通、不供气、不参与分析），最近归属仍不可穿越中立子。
+     */
     computeLead() {
-        const KOMI = 4.75;
-        const liveBoard = squareWeiqiRules.removeDeadAndDying(
-            this.board, this.boardSize, (b) => this.copyBoard(b)
-        );
-        const territory = squareWeiqiRules.assignTerritoryWithRange(liveBoard, this.boardSize, {
-            isPassable: (v) => v !== NEUTRAL
+        const isNeutral = (bd) => (r, c) => bd[r][c] === NEUTRAL;
+        const ops = squareWeiqiScoringOps(this.boardSize, {
+            isPassable: (v) => v !== NEUTRAL,
+            copyBoard: (b) => this.copyBoard(b)
         });
-        const { blackTotal, whiteTotal } = squareWeiqiRules.computeScore(liveBoard, territory, this.boardSize);
-        return blackTotal - whiteTotal - 2 * KOMI;
+        ops.bensonAlive = (bd) => squareWeiqiRules.bensonAliveWithHoles(bd, this.boardSize, isNeutral(bd));
+        const { lead } = computeBensonWeiqiLead(this.board, 4.75, ops);
+        return lead;
     }
 
     getNeutralStonesOnBoard() {
@@ -494,13 +497,7 @@ class NeutralStoneWeiqiRoom extends QiTwoPlayerRoomBase
         this.winner = null;
         this.recordResultText = null;
         this.passCounter = 0;
-        for (let [client, slot] of this.room.players.entries())
-        {
-            this.room.slotOccupancy.delete(slot);
-            this.room.players.delete(client);
-            this.room.observers.add(client);
-            client.send(JSON.stringify({ type: 'slotReleased', slot }));
-        }
+        qiProtocol.releaseAllSeats(this);
         this.broadcast({ type: 'newGameStarted', ...this.getInitialState(), slots: { player1: false, player2: false } });
     }
 

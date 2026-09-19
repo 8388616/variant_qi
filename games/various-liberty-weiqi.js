@@ -1,6 +1,6 @@
 'use strict';
 
-const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, applyInitialPositionCompact, encodeInitialPositionCompact, qiBoardSeatOverlay, encodeOpeningPositionCompact } = require('../common');
+const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, applyInitialPositionCompact, encodeInitialPositionCompact, qiBoardSeatOverlay, encodeOpeningPositionCompact , computeNearestWeiqiLead, squareWeiqiScoringOps } = require('../common');
 
 const BACKPACK_CAP = 8;
 
@@ -343,12 +343,12 @@ class VariousLibertyWeiqiRoom extends QiTwoPlayerRoomBase {
         return squareWeiqiRules.computeScore(liveBoard, territory, this.boardSize);
     }
 
+    /** 形势判断 / 数点：只用最近归属档（公共口径）；不判死子、不叠 Benson */
     computeLead() {
-        const liveBoard = this.removeDeadAndDying(this.board);
-        const territory = this.assignTerritoryWithRange(liveBoard);
-        const { blackTotal, whiteTotal } = this.computeScore(liveBoard, territory);
-        const KOMI = 3.25;
-        return blackTotal - whiteTotal - 2 * KOMI;
+        const { lead } = computeNearestWeiqiLead(this.board, 3.25, squareWeiqiScoringOps(this.boardSize, {
+            copyBoard: (b) => this.copyBoard(b)
+        }));
+        return lead;
     }
 
     getState() {
@@ -456,12 +456,7 @@ class VariousLibertyWeiqiRoom extends QiTwoPlayerRoomBase {
         this.gameOver = false;
         this.winner = null;
         this.passCounter = 0;
-        for (const [client, slot] of this.room.players.entries()) {
-            this.room.slotOccupancy.delete(slot);
-            this.room.players.delete(client);
-            this.room.observers.add(client);
-            client.send(JSON.stringify({ type: 'slotReleased', slot }));
-        }
+        qiProtocol.releaseAllSeats(this);
         this.broadcast({ type: 'newGameStarted', ...this.getState(), slots: { player1: false, player2: false } });
     }
 
@@ -490,6 +485,8 @@ class VariousLibertyWeiqiRoom extends QiTwoPlayerRoomBase {
         this.passCounter = 0;
         this.currentPlayer = 1;
         this.broadcast({ type: 'boardSizeChanged', boardSize: this.boardSize });
+        // 路数变了必须带一份完整局面：只发 boardSizeChanged 时客户端棋盘不会重画（要刷新页面）
+        this.broadcast({ type: 'gameState', ...this.getState() });
         return true;
     }
 

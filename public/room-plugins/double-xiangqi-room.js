@@ -11,6 +11,7 @@ window.RoomPlugins["double-xiangqi"] = {
         "recordDownloadPrefix": "二象棋",
         "standardWeiqiMatchTime": true,
         "features": {
+            "woodTexture": true,
             "editBoard": true,
             "xiangqi": true,
             "hideBoardSize": true

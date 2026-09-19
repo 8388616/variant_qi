@@ -1,4 +1,4 @@
-const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, qiBoardSeatOverlay } = require('../common');
+const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, qiBoardSeatOverlay , computeNearestWeiqiLead, squareWeiqiScoringOps } = require('../common');
 
 class FogWeiqiRoom extends QiTwoPlayerRoomBase {
     constructor(room, initialSize = 19) {
@@ -183,36 +183,12 @@ class FogWeiqiRoom extends QiTwoPlayerRoomBase {
         return squareWeiqiRules.computeScore(liveBoard, territory, this.boardSize);
     }
 
+    /** 形势判断 / 数点：只用最近归属档（公共口径）；不判死子、不叠 Benson */
     computeLead() {
-        // Benson 加成：保活无条件活棋链 + 确定领地覆盖（其余保持原启发式）
-        const size = this.boardSize;
-        const benson = squareWeiqiRules.bensonAlive(this.board, size);
-        let liveBoard = this.board.map((row) => row.slice());
-        let changed = true;
-        while (changed) {
-            changed = false;
-            const cleaned = this.removeDeadAndDying(liveBoard);
-            for (let r = 0; r < size; r++) {
-                for (let c = 0; c < size; c++) {
-                    const v = this.board[r][c];
-                    if (benson.alive[r][c] && (v === 1 || v === 2) && cleaned[r][c] !== v) {
-                        cleaned[r][c] = v;
-                        changed = true;
-                    }
-                }
-            }
-            liveBoard = cleaned;
-        }
-        const territory = this.assignTerritoryWithRange(liveBoard);
-        const secure = squareWeiqiRules.bensonAlive(liveBoard, size);
-        for (let r = 0; r < size; r++) {
-            for (let c = 0; c < size; c++) {
-                if (liveBoard[r][c] === 0 && secure.territory[r][c]) territory[r][c] = secure.territory[r][c];
-            }
-        }
-        const { blackTotal, whiteTotal } = this.computeScore(liveBoard, territory);
-        const KOMI = this.boardSize <= 8 ? 4.25 : 3.25;
-        return blackTotal - whiteTotal - 2 * KOMI;
+        const { lead } = computeNearestWeiqiLead(this.board, this.boardSize <= 8 ? 4.25 : 3.25, squareWeiqiScoringOps(this.boardSize, {
+            copyBoard: (b) => this.copyBoard(b)
+        }));
+        return lead;
     }
 
     /** 己方棋子提供周围 3×3 视野（含自身格） */
@@ -844,12 +820,7 @@ class FogWeiqiRoom extends QiTwoPlayerRoomBase {
         this.winner = null;
         this.passCounter = 0;
         this.moveCoords = [];
-        for (let [client, s] of this.room.players.entries()) {
-            this.room.slotOccupancy.delete(s);
-            this.room.players.delete(client);
-            this.room.observers.add(client);
-            client.send(JSON.stringify({ type: 'slotReleased', slot: s }));
-        }
+        qiProtocol.releaseAllSeats(this);
         const allClients = [...this.room.players.keys(), ...this.room.observers];
         for (const client of allClients) {
             if (client.readyState !== 1) continue;

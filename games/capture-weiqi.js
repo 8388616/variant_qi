@@ -9,7 +9,7 @@
  */
 const crypto = require('crypto');
 
-const { qiBoardSeatOverlay, QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, applyInitialPositionCompact, encodeInitialPositionCompact, encodeOpeningPositionCompact } = require('../common');
+const { qiBoardSeatOverlay, QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, applyInitialPositionCompact, encodeInitialPositionCompact, encodeOpeningPositionCompact , computeNearestWeiqiLead, squareWeiqiScoringOps } = require('../common');
 class WeiqiRoom extends QiTwoPlayerRoomBase
 {
     constructor(room, initialSize = 19) {
@@ -165,45 +165,12 @@ class WeiqiRoom extends QiTwoPlayerRoomBase
     }
 
     /**
-     * Benson 加成的盘面净活盘：先用现有启发式去死子，再恢复无条件活棋链
-     * （防止"弱气被围"启发式误杀被动活），迭代到稳定。
-     */
-    bensonLiveBoard() {
-        const size = this.boardSize;
-        const benson = squareWeiqiRules.bensonAlive(this.board, size);
-        let live = this.board.map((row) => row.slice());
-        let changed = true;
-        while (changed) {
-            changed = false;
-            const cleaned = this.removeDeadAndDying(live);
-            for (let r = 0; r < size; r++) {
-                for (let c = 0; c < size; c++) {
-                    if (benson.alive[r][c] && this.board[r][c] !== 0 && cleaned[r][c] !== this.board[r][c]) {
-                        cleaned[r][c] = this.board[r][c];
-                        changed = true;
-                    }
-                }
-            }
-            live = cleaned;
-        }
-        return live;
-    }
-
-    computeLead()
-    {
-        const size = this.boardSize;
-        const liveBoard = this.bensonLiveBoard();
-        const territory = this.assignTerritoryWithRange(liveBoard);
-        // Benson 确定领地优先于"距离扩张"归属
-        const secure = squareWeiqiRules.bensonAlive(liveBoard, size);
-        for (let r = 0; r < size; r++) {
-            for (let c = 0; c < size; c++) {
-                if (liveBoard[r][c] === 0 && secure.territory[r][c]) territory[r][c] = secure.territory[r][c];
-            }
-        }
-        const { blackTotal, whiteTotal } = this.computeScore(liveBoard, territory);
-        const KOMI = this.boardSize <= 8 ? 3.5 : 2.5;
-        return blackTotal - whiteTotal - 2 * KOMI;
+    /** 形势判断 / 数点：只用最近归属档（公共口径）；不判死子、不叠 Benson */
+    computeLead() {
+        const { lead } = computeNearestWeiqiLead(this.board, this.boardSize <= 8 ? 3.5 : 2.5, squareWeiqiScoringOps(this.boardSize, {
+            copyBoard: (b) => this.copyBoard(b)
+        }));
+        return lead;
     }
 
     onResignResolved(resignSlot) {
@@ -234,13 +201,9 @@ class WeiqiRoom extends QiTwoPlayerRoomBase
         if (row < 0 || row >= this.boardSize || col < 0 || col >= this.boardSize) return;
         if (this.board[row][col] !== 0) return;
         const playerVal = this.currentPlayer === 1 ? 1 : 2;
-        const enemyVal = 3 - playerVal;
-        const enemyBefore = this.countStones(this.board, enemyVal);
+        const prevBoard = this.board;
         const newBoard = this.tryPlaceStone(this.board, row, col, playerVal);
         if (!newBoard) return;
-        const captured = enemyBefore - this.countStones(newBoard, enemyVal);
-        // 刚落下的那一子若已被提掉（连同整块被提），就是自杀
-        const selfCaptured = newBoard[row][col] !== playerVal;
         const newBoardStr = this.boardToString(newBoard);
         // 禁全同优先：自杀单颗子时盘面不会有任何变化（落下的子随即被提），按禁全同禁止落子，不判负
         if (newBoardStr === this.boardToString(this.board) || this.historyBoardSet.has(newBoardStr)) {
@@ -256,14 +219,30 @@ class WeiqiRoom extends QiTwoPlayerRoomBase
         this.board = newBoard;
         this.lastMoveMarkers = [{ row, col, color: playerVal }];
         this.passCounter = 0;
-        if (captured > 0) {
-            this.endByCapture(slot, captured);
-        } else if (selfCaptured) {
-            this.endBySuicide(slot);
-        } else {
+        if (!this.resolveMoveOutcome(prevBoard, newBoard, row, col, playerVal, slot)) {
             this.currentPlayer = 3 - this.currentPlayer;
         }
         this.broadcast({ type: 'broadcast', action: 'move', ...this.getState() });
+    }
+
+    /**
+     * 落子后的终局判定（人类着法与电脑着法共用，勿只写在 playCaptureMove 里）：
+     *   提掉对方棋子 → 落子方立即胜；落下的那一子连同己方别的子一起被提（自杀多颗）→ 落子方立即负。
+     *   只提掉刚落下那一子（棋盘没变）按禁全同禁止落子、不判负 —— 人类那条路在提交前就挡下了，
+     *   电脑那条路由调用方先落子，这里只能不判终局（等于空走一手）。
+     * 返回 true 表示这一手已经结束对局（调用方不要再换手）。
+     */
+    resolveMoveOutcome(prevBoard, newBoard, row, col, playerVal, moveSlot) {
+        const enemyVal = 3 - playerVal;
+        const captured = this.countStones(prevBoard, enemyVal) - this.countStones(newBoard, enemyVal);
+        if (captured > 0) {
+            this.endByCapture(moveSlot, captured);
+            return true;
+        }
+        if (newBoard[row][col] === playerVal) return false;
+        if (this.boardToString(prevBoard) === this.boardToString(newBoard)) return false;
+        this.endBySuicide(moveSlot);
+        return true;
     }
 
     /** 提子终局：落子方胜 */
@@ -540,13 +519,7 @@ class WeiqiRoom extends QiTwoPlayerRoomBase
         this.winner = null;
         this.passCounter = 0;
         this.moveCoords = [];
-        for (let [client, slot] of this.room.players.entries())
-        {
-            this.room.slotOccupancy.delete(slot);
-            this.room.players.delete(client);
-            this.room.observers.add(client);
-            client.send(JSON.stringify({ type: 'slotReleased', slot }));
-        }
+        qiProtocol.releaseAllSeats(this);
         this.broadcast({ type: 'newGameStarted', ...this.getState(), slots: { player1: false, player2: false } });
     }
 

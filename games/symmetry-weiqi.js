@@ -1,0 +1,860 @@
+const crypto = require('crypto');
+const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, applyInitialPositionCompact, encodeInitialPositionCompact, qiBoardSeatOverlay, encodeOpeningPositionCompact, computeBensonWeiqiLead, squareWeiqiScoringOps } = require('../common');
+
+/**
+ * 全部七种对称（客户端插件里有一份必须逐字一致的映射与同样的类型判断，见 public/room-plugins/symmetry-weiqi-room.js）：
+ *   轴对称四种：horizontal 水平轴（上下镜像）、vertical 垂直轴（左右镜像）、diag1 主对角、diag2 反对角
+ *   旋转三种  ：rotate90cw 顺时针 90°、rotate90ccw 逆时针 90°、rotate180 180°
+ */
+const SYMMETRY_TYPES = ['horizontal', 'vertical', 'diag1', 'diag2', 'rotate90cw', 'rotate90ccw', 'rotate180'];
+
+/** 启用的对称：以后要停用某几种，从这里删掉即可（目前七种全部启用）；第三手起从这里面随机 */
+const ENABLED_SYMMETRIES = ['horizontal', 'vertical', 'diag1', 'diag2', 'rotate90cw', 'rotate90ccw', 'rotate180'];
+
+/** 开局前两手固定使用的对称（保持现状）：第 1 手 diag1、第 2 手 diag2 */
+const OPENING_SYMMETRIES = ['diag1', 'diag2'];
+
+function normalizeLegacyInitialToCompact(initialPosition) {
+    if (!initialPosition) return [];
+    if (Array.isArray(initialPosition)) return initialPosition;
+    if (typeof initialPosition !== 'object') return [];
+    const out = [];
+    for (const pos of initialPosition.black || []) {
+        if (Array.isArray(pos) && pos.length === 2) out.push(`B${pos[0]},${pos[1]}`);
+    }
+    for (const pos of initialPosition.white || []) {
+        if (Array.isArray(pos) && pos.length === 2) out.push(`W${pos[0]},${pos[1]}`);
+    }
+    return out;
+}
+
+class SymmetryWeiqiRoom extends QiTwoPlayerRoomBase
+{
+    constructor(room, initialSize = 19) {
+        super(room);
+        this.boardSize = initialSize;
+        this.board = Array(this.boardSize).fill().map(() => Array(this.boardSize).fill(0));
+        if (this.openingBoard === undefined) this.openingBoard = (typeof this.copyBoard === 'function' ? this.copyBoard(this.board) : (Array.isArray(this.board[0]) ? this.board.map(r => r.slice()) : this.board.slice()));
+        this.currentPlayer = 1;
+        this.historyBoards = [];
+        this.historyBoardSet = new Set();
+        this.moveHistory = [];
+        this.historyMarkers = [];
+        this.lastMoveMarkers = [];
+        this.gameOver = false;
+        this.winner = null;
+        this.passCounter = 0;
+        this.pendingNewGame = null;
+        this.pendingUndo = null;
+        this.pendingDraw = null;
+        this.pendingEnd = null;
+        this.pendingScore = null;
+        this.scoreProposalData = null;
+        this.moveCoords = [];
+        this.symmetryAxis = 'diag1';
+        this.historySymmetryAxis = [];
+        this.recordResultText = null;
+        /** @type {{ black: number|null, white: number|null }} */
+        this.slotJoinedAt = { player1: null, player2: null };
+        this.tcNego = null;
+        /** @type {{ timed: boolean, mainMinutes?: number, byoyomiSeconds?: number, maxTimeouts?: number }|null} */
+        this.tcSettings = null;
+        this.tcClock = null;
+        this._clockInterval = null;
+        this.matchStarted = false;
+    }
+
+    _stopClockTicker() {
+        if (this._clockInterval) {
+            clearInterval(this._clockInterval);
+            this._clockInterval = null;
+        }
+    }
+
+    _broadcastClock() {
+        if (!this.tcClock || !this.tcClock.timed || this.gameOver) return;
+        this.broadcast({ type: 'clockUpdate', clock: qiMatchTimeControl.snapshotForClient(this.tcClock) });
+    }
+
+    _startClockTicker() {
+        this._stopClockTicker();
+        if (!this.tcClock || !this.tcClock.timed) return;
+        this._clockInterval = setInterval(() => {
+            if (!this.tcClock || !this.tcClock.timed || this.gameOver) {
+                this._stopClockTicker();
+                return;
+            }
+            if (this.pendingScore) return;
+            const now = Date.now();
+            const { lostSlot, winnerSlot } = qiMatchTimeControl.drain(this.tcClock, now);
+            if (lostSlot) {
+                this._stopClockTicker();
+                this.gameOver = true;
+                this.winner = winnerSlot;
+                this.setTimeLossResultText(lostSlot);
+                this.broadcast({
+                    type: 'broadcast',
+                    action: 'timeLoss',
+                    player: lostSlot,
+                    winner: winnerSlot,
+                    ...this.getState()
+                });
+                return;
+            }
+            this._broadcastClock();
+        }, 1000);
+    }
+
+    _firstPickerSlot() {
+        const tb = this.slotJoinedAt.player1;
+        const tw = this.slotJoinedAt.player2;
+        if (tb == null || tw == null) return 'player1';
+        return tb <= tw ? 'player1' : 'player2';
+    }
+    afterColorAssigned(ws, slot) {
+        this.slotJoinedAt[slot] = Date.now();
+        this._maybeBeginTimeNegotiation();
+    }
+
+    _finalizeTimeControl(valid) {
+        this.tcSettings = valid.timed
+            ? {
+                timed: true,
+                mainMinutes: valid.mainMinutes,
+                byoyomiSeconds: valid.byoyomiSeconds,
+                maxTimeouts: valid.maxTimeouts
+            }
+            : { timed: false };
+        this.tcNego = null;
+        this.matchStarted = true;
+        const now = Date.now();
+        this.tcClock = qiMatchTimeControl.createClock(this.tcSettings, now);
+        if (this.tcClock.timed) {
+            qiMatchTimeControl.setActiveSlot(this.tcClock, this.currentPlayer === 1 ? 'player1' : 'player2', now);
+            this._startClockTicker();
+            this._broadcastClock();
+        } else {
+            this.tcClock = null;
+        }
+        this.broadcast({
+            type: 'timeControlAgreed',
+            settings: this.tcSettings,
+            clock: this.tcClock ? qiMatchTimeControl.snapshotForClient(this.tcClock) : null
+        });
+    }
+    _timeAllowsPlay(slot) {
+        if (this.gameOver) return false;
+        if (!this.matchStarted) return false;
+        if (this.tcNego || this.tcSettings === null) return false;
+        if (!this.tcClock || !this.tcClock.timed) return true;
+        const expect = this.currentPlayer === 1 ? 'player1' : 'player2';
+        return slot === expect;
+    }
+
+    _drainClockBeforeMove(slot) {
+        if (!this.tcClock || !this.tcClock.timed || this.gameOver) return true;
+        const expect = this.currentPlayer === 1 ? 'player1' : 'player2';
+        if (slot !== expect) return true;
+        const { lostSlot, winnerSlot } = qiMatchTimeControl.drain(this.tcClock, Date.now());
+        if (lostSlot) {
+            this._stopClockTicker();
+            this.gameOver = true;
+            this.winner = winnerSlot;
+            this.setTimeLossResultText(lostSlot);
+            this.broadcast({
+                type: 'broadcast',
+                action: 'timeLoss',
+                player: lostSlot,
+                winner: winnerSlot,
+                ...this.getState()
+            });
+            return false;
+        }
+        return true;
+    }
+
+    _syncClockAfterTurnChange() {
+        if (!this.tcClock || !this.tcClock.timed || this.gameOver) return;
+        const slot = this.currentPlayer === 1 ? 'player1' : 'player2';
+        qiMatchTimeControl.setActiveSlot(this.tcClock, slot, Date.now());
+        this._broadcastClock();
+    }
+
+    onResignResolved(resignSlot) {
+        this.recordResultText = resignSlot === 'player1' ? '白中盘胜' : '黑中盘胜';
+        this._stopClockTicker();
+    }
+
+    onDrawResolved() {
+        this.recordResultText = '和棋';
+        this._stopClockTicker();
+    }
+
+    setScoreResultTextByLead(lead) {
+        if (!Number.isFinite(lead) || lead === 0) {
+            this.recordResultText = '和棋';
+            return;
+        }
+        const winnerSide = lead > 0 ? '黑' : '白';
+        this.recordResultText = `${winnerSide}胜${Math.abs(lead).toFixed(2)}点`;
+    }
+
+    setTimeLossResultText(lostSlot) {
+        if (lostSlot === 'player1') this.recordResultText = '黑方超时，白胜';
+        else if (lostSlot === 'player2') this.recordResultText = '白方超时，黑胜';
+    }
+
+    getSymmetryPoint(row, col, axis) {
+        const last = this.boardSize - 1;
+        // —— 四种轴对称 ——
+        if (axis === 'horizontal') return { row: last - row, col };
+        if (axis === 'vertical') return { row, col: last - col };
+        if (axis === 'diag1') return { row: col, col: row };
+        if (axis === 'diag2') return { row: last - col, col: last - row };
+        // —— 三种旋转（屏幕视角：row 0 在下边、col 0 在左边，中心点 ((last)/2,(last)/2)）——
+        if (axis === 'rotate90cw') return { row: last - col, col: row };      // 顺时针 90°（四步一圈）
+        if (axis === 'rotate90ccw') return { row: col, col: last - row };    // 逆时针 90°
+        if (axis === 'rotate180') return { row: last - row, col: last - col }; // 180°（两步一圈）
+        return { row, col };
+    }
+
+    getNextSymmetryAxis(handNumber)
+    {
+        // 前两手固定（现状）
+        if (handNumber === 1) return OPENING_SYMMETRIES[0];
+        if (handNumber === 2) return OPENING_SYMMETRIES[1];
+        // 第三手起从「启用的对称」里随机（允许与上一手相同）
+        const pool = ENABLED_SYMMETRIES.length ? ENABLED_SYMMETRIES : SYMMETRY_TYPES;
+        return pool[Math.floor(Math.random() * pool.length)];
+    }
+
+    countGroupLiberties(board, row, col) {
+        return squareWeiqiRules.countGroupLiberties(board, row, col, this.boardSize);
+    }
+
+    removeGroup(board, row, col, color) {
+        squareWeiqiRules.removeGroup(board, row, col, color, this.boardSize);
+    }
+
+    tryPlaceStone(boardBefore, row, col, playerVal) {
+        return squareWeiqiRules.tryPlaceStoneNLiberty(
+            boardBefore, row, col, playerVal, this.boardSize, (b) => this.copyBoard(b), 1
+        );
+    }
+
+    /**
+     * 与前端 trySymmetry + performCap 一致：主点与对称点同时落子（对称点空时），再交替提对方无气块与己方无气块至稳定。
+     */
+    performSymmetryCaptures(board, playerVal) {
+        const n = this.boardSize;
+        let changed;
+        do {
+            changed = false;
+            for (let i = 0; i < n; i++) {
+                for (let j = 0; j < n; j++) {
+                    if (board[i][j] === 3 - playerVal && this.countGroupLiberties(board, i, j) === 0) {
+                        this.removeGroup(board, i, j, 3 - playerVal);
+                        changed = true;
+                    }
+                }
+            }
+            for (let i = 0; i < n; i++) {
+                for (let j = 0; j < n; j++) {
+                    if (board[i][j] === playerVal && this.countGroupLiberties(board, i, j) === 0) {
+                        this.removeGroup(board, i, j, playerVal);
+                        changed = true;
+                    }
+                }
+            }
+        } while (changed);
+    }
+
+    tryPlaceSymmetryStone(boardBefore, row, col, playerVal, axis) {
+        if (row < 0 || row >= this.boardSize || col < 0 || col >= this.boardSize) return null;
+        if (boardBefore[row][col] !== 0) return null;
+        const board = this.copyBoard(boardBefore);
+        const mp = this.getSymmetryPoint(row, col, axis);
+        board[row][col] = playerVal;
+        if (!(mp.row === row && mp.col === col) && board[mp.row][mp.col] === 0) {
+            board[mp.row][mp.col] = playerVal;
+        }
+        this.performSymmetryCaptures(board, playerVal);
+        return board;
+    }
+
+    isLibertySurroundedByOpponent(board, libertyRow, libertyCol, opponentColor) {
+        return squareWeiqiRules.isLibertySurroundedByOpponent(
+            board, libertyRow, libertyCol, opponentColor, this.boardSize
+        );
+    }
+
+    removeDeadAndDying(srcBoard) {
+        return squareWeiqiRules.removeDeadAndDying(srcBoard, this.boardSize, (b) => this.copyBoard(b));
+    }
+
+    assignTerritoryWithRange(liveBoard) {
+        return squareWeiqiRules.assignTerritoryWithRange(liveBoard, this.boardSize);
+    }
+
+    computeScore(liveBoard, territory) {
+        return squareWeiqiRules.computeScore(liveBoard, territory, this.boardSize);
+    }
+
+    /** 形势判断 / 数点：用 Benson 档（公共口径）；本棋种贴目比普通围棋高 */
+    computeLead() {
+        const { lead } = computeBensonWeiqiLead(this.board, this.boardSize <= 8 ? 5.25 : 4.25, squareWeiqiScoringOps(this.boardSize, {
+            copyBoard: (b) => this.copyBoard(b)
+        }));
+        return lead;
+    }
+
+    getState()
+    {
+        return {
+            boardSize: this.boardSize,
+            komi: this.boardSize <= 8 ? 5.25 : 4.25,
+            board: this.board,
+            numberOfHands: 1 + this.historyBoards.length,
+            currentPlayer: this.currentPlayer,
+            lastMoveMarkers: this.lastMoveMarkers,
+            gameOver: this.gameOver,
+            winner: this.winner,
+            symmetryAxis: this.symmetryAxis,
+            enabledSymmetries: ENABLED_SYMMETRIES.slice(),   // 前端「试下」本地预览按这份随机；停用只改服务端即可
+            moveCoords: this.moveCoords,
+            slots: {
+                player1: !!this.room.getPlayerBySlot('player1'),
+                player2: !!this.room.getPlayerBySlot('player2')
+            },
+            matchTime: {
+                negotiation: this.tcNego,
+                settings: this.tcSettings,
+                clock: this.tcClock && this.tcClock.timed
+                    ? qiMatchTimeControl.snapshotForClient(this.tcClock)
+                    : (this.tcSettings && this.tcSettings.timed === false
+                        ? { timed: false, ruleLine: '本局不限时' }
+                        : null)
+            },
+            matchStarted: this.matchStarted
+        };
+    }
+
+    startScoreCounting(requester, opponent) {
+        if (this.tcClock && this.tcClock.timed) qiMatchTimeControl.setPaused(this.tcClock, true);
+        const lead = this.computeLead();
+        this.scoreProposalData = { lead, requester, opponent };
+        const proposalMsg = { type: 'scoreProposal', lead };
+        requester.send(JSON.stringify(proposalMsg));
+        opponent.send(JSON.stringify(proposalMsg));
+        this.pendingScore = { requester, opponent, agreed: new Set() };
+    }
+
+    handleMessage(ws, msg)
+    {
+        const slot = this.room.getSlotByWs(ws);
+        const room = this.room;
+
+        switch (msg.type)
+        {
+            case 'selectColor':
+                qiProtocol.selectColor(this, ws, msg);
+                break;
+
+            case 'timeControlSubmit':
+                this._handleTimeControlSubmit(ws, msg);
+                break;
+
+            case 'timeControlAccept':
+                this._handleTimeControlAccept(ws);
+                break;
+
+            case 'setBoardSize':
+                if (!slot && !this.room.players.size)
+                    this.setBoardSize(msg.size, ws);
+                break;
+
+            case 'move':
+                if (this.gameOver) return;
+                if (!slot || slot !== (this.currentPlayer === 1 ? 'player1' : 'player2')) return;
+                if (!this._timeAllowsPlay(slot)) {
+                    if (slot) ws.send(JSON.stringify({ type: 'error', message: '请先与对手确认限时规则。' }));
+                    return;
+                }
+                if (!this._drainClockBeforeMove(slot)) return;
+                const { row, col } = msg;
+                if (row < 0 || row >= this.boardSize || col < 0 || col >= this.boardSize) return;
+                if (this.board[row][col] !== 0) {
+                    return;
+                }
+                const playerVal = this.currentPlayer === 1 ? 1 : 2;
+                const newBoard = this.tryPlaceSymmetryStone(this.board, row, col, playerVal, this.symmetryAxis);
+                if (!newBoard) return;
+                const newBoardStr = this.boardToString(newBoard);
+                if (this.historyBoardSet.has(newBoardStr))
+                {
+                    ws.send(JSON.stringify({ type: 'error', message: '禁全同。' }));
+                    return;
+                }
+
+                this.historyBoards.push(this.copyBoard(newBoard));
+                this.historyBoardSet.add(newBoardStr);
+                this.historyMarkers.push(this.copyMarkers(this.lastMoveMarkers));
+                this.moveHistory.push(slot);
+                this.moveCoords.push({ type: 'move', player: slot, row, col, symmetryAxis: this.symmetryAxis });
+                this.board = newBoard;
+
+                const markers = [{ row, col, color: playerVal }];
+                const sym = this.getSymmetryPoint(row, col, this.symmetryAxis);
+                if (!(sym.row === row && sym.col === col) && newBoard[sym.row][sym.col] === playerVal) {
+                    markers.push({ row: sym.row, col: sym.col, color: playerVal });
+                }
+                this.lastMoveMarkers = markers;
+
+                this.historySymmetryAxis.push(this.symmetryAxis);
+                const nextHandNumber = this.historyBoards.length + 1;
+                this.symmetryAxis = this.getNextSymmetryAxis(nextHandNumber);
+
+                this.currentPlayer = 3 - this.currentPlayer;
+                this.passCounter = 0;
+                this.broadcast({ type: 'broadcast', action: 'move', ...this.getState() });
+                this._syncClockAfterTurnChange();
+                break;
+
+            case 'pass':
+                if (this.gameOver) return;
+                if (!slot || slot !== (this.currentPlayer === 1 ? 'player1' : 'player2')) return;
+                if (!this._timeAllowsPlay(slot)) {
+                    if (slot) ws.send(JSON.stringify({ type: 'error', message: '请先与对手确认限时规则。' }));
+                    return;
+                }
+                if (!this._drainClockBeforeMove(slot)) return;
+                this.historyBoards.push(this.copyBoard(this.board));
+                this.historyMarkers.push(this.copyMarkers(this.lastMoveMarkers));
+                this.moveHistory.push(slot);
+                this.moveCoords.push({ type: 'pass', player: slot });
+
+                this.historySymmetryAxis.push(this.symmetryAxis);
+                const nextHandPass = this.historyBoards.length + 1;
+                this.symmetryAxis = this.getNextSymmetryAxis(nextHandPass);
+
+                this.currentPlayer = this.currentPlayer === 1 ? 2 : 1;
+                this.passCounter++;
+                this.lastMoveMarkers = [];
+                this.broadcast({ type: 'broadcast', action: 'pass', ...this.getState() });
+                this._syncClockAfterTurnChange();
+                if (this.passCounter >= 2) {
+                    this.passCounter = 0;
+                    const blackPlayer = room.getPlayerBySlot('player1');
+                    const whitePlayer = room.getPlayerBySlot('player2');
+                    if (blackPlayer && whitePlayer) {
+                        this.startScoreCounting(blackPlayer, whitePlayer);
+                    } else {
+                        this.gameOver = true;
+                        this.broadcast({ type: 'broadcast', action: 'endAgreed', ...this.getState() });
+                    }
+                }
+                break;
+
+            case 'requestUndo':
+                if (!slot || this.gameOver) return;
+                let steps = 0;
+                for (let i = this.moveHistory.length - 1; i >= 0; i--) {
+                    steps++;
+                    if (this.moveHistory[i] === slot) break;
+                }
+                if (steps === 0 || steps > this.historyBoards.length) {
+                    ws.send(JSON.stringify({ type: 'error', message: '无法悔棋。' }));
+                    return;
+                }
+                const opponentSlot = slot === 'player1' ? 'player2' : 'player1';
+                const opponent = room.getPlayerBySlot(opponentSlot);
+                if (!opponent) this.performUndo(steps, ws);
+                else {
+                    this.pendingUndo = { requester: ws, steps };
+                    opponent.send(JSON.stringify({ type: 'undoRequest' }));
+                }
+                break;
+
+            case 'undoResponse':
+                if (this.pendingUndo) {
+                    if (msg.accept) this.performUndo(this.pendingUndo.steps, this.pendingUndo.requester);
+                    else this.pendingUndo.requester.send(JSON.stringify({ type: 'error', message: '对方拒绝悔棋。' }));
+                }
+                this.pendingUndo = null;
+                break;
+
+            case 'resign':
+                qiProtocol.resign(this, ws, slot);
+                break;
+
+            case 'requestNewGame':
+                qiProtocol.requestNewGame(this, ws, slot);
+                break;
+
+            case 'newGameResponse':
+                qiProtocol.newGameResponse(this, ws, msg, { newGameDeniedMsg: '对方拒绝新局' });
+                break;
+
+            case 'requestDraw':
+                qiProtocol.requestDraw(this, ws, slot);
+                break;
+
+            case 'drawResponse':
+                qiProtocol.drawResponse(this, ws, msg);
+                break;
+
+            case 'requestEnd':
+                if (!slot) return;
+                const endOpponent = room.getPlayerBySlot(slot === 'player1' ? 'player2' : 'player1');
+                if (!endOpponent) { this.startScoreCounting(ws, ws); }
+                else {
+                    this.pendingEnd = { requester: ws, opponent: endOpponent };
+                    endOpponent.send(JSON.stringify({ type: 'requestEnd' }));
+                }
+                break;
+
+            case 'endResponse':
+                if (this.pendingEnd && msg.accept) {
+                    this.startScoreCounting(this.pendingEnd.requester, this.pendingEnd.opponent);
+                } else if (this.pendingEnd && !msg.accept) {
+                    this.pendingEnd.requester.send(JSON.stringify({ type: 'error', message: '对方拒绝终局' }));
+                }
+                this.pendingEnd = null;
+                break;
+
+            case 'scoreResponse':
+                if (this.pendingScore && (ws === this.pendingScore.requester || ws === this.pendingScore.opponent)) {
+                    if (!msg.accept) {
+                        if (this.tcClock && this.tcClock.timed) qiMatchTimeControl.setPaused(this.tcClock, false);
+                        this.broadcast({ type: 'scoreRejected' });
+                        this.pendingScore = null;
+                        this.scoreProposalData = null;
+                        break;
+                    }
+                    this.pendingScore.agreed.add(ws);
+                    if (this.pendingScore.agreed.size === 2) {
+                        const lead = this.scoreProposalData.lead;
+                        this.gameOver = true;
+                        this.winner = lead > 0 ? 'player1' : (lead < 0 ? 'player2' : 'draw');
+                        this.setScoreResultTextByLead(lead);
+                        this.broadcast({ type: 'scoreAgreed', winner: this.winner, lead });
+                        this.pendingScore = null;
+                        this.scoreProposalData = null;
+                        this._stopClockTicker();
+                    }
+                }
+                break;
+
+            case 'exportRecord':
+                qiProtocol.exportRecord(this, ws);
+                break;
+
+            case 'importRecord':
+                qiProtocol.importRecord(this, ws, msg, { importBlockedMsg: '已有玩家入座，无法导入棋谱' });
+                break;
+
+            case 'resetRoom':
+                qiProtocol.resetRoomToEmpty(this, ws);
+                break;
+
+            default:
+                break;
+        }
+    }
+
+    performUndo(steps, requesterWs)
+    {
+        if (steps === 0 || steps > this.historyBoards.length) return;
+        for (let i = 0; i < steps; i++) {
+            if (this.historyBoards.length > 0)
+                this.historyBoardSet.delete(this.boardToString(this.historyBoards.pop()));
+            if (this.historyMarkers.length > 0)
+                this.lastMoveMarkers = this.historyMarkers.pop() || [];
+            else
+                this.lastMoveMarkers = [];
+            if (this.moveHistory.length > 0) this.moveHistory.pop();
+            if (this.moveCoords.length > 0) this.moveCoords.pop();
+            if (this.historySymmetryAxis.length > 0)
+                this.symmetryAxis = this.historySymmetryAxis.pop();
+            this.currentPlayer = 3 - this.currentPlayer;
+        }
+        if (this.historyBoards.length == 0)
+            this.board = Array(this.boardSize).fill().map(() => Array(this.boardSize).fill(0));
+        else
+            this.board = this.copyBoard(this.historyBoards.at(-1));
+        this.broadcast({ type: 'broadcast', action: 'undoAccept', ...this.getState() });
+        this._syncClockAfterTurnChange();
+    }
+
+    copyMarkers(markers) {
+        return markers.map(m => ({ row: m.row, col: m.col, color: m.color }));
+    }
+
+    resetGame() {
+        this._stopClockTicker();
+        this.slotJoinedAt = { player1: null, player2: null };
+        this.tcNego = null;
+        this.tcSettings = null;
+        this.tcClock = null;
+        this.recordResultText = null;
+        this.matchStarted = false;
+        this.board = Array(this.boardSize).fill().map(() => Array(this.boardSize).fill(0));
+        this.currentPlayer = 1;
+        this.historyBoards = [];
+        this.historyBoardSet.clear();
+        this.moveHistory = [];
+        this.historyMarkers = [];
+        this.lastMoveMarkers = [];
+        this.gameOver = false;
+        this.winner = null;
+        this.passCounter = 0;
+        this.moveCoords = [];
+        this.symmetryAxis = 'diag1';
+        this.historySymmetryAxis = [];
+        qiProtocol.releaseAllSeats(this);
+        this.broadcast({ type: 'newGameStarted', ...this.getState(), slots: { player1: false, player2: false } });
+    }
+
+    setBoardSize(newSize, requesterWs) {
+        if (!Number.isInteger(newSize) || newSize < 7 || newSize > 21) {
+            requesterWs.send(JSON.stringify({ type: 'error', message: '棋盘大小无效。' }));
+            return false;
+        }
+        const hasAnyStone = this.board.some(row => row.some(v => v !== 0));
+        const hasPlayer = this.room.getPlayerBySlot('player1') || this.room.getPlayerBySlot('player2');
+        if (hasAnyStone || hasPlayer) {
+
+            return false;
+        }
+        this.boardSize = newSize;
+        this.resetGame(true);
+        this.broadcast({ type: 'boardSizeChanged', boardSize: this.boardSize });
+        return true;
+    }
+
+    exportRecord() {
+        return {
+            format: 'muzei',
+            version: 2,
+            gameType: '对称围棋',
+            gameId: 'symmetry-weiqi',
+            boardSize: this.boardSize,
+            komi: this.boardSize <= 8 ? 5.25 : 4.25,
+            players: { player1: null, player2: null },
+            initialPosition: encodeOpeningPositionCompact(this),
+            moves: this.moveCoords.map(m => {
+                const p = m.player === 'player1' ? 'B' : 'W';
+                if (m.type === 'pass') return p + 'p';
+                return p + m.row + ',' + m.col + ':' + m.symmetryAxis;
+            }),
+            result: this.gameOver ? this.winner : null
+        };
+    }
+
+    resetToEmpty() {
+        this.board = Array(this.boardSize).fill().map(() => Array(this.boardSize).fill(0));
+        this.currentPlayer = 1;
+        this.historyBoards = [];
+        this.historyBoardSet = new Set();
+        this.moveHistory = [];
+        this.moveCoords = [];
+        this.historyMarkers = [];
+        this.lastMoveMarkers = [];
+        this.gameOver = false;
+        this.winner = null;
+        this.passCounter = 0;
+        this.pendingNewGame = null;
+        this.pendingUndo = null;
+        this.pendingDraw = null;
+        this.pendingEnd = null;
+        this.pendingScore = null;
+        this.scoreProposalData = null;
+        this.symmetryAxis = 'diag1';
+        this.historySymmetryAxis = [];
+        this._stopClockTicker();
+        this.slotJoinedAt = { player1: null, player2: null };
+        this.tcNego = null;
+        this.tcSettings = null;
+        this.tcClock = null;
+        this.recordResultText = null;
+        this.matchStarted = false;
+    }
+
+    static parseMove(entry) {
+        if (typeof entry === 'string') {
+            const player = entry[0] === 'B' ? 'player1' : 'player2';
+            if (entry[1] === 'p') return { type: 'pass', player };
+            const rest = entry.substring(1);
+            const colonIdx = rest.indexOf(':');
+            let coords, symmetryAxis;
+            if (colonIdx >= 0) {
+                coords = rest.substring(0, colonIdx).split(',').map(Number);
+                symmetryAxis = rest.substring(colonIdx + 1);
+            } else {
+                coords = rest.split(',').map(Number);
+                symmetryAxis = 'diag1';
+            }
+            return { type: 'move', player, row: coords[0], col: coords[1], symmetryAxis };
+        }
+        return entry;
+    }
+
+    importRecord(data, requesterWs) {
+        if (!data || data.gameId !== 'symmetry-weiqi') {
+            requesterWs.send(JSON.stringify({ type: 'error', message: '棋谱格式不匹配（需要对称围棋棋谱）' }));
+            return;
+        }
+        const newSize = data.boardSize || 19;
+        if (!Number.isInteger(newSize) || newSize < 7 || newSize > 21) {
+            requesterWs.send(JSON.stringify({ type: 'error', message: '棋谱中棋盘大小无效' }));
+            return;
+        }
+
+        this.boardSize = newSize;
+        this.resetToEmpty();
+
+        const compactInit = normalizeLegacyInitialToCompact(data.initialPosition);
+        if (compactInit.length) {
+            applyInitialPositionCompact(this.board, this.boardSize, compactInit);
+            this.historyBoards = [this.copyBoard(this.board)];
+            this.historyBoardSet.add(this.boardToString(this.board));
+        }
+
+        const rawMoves = data.moves || [];
+        const moves = rawMoves.map(SymmetryWeiqiRoom.parseMove);
+        for (let i = 0; i < moves.length; i++) {
+            const move = moves[i];
+            const slot = move.player;
+            const playerVal = slot === 'player1' ? 1 : 2;
+            if (move.type === 'move') {
+                const { row, col, symmetryAxis } = move;
+                if (row < 0 || row >= this.boardSize || col < 0 || col >= this.boardSize) {
+                    this.resetToEmpty();
+                    requesterWs.send(JSON.stringify({ type: 'error', message: '棋谱回放失败：第' + (i + 1) + '手坐标越界' }));
+                    this.broadcast({ type: 'roomReset', ...this.getState() });
+                    return;
+                }
+                const axisToUse = symmetryAxis || this.symmetryAxis;
+                const newBoard = this.tryPlaceSymmetryStone(this.board, row, col, playerVal, axisToUse);
+                if (!newBoard) {
+                    this.resetToEmpty();
+                    requesterWs.send(JSON.stringify({ type: 'error', message: '棋谱回放失败：第' + (i + 1) + '手无法落子' }));
+                    this.broadcast({ type: 'roomReset', ...this.getState() });
+                    return;
+                }
+                const newBoardStr = this.boardToString(newBoard);
+                this.historyBoards.push(this.copyBoard(newBoard));
+                this.historyBoardSet.add(newBoardStr);
+                this.historyMarkers.push(this.copyMarkers(this.lastMoveMarkers));
+                this.moveHistory.push(slot);
+                this.moveCoords.push({ type: 'move', player: slot, row, col, symmetryAxis: axisToUse });
+                this.board = newBoard;
+
+                const moveMarkers = [{ row, col, color: playerVal }];
+                const mp = this.getSymmetryPoint(row, col, axisToUse);
+                if (!(mp.row === row && mp.col === col) && newBoard[mp.row][mp.col] === playerVal) {
+                    moveMarkers.push({ row: mp.row, col: mp.col, color: playerVal });
+                }
+                this.lastMoveMarkers = moveMarkers;
+
+                this.historySymmetryAxis.push(axisToUse);
+                const nextHand = this.historyBoards.length + 1;
+                this.symmetryAxis = this.getNextSymmetryAxis(nextHand);
+
+                this.currentPlayer = 3 - this.currentPlayer;
+                this.passCounter = 0;
+            } else if (move.type === 'pass') {
+                this.historyBoards.push(this.copyBoard(this.board));
+                this.historyMarkers.push(this.copyMarkers(this.lastMoveMarkers));
+                this.moveHistory.push(slot);
+                this.moveCoords.push({ type: 'pass', player: slot });
+
+                this.historySymmetryAxis.push(this.symmetryAxis);
+                const nextHandP = this.historyBoards.length + 1;
+                this.symmetryAxis = this.getNextSymmetryAxis(nextHandP);
+
+                this.currentPlayer = 3 - this.currentPlayer;
+                this.passCounter++;
+                this.lastMoveMarkers = [];
+            }
+        }
+
+        if (data.timeControl && typeof data.timeControl === 'object') {
+            const tc = data.timeControl;
+            if (tc.enabled === true) {
+                this.tcSettings = {
+                    timed: true,
+                    mainMinutes: parseInt(String(tc.mainMinutes ?? 0), 10) || 0,
+                    byoyomiSeconds: parseInt(String(tc.byoyomiSeconds ?? 0), 10) || 0,
+                    maxTimeouts: parseInt(String(tc.maxTimeouts ?? 0), 10) || 0
+                };
+            } else if (tc.enabled === false) {
+                this.tcSettings = { timed: false };
+            }
+            this.matchStarted = true;
+        }
+
+        if (data.result || data.resultText) {
+            this.gameOver = true;
+            const importedResultText = data.resultText != null ? String(data.resultText) : String(data.result);
+            this.recordResultText = importedResultText;
+            this.winner = SymmetryWeiqiRoom.parseResultTextToWinner(importedResultText);
+            if (!this.winner && (data.result === 'player1' || data.result === 'player2' || data.result === 'draw'))
+                this.winner = data.result;
+        }
+
+        this.broadcast({
+            type: 'importSuccess',
+            ...this.getState(),
+            replayData: {
+                initialPosition: compactInit.length ? compactInit : [],
+                moves: this.moveCoords.map(m => ({ ...m }))
+            }
+        });
+    }
+
+    getMoveCount() {
+        return this.moveHistory.length;
+    }
+
+    static parseResultTextToWinner(resultText) {
+        if (!resultText || typeof resultText !== 'string') return null;
+        if (resultText === '和棋' || resultText === 'draw') return 'draw';
+        if (resultText.includes('白胜')) return 'white';
+        if (resultText.includes('黑胜')) return 'black';
+        if (resultText === 'black' || resultText === 'white' || resultText === 'draw') return resultText;
+        return null;
+    }
+
+    onPlayerLeave(ws) {
+        const slot = this.room.getSlotByWs(ws);
+        if (slot) this.room.broadcast({ type: 'playerLeft', slot });
+        if (this.pendingUndo && this.pendingUndo.requester === ws) this.pendingUndo = null;
+        if (this.pendingNewGame === ws) this.pendingNewGame = null;
+        if (this.pendingDraw === ws) this.pendingDraw = null;
+        if (this.pendingEnd && (this.pendingEnd.requester === ws || this.pendingEnd.opponent === ws)) this.pendingEnd = null;
+        if (this.pendingScore && (this.pendingScore.requester === ws || this.pendingScore.opponent === ws)) {
+            if (this.tcClock && this.tcClock.timed) qiMatchTimeControl.setPaused(this.tcClock, false);
+            this.pendingScore = null;
+            this.scoreProposalData = null;
+        }
+        if (this.tcNego) {
+            this.tcNego = null;
+            this.room.broadcast({ type: 'timeControlReset', reason: 'playerLeft' });
+        }
+        if (slot) this.slotJoinedAt[slot] = null;
+    }
+}
+
+module.exports = {
+    SYMMETRY_TYPES,
+    ENABLED_SYMMETRIES,
+    OPENING_SYMMETRIES,
+    SymmetryWeiqiRoom,
+    initRoom(room) {
+        room.gameLogic = new SymmetryWeiqiRoom(room);
+        qiBoardSeatOverlay.install(room.gameLogic);
+        if (typeof qiProtocol.installStandardEditBoard === 'function') qiProtocol.installStandardEditBoard(room.gameLogic);
+        room.maxPlayers = 2;
+    }
+};

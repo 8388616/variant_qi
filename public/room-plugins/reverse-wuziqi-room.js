@@ -11,6 +11,7 @@ window.RoomPlugins["reverse-wuziqi"] = {
         "recordDownloadPrefix": "反五子棋",
         "standardWeiqiMatchTime": true,
         "features": {
+            "woodTexture": true,
             "editBoard": true
         },
         "editTools": [
@@ -107,6 +108,13 @@ const scoreTitle = document.getElementById('scoreTitle');
         );
 
         const isMouseDevice = window.matchMedia('(hover: hover) and (pointer: fine)').matches;
+
+        // 本棋种没有贴目/禁手：隐藏贴目位（按 id 取，别按 .komi-info 类——#gameTitleInfo 也带这个类）
+        const komiInfoEl = document.getElementById('komiInfo');
+        if (komiInfoEl) {
+            komiInfoEl.hidden = true;
+            komiInfoEl.style.display = 'none';
+        }
 
         const domPage = {
             turnDisplay,

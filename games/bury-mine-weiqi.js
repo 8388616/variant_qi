@@ -2,7 +2,9 @@ const {
     qiBoardSeatOverlay,
     qiProtocol,
     qiMatchTimeControl,
-    applyInitialPositionCompact
+    applyInitialPositionCompact,
+    computeNearestWeiqiLead,
+    squareWeiqiScoringOps
 } = require('../common');
 const { WeiqiRoom } = require('./weiqi');
 
@@ -213,6 +215,14 @@ class BuryMineWeiqiRoom extends WeiqiRoom {
     setTimeLossResultText(lostSlot) {
         this.minesRevealedPublicly = true;
         super.setTimeLossResultText(lostSlot);
+    }
+
+    /** 形势判断 / 数点：只用最近归属档（公共口径）；不判死子、不叠 Benson（雷存在独立标记层，不进盘面） */
+    computeLead() {
+        const { lead } = computeNearestWeiqiLead(this.board, this.boardSize <= 8 ? 4.25 : 3.25, squareWeiqiScoringOps(this.boardSize, {
+            copyBoard: (b) => this.copyBoard(b)
+        }));
+        return lead;
     }
 
     startScoreCounting(requester, opponent) {

@@ -1,6 +1,6 @@
 ﻿const crypto = require('crypto');
 
-const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, applyInitialPositionCompact, encodeInitialPositionCompact, qiBoardSeatOverlay, encodeOpeningPositionCompact } = require('../common');
+const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, applyInitialPositionCompact, encodeInitialPositionCompact, qiBoardSeatOverlay, encodeOpeningPositionCompact, computeBensonWeiqiLead, squareWeiqiScoringOps } = require('../common');
 
 /** 短气围棋（二气/三气/四气合并为一种棋类）：子棋类 id 沿用旧棋类 id */
 const SHORT_LIBERTY_SUB_GAME_ID = {
@@ -23,8 +23,8 @@ function komiForSizeBi(boardSize) {
     if (boardSize === 6) return 0.5;
     if (boardSize === 7) return 5.5;
     if (boardSize === 8) return 3.0;
-    if (boardSize % 2 === 0) return 3.25;
-    return 2.75;
+    if (boardSize === 9) return 3.0;
+    return 3.5;
 }
 
 /** 三气围棋贴目（按路数）；其余奇数路数默认 2.75 */
@@ -52,7 +52,7 @@ function komiForSizeTri(boardSize) {
 
 class ShortLibertyWeiqiRoom extends QiTwoPlayerRoomBase
 {
-    constructor(room, initialSize = 9, liberty = 'bi') {
+    constructor(room, initialSize = 19, liberty = 'bi') {
         super(room);
         this.liberty = liberty;          // 'bi' | 'tri' | 'quad'
         this.subGameId = SHORT_LIBERTY_SUB_GAME_ID[liberty] || 'biliberty-weiqi';   // 子棋类 id（引擎检查用）
@@ -245,13 +245,13 @@ class ShortLibertyWeiqiRoom extends QiTwoPlayerRoomBase
         return komiForSizeBi(this.boardSize);
     }
 
-    computeLead()
-    {
-        const liveBoard = this.removeDeadAndDying(this.board);
-        const territory = this.assignTerritoryWithRange(liveBoard);
-        const { blackTotal, whiteTotal } = this.computeScore(liveBoard, territory);
-        const KOMI = this._komi();
-        return blackTotal - whiteTotal - 2 * KOMI;
+    /** 形势判断 / 数点：用 Benson 档（公共口径）；弱气阈值 = 该子棋类自己的气数（二气/三气/四气） */
+    computeLead() {
+        const { lead } = computeBensonWeiqiLead(this.board, this._komi(), squareWeiqiScoringOps(this.boardSize, {
+            maxWeakLiberties: this.minLib,
+            copyBoard: (b) => this.copyBoard(b)
+        }));
+        return lead;
     }
 
     onResignResolved(resignSlot) {
@@ -390,7 +390,8 @@ class ShortLibertyWeiqiRoom extends QiTwoPlayerRoomBase
                 break;
 
             case 'setLiberty':
-                this.setLiberty(msg.liberty, ws);
+                // 被拒绝（已开局/有人入座）时回推当前状态：客户端是「本地乐观切换」，不回推会与服务端脱钩
+                if (!this.setLiberty(msg.liberty, ws)) this.sendState(ws);
                 break;
 
             case 'move': {
@@ -561,13 +562,7 @@ class ShortLibertyWeiqiRoom extends QiTwoPlayerRoomBase
         this.winner = null;
         this.passCounter = 0;
         this.moveCoords = [];
-        for (let [client, slot] of this.room.players.entries())
-        {
-            this.room.slotOccupancy.delete(slot);
-            this.room.players.delete(client);
-            this.room.observers.add(client);
-            client.send(JSON.stringify({ type: 'slotReleased', slot }));
-        }
+        qiProtocol.releaseAllSeats(this);
         this.broadcast({ type: 'newGameStarted', ...this.getState(), slots: { player1: false, player2: false } });
     }
 
@@ -687,7 +682,7 @@ class ShortLibertyWeiqiRoom extends QiTwoPlayerRoomBase
         this.liberty = liberty;
         this.subGameId = SHORT_LIBERTY_SUB_GAME_ID[liberty] || 'biliberty-weiqi';
         this.minLib = SHORT_LIBERTY_MIN_LIB[liberty] || 2;
-        const newSize = data.boardSize || 9;
+        const newSize = data.boardSize || 19;
         if (!Number.isInteger(newSize) || newSize < 7 || newSize > 21) {
             requesterWs.send(JSON.stringify({ type: 'error', message: '棋谱中棋盘大小无效' }));
             return;

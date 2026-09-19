@@ -11,6 +11,7 @@ window.RoomPlugins["wxd"] = {
         "recordDownloadPrefix": "WxD棋",
         "standardWeiqiMatchTime": true,
         "features": {
+            "woodTexture": true,
             "editBoard": true,
             "customTimeControl": true
         },
@@ -496,9 +497,9 @@ const boardSizeSelect = document.getElementById('boardSizeSelect');
 
                     replayBoards.push(curBoard.map((r) => r.slice()));
                     // 与其它棋类一致：同时标记双方各自的最近一手（服务端 lastMoveMarkers 也是两条）
-                    replayMarkers.push(['black', 'white']
+                    replayMarkers.push(['player1', 'player2']
                         .filter((sl) => lastBy[sl])
-                        .map((sl) => ({ ...lastBy[sl], color: sl === 'black' ? 1 : 2 })));
+                        .map((sl) => ({ ...lastBy[sl], color: sl === 'player1' ? 1 : 2 })));
                     replayStepPlayers.push(playerVal);
                     replayScores.push({ blackScore: curBlackScore, whiteScore: curWhiteScore });
                     replayCurrentPlayers.push(curPlayer);
@@ -676,9 +677,9 @@ const boardSizeSelect = document.getElementById('boardSizeSelect');
                 ps.tryPlayBranchMoves.push({ type: 'move', row, col, player: slot });
                 ps.tryPlayBoards.push(curBoard.map((r) => r.slice()));
                 // 与对局一致：试下里也同时标记双方各自的最近一手
-                ps.tryPlayMarkers.push(['black', 'white']
+                ps.tryPlayMarkers.push(['player1', 'player2']
                     .filter((sl) => lastBy[sl])
-                    .map((sl) => ({ ...lastBy[sl], color: sl === 'black' ? 1 : 2 })));
+                    .map((sl) => ({ ...lastBy[sl], color: sl === 'player1' ? 1 : 2 })));
                 ps.tryPlayStepPlayers.push(playerVal);
                 ps.tryPlayScores.push({ blackScore: curBlack, whiteScore: curWhite });
                 ps.tryPlayCurrentPlayers.push(curPlayer);
@@ -1017,18 +1018,13 @@ const boardSizeSelect = document.getElementById('boardSizeSelect');
                 drawBoard();
             });
 
-            document.getElementById('newGameBtn').onclick = () => {
-                if (ps.ws && ps.ws.readyState === 1) ps.ws.send(JSON.stringify({ type: 'requestNewGame' }));
-            };
-            document.getElementById('undoBtn').onclick = () => {
-                if (ps.ws && ps.ws.readyState === 1) ps.ws.send(JSON.stringify({ type: 'requestUndo' }));
-            };
-            document.getElementById('resignBtn').onclick = () => {
-                if (ps.ws && ps.ws.readyState === 1) ps.ws.send(JSON.stringify({ type: 'resign' }));
-            };
-            document.getElementById('drawBtn').onclick = () => {
-                if (ps.ws && ps.ws.readyState === 1) ps.ws.send(JSON.stringify({ type: 'requestDraw' }));
-            };
+            // 新局/悔棋/认输/和棋：走公共按钮绑定（带确认对话框，与房间页公共 bindings 同一套口径）
+            QiBoardRoomClient.bindPanelButtons({
+                getWs: () => ps.ws,
+                getMySlot: () => ps.mySlot,
+                getSlots: () => ps.slots,
+                getComputerSlot: () => ps.computerSlot
+            });
             document.getElementById('exportBtn').onclick = () => {
                 if (ps.ws && ps.ws.readyState === 1) ps.ws.send(JSON.stringify({ type: 'exportRecord' }));
             };

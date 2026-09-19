@@ -184,6 +184,7 @@ class SquareDiagonalFourRoom extends QiTwoPlayerRoomBase {
     }
 
     _applyOutcome(slot, outcome) {
+        if (this.importReplayNoJudge) return false;
         if (outcome === 'lose') {
             this.gameOver = true;
             this.winner = slot === 'player1' ? 'player2' : 'player1';
@@ -261,6 +262,7 @@ class SquareDiagonalFourRoom extends QiTwoPlayerRoomBase {
         this.moveHistory = [];
         this.moveCoords = [];
         this.gameOver = false;
+        this.importReplayNoJudge = false;
         this.winner = null;
         this.recordResultText = null;
         this.pendingNewGame = null;
@@ -309,6 +311,7 @@ class SquareDiagonalFourRoom extends QiTwoPlayerRoomBase {
         this.resetToEmpty();
 
         const rawMoves = data.moves || [];
+        this.importReplayNoJudge = true;   // 回放期间不判终局（结果只按棋谱记录）
         for (let i = 0; i < rawMoves.length; i++) {
             let entry = rawMoves[i];
             if (typeof entry === 'string') {
@@ -334,7 +337,7 @@ class SquareDiagonalFourRoom extends QiTwoPlayerRoomBase {
                 this.moveCoords.push({ type: 'pass', player: slot });
                 this.historyBoards.push(this.copyBoard(this.board));
                 this.currentPlayer = this.currentPlayer === 1 ? 2 : 1;
-                if (this._trailingPassCount() >= 2) {
+                if (!this.importReplayNoJudge && this._trailingPassCount() >= 2) {
                     this.gameOver = true;
                     this.winner = 'draw';
                     this.recordResultText = '和棋';
@@ -365,7 +368,7 @@ class SquareDiagonalFourRoom extends QiTwoPlayerRoomBase {
             if (this._applyOutcome(slot, this.evaluateOutcome(row, col, playerVal))) {
                 break;
             }
-            if (this.isBoardFull()) {
+            if (!this.importReplayNoJudge && this.isBoardFull()) {
                 this.gameOver = true;
                 this.winner = 'draw';
                 break;
@@ -373,12 +376,28 @@ class SquareDiagonalFourRoom extends QiTwoPlayerRoomBase {
             this.currentPlayer = this.currentPlayer === 1 ? 2 : 1;
         }
 
-        if (data.result && !this.gameOver) {
+        this.importReplayNoJudge = false;
+        // 导入不做任何判定：结果只按棋谱记录显示（局面与记录不一致时也以记录为准）。
+        // 记录里的胜负先认出执方颜色（公共层把棋谱里的「黑胜」折成 result='player1'、
+        // 「白胜」折成 result='player2'，所以不能直接当座位名用），再落到本棋种的座位。
+        const recResult = data.result != null && data.result !== '' ? data.result
+            : (data.resultText != null && data.resultText !== '' ? data.resultText : null);
+        if (recResult != null) {
             this.gameOver = true;
-            this.recordResultText = data.result;
-            if (String(data.result).includes('白胜') || data.result === 'player2') this.winner = 'player2';
-            else if (String(data.result).includes('黑胜') || data.result === 'player1') this.winner = 'player1';
-            else this.winner = 'draw';
+            this.recordResultText = data.resultText ? String(data.resultText) : String(recResult);
+            const rt = String(this.recordResultText);
+            const SLOT_OF_COLOR = { 黑: 'player1', 白: 'player2' };   // player1 执黑、player2 执白
+            const win = /(黑|白|红|绿|蓝)\s*(?:方)?[^，。]{0,6}胜/.exec(rt);
+            let color = win ? win[1] : null;
+            if (!color) {
+                const lose = /(黑|白|红|绿|蓝)\s*(?:方)?[^，。]{0,6}判负/.exec(rt);
+                if (lose) color = Object.keys(SLOT_OF_COLOR).find((k) => k !== lose[1]) || null;
+                else if (recResult === 'black' || recResult === 'player1') color = '黑';
+                else if (recResult === 'white' || recResult === 'player2') color = '白';
+            }
+            if (recResult === 'draw' || rt.includes('和')) this.winner = 'draw';
+            else if (color && SLOT_OF_COLOR[color]) this.winner = SLOT_OF_COLOR[color];
+            else this.winner = recResult;
         }
         if (!this.matchStarted && this.moveHistory.length > 0) {
             this.matchStarted = true;
@@ -397,6 +416,11 @@ class SquareDiagonalFourRoom extends QiTwoPlayerRoomBase {
                 })
             }
         });
+    }
+
+    /** 认输：resignSlot 是**认输方**（公共层契约），player1 执黑 */
+    onResignResolved(resignSlot) {
+        this.recordResultText = resignSlot === 'player1' ? '白中盘胜' : '黑中盘胜';
     }
 
     handleMessage(ws, msg) {
@@ -496,12 +520,8 @@ class SquareDiagonalFourRoom extends QiTwoPlayerRoomBase {
                 break;
 
             case 'resign':
-                qiProtocol.resign(this, ws, slot, {
-                    onResignResolved: (winnerSlot) => {
-                        this.recordResultText = winnerSlot === 'player1' ? '黑中盘胜' : '白中盘胜';
-                        this._stopClockTicker();
-                    }
-                });
+                qiProtocol.resign(this, ws, slot);
+                this._stopClockTicker();
                 break;
 
             case 'requestNewGame':
@@ -538,6 +558,7 @@ class SquareDiagonalFourRoom extends QiTwoPlayerRoomBase {
         this.moveHistory = [];
         this.moveCoords = [];
         this.gameOver = false;
+        this.importReplayNoJudge = false;
         this.winner = null;
         this.recordResultText = null;
         this.slotJoinedAt = { player1: null, player2: null };
@@ -546,12 +567,7 @@ class SquareDiagonalFourRoom extends QiTwoPlayerRoomBase {
         this.tcClock = null;
         this.matchStarted = false;
         this._stopClockTicker();
-        for (let [client, slot] of this.room.players.entries()) {
-            this.room.slotOccupancy.delete(slot);
-            this.room.players.delete(client);
-            this.room.observers.add(client);
-            client.send(JSON.stringify({ type: 'slotReleased', slot }));
-        }
+        qiProtocol.releaseAllSeats(this);
         this.broadcast({ type: 'newGameStarted', ...this.getState(), slots: { player1: false, player2: false } });
     }
 

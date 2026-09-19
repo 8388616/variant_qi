@@ -9,8 +9,10 @@ window.RoomPlugins["invisible-stone-weiqi"] = {
         "defaultBoardSize": 9,
         "minLib": 1,
         "recordDownloadPrefix": "隐身子围棋",
+        "useBenson": false,
         "standardWeiqiMatchTime": true,
         "features": {
+            "woodTexture": true,
             "editBoard": false,
             "replayPerspective": true
         }
@@ -590,10 +592,17 @@ const scoreTitle = document.getElementById('scoreTitle');
             ps.liveReplayInvisibleTints = new Array(ps.liveReplayBoards.length).fill(null);
         }
 
+        // 变体：形势判断/数点只用最近归属档（公共钩子；档位见 shell.useBenson）
+        const scoringHooks = QiWeiqiSquarePageRuntime.weiqiScoringHooks(config.useBenson === false, {
+            boardSize: () => ps.BOARD_SIZE,
+            maxWeakLiberties: 2
+        });
+
         const variantOpts = {
             recordDownloadPrefix,
             minLib,
             maxWeakLiberties: 2,
+            ...scoringHooks,
             gameType,
             roomId,
             roomPassword,

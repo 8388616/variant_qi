@@ -2006,14 +2006,19 @@
                             const slotName = (slot) =>
                                 (ctx.slotUi && ctx.slotUi[slot] && ctx.slotUi[slot].name)
                                 || (slot === 'player1' ? '黑方' : '白方');
+                            // 胜方文案按站点惯例去掉「方」：黑胜/白胜/红胜…（slotUi 以 player1/player2 为键）
+                            const winLabel = (slot) => `${slotName(slot).replace(/方$/, '')}胜`;
                             if (msg.action === 'timeLoss') {
-                                const loser = slotName(msg.player);
-                                const winText = msg.winner === 'draw' ? '和棋' : `${slotName(msg.winner)}胜`;
+                                // 少数棋种的 timeLoss 广播没带 player：败方 = 胜方的另一座
+                                const loserSlot = msg.player
+                                    || (msg.winner === 'player1' ? 'player2' : (msg.winner === 'player2' ? 'player1' : null));
+                                const loser = loserSlot ? slotName(loserSlot) : '';
+                                const winText = msg.winner === 'draw' ? '和棋' : winLabel(msg.winner);
                                 qiAlert(`${loser}超时，${winText}。`);
                             }
                             else if (msg.recordResultText) qiAlert(msg.recordResultText);
-                            else if (msg.winner === 'player1') qiAlert(`${slotName('black')}胜。`);
-                            else if (msg.winner === 'player2') qiAlert(`${slotName('white')}胜。`);
+                            else if (msg.winner === 'player1') qiAlert(`${winLabel('player1')}。`);
+                            else if (msg.winner === 'player2') qiAlert(`${winLabel('player2')}。`);
                             else if (msg.winner === 'draw') qiAlert('和棋');
                         } else if (msg.action === 'drawAgreed' && !wasOver) qiAlert('和棋');
                         else if (msg.action === 'resign' && !wasOver) {
@@ -2027,6 +2032,10 @@
                 case 'newGameStarted':
                     if (mtCtl) mtCtl.stop();
                     ctx.exitReplayMode();
+                    // 开新局等于重新开始：退出试下（连试下的棋子一起清掉）并关闭形势判断
+                    if (S.tryPlayMode && typeof ctx.exitTryPlay === 'function') ctx.exitTryPlay();
+                    S.showEstimateActive = false;
+                    if (typeof ctx.setShowEstimateActive === 'function') ctx.setShowEstimateActive(false);
                     ctx.clearEstimate();
                     ctx.hideScoreConfirm();
                     ctx.setWaitingScoreConfirm(false);
@@ -2135,6 +2144,9 @@
                 case 'roomReset':
                     if (mtCtl) mtCtl.stop();
                     ctx.exitReplayMode();
+                    if (S.tryPlayMode && typeof ctx.exitTryPlay === 'function') ctx.exitTryPlay();
+                    S.showEstimateActive = false;
+                    if (typeof ctx.setShowEstimateActive === 'function') ctx.setShowEstimateActive(false);
                     S.matchTime = null;
                     S.matchStarted = false;
                     S.matchStartedOnce = false;
@@ -2149,6 +2161,11 @@
                     ctx.setWaitingScoreConfirm(false);
                     updateRadioStyles();
                     updateVsComputerBtn();
+                    break;
+                case 'subGameChanged':
+                    // 子棋类切换（非四角/不邻前手/权重/超级24 等）：以服务端状态校正客户端的乐观切换，
+                    // 顺带刷新「与电脑对战」可用性（引擎目录随子棋类变，客户端本来会一直用旧的可用性）
+                    syncStateWithMatch(msg);
                     break;
                 case 'boardSizeChanged':
                     if (ctx.onBoardSizeChanged) ctx.onBoardSizeChanged(msg);
@@ -2582,12 +2599,64 @@
         return { handleMessage, updateRecordButtons, updateRadioStyles, updateSeatOverlay, updateVsComputerBtn };
     }
 
+    /**
+     * 自绘棋种（seatOverlayOnly，短路了公共 bindings）的「新局 / 悔棋 / 认输 / 和棋」按钮统一绑定：
+     * 与公共 bindings 里那四个按钮**同一套确认对话框**，避免各棋种自己绑成「点一下就认输」。
+     * opts: { getWs, getMySlot, getSlots, getComputerSlot }
+     */
+    function qiBindPanelButtons(opts) {
+        const o = opts || {};
+        const getWs = typeof o.getWs === 'function' ? o.getWs : () => null;
+        const getMySlot = typeof o.getMySlot === 'function' ? o.getMySlot : () => null;
+        const getSlots = typeof o.getSlots === 'function' ? o.getSlots : () => ({});
+        const getComputerSlot = typeof o.getComputerSlot === 'function' ? o.getComputerSlot : () => null;
+        const send = (msg) => {
+            const ws = getWs();
+            if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
+        };
+        const opponentPresent = () => {
+            const mine = getMySlot();
+            if (!mine) return false;
+            const slots = getSlots() || {};
+            return !!slots[mine === 'player1' ? 'player2' : 'player1'];
+        };
+        const bind = (id, fn) => {
+            const el = document.getElementById(id);
+            if (el) el.onclick = fn;
+        };
+        bind('newGameBtn', () => {
+            if (!getMySlot()) {
+                const slots = getSlots() || {};
+                if ((slots.player1 || slots.player2) && !getComputerSlot()) {
+                    qiAlert('只有对局者可以开始新局。');
+                    return;
+                }
+            }
+            qiConfirm('确定开始新局吗？').then((ok) => { if (ok) send({ type: 'requestNewGame' }); });
+        });
+        bind('undoBtn', () => {
+            if (!getMySlot()) { qiAlert('只有对局者可以悔棋'); return; }
+            qiConfirm(opponentPresent() ? '确定向对方申请悔棋吗？' : '确定悔棋吗？')
+                .then((ok) => { if (ok) send({ type: 'requestUndo' }); });
+        });
+        bind('resignBtn', () => {
+            if (!getMySlot()) { qiAlert('只有对局者可以认输'); return; }
+            qiConfirm('确定认输吗？').then((ok) => { if (ok) send({ type: 'resign' }); });
+        });
+        bind('drawBtn', () => {
+            if (!getMySlot()) { qiAlert('只有对局者可以申请和棋'); return; }
+            qiConfirm(opponentPresent() ? '确定向对方申请和棋吗？' : '确定和棋吗？')
+                .then((ok) => { if (ok) send({ type: 'requestDraw' }); });
+        });
+    }
+
     const QiBoardRoomClient = {
         openRoomWebSocket: qiOpenRoomWebSocket,
         registerRoomSocket: qiRegisterRoomSocket,
         leaveRoomIntentionally: qiLeaveRoomIntentionally,
         leaveRoomAndGoLobby: qiLeaveRoomAndGoLobby,
         createWeiqiMessageBindings,
+        bindPanelButtons: qiBindPanelButtons,
         createStandardWeiqiMatchTimeController: qiCreateStandardWeiqiMatchTimeController
     };
 
@@ -3869,6 +3938,8 @@
         }
 
         function computeScore(liveBoard, territory) {
+            if (opts.computeScore)
+                return opts.computeScore(liveBoard, territory);
             return R().computeScore(liveBoard, territory, ps.BOARD_SIZE);
         }
 
@@ -4280,6 +4351,7 @@
                 syncTryPlayActionButtons(ps);
                 return;
             }
+            if (!ps.tryPlayMode) return;   // 不在试下状态时什么都不做（否则 setReplayStep(undefined) 会取到空盘而报错）
             clearMobileMovePreview();
             const fromLive = !!ps.tryPlayFromLive;
             const savedLiveStep = ps.tryPlayFromLiveStep != null ? ps.tryPlayFromLiveStep : ps.liveViewStep;
@@ -4788,6 +4860,8 @@
                 emptyBoard: () => initBoardArray(ps.BOARD_SIZE),
                 pickAtClient(clientX, clientY) {
                     const { x, y } = canvasCoordsFromClient(clientX, clientY);
+                    // 异形棋盘（自定义围棋的三角/六角/花形…）：插件自带几何取点（传画布逻辑坐标）
+                    if (typeof opts.editPickAtCanvas === 'function') return opts.editPickAtCanvas(x, y);
                     // 棋子落在格内的棋种（opts.editPickCell，如权重围棋）：按格子命中，否则按交叉点
                     return opts.editPickCell ? getClosestCell(x, y) : getClosestIntersection(x, y);
                 },
@@ -6043,11 +6117,13 @@ function bensonCoreGraph(opts) {
         }
     }
 
-    function buildReplayFromImportData(data, tryPlaceStone, deepCopyBoard, createEmptyBoard) {
+    function buildReplayFromImportData(data, tryPlaceStone, deepCopyBoard, createEmptyBoard, opts) {
         let curBoard = createEmptyBoard();
         const boardSize = curBoard.length;
         if (data.initialPosition && Array.isArray(data.initialPosition)) {
-            applyInitialPositionCompact(curBoard, boardSize, data.initialPosition);
+            // 掩码盘（异形棋盘）按棋种给出的有效点判定落子，否则列号 ≥ 行数的开局点会被丢掉
+            const isValid = (opts && typeof opts.isValid === 'function') ? opts.isValid : undefined;
+            applyInitialPositionCompact(curBoard, boardSize, data.initialPosition, isValid ? { isValid } : undefined);
         }
         const replayBoards = [deepCopyBoard(curBoard)];
         const replayMarkers = [[]];
@@ -6859,6 +6935,244 @@ function bensonCoreGraph(opts) {
         return true;
     }
 
+    /** 网格图版：死子判定（口径同服务端 gridGraphWeiqiRules.removeDeadAndDying：无气，或弱气(≤阈值)且每口气都被对方棋子贴住） */
+    function removeDeadAndDyingGrid(srcBoard, gridW, gridH, copyBoardFn, getNeighbors, isIntersection, maxWeakLiberties) {
+        const mwl = maxWeakLiberties != null ? maxWeakLiberties : 2;
+        let boardCopy = copyBoardFn(srcBoard);
+        let changed = true;
+        while (changed) {
+            changed = false;
+            const visited = Array(gridW).fill().map(() => Array(gridH).fill(false));
+            for (let r = 0; r < gridW; r++) {
+                for (let c = 0; c < gridH; c++) {
+                    if (!isIntersection(r, c)) continue;
+                    const val = boardCopy[r][c];
+                    if ((val !== 1 && val !== 2) || visited[r][c]) continue;
+                    const color = val;
+                    const queue = [[r, c]];
+                    visited[r][c] = true;
+                    const stones = [[r, c]];
+                    const liberties = new Set();
+                    let idx = 0;
+                    while (idx < queue.length) {
+                        const [rr, cc] = queue[idx++];
+                        for (const [nr, nc] of getNeighbors(rr, cc)) {
+                            if (boardCopy[nr][nc] === 0) liberties.add(nr + ',' + nc);
+                            else if (boardCopy[nr][nc] === color && !visited[nr][nc]) {
+                                visited[nr][nc] = true;
+                                queue.push([nr, nc]);
+                                stones.push([nr, nc]);
+                            }
+                        }
+                    }
+                    let dead = false;
+                    if (liberties.size === 0) dead = true;
+                    else if (liberties.size <= mwl) {
+                        dead = true;
+                        for (const lib of liberties) {
+                            const [lr, lc] = lib.split(',').map(Number);
+                            let surrounded = false;
+                            for (const [nr, nc] of getNeighbors(lr, lc))
+                                if (boardCopy[nr][nc] === 3 - color) { surrounded = true; break; }
+                            if (!surrounded) { dead = false; break; }
+                        }
+                    }
+                    if (dead) {
+                        for (const [rr, cc] of stones) boardCopy[rr][cc] = 0;
+                        changed = true;
+                    }
+                }
+            }
+        }
+        return boardCopy;
+    }
+
+    /** 网格图版：最近归属（口径同服务端 gridGraphWeiqiRules.assignTerritoryWithRange：距离阈值 5/4，超出阈值算共有） */
+    function assignTerritoryWithRangeGrid(liveBoard, gridW, gridH, getNeighbors, isIntersection, options) {
+        const o = options || {};
+        const passCell = o.passCell || ((v) => v !== -1);
+        const territory = Array(gridW).fill().map(() => Array(gridH).fill(0));
+        for (let r = 0; r < gridW; r++) {
+            for (let c = 0; c < gridH; c++) {
+                if (!isIntersection(r, c) || liveBoard[r][c] !== 0) continue;
+                const maxDist = (r <= 1 || r >= gridW - 2 || c <= 1 || c >= gridH - 2) ? 5 : 4;
+                let blackMin = Infinity;
+                let whiteMin = Infinity;
+                const dist = Array(gridW).fill().map(() => Array(gridH).fill(Infinity));
+                dist[r][c] = 0;
+                const queue = [[r, c]];
+                let front = 0;
+                while (front < queue.length) {
+                    const [cr, cc] = queue[front++];
+                    const d = dist[cr][cc];
+                    if (d > maxDist) continue;
+                    if (liveBoard[cr][cc] === 1 && d < blackMin) blackMin = d;
+                    if (liveBoard[cr][cc] === 2 && d < whiteMin) whiteMin = d;
+                    for (const [nr, nc] of getNeighbors(cr, cc)) {
+                        if (!passCell(liveBoard[nr][nc])) continue;
+                        if (dist[nr][nc] !== Infinity) continue;
+                        dist[nr][nc] = d + 1;
+                        queue.push([nr, nc]);
+                    }
+                }
+                if (blackMin <= maxDist && whiteMin <= maxDist) {
+                    if (blackMin < whiteMin) territory[r][c] = 1;
+                    else if (whiteMin < blackMin) territory[r][c] = 2;
+                    else territory[r][c] = 3;
+                } else if (blackMin <= maxDist) territory[r][c] = 1;
+                else if (whiteMin <= maxDist) territory[r][c] = 2;
+                else territory[r][c] = 3;
+            }
+        }
+        return territory;
+    }
+
+    /** 网格图版：计分（子 + 地 + 公共地各半） */
+    function computeScoreGrid(liveBoard, territory, gridW, gridH, isIntersection) {
+        let blackStones = 0, whiteStones = 0, blackTerritory = 0, whiteTerritory = 0, publicTerritory = 0;
+        for (let r = 0; r < gridW; r++) {
+            for (let c = 0; c < gridH; c++) {
+                if (!isIntersection(r, c)) continue;
+                if (liveBoard[r][c] === 1) blackStones++;
+                else if (liveBoard[r][c] === 2) whiteStones++;
+                else if (liveBoard[r][c] === 0) {
+                    if (territory[r][c] === 1) blackTerritory++;
+                    else if (territory[r][c] === 2) whiteTerritory++;
+                    else if (territory[r][c] === 3) publicTerritory++;
+                }
+            }
+        }
+        return {
+            blackTotal: blackStones + blackTerritory + publicTerritory / 2,
+            whiteTotal: whiteStones + whiteTerritory + publicTerritory / 2
+        };
+    }
+
+    /** 网格图版的两档原语（与服务端 gridGraphWeiqiScoringOps 同口径），供三角 / 扭曲空间等异形棋盘用 */
+    function gridGraphWeiqiScoringOps(gridW, gridH, getNeighbors, isIntersection, options) {
+        const o = options || {};
+        const maxWeakLiberties = o.maxWeakLiberties != null ? o.maxWeakLiberties : 2;
+        const copy = o.copyBoard || ((b) => b.map((row) => row.slice()));
+        return {
+            copyBoard: copy,
+            bensonAlive: (bd) => bensonAliveGrid({
+                width: gridW,
+                height: gridH,
+                getNeighbors: (r, c) => getNeighbors(r, c),
+                isValid: (r, c) => isIntersection(r, c),
+                get: (r, c) => (bd[r] ? bd[r][c] : undefined)
+            }),
+            removeDeadAndDying: (bd) => removeDeadAndDyingGrid(bd, gridW, gridH, copy, getNeighbors, isIntersection, maxWeakLiberties),
+            assignTerritoryWithRange: (bd) => assignTerritoryWithRangeGrid(
+                bd, gridW, gridH, getNeighbors, isIntersection, o.passCell ? { passCell: o.passCell } : {}
+            ),
+            computeScore: (b, t) => computeScoreGrid(b, t, gridW, gridH, isIntersection)
+        };
+    }
+
+    /**
+     * 「用 Benson」档：弱气去死子 ↔ Benson 保活 → 最近归属 → 确定领地覆盖 → 计分（口径同服务端 computeBensonWeiqiLead）。
+     * ops 用 squareWeiqiScoringOps / gridGraphWeiqiScoringOps 生成。返回 { lead, blackTotal, whiteTotal, liveBoard, territory }。
+     */
+    function computeBensonWeiqiLead(board, komi, ops) {
+        const benson = ops.bensonAlive(board);
+        let liveBoard = ops.copyBoard(board);
+        let changed = true;
+        while (changed) {
+            changed = false;
+            const cleaned = ops.removeDeadAndDying(liveBoard);
+            for (let r = 0; r < board.length; r++) {
+                const row = board[r];
+                for (let c = 0; c < row.length; c++) {
+                    if (benson.alive[r][c] && (row[c] === 1 || row[c] === 2) && cleaned[r][c] !== row[c]) {
+                        cleaned[r][c] = row[c];
+                        changed = true;
+                    }
+                }
+            }
+            liveBoard = cleaned;
+        }
+        const territory = ops.assignTerritoryWithRange(liveBoard);
+        // Benson 确定领地优先于「距离扩张」归属
+        const secure = ops.bensonAlive(liveBoard);
+        for (let r = 0; r < liveBoard.length; r++) {
+            const row = liveBoard[r];
+            for (let c = 0; c < row.length; c++) {
+                if (row[c] === 0 && secure.territory[r][c]) territory[r][c] = secure.territory[r][c];
+            }
+        }
+        const { blackTotal, whiteTotal } = ops.computeScore(liveBoard, territory);
+        return { lead: blackTotal - whiteTotal - 2 * komi, blackTotal, whiteTotal, liveBoard, territory };
+    }
+
+    /** 「只用最近归属」档：不判死子、不做 Benson，盘面直接最近归属 + 计分（口径同服务端 computeNearestWeiqiLead） */
+    function computeNearestWeiqiLead(board, komi, ops) {
+        const liveBoard = ops.copyBoard(board);
+        const territory = ops.assignTerritoryWithRange(liveBoard);
+        const { blackTotal, whiteTotal } = ops.computeScore(liveBoard, territory);
+        return { lead: blackTotal - whiteTotal - 2 * komi, blackTotal, whiteTotal, liveBoard, territory };
+    }
+
+    /**
+     * 围棋「形势判断 / 数点」两档口径的现成钩子（与服务端 computeBensonWeiqiLead / computeNearestWeiqiLead 同口径）。
+     * 棋种把返回值 spread 进 create(ps, domPage, opts) 即可用上该档；useBenson 缺省视为 true（同服务端开关默认）。
+     * @param {boolean} useBenson
+     * @param {object} options boardSize 必填（可传数字，或传函数懒取——棋种可改路数时必须传函数）；
+     *                         maxWeakLiberties 弱气去死子阈值（默认 2；也可传函数懒取，短气围棋传该档位气数）；
+     *                         isPassable 距离扩张可穿越判据（中立子围棋传 v => v !== NEUTRAL）；
+     *                         bensonAlive 覆盖 Benson 内核（中立子围棋传带洞版）；copyBoard 自定义拷贝
+     */
+    function weiqiScoringHooks(useBenson, options) {
+        const o = options || {};
+        const sizeOf = typeof o.boardSize === 'function' ? o.boardSize : () => o.boardSize;
+        const mwlOf = typeof o.maxWeakLiberties === 'function'
+            ? o.maxWeakLiberties
+            : () => (o.maxWeakLiberties != null ? o.maxWeakLiberties : 2);
+        const copy = o.copyBoard || ((b) => b.map((row) => row.slice()));
+        const rdd = removeDeadAndDying;
+        const atwr = assignTerritoryWithRange;
+        const ben = o.bensonAlive || bensonAlive;
+        const assign = (liveBoard) => atwr(liveBoard, sizeOf(), o.isPassable ? { isPassable: o.isPassable } : {});
+        if (useBenson === false)
+            return { removeDeadAndDying: (b) => copy(b), assignTerritoryWithRange: assign };
+        return {
+            // 弱气去死子 ↔ Benson 保活，迭代到稳定
+            removeDeadAndDying(srcBoard) {
+                const bs = sizeOf();
+                const benson = ben(srcBoard, bs);
+                let live = copy(srcBoard);
+                let changed = true;
+                while (changed) {
+                    changed = false;
+                    const cleaned = rdd(live, bs, copy, mwlOf());
+                    for (let r = 0; r < srcBoard.length; r++) {
+                        const row = srcBoard[r];
+                        for (let c = 0; c < row.length; c++) {
+                            if (benson.alive[r][c] && (row[c] === 1 || row[c] === 2) && cleaned[r][c] !== row[c]) {
+                                cleaned[r][c] = row[c];
+                                changed = true;
+                            }
+                        }
+                    }
+                    live = cleaned;
+                }
+                return live;
+            },
+            // 最近归属 + Benson 确定领地覆盖
+            assignTerritoryWithRange(liveBoard) {
+                const territory = assign(liveBoard);
+                const secure = ben(liveBoard, sizeOf());
+                for (let r = 0; r < liveBoard.length; r++) {
+                    const row = liveBoard[r];
+                    for (let c = 0; c < row.length; c++) {
+                        if (row[c] === 0 && secure.territory[r][c]) territory[r][c] = secure.territory[r][c];
+                    }
+                }
+                return territory;
+            }
+        };
+    }
+
     global.QiWeiqiSquarePageRuntime = {
         create,
         syncTryPlayActionButtons,
@@ -6883,9 +7197,16 @@ function bensonCoreGraph(opts) {
         bensonAliveGraph, 
         assignTerritoryWithRange, 
         computeScore, 
-        removeDeadAndDyingWithHoles, 
-        assignTerritoryWithRangeWithHoles, 
-        computeScoreWithHoles, 
+        removeDeadAndDyingWithHoles,
+        assignTerritoryWithRangeWithHoles,
+        computeScoreWithHoles,
+        weiqiScoringHooks,
+        removeDeadAndDyingGrid,
+        assignTerritoryWithRangeGrid,
+        computeScoreGrid,
+        gridGraphWeiqiScoringOps,
+        computeBensonWeiqiLead,
+        computeNearestWeiqiLead,
         rebuildLiveReplayFromMoveCoords, 
         applyLiveReplayIncrementalBoards, 
         buildReplayFromImportData,
@@ -7182,8 +7503,9 @@ function bensonCoreGraph(opts) {
         const titleEl2 = document.getElementById('gameTitleInfo');
         const komiEl = document.getElementById('komiInfo');
         if (features.versusMinesweeper) {
-            if (titleEl2) titleEl2.hidden = true;
+            // 对战扫雷没有贴目：只藏贴目位，游戏名照常显示（与其它非棋类一致）
             if (komiEl) komiEl.hidden = true;
+            if (titleEl2) titleEl2.hidden = false;
         }
 
         const palette = document.getElementById('bottomPalette');
@@ -7429,12 +7751,13 @@ function bensonCoreGraph(opts) {
                 boardSizeMin: config.boardSizeMin,
                 boardSizeMax: config.boardSizeMax,
                 features: config.features,
-                editTools: config.editTools
+                editTools: config.editTools,
+                useBenson: config.useBenson
             }
         });
 
-        // 统一铺棋盘木纹（棋种清单见 WOOD_TEXTURE_GAMES）
-        applyBoardWoodTextureForGame(room.gameType);
+        // 统一铺棋盘木纹（要不要铺见棋种 shell.features.woodTexture）
+        applyBoardWoodTextureForGame(config);
 
         // 壳层统一绑定标记折叠，避免部分棋种插件未初始化导致 expand 无效
         ensureBoardMarkFoldControls();
@@ -7445,45 +7768,13 @@ function bensonCoreGraph(opts) {
         });
     }
 
-    /* 启用棋盘木纹的棋种：围棋类 + 五子棋类 + 其它类里的「不围棋 / 反五子棋」。
-     * 木纹的生成逻辑全在 QiSquareWeiqiCanvas 里（见 WOOD_PRESETS / makeWoodTextureCanvas），
-     * 要改木纹只改那段公共代码即可；这里只决定哪些棋种铺。 */
-    const WOOD_TEXTURE_GAMES = [
-        // —— 围棋类 ——
-        'weiqi', 'choice-weiqi', 'triangle-weiqi', 'hexagon-weiqi', 'snub-quadrangle-weiqi',
-        'cairo-pentagon-weiqi', 'floret-pentagon-weiqi', 'penrose-p2-weiqi', 'torus-weiqi',
-        'short-liberty-weiqi', 'zeroliberty-weiqi', 'various-liberty-weiqi', 'weight-weiqi',
-        'hole-weiqi', 'bridge-weiqi', 'neutral-stone-weiqi', 'family-weiqi', 'greedy-weiqi',
-        'ukrainian-weiqi', 'russian-weiqi', 'rus-weiqi', 'mirror-image-weiqi', 'magnetism-weiqi',
-        'translocation-weiqi', 'fat-weiqi', 'rotation-weiqi', 'instability-weiqi', 'nogrid-weiqi',
-        'sync-weiqi', 'fog-weiqi', 'invisible-stone-weiqi', 'radar-weiqi', 'sonar-weiqi',
-        'twisted-space-weiqi', 'front-back-weiqi', 'auction-weiqi', 'continuous-weiqi',
-        'bury-mine-weiqi', 'minesweeper-weiqi', 'sudoku-weiqi', 'real-time-weiqi',
-        'duo-quadricolour-weiqi', 'shizi-weiqi',
-        // —— 五子棋类 ——
-        'wuziqi', 'choice-wuziqi', 'guess-wuziqi', 'triangle-wuziqi', 'random-instability-wuziqi',
-        'match-wuziqi', 'rotation-wuziqi', 'square-diagonal-four',
-        // —— 其它类：不围棋 / 反五子棋 / 黑白棋 ——
-        'noweiqi', 'reverse-wuziqi', 'reversi',
-        // —— 其它类：跳达棋 / 结子棋（画布不铺底色，木纹直接透出来）——
-        'halma', 'neutreeko',
-        // —— 象棋类（画布不画底色，木纹直接透出来）——
-        'xiangqi', 'janggi', 'double-xiangqi', 'dyeing-xiangqi',
-        'fog-xiangqi', 'hexagon-xiangqi', 'capture-shiziqi',
-        // —— 其它类：WxD棋（底色由 canvas 的 CSS 木纹提供，插件不画底）——
-        'wxd',
-        // —— 方格类：舒尔特方格 / 对战舒尔特方格 ——
-        // 国际象棋类（chess/caturanga/hexagon-chess/rhombic-chess/circular-chess）、
-        // 模拟将棋/模拟泰象棋、路墙棋、对战扫雷、DFW 按用户要求不铺木纹
-        'schulte-grid', 'versus-schulte-grid'
-    ].reduce((m, g) => (m[g] = 1, m), Object.create(null));
-
     /**
-     * 建页后按棋种铺木纹。异形棋盘（画布自绘木色）不在这里处理——
-     * 它们由插件用 QiSquareWeiqiCanvas.getWoodFill() 自己填。
+     * 建页后铺棋盘木纹：**是否铺由棋种自己在 shell.features.woodTexture 里声明**（默认不铺），
+     * 新增棋种不用再来改这个公共文件。
+     * 异形棋盘（画布自绘木色）不在这里处理——它们由插件用 QiSquareWeiqiCanvas.getWoodFill() 自己填。
      */
-    function applyBoardWoodTextureForGame(gameType) {
-        if (!WOOD_TEXTURE_GAMES[gameType]) return;
+    function applyBoardWoodTextureForGame(config) {
+        if (!config || !config.features || config.features.woodTexture !== true) return;
         if (document.body.classList.contains('qi-room-transparent-canvas')) return;
         const C = window.QiSquareWeiqiCanvas;
         if (!C || typeof C.applyBoardWoodTexture !== 'function') return;

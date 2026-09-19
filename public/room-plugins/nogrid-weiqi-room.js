@@ -11,6 +11,7 @@ window.RoomPlugins["nogrid-weiqi"] = {
         "recordDownloadPrefix": "无格线围棋",
         "standardWeiqiMatchTime": true,
         "features": {
+            "woodTexture": true,
             "editBoard": false,
             "nogridExtras": true
         },
@@ -1164,8 +1165,13 @@ syncState,
         qiConfirm('确定认输吗？').then(ok => { if (ok) ws.send(JSON.stringify({ type: 'resign' })); });
     };
     document.getElementById('drawBtn').onclick = () => {
-        if (!mySlot) return;
-        ws.send(JSON.stringify({ type: 'requestDraw' }));
+        if (!mySlot) { qiAlert('只有对局者可以申请和棋'); return; }
+        const opp = mySlot === 'player1' ? 'player2' : 'player1';
+        if (slots[opp]) {
+            qiConfirm('确定向对方申请和棋吗？').then(ok => { if (ok) ws.send(JSON.stringify({ type: 'requestDraw' })); });
+        } else {
+            qiConfirm('确定和棋吗？').then(ok => { if (ok) ws.send(JSON.stringify({ type: 'requestDraw' })); });
+        }
     };
     document.getElementById('endReqBtn').onclick = () => {
         if (!mySlot) return;

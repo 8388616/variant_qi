@@ -11,6 +11,7 @@ window.RoomPlugins["dyeing-xiangqi"] = {
         "recordDownloadPrefix": "染色象棋",
         "standardWeiqiMatchTime": true,
         "features": {
+            "woodTexture": true,
             "editBoard": false,
             "xiangqi": true,
             "dyeingBags": true,
@@ -105,7 +106,7 @@ function oppositeSide(side) {
 }
 
 function sideFromSlot(slot) {
-    return slot === 'player1' ? 'red' : 'black';
+    return slot === 'player1' ? 'red' : 'green';
 }
 
 function slotFromSide(side) {
@@ -211,7 +212,7 @@ function isGeometryLegal(pieceType, fromRow, fromCol, toRow, toCol, board) {
     const dC = toCol - fromCol;
     const aR = Math.abs(dR);
     const aC = Math.abs(dC);
-    const camp = color === 'r' ? 'red' : 'black';
+    const camp = color === 'r' ? 'red' : 'green';
 
     if (kind === 'k') {
         if (aR + aC !== 1) return false;

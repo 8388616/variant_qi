@@ -2,15 +2,17 @@ window.RoomPlugins = window.RoomPlugins || {};
 window.RoomPlugins['magnetism-weiqi'] = {
     shell: {
         "title": "磁性围棋",
-        "rulesHtml": "基本规则同围棋。<br /><br />棋子具有磁性。落子时棋子会受到磁力影响移动。<br /><br /><strong>弱磁性</strong>：上下左右四个方向上最近的棋子尝试移动一格，己方棋子远离落子点、对方棋子靠近落子点。<br /><br /><strong>中磁性</strong>：落子后沿上下左右四个方向扫描射线，己方棋子从最远端先滑动一格、对方棋子从最近端先滑动一格，每方向只进行一轮移动。<br /><br /><strong>强磁性</strong>：落子时上下左右四个方向上的所有棋子都会受到磁力影响而移动，己方棋子远离落子点、对方棋子靠近落子点，直至遇到阻碍；先移动己方棋子（同一方向上由远到近），再移动对方棋子（由近到远），同一方向可重复多轮，直到一整轮内没有任何棋子能移动为止。<br /><br />",
+        "rulesHtml": "基本规则同围棋。<br /><br />棋子具有磁性。落子时棋子会受到磁力影响移动。<br /><br /><strong>弱磁性</strong>：上下左右四个方向上最近的棋子尝试移动一格，己方棋子远离落子点、对方棋子靠近落子点。<br /><br /><strong>中磁性</strong>：上下左右四个方向上的所有棋子依由近及远的顺序移动，己方棋子远离一格、对方棋子靠近一格。<br /><br /><strong>强磁性</strong>：上下左右四个方向上的所有棋子不断地移动，每轮依由近及远的顺序移动，己方棋子远离一格、对方棋子靠近一格，可重复多轮，直到没有任何棋子能移动为止。<br /><br />",
         "defaultKomiText": "黑贴白2.25点",
         "boardSizeMin": 7,
         "boardSizeMax": 21,
         "defaultBoardSize": 9,
         "minLib": 1,
         "recordDownloadPrefix": "磁性围棋",
+        "useBenson": true,
         "standardWeiqiMatchTime": true,
         "features": {
+            "woodTexture": true,
             "editBoard": true,
             "compoundPalette": false,
             "zoomScroll": false
@@ -538,50 +540,18 @@ const scoreTitle = document.getElementById('scoreTitle');
             }
         }
 
-                // 标准/变体围棋形势判断：Benson 无条件活加成（保活 + 确定领地覆盖）
-        function bensonRemoveDead(srcBoard) {
-            const RT = window.QiWeiqiSquarePageRuntime;
-            const size = ps.BOARD_SIZE;
-            const copy = (b) => QiSquareWeiqiCanvas.deepCopyBoard(b);
-            const benson = RT.bensonAlive(srcBoard, size);
-            let live = copy(srcBoard);
-            let changed = true;
-            while (changed) {
-                changed = false;
-                const cleaned = RT.removeDeadAndDying(live, size, copy, 2);
-                for (let r = 0; r < size; r++) {
-                    for (let c = 0; c < size; c++) {
-                        const v = srcBoard[r][c];
-                        if (benson.alive[r][c] && (v === 1 || v === 2) && cleaned[r][c] !== v) {
-                            cleaned[r][c] = v;
-                            changed = true;
-                        }
-                    }
-                }
-                live = cleaned;
-            }
-            return live;
-        }
-        function bensonTerritory(liveBoard) {
-            const RT = window.QiWeiqiSquarePageRuntime;
-            const size = ps.BOARD_SIZE;
-            const territory = RT.assignTerritoryWithRange(liveBoard, size);
-            const secure = RT.bensonAlive(liveBoard, size);
-            for (let r = 0; r < size; r++) {
-                for (let c = 0; c < size; c++) {
-                    if (liveBoard[r][c] === 0 && secure.territory[r][c]) territory[r][c] = secure.territory[r][c];
-                }
-            }
-            return territory;
-        }
+        // 标准围棋：形势判断/数点用 Benson 档（公共钩子；档位见 shell.useBenson）
+        const scoringHooks = QiWeiqiSquarePageRuntime.weiqiScoringHooks(config.useBenson !== false, {
+            boardSize: () => ps.BOARD_SIZE,
+            maxWeakLiberties: 2
+        });
 
 const page = QiWeiqiSquarePageRuntime.create(ps, domPage, {
             enableEditBoard: true,
             recordDownloadPrefix,
             minLib,
             maxWeakLiberties: 2,
-            removeDeadAndDying: bensonRemoveDead,
-            assignTerritoryWithRange: bensonTerritory,
+            ...scoringHooks,
             gameType,
             roomId,
             roomPassword,

@@ -11,6 +11,7 @@ window.RoomPlugins["janggi"] = {
         "recordDownloadPrefix": "朝鲜将棋",
         "standardWeiqiMatchTime": true,
         "features": {
+            "woodTexture": true,
             "editBoard": true,
             "xiangqi": true,
             "janggi": true,

@@ -11,6 +11,7 @@ window.RoomPlugins["guess-wuziqi"] = {
         "recordDownloadPrefix": "猜点五子棋",
         "standardWeiqiMatchTime": true,
         "features": {
+            "woodTexture": true,
             "editBoard": true
         },
         "editTools": [
@@ -217,7 +218,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                 const ev = events[ei];
                 if (ev.type !== 'select') return null;
                 const cb = (ev.candidatesBefore || []).map(c => ({ row: c.row, col: c.col }));
-                if (ev.player !== currentPlayer) return null;
+                if ((ev.player === 'player1' ? 'black' : 'white') !== currentPlayer) return null;   // 事件里是座位名，客户端本文件用颜色名
                 if (cb.length < 1) return null;
                 const { row, col } = ev;
                 if (row < 0 || row >= size || col < 0 || col >= size || board[row][col] !== 0) return null;
@@ -256,7 +257,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                     pushGuessSnapshot(snapshots, board, 'select', currentPlayer, [], null, [], rightGuessPoint, wrongGuessPoint, lastMoveMarkers, true, roundWinner, handNum);
                     break;
                 }
-                currentPlayer = currentPlayer === 'player1' ? 'white' : 'black';
+                currentPlayer = currentPlayer === 'black' ? 'white' : 'black';
                 let emptyCount = 0;
                 for (let r = 0; r < size; r++)
                     for (let c = 0; c < size; c++)
@@ -1144,7 +1145,7 @@ syncState,
             winner = win;
             tryPlayTotalSteps = tryPlayBoards.length - 1;
             tryPlayStep = tryPlayTotalSteps;
-            tryPlayCurrentPlayer = tryPlayCurrentPlayer === 'player1' ? 'white' : 'black';
+            tryPlayCurrentPlayer = tryPlayCurrentPlayer === 'black' ? 'white' : 'black';
             const slider = document.getElementById('replaySlider');
             slider.max = tryPlayTotalSteps;
             slider.value = tryPlayStep;
@@ -1167,7 +1168,7 @@ syncState,
             tryPlayMeta.push({ ...tryPlayMeta[tryPlayStep] });
             tryPlayTotalSteps = tryPlayBoards.length - 1;
             tryPlayStep = tryPlayTotalSteps;
-            tryPlayCurrentPlayer = tryPlayCurrentPlayer === 'player1' ? 'white' : 'black';
+            tryPlayCurrentPlayer = tryPlayCurrentPlayer === 'black' ? 'white' : 'black';
             // 本步无落子：与 setTryPlayStep 落到该步时的效果一致
             lastMoveMarkers = [];
             const slider = document.getElementById('replaySlider');
@@ -1191,7 +1192,7 @@ syncState,
             winner = meta.winner;
             const baseSnap = replaySnapshots[tryPlayBaseStep];
             const startPl = (baseSnap && !baseSnap.gameOver && baseSnap.currentPlayer) ? baseSnap.currentPlayer : 'black';
-            tryPlayCurrentPlayer = step % 2 === 0 ? startPl : (startPl === 'player1' ? 'white' : 'black');
+            tryPlayCurrentPlayer = step % 2 === 0 ? startPl : (startPl === 'black' ? 'white' : 'black');
             document.getElementById('replaySlider').value = step;
             updateTryPlayDisplay();
             updateTurn();

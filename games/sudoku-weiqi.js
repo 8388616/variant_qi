@@ -1,6 +1,6 @@
 'use strict';
 
-const { qiBoardSeatOverlay, QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, applyInitialPositionCompact, encodeInitialPositionCompact } = require('../common');
+const { qiBoardSeatOverlay, QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, applyInitialPositionCompact, encodeInitialPositionCompact , computeNearestWeiqiLead, squareWeiqiScoringOps } = require('../common');
 
 /* ========== 数独求解器（精确、完备） ==========
  * 支持 N=9（宫 3×3）与 N=16（宫 4×4）。
@@ -494,12 +494,12 @@ class SudokuWeiqiRoom extends QiTwoPlayerRoomBase {
         return squareWeiqiRules.computeScore(liveBoard, territory, this.boardSize);
     }
 
+    /** 形势判断 / 数点：只用最近归属档（公共口径）；不判死子、不叠 Benson */
     computeLead() {
-        const liveBoard = this.removeDeadAndDying(this.board);
-        const territory = this.assignTerritoryWithRange(liveBoard);
-        const { blackTotal, whiteTotal } = this.computeScore(liveBoard, territory);
-        const KOMI = 3.25;
-        return blackTotal - whiteTotal - 2 * KOMI;
+        const { lead } = computeNearestWeiqiLead(this.board, 3.25, squareWeiqiScoringOps(this.boardSize, {
+            copyBoard: (b) => this.copyBoard(b)
+        }));
+        return lead;
     }
 
     onResignResolved(resignSlot) {
@@ -678,12 +678,7 @@ class SudokuWeiqiRoom extends QiTwoPlayerRoomBase {
         this.gameOver = false;
         this.winner = null;
         this.passCounter = 0;
-        for (const [client, slot] of this.room.players.entries()) {
-            this.room.slotOccupancy.delete(slot);
-            this.room.players.delete(client);
-            this.room.observers.add(client);
-            client.send(JSON.stringify({ type: 'slotReleased', slot }));
-        }
+        qiProtocol.releaseAllSeats(this);
         this.broadcast({ type: 'newGameStarted', ...this.getState(), slots: { player1: false, player2: false } });
     }
 

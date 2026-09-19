@@ -9,6 +9,7 @@ window.RoomPlugins['capture-weiqi'] = {
         "defaultBoardSize": 19,
         "minLib": 1,
         "recordDownloadPrefix": "吃子围棋",
+        "useBenson": false,
         "standardWeiqiMatchTime": true,
         "features": {
             "zoomScroll": true,
@@ -217,49 +218,18 @@ const BOARD_MARK_CHAR_LIST = (() => {
             colorStatus
         };
 
-		const bensonCopyBoard = (b) => b.map((row) => row.slice());
-        function bensonLiveBoardLocal(srcBoard) {
-            const RT = window.QiWeiqiSquarePageRuntime;
-            const benson = RT.bensonAlive(srcBoard, ps.BOARD_SIZE);
-            let live = bensonCopyBoard(srcBoard);
-            let changed = true;
-            while (changed) {
-                changed = false;
-                const cleaned = RT.removeDeadAndDying(live, ps.BOARD_SIZE, bensonCopyBoard, 2);
-                for (let r = 0; r < ps.BOARD_SIZE; r++) {
-                    for (let c = 0; c < ps.BOARD_SIZE; c++) {
-                        if (benson.alive[r][c] && srcBoard[r][c] !== 0 && cleaned[r][c] !== srcBoard[r][c]) {
-                            cleaned[r][c] = srcBoard[r][c];
-                            changed = true;
-                        }
-                    }
-                }
-                live = cleaned;
-            }
-            return live;
-        }
-        function removeDeadAndDyingBenson(srcBoard) {
-            return bensonLiveBoardLocal(srcBoard);
-        }
-        function assignTerritoryWithRangeBenson(liveBoard) {
-            const RT = window.QiWeiqiSquarePageRuntime;
-            const territory = RT.assignTerritoryWithRange(liveBoard, ps.BOARD_SIZE);
-            const secure = RT.bensonAlive(liveBoard, ps.BOARD_SIZE);
-            for (let r = 0; r < ps.BOARD_SIZE; r++) {
-                for (let c = 0; c < ps.BOARD_SIZE; c++) {
-                    if (liveBoard[r][c] === 0 && secure.territory[r][c]) territory[r][c] = secure.territory[r][c];
-                }
-            }
-            return territory;
-        }
+        // 变体：形势判断/数点只用最近归属档（公共钩子；档位见 shell.useBenson）
+        const scoringHooks = QiWeiqiSquarePageRuntime.weiqiScoringHooks(config.useBenson === false, {
+            boardSize: () => ps.BOARD_SIZE,
+            maxWeakLiberties: 2
+        });
 
         const page = QiWeiqiSquarePageRuntime.create(ps, domPage, {
             enableEditBoard: true,
             recordDownloadPrefix,
             minLib,
             maxWeakLiberties: 2,
-            removeDeadAndDying: removeDeadAndDyingBenson,
-            assignTerritoryWithRange: assignTerritoryWithRangeBenson,
+            ...scoringHooks,
             gameType,
             roomId,
             roomPassword,

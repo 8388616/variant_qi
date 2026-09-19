@@ -11,6 +11,7 @@ window.RoomPlugins["match-wuziqi"] = {
         "recordDownloadPrefix": "消除五子棋",
         "standardWeiqiMatchTime": true,
         "features": {
+            "woodTexture": true,
             "editBoard": true
         },
         "editTools": [

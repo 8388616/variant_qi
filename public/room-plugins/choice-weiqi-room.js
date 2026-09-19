@@ -9,8 +9,10 @@ window.RoomPlugins["choice-weiqi"] = {
         "defaultBoardSize": 9,
         "minLib": 1,
         "recordDownloadPrefix": "选点围棋",
+        "useBenson": false,
         "standardWeiqiMatchTime": true,
         "features": {
+            "woodTexture": true,
             "editBoard": true
         },
         "editTools": [
@@ -368,9 +370,17 @@ const scoreTitle = document.getElementById('scoreTitle'), scoreBoard = document.
         }
 
         var page;
+
+        // 变体：形势判断/数点只用最近归属档（公共钩子；档位见 shell.useBenson）
+        const scoringHooks = QiWeiqiSquarePageRuntime.weiqiScoringHooks(config.useBenson === false, {
+            boardSize: () => ps.BOARD_SIZE,
+            maxWeakLiberties: 2
+        });
+
         page = R.create(ps, domPage, {
             enableEditBoard: true,
             recordDownloadPrefix, minLib, maxWeakLiberties: 2, gameType, roomId, roomPassword, isMouseDevice,
+            ...scoringHooks,
             drawBoard: drawBoardChoice, syncState: choiceSync,
             enterReplayMode(data) {
                 if (data.initialPosition && typeof data.initialPosition === 'object' && !Array.isArray(data.initialPosition))

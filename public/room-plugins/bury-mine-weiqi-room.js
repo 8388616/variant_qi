@@ -9,8 +9,10 @@ window.RoomPlugins['bury-mine-weiqi'] = {
         "defaultBoardSize": 19,
         "minLib": 1,
         "recordDownloadPrefix": "埋雷围棋",
+        "useBenson": false,
         "standardWeiqiMatchTime": true,
         "features": {
+            "woodTexture": true,
             "zoomScroll": false,
             "editBoard": true,
             "compoundPalette": false,
@@ -118,10 +120,6 @@ window.RoomPlugins['bury-mine-weiqi'] = {
                 }
                 if (!hasLiberty(nb, row, col)) removeGroup(nb, row, col, playerVal);
                 return nb;
-            }
-            function removeDead(src) { return src.map(r => r.slice()); }
-            function assignTerritory(live) {
-                return R().assignTerritoryWithRange(live, ps.BOARD_SIZE);
             }
             function isUserBoardMarkVisibleAt(r, c) {
                 if (ps.showEstimateActive) return false;
@@ -389,12 +387,20 @@ window.RoomPlugins['bury-mine-weiqi'] = {
             }
 
             var page;
+
+            // 变体：形势判断/数点只用最近归属档（公共钩子；档位见 shell.useBenson）
+            const scoringHooks = QiWeiqiSquarePageRuntime.weiqiScoringHooks(config.useBenson === false, {
+                boardSize: () => ps.BOARD_SIZE,
+                maxWeakLiberties: 2
+            });
+
             page = R().create(ps, domPage, {
                 enableEditBoard: true,
                 editTools: config.editTools,
                 recordDownloadPrefix, minLib, maxWeakLiberties: 0, gameType, roomId, roomPassword, isMouseDevice,
                 boardMarkMode: 'minesweeper',
-                tryPlaceStone: tryPlace, removeDeadAndDying: removeDead, assignTerritoryWithRange: assignTerritory,
+                tryPlaceStone: tryPlace,
+                ...scoringHooks,
                 drawBoard: drawBoardCore, syncState: burySync, rebuildLiveReplayFromMoveCoords: rebuildLive, enterReplayMode: enterReplay
             });
 

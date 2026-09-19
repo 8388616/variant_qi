@@ -11,6 +11,7 @@ window.RoomPlugins["square-diagonal-four"] = {
         "recordDownloadPrefix": "方斜四棋",
         "standardWeiqiMatchTime": true,
         "features": {
+            "woodTexture": true,
             "editBoard": true
         },
         "editTools": [

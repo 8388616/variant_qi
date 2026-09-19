@@ -12,10 +12,13 @@ function boardToString(board) {
  * 紧凑棋谱初始局面：字符串数组，如 ["B3,3","W15,15","N0,6","H2,2","I4,4","M5,5"]
  * 前缀 B/W/N/H/I/M，后为 row,col（与着手坐标串格式一致，无空格）
  */
-function encodeInitialPositionCompact(board, boardSize) {
+function encodeInitialPositionCompact(board, boardSize, opts) {
     const out = [];
+    const stride = (opts && Number.isInteger(opts.stride)) ? opts.stride : boardSize;
+    const isValid = (opts && typeof opts.isValid === 'function') ? opts.isValid : null;
     for (let r = 0; r < boardSize; r++) {
-        for (let c = 0; c < boardSize; c++) {
+        for (let c = 0; c < stride; c++) {
+            if (isValid && !isValid(r, c)) continue;   // 掩码盘的盘外格不写进棋谱
             const v = board[r][c];
             if (v === 1) out.push(`B${r},${c}`);
             else if (v === 2) out.push(`W${r},${c}`);
@@ -46,13 +49,22 @@ function encodeOpeningPositionCompact(self) {
     const opening = (self.openingBoard && Array.isArray(self.openingBoard) && Array.isArray(self.openingBoard[0]))
         ? self.openingBoard
         : Array(boardSize).fill().map(() => Array(boardSize).fill(0));
-    // 非方形棋盘（如开罗五角）：紧凑格式只支持方形遍历——回退空
-    if (opening.length !== boardSize || (opening[0] && opening[0].length !== boardSize)) return [];
+    // 非方形棋盘（掩码盘）：按实际行列遍历（只导出有值点；导入时按几何恢复盘形）
+    if (opening.length !== boardSize || (opening[0] && opening[0].length !== boardSize)) {
+        const isValid = (typeof self.isValidVertex === 'function') ? (r, c) => self.isValidVertex(r, c) : null;
+        return encodeInitialPositionCompact(opening, opening.length, {
+            stride: opening[0] ? opening[0].length : 0,
+            isValid
+        });
+    }
     return encodeInitialPositionCompact(opening, boardSize);
 }
 
-function applyInitialPositionCompact(board, boardSize, initialPosition) {
+function applyInitialPositionCompact(board, boardSize, initialPosition, opts) {
     if (!initialPosition || !Array.isArray(initialPosition)) return;
+    const isValid = (opts && typeof opts.isValid === 'function')
+        ? opts.isValid
+        : ((r, cc) => r >= 0 && r < boardSize && cc >= 0 && cc < boardSize);
     for (const s of initialPosition) {
         if (typeof s !== 'string' || s.length < 3) continue;
         const prefix = s[0];
@@ -62,7 +74,7 @@ function applyInitialPositionCompact(board, boardSize, initialPosition) {
         const r = parseInt(s.slice(1, comma), 10);
         const c = parseInt(s.slice(comma + 1), 10);
         if (!Number.isInteger(r) || !Number.isInteger(c)) continue;
-        if (r < 0 || r >= boardSize || c < 0 || c >= boardSize) continue;
+        if (!isValid(r, c)) continue;
         if (prefix === 'B') board[r][c] = 1;
         else if (prefix === 'W') board[r][c] = 2;
         else if (prefix === 'N') board[r][c] = 10000;
@@ -901,6 +913,32 @@ const qiProtocol = {
         self.broadcast({ type: 'broadcast', action: 'undoAccept', ...self.getState() });
     },
 
+    /**
+     * 开新局/重开：释放房内全部座位，并把退座连接登记为观战者。
+     *
+     * 三步一个都不能少（顺序无所谓，缺 observers.add 会静默丢广播）：
+     *   1. players / slotOccupancy 删掉座位（否则 getSlotByWs 仍认为在座：改路数会被静默忽略）
+     *   2. observers.add(连接)——room.broadcast() 只遍历 players + observers，
+     *      漏了这步这条连接两边都不在，之后所有广播（boardSizeChanged / gameState / 对手落子…）
+     *      都收不到，客户端要刷新页面才恢复
+     *   3. 逐个直接发 slotReleased（这是直发，不受上面影响）
+     *
+     * 调用方自己决定前后广播什么（newGameStarted / roomReset / gameState…）：退座后连接已是
+     * 观战者，广播放在退座前或后都能收到。返回 [{ client, slot }] 供调用方使用。
+     */
+    releaseAllSeats(self) {
+        const room = self.room;
+        const released = [];
+        for (const [client, slot] of [...room.players.entries()]) {
+            room.players.delete(client);
+            room.slotOccupancy.delete(slot);
+            room.observers.add(client);
+            client.send(JSON.stringify({ type: 'slotReleased', slot }));
+            released.push({ client, slot });
+        }
+        return released;
+    },
+
     /** 仅观战者可改路数：parseInt size，调用 setBoardSize(n, ws) */
     setBoardSizeObserverOnly(self, ws, msg, slot) {
         if (slot) return;
@@ -1074,6 +1112,9 @@ const qiProtocol = {
                 : copyBoard(editedBoard);
         }
 
+        // 先按「player1 先手」的默认约定摆好行棋方，再让棋种自己覆盖
+        // （白先棋种如结子棋/五道棋的 afterEditBoard 会把 currentPlayer 设成白方，不能被这里再改回去）
+        self.currentPlayer = 1;
         if (typeof self.afterEditBoard === 'function') self.afterEditBoard();
 
         self.openingBoard = typeof self.copyBoard === 'function'
@@ -1091,7 +1132,6 @@ const qiProtocol = {
         if (Array.isArray(self.moveHistory)) self.moveHistory = [];
         if (Array.isArray(self.moveCoords)) self.moveCoords = [];
         if (Array.isArray(self.historyMarkers)) self.historyMarkers = [];
-        self.currentPlayer = 1;
         self.lastMoveMarkers = [];
         if ('passCounter' in self) self.passCounter = 0;
         self.gameOver = false;
@@ -1218,7 +1258,11 @@ const qiProtocol = {
         if (self.gameOver) return;
         if (!slot || slot !== (self.currentPlayer === 1 ? 'player1' : 'player2')) return;
         const { row, col } = msg;
-        if (row < 0 || row >= self.boardSize || col < 0 || col >= self.boardSize) return;
+        // 异形棋盘（掩码网格/锯齿盘）可定义 isValidMoveCoord(r,c) 覆盖方形校验
+        const inBoard = typeof self.isValidMoveCoord === 'function'
+            ? self.isValidMoveCoord(row, col)
+            : (row >= 0 && row < self.boardSize && col >= 0 && col < self.boardSize);
+        if (!inBoard) return;
         if (self.board[row][col] !== 0) return;
         const playerVal = self.currentPlayer === 1 ? 1 : 2;
         const newBoard = self.tryPlaceStone(self.board, row, col, playerVal);
@@ -2364,6 +2408,99 @@ const vertexGraphWeiqiRules = {
 };
 
 /**
+ * 围棋「形势判断 / 数点」的两档公共口径（棋种用开关选，默认用 Benson）。
+ *
+ * ops 里的四个原语由调用方绑定好几何与尺寸（方格盘用 squareWeiqiScoringOps，
+ * 异形盘用 gridGraphWeiqiScoringOps），去死子 / Benson / 最近归属 / 计分一律沿用既有公共实现，
+ * 这里只做流程编排：
+ *   用 Benson 档：弱气去死子 ↔ Benson 保活迭代 → 最近归属 → Benson 确定领地覆盖 → 计分
+ *   只用最近归属：盘面直接拷贝（不判死子、不做 Benson）→ 最近归属 → 计分
+ * 两者返回值都带 liveBoard / territory，供形势判断的死子覆盖层使用；lead 已扣 2×komi。
+ */
+
+/** 「用 Benson」档（开关默认档）：弱气去死子 ↔ Benson 保活 → 最近归属 → 确定领地覆盖 → 计分 */
+function computeBensonWeiqiLead(board, komi, ops) {
+    const benson = ops.bensonAlive(board);
+    let liveBoard = ops.copyBoard(board);
+    let changed = true;
+    while (changed) {
+        changed = false;
+        const cleaned = ops.removeDeadAndDying(liveBoard);
+        for (let r = 0; r < board.length; r++) {
+            const row = board[r];
+            for (let c = 0; c < row.length; c++) {
+                if (benson.alive[r][c] && (row[c] === 1 || row[c] === 2) && cleaned[r][c] !== row[c]) {
+                    cleaned[r][c] = row[c];
+                    changed = true;
+                }
+            }
+        }
+        liveBoard = cleaned;
+    }
+    const territory = ops.assignTerritoryWithRange(liveBoard);
+    // Benson 确定领地优先于「距离扩张」归属
+    const secure = ops.bensonAlive(liveBoard);
+    for (let r = 0; r < liveBoard.length; r++) {
+        const row = liveBoard[r];
+        for (let c = 0; c < row.length; c++) {
+            if (row[c] === 0 && secure.territory[r][c]) territory[r][c] = secure.territory[r][c];
+        }
+    }
+    const { blackTotal, whiteTotal } = ops.computeScore(liveBoard, territory);
+    return { lead: blackTotal - whiteTotal - 2 * komi, blackTotal, whiteTotal, liveBoard, territory };
+}
+
+/** 「只用最近归属」档：不判死子、不做 Benson，盘面直接最近归属 + 计分 */
+function computeNearestWeiqiLead(board, komi, ops) {
+    const liveBoard = ops.copyBoard(board);
+    const territory = ops.assignTerritoryWithRange(liveBoard);
+    const { blackTotal, whiteTotal } = ops.computeScore(liveBoard, territory);
+    return { lead: blackTotal - whiteTotal - 2 * komi, blackTotal, whiteTotal, liveBoard, territory };
+}
+
+/**
+ * 方格盘的两档原语（boardSize 已绑定），直接传给上面两个函数。
+ * @param {object} [options]
+ * @param {number} [options.maxWeakLiberties] 弱气去死子阈值，默认 2（短气围棋传该档位的气数）
+ * @param {(cell:number)=>boolean} [options.isPassable] 距离扩张可穿越判据（中立子围棋传 v => v !== NEUTRAL）
+ * @param {(board:number[][])=>number[][]} [options.copyBoard] 自定义拷贝
+ */
+function squareWeiqiScoringOps(boardSize, options = {}) {
+    const maxWeakLiberties = options.maxWeakLiberties != null ? options.maxWeakLiberties : 2;
+    const copyBoardFn = options.copyBoard || ((b) => b.map((row) => row.slice()));
+    return {
+        copyBoard: copyBoardFn,
+        bensonAlive: (bd) => squareWeiqiRules.bensonAlive(bd, boardSize),
+        removeDeadAndDying: (bd) => squareWeiqiRules.removeDeadAndDying(bd, boardSize, copyBoardFn, maxWeakLiberties),
+        assignTerritoryWithRange: (bd) => squareWeiqiRules.assignTerritoryWithRange(
+            bd, boardSize, options.isPassable ? { isPassable: options.isPassable } : {}
+        ),
+        computeScore: (b, t) => squareWeiqiRules.computeScore(b, t, boardSize)
+    };
+}
+
+/**
+ * 网格图（异形棋盘）的两档原语：getNeighbors / isIntersection 由棋种提供（掩码盘）。
+ * @param {object} [options] 同 squareWeiqiScoringOps，外加 passCell（距离扩张可走入判据，默认 v !== -1）
+ */
+function gridGraphWeiqiScoringOps(gridW, gridH, getNeighbors, isIntersection, options = {}) {
+    const maxWeakLiberties = options.maxWeakLiberties != null ? options.maxWeakLiberties : 2;
+    const copyBoardFn = options.copyBoard || ((b) => b.map((row) => row.slice()));
+    return {
+        copyBoard: copyBoardFn,
+        bensonAlive: (bd) => gridGraphWeiqiRules.bensonAlive(bd, gridW, gridH, getNeighbors, isIntersection),
+        removeDeadAndDying: (bd) => gridGraphWeiqiRules.removeDeadAndDying(
+            bd, gridW, gridH, copyBoardFn, getNeighbors, isIntersection, maxWeakLiberties
+        ),
+        assignTerritoryWithRange: (bd) => gridGraphWeiqiRules.assignTerritoryWithRange(
+            bd, gridW, gridH, getNeighbors, isIntersection,
+            options.passCell ? { passCell: options.passCell } : {}
+        ),
+        computeScore: (b, t) => gridGraphWeiqiRules.computeScore(b, t, gridW, gridH, isIntersection)
+    };
+}
+
+/**
  * 棋盘落座蒙版：在已有限时协商的 Room 实例上安装房主/执子/takeSeat 等能力。
  * 各变体 initRoom 里对 gameLogic 调用一次即可。
  */
@@ -2633,12 +2770,14 @@ const qiBoardSeatOverlay = {
             if (this.tcClock.timed) {
                 // 起始扣时方 = 先手方所在座位：棋种导出 slotFromSide 时按执方换算，
                 // 否则退回 sideToMove='red' / currentPlayer 记法（player1 座先手）。
+                // 注意：本仓库所有 sideToMove 用 'white' 的棋种（国际象棋系/跳棋系）都是**白先、player1 执白**，
+                // 所以 'white' 要落到 player1；反过来 'black' 才是 player2。
                 let activeSlot = 'player1';
                 const sideToMove = this.sideToMove != null ? this.sideToMove : null;
                 if (typeof this.slotFromSide === 'function' && sideToMove != null) {
                     const mapped = this.slotFromSide(sideToMove);
                     if (mapped === 'player1' || mapped === 'player2') activeSlot = mapped;
-                } else if (sideToMove === 'white') {
+                } else if (sideToMove === 'black') {
                     activeSlot = 'player2';
                 } else if (this.currentPlayer === 2) {
                     activeSlot = 'player2';
@@ -2826,5 +2965,9 @@ module.exports = {
     squareWeiqiRules,
     gridGraphWeiqiRules,
     vertexGraphWeiqiRules,
-    squareWuziqiRules
+    squareWuziqiRules,
+    computeBensonWeiqiLead,
+    computeNearestWeiqiLead,
+    squareWeiqiScoringOps,
+    gridGraphWeiqiScoringOps
 };

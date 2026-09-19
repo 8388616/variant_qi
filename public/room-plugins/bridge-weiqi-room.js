@@ -11,6 +11,7 @@ window.RoomPlugins['bridge-weiqi'] = {
         "recordDownloadPrefix": "桥围棋",
         "standardWeiqiMatchTime": true,
         "features": {
+            "woodTexture": true,
             "editBoard": true,
             "compoundPalette": false,
             "zoomScroll": false

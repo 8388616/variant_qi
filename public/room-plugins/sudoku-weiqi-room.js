@@ -8,8 +8,10 @@ window.RoomPlugins['sudoku-weiqi'] = {
         "defaultBoardSize": 9,
         "minLib": 1,
         "recordDownloadPrefix": "数独围棋",
+        "useBenson": false,
         "standardWeiqiMatchTime": true,
         "features": {
+            "woodTexture": true,
             "editBoard": false,
             "compoundPalette": false,
             "zoomScroll": false,
@@ -674,11 +676,18 @@ window.RoomPlugins['sudoku-weiqi'] = {
             return true;
         }
 
+        // 形势判断/数点只用最近归属档（公共钩子；档位见 shell.useBenson）
+        const scoringHooks = QiWeiqiSquarePageRuntime.weiqiScoringHooks(config.useBenson === false, {
+            boardSize: () => ps.BOARD_SIZE,
+            maxWeakLiberties: 2
+        });
+
         const page = QiWeiqiSquarePageRuntime.create(ps, domPage, {
             enableEditBoard: false,
             recordDownloadPrefix,
             minLib,
             maxWeakLiberties: 2,
+            ...scoringHooks,
             gameType,
             roomId,
             roomPassword,

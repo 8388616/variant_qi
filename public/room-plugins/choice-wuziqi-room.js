@@ -11,6 +11,7 @@ window.RoomPlugins["choice-wuziqi"] = {
         "recordDownloadPrefix": "选点五子棋",
         "standardWeiqiMatchTime": true,
         "features": {
+            "woodTexture": true,
             "editBoard": true
         },
         "editTools": [
@@ -513,7 +514,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                     turnDisplay.innerText = '初始局面';
                 } else {
                     const pl = serverMoveLog[stones - 1].player;
-                    turnDisplay.innerText = `${pl === 'black' ? '⚫' : '⚪'} 第${stones}手`;
+                    turnDisplay.innerText = `${pl === 'player1' ? '⚫' : '⚪'} 第${stones}手`;
                 }
                 scoreTitle.innerText = gameOver
                     ? (winner === 'player1' ? '黑胜' : (winner === 'player2' ? '白胜' : (winner === 'draw' ? '和棋' : '')))
@@ -546,7 +547,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                 turnDisplay.innerText = '初始局面';
             } else {
                 const pl = serverMoveLog[n - 1].player;
-                turnDisplay.innerText = `${pl === 'black' ? '⚫' : '⚪'} 第${n}手`;
+                turnDisplay.innerText = `${pl === 'player1' ? '⚫' : '⚪'} 第${n}手`;
             }
             scoreTitle.innerText = '　';
             isMyTurn = (mySlot === currentPlayer && !gameOver);

@@ -15,6 +15,7 @@ window.RoomPlugins["halma"] = {
         "recordDownloadPrefix": "跳达棋",
         "standardWeiqiMatchTime": true,
         "features": {
+            "woodTexture": true,
             "editBoard": false,
             "xiangqi": true,
             "chess": true

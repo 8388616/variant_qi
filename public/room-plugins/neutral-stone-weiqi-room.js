@@ -9,8 +9,10 @@ window.RoomPlugins['neutral-stone-weiqi'] = {
         "defaultBoardSize": 19,
         "minLib": 1,
         "recordDownloadPrefix": "中立子围棋",
+        "useBenson": true,
         "standardWeiqiMatchTime": true,
         "features": {
+            "woodTexture": true,
             "editBoard": true,
             "compoundPalette": false,
             "zoomScroll": false
@@ -288,12 +290,20 @@ const scoreTitle = document.getElementById('scoreTitle');
         };
 
         const pageHolder = {};
+        // 中立子围棋：Benson 档 + 中立子改造（Benson 里中立子视同洞；最近归属不可穿越中立子）
+        const scoringHooks = QiWeiqiSquarePageRuntime.weiqiScoringHooks(config.useBenson !== false, {
+            boardSize: () => ps.BOARD_SIZE,
+            maxWeakLiberties: 2,
+            isPassable: (v) => v !== NEUTRAL,
+            bensonAlive: (bd, bs) => QiWeiqiSquarePageRuntime.bensonAliveWithHoles(bd, bs, (r, c) => bd[r][c] === NEUTRAL)
+        });
         const page = QiWeiqiSquarePageRuntime.create(ps, domPage, {
             enableEditBoard: true,
             editTools: config.editTools,
             recordDownloadPrefix,
             minLib,
             maxWeakLiberties: 2,
+            ...scoringHooks,
             gameType,
             roomId,
             roomPassword,
@@ -302,8 +312,6 @@ const scoreTitle = document.getElementById('scoreTitle');
             komiInfoText: (p) => `黑贴白${p.KOMI}点`,
             tryPlaceStone: neutralTryPlaceStone,
             drawBoard: neutralDrawBoard,
-            removeDeadAndDying: (src) => R().removeDeadAndDying(src, ps.BOARD_SIZE, (b) => QiSquareWeiqiCanvas.deepCopyBoard(b), 2),
-            assignTerritoryWithRange: (live) => R().assignTerritoryWithRange(live, ps.BOARD_SIZE, { isPassable: (v) => v !== NEUTRAL }),
             rebuildLiveReplayFromMoveCoords(moveCoords) {
                 const syncedLen = ps.liveReplayBoards.length - 1;
                 const mcs = moveCoords || [];

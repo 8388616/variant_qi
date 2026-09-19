@@ -1,4 +1,4 @@
-﻿const { QiTwoPlayerRoomBase, gridGraphWeiqiRules, qiMatchTimeControl, qiBoardSeatOverlay, qiProtocol, encodeInitialPositionCompact, encodeOpeningPositionCompact } = require('../common');
+﻿const { QiTwoPlayerRoomBase, gridGraphWeiqiRules, qiMatchTimeControl, qiBoardSeatOverlay, qiProtocol, encodeInitialPositionCompact, encodeOpeningPositionCompact, computeBensonWeiqiLead, gridGraphWeiqiScoringOps } = require('../common');
 
 class TriangleWeiqiRoom extends QiTwoPlayerRoomBase
 {
@@ -146,97 +146,17 @@ class TriangleWeiqiRoom extends QiTwoPlayerRoomBase
         );
     }
 
-    removeDeadGroups(srcBoard) {
-        return gridGraphWeiqiRules.removeDeadAndDying(
-            srcBoard,
-            this.boardSize,
-            this.boardSize,
-            (b) => this.copyBoard(b),
-            this._neighbors(),
-            (r, c) => this.isValidCoord(r, c)
-        );
-    }
-
-    /** 网格最短距离（BFS，适用于三种形状） */
-    gridDistance(r1, c1, r2, c2) {
-        if (r1 === r2 && c1 === c2) return 0;
-        const nb = this._neighbors();
-        const visited = new Set();
-        let frontier = [[r1, c1]];
-        visited.add(r1 + ',' + c1);
-        let dist = 0;
-        while (frontier.length) {
-            dist++;
-            const next = [];
-            for (const [fr, fc] of frontier) {
-                for (const [nr, nc] of nb(fr, fc)) {
-                    const key = nr + ',' + nc;
-                    if (visited.has(key)) continue;
-                    if (nr === r2 && nc === c2) return dist;
-                    visited.add(key);
-                    next.push([nr, nc]);
-                }
-            }
-            frontier = next;
-        }
-        return Infinity;
-    }
-
+    /**
+     * 形势判断 / 数点：用 Benson 档（公共口径，图版几何；三种形状共用）。
+     * 领地归属沿用公共的 5/4 距离阈值（与其它围棋变体一致）。
+     */
     computeLead() {
-        // Benson 加成：网格图版（异形棋盘沿用自身邻接），保活 + 确定领地覆盖
-        const ROWS = this.ROWS;
-        const bensonOf = (bd) => gridGraphWeiqiRules.bensonAlive(
-            bd, ROWS, ROWS, this._neighbors(), (r, c) => this.isValidCoord(r, c)
-        );
-        const benson = bensonOf(this.board);
-        let liveBoard = this.removeDeadGroups(this.board);
-        let bensonChanged = true;
-        while (bensonChanged) {
-            bensonChanged = false;
-            const cleaned = this.removeDeadGroups(liveBoard);
-            for (let r = 0; r < ROWS; r++) {
-                for (let c = 0; c < this.rowLen(r); c++) {
-                    const v = this.board[r][c];
-                    if (benson.alive[r][c] && (v === 1 || v === 2) && cleaned[r][c] !== v) {
-                        cleaned[r][c] = v;
-                        bensonChanged = true;
-                    }
-                }
+        const { lead } = computeBensonWeiqiLead(this.board, this._komi(), gridGraphWeiqiScoringOps(
+            this.ROWS, this.ROWS, this._neighbors(), (r, c) => this.isValidCoord(r, c), {
+                copyBoard: (b) => this.copyBoard(b)
             }
-            liveBoard = cleaned;
-        }
-        const secure = bensonOf(liveBoard);
-        const blackStones = [], whiteStones = [];
-        for (let r = 0; r < this.ROWS; r++) {
-            for (let c = 0; c < this.rowLen(r); c++) {
-                if (liveBoard[r][c] === 1) blackStones.push([r, c]);
-                else if (liveBoard[r][c] === 2) whiteStones.push([r, c]);
-            }
-        }
-        let blackTerritory = 0, whiteTerritory = 0, publicTerritory = 0;
-        for (let r = 0; r < this.ROWS; r++) {
-            for (let c = 0; c < this.rowLen(r); c++) {
-                if (liveBoard[r][c] !== 0) continue;
-                if (secure.territory[r][c] === 1) { blackTerritory++; continue; }
-                if (secure.territory[r][c] === 2) { whiteTerritory++; continue; }
-                let minBlack = Infinity, minWhite = Infinity;
-                for (const [br, bc] of blackStones) {
-                    const d = this.gridDistance(r, c, br, bc);
-                    if (d < minBlack) minBlack = d;
-                }
-                for (const [wr, wc] of whiteStones) {
-                    const d = this.gridDistance(r, c, wr, wc);
-                    if (d < minWhite) minWhite = d;
-                }
-                if (minBlack < minWhite) blackTerritory++;
-                else if (minWhite < minBlack) whiteTerritory++;
-                else publicTerritory++;
-            }
-        }
-        const blackTotal = blackStones.length + blackTerritory + publicTerritory / 2;
-        const whiteTotal = whiteStones.length + whiteTerritory + publicTerritory / 2;
-        const KOMI = this._komi();
-        return blackTotal - whiteTotal - 2 * KOMI;
+        ));
+        return lead;
     }
 
     /** 贴目（服务端数子口径）：菱形 ≤8 路 4.25，其余 3.25 */
@@ -778,8 +698,12 @@ class TriangleWeiqiRoom extends QiTwoPlayerRoomBase
                 break;
 
             case 'setShape':
-                if (!slot && !this.room.players.size)
+                if (!slot && !this.room.players.size) {
                     this.setShape(msg.shape, ws);
+                } else {
+                    // 被拒绝：回推当前状态，纠正客户端本地乐观切换（形状/棋盘以服务端为准）
+                    this.sendState(ws);
+                }
                 break;
 
             case 'move':
@@ -1038,12 +962,7 @@ class TriangleWeiqiRoom extends QiTwoPlayerRoomBase
         this.winner = null;
         this.passCounter = 0;
         this.moveCoords = [];
-        for (const [client, slot] of this.room.players.entries()) {
-            this.room.slotOccupancy.delete(slot);
-            this.room.players.delete(client);
-            this.room.observers.add(client);
-            client.send(JSON.stringify({ type: 'slotReleased', slot }));
-        }
+        qiProtocol.releaseAllSeats(this);
         this.broadcast({ type: 'newGameStarted', ...this.getState(), slots: { player1: false, player2: false } });
     }
 

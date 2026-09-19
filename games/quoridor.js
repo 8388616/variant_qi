@@ -331,11 +331,12 @@ if (QiTwoPlayerRoomBase) {
         }, 1000);
     }
 
+    /** 只有一人入座（或都没入座）时的默认选时方：先手方 player1（与其它棋种统一） */
     _firstPickerSlot() {
-        const tb = this.slotJoinedAt.player2;
-        const tw = this.slotJoinedAt.player1;
-        if (tb == null || tw == null) return 'player2';
-        return tb <= tw ? 'player2' : 'player1';
+        const tb = this.slotJoinedAt.player1;
+        const tw = this.slotJoinedAt.player2;
+        if (tb == null || tw == null) return 'player1';
+        return tb <= tw ? 'player1' : 'player2';
     }
     _clearTimeNegotiation() {
         this.tcNego = null;
@@ -410,6 +411,7 @@ if (QiTwoPlayerRoomBase) {
         this.wallsWhiteLeft = QuoridorEngine.WALLS_EACH;
         this.currentPlayer = 2;   // 白方先行
         this.gameOver = false;
+        this.importReplayNoJudge = false;
         this.winner = null;
         this.lastMoveMarkers = [];
         this.moveHistory = [];
@@ -553,12 +555,15 @@ if (QiTwoPlayerRoomBase) {
             }
         }
         const raw = data.moves || [];
+        this.importReplayNoJudge = true;   // 回放期间不判终局（结果只按棋谱记录）
+        // 看不懂的手数：跳过它并记一笔，最后提示「棋谱可能已经损坏。」，但棋谱照旧导入
+        let damaged = false;
         for (let i = 0; i < raw.length; i++) {
             let s = raw[i];
-            if (typeof s !== 'string') continue;
-            const slot = s[0] === 'B' ? 'player2' : 'player1';
+            if (typeof s !== 'string' || !/^[BW]/i.test(s)) { damaged = true; continue; }
+            const slot = s[0].toUpperCase() === 'B' ? 'player2' : 'player1';
             const expect = this.currentPlayer === 2 ? 'player1' : 'player2';
-            if (slot !== expect) {
+            if (slot !== expect && !damaged) {
                 this.resetToEmpty();
                 requesterWs.send(
                     JSON.stringify({
@@ -573,6 +578,7 @@ if (QiTwoPlayerRoomBase) {
                 const rest = s.slice(2).split(',');
                 const row = parseInt(rest[0], 10);
                 const col = parseInt(rest[1], 10);
+                if (!Number.isInteger(row) || !Number.isInteger(col)) { damaged = true; continue; }
                 const st = this.asEngineState();
                 if (!QuoridorEngine.isLegalPawnMove(st, slot, row, col)) {
                     this.resetToEmpty();
@@ -587,6 +593,13 @@ if (QiTwoPlayerRoomBase) {
                 }
                 this.historySnapshots.push(this.snapshot());
                 QuoridorEngine.applyPawnMove(st, slot, row, col);
+                if (this.importReplayNoJudge) {
+                    // 回放期间不判胜负：到线也不终局。手数按「这一手是谁走的」往下传
+                    // （引擎在终局时会跳过换手，这里统一写死，免得和引擎的换手叠加成两次）
+                    st.gameOver = false;
+                    st.winner = null;
+                    st.currentPlayer = slot === 'player2' ? 2 : 1;
+                }
                 this.restoreFromEngine(st);
                 this.moveHistory.push({ kind: 'pawn', player: slot, row, col });
             } else if (s[1] === 'H' || s[1] === 'V') {
@@ -594,6 +607,7 @@ if (QiTwoPlayerRoomBase) {
                 const rest = s.slice(2).split(',');
                 const r = parseInt(rest[0], 10);
                 const c = parseInt(rest[1], 10);
+                if (!Number.isInteger(r) || !Number.isInteger(c)) { damaged = true; continue; }
                 const st = this.asEngineState();
                 if (
                     (slot === 'player2' && st.wallsBlackLeft <= 0) ||
@@ -622,13 +636,39 @@ if (QiTwoPlayerRoomBase) {
                 }
                 this.historySnapshots.push(this.snapshot());
                 QuoridorEngine.applyWall(st, slot, orient, r, c);
+                if (damaged) st.currentPlayer = slot === 'player2' ? 2 : 1;   // 同上：跳过着法后按这一手接着往下摆
                 this.restoreFromEngine(st);
                 this.moveHistory.push({ kind: 'wall', player: slot, orient, r, c });
+            } else {
+                damaged = true;   // 既不是走子（M）也不是放墙（H/V）：看不懂，跳过
             }
         }
-        if (data.result && !this.gameOver) {
+        this.importReplayNoJudge = false;
+        if (damaged) {
+            // 有看不懂的手数：给个警告，但棋谱照旧导入（认得的着法都摆上了）
+            requesterWs.send(JSON.stringify({ type: 'error', message: '棋谱可能已经损坏。' }));
+        }
+        // 导入不做任何判定：结果只按棋谱记录显示（局面与记录不一致时也以记录为准）。
+        // 记录里的胜负先认出执方颜色（公共层把棋谱里的「黑胜」折成 result='player1'、
+        // 「白胜」折成 result='player2'，所以不能直接当座位名用），再落到本棋种的座位。
+        const recResult = data.result != null && data.result !== '' ? data.result
+            : (data.resultText != null && data.resultText !== '' ? data.resultText : null);
+        if (recResult != null) {
             this.gameOver = true;
-            this.winner = data.result;
+            this.recordResultText = data.resultText ? String(data.resultText) : String(recResult);
+            const rt = String(this.recordResultText);
+            const SLOT_OF_COLOR = { 白: 'player1', 黑: 'player2' };   // player1 执白、player2 执黑
+            const win = /(黑|白|红|绿|蓝)\s*(?:方)?[^，。]{0,6}胜/.exec(rt);
+            let color = win ? win[1] : null;
+            if (!color) {
+                const lose = /(黑|白|红|绿|蓝)\s*(?:方)?[^，。]{0,6}判负/.exec(rt);
+                if (lose) color = Object.keys(SLOT_OF_COLOR).find((k) => k !== lose[1]) || null;
+                else if (recResult === 'black' || recResult === 'player1') color = '黑';
+                else if (recResult === 'white' || recResult === 'player2') color = '白';
+            }
+            if (recResult === 'draw' || rt.includes('和')) this.winner = 'draw';
+            else if (color && SLOT_OF_COLOR[color]) this.winner = SLOT_OF_COLOR[color];
+            else this.winner = recResult;
         }
         if (this.tcSettings) this.matchStarted = true;
         this.broadcast({
@@ -655,12 +695,7 @@ if (QiTwoPlayerRoomBase) {
 
     resetGame() {
         this.resetToEmpty();
-        for (const [client, slot] of this.room.players.entries()) {
-            this.room.slotOccupancy.delete(slot);
-            this.room.players.delete(client);
-            this.room.observers.add(client);
-            client.send(JSON.stringify({ type: 'slotReleased', slot }));
-        }
+        qiProtocol.releaseAllSeats(this);
         this.broadcast({
             type: 'newGameStarted',
             ...this.getState(),

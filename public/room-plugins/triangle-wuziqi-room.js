@@ -11,6 +11,7 @@ window.RoomPlugins["triangle-wuziqi"] = {
         "recordDownloadPrefix": "三角五子棋",
         "standardWeiqiMatchTime": true,
         "features": {
+            "woodTexture": true,
             "editBoard": true,
             "transparentCanvas": true
         },

@@ -1,4 +1,4 @@
-const { QiTwoPlayerRoomBase, qiMatchTimeControl, squareWeiqiRules, qiBoardSeatOverlay } = require('../common');
+const { QiTwoPlayerRoomBase, qiBoardSeatOverlay, qiMatchTimeControl, qiProtocol, squareWeiqiRules } = require('../common');
 
 class FrontBackWeiqiRoom extends QiTwoPlayerRoomBase {
     constructor(room) {
@@ -107,9 +107,10 @@ class FrontBackWeiqiRoom extends QiTwoPlayerRoomBase {
         return src.map(p => ({ row: p.row, col: p.col }));
     }
 
+    /** 第 nextMoveNumber 手应由哪个**座位**落子（player1 执黑、黑先；前两手黑、后两手白） */
     expectedSlot() {
         const m = this.nextMoveNumber % 4;
-        return m === 0 || m === 1 ? 'black' : 'white';
+        return m === 0 || m === 1 ? 'player1' : 'player2';
     }
 
     /** 'A' 或 'B' */
@@ -483,12 +484,7 @@ class FrontBackWeiqiRoom extends QiTwoPlayerRoomBase {
 
     resetGame() {
         this.resetToEmpty();
-        for (let [client, slot] of this.room.players.entries()) {
-            this.room.slotOccupancy.delete(slot);
-            this.room.players.delete(client);
-            this.room.observers.add(client);
-            client.send(JSON.stringify({ type: 'slotReleased', slot }));
-        }
+        qiProtocol.releaseAllSeats(this);
         this.broadcast({ type: 'newGameStarted', ...this.getState(), slots: { player1: false, player2: false } });
     }
 

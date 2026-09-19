@@ -1,6 +1,6 @@
 const crypto = require('crypto');
 
-const { qiBoardSeatOverlay, QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, applyInitialPositionCompact, encodeInitialPositionCompact, encodeOpeningPositionCompact } = require('../common');
+const { qiBoardSeatOverlay, QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, applyInitialPositionCompact, encodeInitialPositionCompact, encodeOpeningPositionCompact, computeBensonWeiqiLead, squareWeiqiScoringOps } = require('../common');
 class WeiqiRoom extends QiTwoPlayerRoomBase
 {
     constructor(room, initialSize = 19) {
@@ -155,46 +155,13 @@ class WeiqiRoom extends QiTwoPlayerRoomBase
         return squareWeiqiRules.computeScore(liveBoard, territory, this.boardSize);
     }
 
-    /**
-     * Benson 加成的盘面净活盘：先用现有启发式去死子，再恢复无条件活棋链
-     * （防止"弱气被围"启发式误杀被动活），迭代到稳定。
-     */
-    bensonLiveBoard() {
-        const size = this.boardSize;
-        const benson = squareWeiqiRules.bensonAlive(this.board, size);
-        let live = this.board.map((row) => row.slice());
-        let changed = true;
-        while (changed) {
-            changed = false;
-            const cleaned = this.removeDeadAndDying(live);
-            for (let r = 0; r < size; r++) {
-                for (let c = 0; c < size; c++) {
-                    if (benson.alive[r][c] && this.board[r][c] !== 0 && cleaned[r][c] !== this.board[r][c]) {
-                        cleaned[r][c] = this.board[r][c];
-                        changed = true;
-                    }
-                }
-            }
-            live = cleaned;
-        }
-        return live;
-    }
-
-    computeLead()
-    {
-        const size = this.boardSize;
-        const liveBoard = this.bensonLiveBoard();
-        const territory = this.assignTerritoryWithRange(liveBoard);
-        // Benson 确定领地优先于"距离扩张"归属
-        const secure = squareWeiqiRules.bensonAlive(liveBoard, size);
-        for (let r = 0; r < size; r++) {
-            for (let c = 0; c < size; c++) {
-                if (liveBoard[r][c] === 0 && secure.territory[r][c]) territory[r][c] = secure.territory[r][c];
-            }
-        }
-        const { blackTotal, whiteTotal } = this.computeScore(liveBoard, territory);
+    /** 形势判断 / 数点：用 Benson 档（公共口径；子类要改口径就覆写这个方法） */
+    computeLead() {
         const KOMI = this.boardSize <= 8 ? 4.25 : 3.25;
-        return blackTotal - whiteTotal - 2 * KOMI;
+        const { lead } = computeBensonWeiqiLead(this.board, KOMI, squareWeiqiScoringOps(this.boardSize, {
+            copyBoard: (b) => this.copyBoard(b)
+        }));
+        return lead;
     }
 
     onResignResolved(resignSlot) {
@@ -459,19 +426,13 @@ class WeiqiRoom extends QiTwoPlayerRoomBase
         this.winner = null;
         this.passCounter = 0;
         this.moveCoords = [];
-        for (let [client, slot] of this.room.players.entries())
-        {
-            this.room.slotOccupancy.delete(slot);
-            this.room.players.delete(client);
-            this.room.observers.add(client);
-            client.send(JSON.stringify({ type: 'slotReleased', slot }));
-        }
+        qiProtocol.releaseAllSeats(this);
         this.broadcast({ type: 'newGameStarted', ...this.getState(), slots: { player1: false, player2: false } });
     }
 
     setBoardSize(newSize, requesterWs)
     {
-        if (!Number.isInteger(newSize) || newSize < 7 || newSize > 99) {
+        if (!Number.isInteger(newSize) || newSize < 7 || newSize > 27) {
             requesterWs.send(JSON.stringify({ type: 'error', message: '棋盘大小无效' }));
             return false;
         }
@@ -558,7 +519,7 @@ class WeiqiRoom extends QiTwoPlayerRoomBase
             return;
         }
         const newSize = data.boardSize || 19;
-        if (!Number.isInteger(newSize) || newSize > 99) {
+        if (!Number.isInteger(newSize) || newSize > 27) {
             requesterWs.send(JSON.stringify({ type: 'error', message: '棋谱中棋盘大小无效' }));
             return;
         }

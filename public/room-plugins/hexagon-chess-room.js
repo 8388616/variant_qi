@@ -765,7 +765,7 @@ return {
         }
         // 黑方视角：棋盘旋转 180°（黑方坐在棋盘对面，看到的是倒置的棋盘）
         function isBlackView() {
-            return ps && ps.mySlot === 'player1';
+            return ps && ps.mySlot === 'player2';
         }
         function displayPos(r, c) {
             if (!isBlackView()) return { row: r, col: c };
@@ -1134,10 +1134,10 @@ return {
         }
 
         function sideOf(slot) {
-            return slot === 'player2' ? 'player1' : 'player2';
+            return R.sideFromSlot(slot);
         }
         function slotOfSide(side) {
-            return side === 'white' ? 'black' : 'white';
+            return R.slotFromSide(side);
         }
 
         function isMyTurnNow() {

@@ -11,6 +11,7 @@ window.RoomPlugins["reversi"] = {
         "recordDownloadPrefix": "黑白棋",
         "standardWeiqiMatchTime": true,
         "features": {
+            "woodTexture": true,
             "editBoard": true,
             "customTimeControl": true
         },
@@ -980,18 +981,13 @@ const boardSizeSelect = document.getElementById('boardSizeSelect');
                 drawBoard();
             });
 
-            document.getElementById('newGameBtn').onclick = () => {
-                if (ps.ws && ps.ws.readyState === 1) ps.ws.send(JSON.stringify({ type: 'requestNewGame' }));
-            };
-            document.getElementById('undoBtn').onclick = () => {
-                if (ps.ws && ps.ws.readyState === 1) ps.ws.send(JSON.stringify({ type: 'requestUndo' }));
-            };
-            document.getElementById('resignBtn').onclick = () => {
-                if (ps.ws && ps.ws.readyState === 1) ps.ws.send(JSON.stringify({ type: 'resign' }));
-            };
-            document.getElementById('drawBtn').onclick = () => {
-                if (ps.ws && ps.ws.readyState === 1) ps.ws.send(JSON.stringify({ type: 'requestDraw' }));
-            };
+            // 新局/悔棋/认输/和棋：走公共按钮绑定（带确认对话框，与房间页公共 bindings 同一套口径）
+            QiBoardRoomClient.bindPanelButtons({
+                getWs: () => ps.ws,
+                getMySlot: () => ps.mySlot,
+                getSlots: () => ps.slots,
+                getComputerSlot: () => ps.computerSlot
+            });
             document.getElementById('exportBtn').onclick = () => {
                 if (ps.ws && ps.ws.readyState === 1) ps.ws.send(JSON.stringify({ type: 'exportRecord' }));
             };

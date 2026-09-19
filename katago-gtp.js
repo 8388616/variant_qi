@@ -450,6 +450,93 @@ class KatagoGtpSession {
     }
 
     /**
+     * 校验权重真的进了引擎：kata-get-weights 回读归一化权重，核对数量、是否全相等、最高权重点位置。
+     * 老引擎没有该命令时静默跳过（无法校验，不代表失败）；校验不通过只告警、不打断对局。
+     * @param {number[]} rawWeights 刚下发的原始权重（row-major）
+     */
+    async verifyWeights(rawWeights) {
+        let resp;
+        try {
+            resp = await this.command('kata-get-weights');
+        } catch (_) {
+            return;   // 引擎不支持回读（旧版），跳过校验
+        }
+        const got = String(resp).trim().split(/\s+/).map(Number).filter((v) => Number.isFinite(v));
+        if (got.length !== rawWeights.length) {
+            console.warn(`[katago:${this.gameId}] 权重校验失败：回读 ${got.length} 个，期望 ${rawWeights.length} 个`);
+            return;
+        }
+        if (got.every((v) => v === got[0])) {
+            console.warn(`[katago:${this.gameId}] 权重校验失败：引擎回读的权重全相等（等于没设权重），本局将按均权下棋`);
+            return;
+        }
+        const argmax = (arr) => { let bi = 0; for (let i = 1; i < arr.length; i++) if (arr[i] > arr[bi]) bi = i; return bi; };
+        if (argmax(got) !== argmax(rawWeights)) {
+            console.warn(`[katago:${this.gameId}] 权重校验失败：引擎权重与下发不一致（最高权重点 ${argmax(got)} ≠ ${argmax(rawWeights)}）`);
+        }
+    }
+
+    /**
+     * 回读引擎当前局面（showboard）：棋子分布与行棋方，供上层与服务端盘面比对。
+     * 行序与站点 row 一致（引擎内部 y=0 即站点 row 0）；只认 X/O/.，遇到特殊格（洞/桥等）或
+     * 行数/行长不符则返回 null（不误报）。任何异常都返回 null：自检不能影响对局。
+     * @param {number} expectRows 期望行数（棋盘行数）
+     * @param {number} expectCols 期望列数
+     * @returns {Promise<{stones: number[][], nextPlayer: ('black'|'white'|null)}|null>}
+     */
+    async probeBoard(expectRows, expectCols) {
+        let resp;
+        try {
+            resp = await this.command('showboard');
+        } catch (_) {
+            return null;
+        }
+        const rows = [];
+        let nextPlayer = null;
+        for (const raw of String(resp).split('\n')) {
+            const line = raw.replace(/\r/g, '');
+            const mNext = line.match(/Next player:\s*(\w+)/i);
+            if (mNext) {
+                const v = mNext[1].toUpperCase();
+                nextPlayer = v.startsWith('B') ? 'black' : (v.startsWith('W') ? 'white' : null);
+                continue;
+            }
+            const mRow = line.match(/^\s*\d+\s((?:[XO.]\S?\s*)+)$/);
+            if (!mRow) continue;
+            const cells = mRow[1].trim().split(/\s+/).map((t) => t[0]);
+            rows.push(cells.map((c) => (c === 'X' ? 1 : (c === 'O' ? 2 : 0))));
+        }
+        if (!rows.length) return null;
+        if (Number.isFinite(expectRows) && rows.length !== expectRows) return null;
+        for (const r of rows) {
+            if (Number.isFinite(expectCols) && r.length !== expectCols) return null;
+        }
+        return { stones: rows, nextPlayer };
+    }
+
+    /**
+     * 回读引擎当前的每点权重（kata-get-weights，归一化值，y 升序 = 站点 row 序）。
+     * 只返回概要，供「对局中途权重是否还在」的自检用；旧引擎/异常返回 null（不误报）。
+     * 纯文本命令、不做推理，每手调用也很便宜。
+     * @returns {Promise<{count: number, allEqual: boolean, argmax: number, max: number}|null>}
+     */
+    async probeWeights() {
+        let resp;
+        try {
+            resp = await this.command('kata-get-weights');
+        } catch (_) {
+            return null;
+        }
+        const vals = String(resp).trim().split(/\s+/).map(Number).filter((v) => Number.isFinite(v));
+        if (!vals.length) return null;
+        let argmax = 0;
+        for (let i = 1; i < vals.length; i++) {
+            if (vals[i] > vals[argmax]) argmax = i;
+        }
+        return { count: vals.length, allEqual: vals.every((v) => v === vals[0]), argmax, max: vals[argmax] };
+    }
+
+    /**
      * 悔棋：对引擎执行 n 次 GTP undo（避免重设盘面）
      * @param {number} n
      */
@@ -502,10 +589,11 @@ class KatagoGtpSession {
         if (Number.isFinite(komi)) await this.command(`komi ${komi}`);
 
         // 权重围棋：kata-set-weights w0 w1 … w(N-1)——引擎要求盘上无子，故须在 clear_board
-        // 之后、set_position 之前发送。展开顺序与棋子天然一致：站点 row 0 是棋盘最低行，
-        // toGtpVertex 给出 GTP 行号 = 路数 − row，引擎再换算回内部 y = 路数 − 行号 = row，
-        // 即内部 Loc = row*x_size + col；故 weights[row][col] 自 row 0 起逐行拼接即可对上。
-        // 不支持该命令的引擎返回错误，忽略即可。
+        // 之后、set_position 之前发送。展开顺序与棋子天然一致（2026-09 对引擎源码核实）：
+        // toGtpVertex 给出 GTP 行号 = 路数 − row，引擎内部 y = 路数 − 行号 = row
+        // （`Location::tryOfString` / `toString`），`Board::setWeights` 读 rawWeights[y*x + x]，
+        // 故 weights[row][col] 自 row 0 起逐行拼接即与棋子同向对齐、不需翻转。
+        // 不支持该命令的引擎返回错误（告警，见下）。
         if (Array.isArray(opts.weights)) {
             const flat = [];
             for (let r = 0; r < boardHeight; r++) {
@@ -516,9 +604,18 @@ class KatagoGtpSession {
                 }
             }
             if (flat.length === boardWidth * boardHeight) {
+                let weightsOk = false;
                 try {
                     await this.command(`kata-set-weights ${flat.join(' ')}`);
-                } catch (_) { /* 非权重围棋引擎 / 未实现该命令 */ }
+                    weightsOk = true;
+                } catch (err) {
+                    // 权重没同步成功 = 引擎按均权（普通围棋）判断：权重局里会明显「棋力暴跌」，必须显式告警
+                    console.warn(`[katago:${this.gameId}] kata-set-weights 未生效，本局引擎将按均权下棋：${err && err.message ? err.message : err}`);
+                }
+                // 回读校验放在 try 之外：校验失败只告警，不会被误报成「下发失败」
+                if (weightsOk) await this.verifyWeights(flat);
+            } else {
+                console.warn(`[katago:${this.gameId}] 权重数量 ${flat.length} 与棋盘 ${boardWidth}×${boardHeight} 不符，未同步权重`);
             }
         }
 
@@ -652,7 +749,7 @@ class KatagoGtpSession {
  * 全服活跃+空闲 KataGo 进程上限。
  * 每个进程会加载整模并多线程搜索，过高极易把小机器内存/CPU 打满。
  */
-const GLOBAL_PROCESS_LIMIT = 5;
+const GLOBAL_PROCESS_LIMIT = 10;
 const KATAGO_BUSY_MESSAGE = '服务器繁忙，请稍后重试。';
 /** 每个棋类最多保留的空闲热进程数（避免重复加载模型） */
 const IDLE_POOL_MAX_PER_GAME = 1;

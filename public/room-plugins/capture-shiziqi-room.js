@@ -11,6 +11,7 @@ window.RoomPlugins["capture-shiziqi"] = {
         "recordDownloadPrefix": "提子十子棋",
         "standardWeiqiMatchTime": true,
         "features": {
+            "woodTexture": true,
             "editBoard": true
         },
         "editTools": [

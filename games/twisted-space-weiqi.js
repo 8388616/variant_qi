@@ -1,4 +1,4 @@
-const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, gridGraphWeiqiRules, qiBoardSeatOverlay, encodeOpeningPositionCompact } = require('../common');
+const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, gridGraphWeiqiRules, qiBoardSeatOverlay, encodeOpeningPositionCompact, computeNearestWeiqiLead, gridGraphWeiqiScoringOps } = require('../common');
 
 class TwistedSpaceWeiqiRoom extends QiTwoPlayerRoomBase {
     constructor(room, initialSize = 9) {
@@ -164,35 +164,14 @@ class TwistedSpaceWeiqiRoom extends QiTwoPlayerRoomBase {
         );
     }
 
-    removeDeadGroups(srcBoard) {
-        return gridGraphWeiqiRules.removeDeadAndDying(
-            srcBoard,
-            this.boardSize,
-            this.boardSize * 2 - 1,
-            (b) => this.copyBoard(b),
-            this._neighbors(),
-            (r, c) => this.isValidCoord(r, c)
-        );
-    }
-
+    /** 形势判断 / 数点：只用最近归属档（公共口径，图版几何）；不判死子、不叠 Benson */
     computeLead() {
-        const KOMI = 4.75;
-        const liveBoard = this.removeDeadGroups(this.board);
-        const territory = gridGraphWeiqiRules.assignTerritoryWithRange(
-            liveBoard,
-            this.boardSize,
-            this.boardSize * 2 - 1,
-            this._neighbors(),
-            (r, c) => this.isValidCoord(r, c)
-        );
-        const { blackTotal, whiteTotal } = gridGraphWeiqiRules.computeScore(
-            liveBoard,
-            territory,
-            this.boardSize,
-            this.boardSize * 2 - 1,
-            (r, c) => this.isValidCoord(r, c)
-        );
-        return blackTotal - whiteTotal - 2 * KOMI;
+        const { lead } = computeNearestWeiqiLead(this.board, 4.75, gridGraphWeiqiScoringOps(
+            this.boardSize, this.boardSize * 2 - 1, this._neighbors(), (r, c) => this.isValidCoord(r, c), {
+                copyBoard: (b) => this.copyBoard(b)
+            }
+        ));
+        return lead;
     }
 
     getState() {
@@ -494,12 +473,7 @@ class TwistedSpaceWeiqiRoom extends QiTwoPlayerRoomBase {
 
     resetGame() {
         this.resetToEmpty();
-        for (const [client, slot] of this.room.players.entries()) {
-            this.room.slotOccupancy.delete(slot);
-            this.room.players.delete(client);
-            this.room.observers.add(client);
-            client.send(JSON.stringify({ type: 'slotReleased', slot }));
-        }
+        qiProtocol.releaseAllSeats(this);
         this.broadcast({ type: 'newGameStarted', ...this.getState(), slots: { player1: false, player2: false } });
     }
 

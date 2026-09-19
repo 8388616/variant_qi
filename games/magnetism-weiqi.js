@@ -1,4 +1,4 @@
-const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, applyInitialPositionCompact, encodeInitialPositionCompact, qiBoardSeatOverlay, encodeOpeningPositionCompact } = require('../common');
+const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, applyInitialPositionCompact, encodeInitialPositionCompact, qiBoardSeatOverlay, encodeOpeningPositionCompact, computeBensonWeiqiLead, squareWeiqiScoringOps } = require('../common');
 /** 三种磁性围棋（弱/中/强）合并为一种棋类：磁性围棋 magnetism-weiqi。
  * 子棋类 id（subGameId）沿用旧棋类 id：weak/medium/strong-magnetism-weiqi。
  * 客户端「显示序号」按 moveCoords 与对应磁性规则重放，使序号随子移动。 */
@@ -300,36 +300,12 @@ class MagnetismWeiqiRoom extends QiTwoPlayerRoomBase
         return squareWeiqiRules.computeScore(liveBoard, territory, this.boardSize);
     }
 
+    /** 形势判断 / 数点：用 Benson 档（公共口径：弱气去死子 ↔ Benson 保活 → 最近归属 → 确定领地覆盖） */
     computeLead() {
-        // Benson 加成：保活无条件活棋链 + 确定领地覆盖（其余保持原启发式）
-        const size = this.boardSize;
-        const benson = squareWeiqiRules.bensonAlive(this.board, size);
-        let liveBoard = this.board.map((row) => row.slice());
-        let changed = true;
-        while (changed) {
-            changed = false;
-            const cleaned = this.removeDeadAndDying(liveBoard);
-            for (let r = 0; r < size; r++) {
-                for (let c = 0; c < size; c++) {
-                    const v = this.board[r][c];
-                    if (benson.alive[r][c] && (v === 1 || v === 2) && cleaned[r][c] !== v) {
-                        cleaned[r][c] = v;
-                        changed = true;
-                    }
-                }
-            }
-            liveBoard = cleaned;
-        }
-        const territory = this.assignTerritoryWithRange(liveBoard);
-        const secure = squareWeiqiRules.bensonAlive(liveBoard, size);
-        for (let r = 0; r < size; r++) {
-            for (let c = 0; c < size; c++) {
-                if (liveBoard[r][c] === 0 && secure.territory[r][c]) territory[r][c] = secure.territory[r][c];
-            }
-        }
-        const { blackTotal, whiteTotal } = this.computeScore(liveBoard, territory);
-        const KOMI = this._komi();
-        return blackTotal - whiteTotal - 2 * KOMI;
+        const { lead } = computeBensonWeiqiLead(this.board, this._komi(), squareWeiqiScoringOps(this.boardSize, {
+            copyBoard: (b) => this.copyBoard(b)
+        }));
+        return lead;
     }
 
     onResignResolved(resignSlot) {
@@ -424,7 +400,8 @@ class MagnetismWeiqiRoom extends QiTwoPlayerRoomBase
                 break;
 
             case 'setMagnetism':
-                this.setMagnetism(msg.magnetism, ws);
+                // 被拒绝（已开局/有人入座）时回推当前状态：客户端是「本地乐观切换」，不回推会与服务端脱钩
+                if (!this.setMagnetism(msg.magnetism, ws)) this.sendState(ws);
                 break;
 
             case 'move':
@@ -584,12 +561,7 @@ class MagnetismWeiqiRoom extends QiTwoPlayerRoomBase
         this.tcClock = null;
         this.matchStarted = false;
         this._stopClockTicker();
-        for (let [client, slot] of this.room.players.entries()) {
-            this.room.slotOccupancy.delete(slot);
-            this.room.players.delete(client);
-            this.room.observers.add(client);
-            client.send(JSON.stringify({ type: 'slotReleased', slot }));
-        }
+        qiProtocol.releaseAllSeats(this);
         this.room.broadcast({ type: 'timeControlReset', reason: 'resetRoom' });
         this.broadcast({ type: 'newGameStarted', ...this.getState(), slots: { player1: false, player2: false } });
     }

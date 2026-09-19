@@ -414,7 +414,7 @@ const R = (function () {
 
         // 黑方视角：棋盘旋转 180°（黑方坐在对面，看到的是倒置的棋盘）
         function isBlackView() {
-            return ps && ps.mySlot === 'player1';
+            return ps && ps.mySlot === 'player2';
         }
         const ROT_ID = (() => {
             const map = [];
@@ -521,7 +521,7 @@ const R = (function () {
             if (piece && typeof piece === 'object') piece = piece[0] + piece[1];
             return R.PIECE_CHAR[piece] || piece;
         }
-        function sideOf(slot) { return slot === 'player2' ? 'player1' : 'player2'; }
+        function sideOf(slot) { return R.sideFromSlot(slot); }
         function isMyTurnNow() {
             return ps.mySlot !== null && ps.matchStarted && !ps.gameOver
                 && sideOf(ps.mySlot) === ps.sideToMove && !ps.waitingScoreConfirm;

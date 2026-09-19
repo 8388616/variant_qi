@@ -9,8 +9,10 @@ window.RoomPlugins["russian-weiqi"] = {
         "defaultBoardSize": 19,
         "minLib": 1,
         "recordDownloadPrefix": "俄罗斯围棋",
+        "useBenson": false,
         "standardWeiqiMatchTime": true,
         "features": {
+            "woodTexture": true,
             "editBoard": true,
             "russianCompound": true
         },
@@ -644,18 +646,23 @@ const scoreTitle = document.getElementById('scoreTitle');
 
         let _page = null;
 
+        // 形势判断/数点只用最近归属档（公共钩子；档位见 shell.useBenson）
+        const scoringHooks = QiWeiqiSquarePageRuntime.weiqiScoringHooks(config.useBenson === false, {
+            boardSize: () => ps.BOARD_SIZE,
+            maxWeakLiberties: 2
+        });
+
         const page = QiWeiqiSquarePageRuntime.create(ps, domPage, {
             enableEditBoard: true,
             recordDownloadPrefix,
             minLib,
             maxWeakLiberties: 2,
+            ...scoringHooks,
             gameType,
             roomId,
             roomPassword,
             isMouseDevice,
             drawBoard: drawCompoundBoard,
-            removeDeadAndDying: (src) => R().removeDeadAndDying(src, ps.BOARD_SIZE, deepCopyBoard, 2),
-            assignTerritoryWithRange: (lb) => R().assignTerritoryWithRange(lb, ps.BOARD_SIZE),
             rebuildLiveReplayFromMoveCoords: rebuildCompoundLive,
             enterReplayMode(data) {
                 const built = buildCompoundReplayFromData(data);

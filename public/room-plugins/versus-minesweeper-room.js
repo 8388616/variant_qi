@@ -652,7 +652,7 @@ const ps = {
         });
         newGameBtn.onclick = () => {
             if (!ps.ws || !ps.mySlot) { qiAlert('只有对局者可以开始新局'); return; }
-            ps.ws.send(JSON.stringify({ type: 'requestNewGame' }));
+            qiConfirm('确定开始新局吗？').then((ok) => { if (ok) ps.ws.send(JSON.stringify({ type: 'requestNewGame' })); });
         };
         buryFinishBtn.onclick = () => {
             if (!ps.ws || !ps.mySlot || ps.phase !== 'burying') return;
@@ -660,9 +660,8 @@ const ps = {
             ps.ws.send(JSON.stringify({ type: 'buryFinish' }));
         };
         resignBtn.onclick = () => {
-            if (!ps.ws || !ps.mySlot) return;
-            if (!confirm('确认认输？')) return;
-            ps.ws.send(JSON.stringify({ type: 'resign' }));
+            if (!ps.ws || !ps.mySlot) { qiAlert('只有对局者可以认输'); return; }
+            qiConfirm('确定认输吗？').then((ok) => { if (ok) ps.ws.send(JSON.stringify({ type: 'resign' })); });
         };
         document.getElementById('helpBtn').onclick = () => {
             document.getElementById('rulesModal').style.display = 'flex';

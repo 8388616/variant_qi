@@ -448,13 +448,7 @@ class NoWeiqiRoom extends QiTwoPlayerRoomBase
         this.gameOver = false;
         this.winner = null;
         this.recordResultText = null;
-        for (let[client, slot] of this.room.players.entries())
-        {
-            this.room.slotOccupancy.delete(slot);
-            this.room.players.delete(client);
-            this.room.observers.add(client);
-            client.send(JSON.stringify({ type: 'slotReleased', slot }));
-        }
+        qiProtocol.releaseAllSeats(this);
         this.broadcast({ type: 'newGameStarted', ...this.getState(), slots: { player1: false, player2: false } });
     }
 

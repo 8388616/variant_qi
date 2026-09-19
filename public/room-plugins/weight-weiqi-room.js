@@ -11,6 +11,7 @@ window.RoomPlugins["weight-weiqi"] = {
         "recordDownloadPrefix": "权重围棋",
         "standardWeiqiMatchTime": true,
         "features": {
+            "woodTexture": true,
             "editBoard": true
         },
         "editTools": [
@@ -61,6 +62,7 @@ const C = QiSquareWeiqiCanvas;
             replayStep: 0,
             replayTotalSteps: 0,
             showMoveNumbers: false,
+            showWeights: true,
             moveLog: [],
             tryPlayMode: false,
             tryPlayBaseStep: 0,
@@ -357,7 +359,7 @@ const scoreTitle = document.getElementById('scoreTitle');
 
             // 权重数字:排列型(权重/焦点,1..N²)逐格显示;
             // 池子子类(二/三权重):格子只有颜色填充,不画数字
-            if (!ps.showMoveNumbers && WEIGHT_ARRANGEMENTS.includes(currentSubGame)) {
+            if (ps.showWeights !== false && !ps.showMoveNumbers && WEIGHT_ARRANGEMENTS.includes(currentSubGame)) {
                 for (let r = 0; r < boardSize; r++) {
                     for (let c = 0; c < boardSize; c++) {
                         const val = board[r][c];
@@ -497,6 +499,35 @@ const scoreTitle = document.getElementById('scoreTitle');
             'biweight-weiqi': 5.25, 'triweight-weiqi': 6.25
         };
         let currentSubGame = 'weight-weiqi';
+
+        /* 「显示权重」勾选框：只在权重/焦点两个子棋类下出现（默认开启）。
+           与「显示序号」同时勾选时序号优先（绘制处已按 序号 > 权重 处理）。 */
+        const showWeightsLabel = document.createElement('label');
+        showWeightsLabel.className = 'show-numbers-label';
+        showWeightsLabel.id = 'showWeightsLabel';
+        showWeightsLabel.hidden = true;
+        const showWeightsCheck = document.createElement('input');
+        showWeightsCheck.type = 'checkbox';
+        showWeightsCheck.id = 'showWeightsCheck';
+        showWeightsCheck.checked = true;
+        showWeightsLabel.appendChild(showWeightsCheck);
+        showWeightsLabel.appendChild(document.createTextNode(' 显示权重'));
+        function syncShowWeightsCheckbox() {
+            const shown = WEIGHT_ARRANGEMENTS.includes(currentSubGame);
+            showWeightsLabel.hidden = !shown;
+            showWeightsCheck.checked = ps.showWeights !== false;
+        }
+        (function mountShowWeightsCheckbox() {
+            const numbersLabel = document.querySelector('.show-numbers-label');
+            if (!numbersLabel || !numbersLabel.parentNode) return;
+            numbersLabel.parentNode.insertBefore(showWeightsLabel, numbersLabel.nextSibling);
+            showWeightsCheck.addEventListener('change', () => {
+                ps.showWeights = showWeightsCheck.checked;
+                drawBoard();
+            });
+            syncShowWeightsCheckbox();
+        })();
+
         // 计分总点数(weight-weiqi 排列的闭式,Σ1..N²)
         function weightScoreTotalPoints(n) {
             return n * n * (n * n + 1) / 2;
@@ -597,7 +628,10 @@ const scoreTitle = document.getElementById('scoreTitle');
             const sel = document.getElementById('subGameSelect');
             if (!sel) return;
             sel.value = currentSubGame;
-            sel.disabled = (ps.numberOfHands || 1) > 1 || !!ps.matchStarted || !!ps.gameOver;
+            // 有人入座（含电脑）时服务端会拒绝 setSubGame：此时必须禁用，否则本地「乐观换权重」会把
+            // 显示权重/贴目换成本地随机的一套，而电脑仍按服务端权重下棋（看起来像棋力暴跌）
+            const seated = !!(ps.slots && (ps.slots.player1 || ps.slots.player2));
+            sel.disabled = (ps.numberOfHands || 1) > 1 || !!ps.matchStarted || !!ps.gameOver || seated;
         }
         ps.KOMI = weightKomiForSize(ps.BOARD_SIZE);
 
@@ -657,6 +691,7 @@ const page = QiWeiqiSquarePageRuntime.create(ps, domPage, {
         function applyWeightSyncExtras(state) {
             const n = ps.BOARD_SIZE;
             if (state && WEIGHT_SUB_GAMES.includes(state.subGameId)) currentSubGame = state.subGameId;
+            syncShowWeightsCheckbox();
             ps.weights = normalizeWeightMatrix(state.weights || ps.weights, n);
             if (state && typeof state.komi === 'number' && Number.isFinite(state.komi)) ps.KOMI = state.komi;
             else ps.KOMI = weightKomiForSize(n);
@@ -830,6 +865,7 @@ syncState,
             _weiqiBindings.handleMessage(msg);
             if (msg && msg.type === 'subGameChanged') {
                 if (WEIGHT_SUB_GAMES.includes(msg.subGameId)) currentSubGame = msg.subGameId;
+                syncShowWeightsCheckbox();
                 const n = ps.BOARD_SIZE;
                 ps.weights = normalizeWeightMatrix(msg.weights || ps.weights, n);
                 if (typeof msg.komi === 'number' && Number.isFinite(msg.komi)) ps.KOMI = msg.komi;
@@ -1013,6 +1049,7 @@ syncState,
                 if (!v || v === currentSubGame) return;
                 // 乐观切换:本地立即生成权重/贴目并重绘;服务器 subGameChanged 回来校正
                 currentSubGame = v;
+                syncShowWeightsCheckbox();
                 ps.weights = genWeightsLocal(ps.BOARD_SIZE);
                 ps.KOMI = weightKomiForSize(ps.BOARD_SIZE);
                 refreshKomiInfoLocal();

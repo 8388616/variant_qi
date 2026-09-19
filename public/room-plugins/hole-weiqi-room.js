@@ -11,6 +11,7 @@ window.RoomPlugins['hole-weiqi'] = {
         "recordDownloadPrefix": "洞围棋",
         "standardWeiqiMatchTime": true,
         "features": {
+            "woodTexture": true,
             "editBoard": true,
             "compoundPalette": false,
             "zoomScroll": false,
