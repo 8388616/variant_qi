@@ -155,15 +155,6 @@ class NoPincerRoom extends QiTwoPlayerRoomBase
         else if (lostSlot === 'player2') this.recordResultText = '白方超时，黑胜';
     }
 
-    static parseResultTextToWinner(resultText) {
-        if (!resultText || typeof resultText !== 'string') return null;
-        if (resultText === '和棋' || resultText === 'draw') return 'draw';
-        if (resultText.includes('白胜')) return 'player2';
-        if (resultText.includes('黑胜')) return 'player1';
-        if (resultText === 'player1' || resultText === 'player2' || resultText === 'draw') return resultText;
-        return null;
-    }
-
     /**
      * 这条线（方向 dr,dc）上，是否存在包含 (row,col) 的「夹形」：
      * 相邻的若干颗棋子里，两端同色、中间每一颗都是另一种颜色，且至少三颗。
@@ -430,8 +421,14 @@ class NoPincerRoom extends QiTwoPlayerRoomBase
 
         for (let i = 0; i < steps; i++)
         {
-            if (this.historyBoards.length > 0)
-                this.historyBoardSet.delete(this.boardToString(this.historyBoards.pop()));
+            if (this.historyBoards.length > 0) {
+                // 只有进过集合的手才该删（虚着/踩雷等手同样推了历史快照、盘面与上一手相同，
+                // 拿它的快照去 delete 会误删上一次落子的记录 → 禁全同随后失效）
+                const skPopped = this.historyBoards.pop();
+                const skCoord = this.moveCoords.length > 0 ? this.moveCoords[this.moveCoords.length - 1] : null;
+                if (skCoord && ['move'].includes(skCoord.type))
+                    this.historyBoardSet.delete(this.boardToString(skPopped));
+            }
             if (this.historyMarkers.length > 0)
                 this.lastMoveMarkers = this.historyMarkers.pop() || [];
             else
@@ -639,24 +636,10 @@ class NoPincerRoom extends QiTwoPlayerRoomBase
         // 导入不做任何判定：结果只按棋谱记录显示（局面与记录不一致时也以记录为准）。
         // 记录里的胜负先认出执方颜色（公共层把棋谱里的「黑胜」折成 result='player1'、
         // 「白胜」折成 result='player2'，所以不能直接当座位名用），再落到本棋种的座位。
-        const recResult = data.result != null && data.result !== '' ? data.result
-            : (data.resultText != null && data.resultText !== '' ? data.resultText : null);
-        if (recResult != null) {
+        if (data.result === 'player1' || data.result === 'player2' || data.result === 'draw') {
             this.gameOver = true;
-            this.recordResultText = data.resultText ? String(data.resultText) : String(recResult);
-            const rt = String(this.recordResultText);
-            const SLOT_OF_COLOR = { 黑: 'player1', 白: 'player2' };   // player1 执黑、player2 执白
-            const win = /(黑|白|红|绿|蓝)\s*(?:方)?[^，。]{0,6}胜/.exec(rt);
-            let color = win ? win[1] : null;
-            if (!color) {
-                const lose = /(黑|白|红|绿|蓝)\s*(?:方)?[^，。]{0,6}判负/.exec(rt);
-                if (lose) color = Object.keys(SLOT_OF_COLOR).find((k) => k !== lose[1]) || null;
-                else if (recResult === 'black' || recResult === 'player1') color = '黑';
-                else if (recResult === 'white' || recResult === 'player2') color = '白';
-            }
-            if (recResult === 'draw' || rt.includes('和')) this.winner = 'draw';
-            else if (color && SLOT_OF_COLOR[color]) this.winner = SLOT_OF_COLOR[color];
-            else this.winner = recResult;
+            this.winner = data.result;
+            this.recordResultText = data.resultText ? String(data.resultText) : '';
         }
 
         this.broadcast({

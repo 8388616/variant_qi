@@ -65,6 +65,27 @@ function willDriftThisPly(completedPlyCount, driftInterval, driftCount) {
     return true;
 }
 
+/**
+ * 漂移围棋的禁全同 key：局面 + 每颗子的「年龄」（handNumAt，落子/漂来的手数）+ 漂移相位
+ * （已漂移次数、离下一次漂移还差几手）。
+ * 这棋种的后续演化由年龄图和漂移节奏决定（漂移按象限搬运棋子、年龄跟着走），
+ * 所以「同盘面、年龄或漂移相位不同」不是同一局面；只比盘面会把它误判成重复 → 错杀。
+ */
+function driftSuperKoKey(room, board, handNumAt, driftCount, plyCount) {
+    const ages = [];
+    for (let r = 0; r < room.boardSize; r++) {
+        const boardRow = board[r] || [];
+        const handRow = (handNumAt && handNumAt[r]) || [];
+        const cells = [];
+        for (let c = 0; c < room.boardSize; c++) {
+            cells.push(boardRow[c] === 0 ? '-' : String(handRow[c] | 0));
+        }
+        ages.push(cells.join(','));
+    }
+    const residue = room.driftInterval > 0 ? (plyCount % room.driftInterval) : 0;
+    return room.boardToString(board) + '|' + ages.join('/') + '|' + (driftCount | 0) + '|' + residue;
+}
+
 function collectSeedsOnFirstLine(board, n, color) {
     const seeds = [];
     for (let r = 0; r < n; r++) {
@@ -442,7 +463,7 @@ class DriftWeiqiRoom extends QiTwoPlayerRoomBase {
             finalMarkers = rot.lastMoveMarkers;
         }
 
-        const newBoardStr = this.boardToString(finalBoard);
+        const newBoardStr = driftSuperKoKey(this, finalBoard, finalHand, finalDriftCount, completedPlyCount);
         if (this.historyBoardSet.has(newBoardStr)) {
             ws.send(JSON.stringify({ type: 'error', message: '禁全同。' }));
             return;
@@ -708,15 +729,25 @@ class DriftWeiqiRoom extends QiTwoPlayerRoomBase {
         }
     }
 
+    /** 编辑棋盘后种「这一手局面」用的 key（同一套定义，别退回纯盘面串） */
+    superKoSeedKey() {
+        return driftSuperKoKey(this, this.board, this.handNumAt, this.driftCount, this.moveCoords.length);
+    }
+
     performUndo(steps, requesterWs) {
         if (steps === 0 || steps > this.historyBoards.length) return;
 
         for (let i = 0; i < steps; i++) {
+            const poppedCoord = this.moveCoords.length > 0 ? this.moveCoords[this.moveCoords.length - 1] : null;
             if (this.historyBoards.length > 0) {
-                this.historyBoardSet.delete(this.boardToString(this.historyBoards.pop()));
+                const poppedBoard = this.historyBoards.pop();
+                const poppedHand = this.historyHandNumAts.length > 0 ? this.historyHandNumAts.pop() : null;
+                const poppedDrift = this.historyDriftCounts.length > 0 ? this.historyDriftCounts.pop() : 0;
+                // 只有落子（type 'move'）进过集合：虚着只推了快照没记 key，拿它去 delete 会误删上一次落子的记录。
+                // 快照对应「第 moveCoords.length 手之后」的局面（此时 moveCoords 还没 pop）→ 当时手数就是它。
+                if (poppedCoord && poppedCoord.type === 'move' && poppedHand)
+                    this.historyBoardSet.delete(driftSuperKoKey(this, poppedBoard, poppedHand, poppedDrift, this.moveCoords.length));
             }
-            if (this.historyHandNumAts.length > 0) this.historyHandNumAts.pop();
-            if (this.historyDriftCounts.length > 0) this.historyDriftCounts.pop();
             if (this.historyMarkers.length > 0) {
                 this.lastMoveMarkers = this.historyMarkers.pop() || [];
             } else {
@@ -954,7 +985,7 @@ class DriftWeiqiRoom extends QiTwoPlayerRoomBase {
                     finalMarkers = rot.lastMoveMarkers;
                 }
 
-                const newBoardStr = this.boardToString(finalBoard);
+                const newBoardStr = driftSuperKoKey(this, finalBoard, finalHand, finalDriftCount, completedPlyCount);
                 this.historyBoards.push(this.copyBoard(finalBoard));
                 this.historyBoardSet.add(newBoardStr);
                 this.historyHandNumAts.push(this.copyBoard(finalHand));
@@ -1040,12 +1071,11 @@ class DriftWeiqiRoom extends QiTwoPlayerRoomBase {
         }
 
         if (data.result || data.resultText) {
+            // 导入不做任何判定：结果只按棋谱记录显示（公共层已按本棋种执方名把文案折成座位）
             this.gameOver = true;
-            const importedResultText = data.resultText != null ? String(data.resultText) : String(data.result);
-            this.recordResultText = importedResultText;
-            if (importedResultText === '和棋' || importedResultText === 'draw') this.winner = 'draw';
-            else if (importedResultText.includes('白胜') || importedResultText === 'player2') this.winner = 'player2';
-            else if (importedResultText.includes('黑胜') || importedResultText === 'player1') this.winner = 'player1';
+            this.recordResultText = data.resultText ? String(data.resultText) : '';
+            if (data.result === 'player1' || data.result === 'player2' || data.result === 'draw')
+                this.winner = data.result;
         }
         if (!this.matchStarted && this.moveCoords.length > 0) {
             this.matchStarted = true;

@@ -429,7 +429,14 @@ class TwistedSpaceWeiqiRoom extends QiTwoPlayerRoomBase {
     performUndo(steps) {
         if (steps === 0 || steps > this.historyBoards.length) return;
         for (let i = 0; i < steps; i++) {
-            if (this.historyBoards.length > 0) this.historyBoardSet.delete(this.boardToString(this.historyBoards.pop()));
+            if (this.historyBoards.length > 0) {
+                // 只有进过集合的手才该删（虚着/踩雷等手同样推了历史快照、盘面与上一手相同，
+                // 拿它的快照去 delete 会误删上一次落子的记录 → 禁全同随后失效）
+                const skPopped = this.historyBoards.pop();
+                const skCoord = this.moveCoords.length > 0 ? this.moveCoords[this.moveCoords.length - 1] : null;
+                if (skCoord && ['move'].includes(skCoord.type))
+                this.historyBoardSet.delete(this.boardToString(skPopped));
+            }
             if (this.historyMarkers.length > 0) this.lastMoveMarkers = this.historyMarkers.pop() || [];
             else this.lastMoveMarkers = [];
             if (this.moveHistory.length > 0) this.moveHistory.pop();

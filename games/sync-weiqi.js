@@ -667,9 +667,12 @@ class SyncWeiqiRoom extends QiTwoPlayerRoomBase {
             }
         }
 
+        // 导入不做任何判定：结果只按棋谱记录显示（公共层已按本棋种执方名把文案折成座位）
         if (data.result) {
             this.gameOver = true;
-            this.winner = data.result;
+            this.recordResultText = data.resultText ? String(data.resultText) : '';
+            if (data.result === 'player1' || data.result === 'player2' || data.result === 'draw')
+                this.winner = data.result;
         }
 
         if (data.timeControl && typeof data.timeControl === 'object') {

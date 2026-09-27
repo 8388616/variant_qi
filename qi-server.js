@@ -530,6 +530,9 @@ Express.get("/qi/room.css", (request, response) =>
     sendCachedPublic(response, path.join(PUBLIC_ROOT, "room.css")));
 Express.get("/qi/room.js", (request, response) =>
     sendCachedPublic(response, path.join(PUBLIC_ROOT, "room.js")));
+
+Express.get("/qi/sgf.js", (request, response) =>
+    sendCachedPublic(response, path.join(PUBLIC_ROOT, "sgf.js")));
 Express.get("/qi/chat-messages.csv", (request, response) => {
     chatMessages = loadChatMessages();
     response.type('text/csv; charset=utf-8');

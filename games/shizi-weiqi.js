@@ -128,11 +128,10 @@ class ShiziWeiqiRoom extends WeiqiRoom {
         }
 
         if (!wonByTen && (data.result || data.resultText)) {
+            // 导入不做任何判定：结果只按棋谱记录显示（公共层已按本棋种执方名把文案折成座位）
             this.gameOver = true;
-            const importedResultText = data.resultText != null ? String(data.resultText) : String(data.result);
-            this.recordResultText = importedResultText;
-            this.winner = WeiqiRoom.parseResultTextToWinner(importedResultText);
-            if (!this.winner && (data.result === 'player1' || data.result === 'player2' || data.result === 'draw'))
+            this.recordResultText = data.resultText ? String(data.resultText) : '';
+            if (data.result === 'player1' || data.result === 'player2' || data.result === 'draw')
                 this.winner = data.result;
         }
 

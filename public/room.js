@@ -31,7 +31,9 @@
             title: o.title || (type === 'confirm' ? DEFAULTS.confirmTitle : DEFAULTS.alertTitle),
             message: message == null ? '' : String(message),
             okText: o.okText || o.confirmText || (useYesNo ? DEFAULTS.yesText : DEFAULTS.okText),
-            cancelText: o.cancelText || o.noText || (useYesNo ? DEFAULTS.noText : DEFAULTS.cancelText)
+            cancelText: o.cancelText || o.noText || (useYesNo ? DEFAULTS.noText : DEFAULTS.cancelText),
+            // 可选的第三个按钮（「导出棋谱」里的 JSON/SGF 二选一）：给了 extraText 才显示，点击 resolve('extra')
+            extraText: o.extraText ? String(o.extraText) : null
         };
     }
 
@@ -51,6 +53,7 @@
             '<div class="qi-room-msg-text" id="qiRoomMsgText"></div>' +
             '<div class="qi-room-msg-footer">' +
             '<button type="button" class="qi-room-msg-btn" id="qiRoomMsgOk"></button>' +
+            '<button type="button" class="qi-room-msg-btn" id="qiRoomMsgExtra"></button>' +
             '<button type="button" class="qi-room-msg-btn" id="qiRoomMsgCancel"></button>' +
             '</div></div>';
         document.body.appendChild(wrap);
@@ -59,6 +62,7 @@
             title: wrap.querySelector('#qiRoomMsgTitle'),
             text: wrap.querySelector('#qiRoomMsgText'),
             ok: wrap.querySelector('#qiRoomMsgOk'),
+            extra: wrap.querySelector('#qiRoomMsgExtra'),
             cancel: wrap.querySelector('#qiRoomMsgCancel')
         };
         return ui;
@@ -71,7 +75,7 @@
         box.wrap.style.display = 'none';
         box.wrap.setAttribute('aria-hidden', 'true');
         active = false;
-        if (item) item.resolve(!!result);
+        if (item) item.resolve(result === 'extra' ? 'extra' : !!result);
         setTimeout(showNext, 0);
     }
 
@@ -85,10 +89,15 @@
         box.ok.textContent = item.okText;
         box.cancel.textContent = item.cancelText;
         box.cancel.style.display = item.type === 'confirm' ? '' : 'none';
+        if (box.extra) {
+            box.extra.textContent = item.extraText || '';
+            box.extra.style.display = item.extraText ? '' : 'none';
+        }
         box.wrap.classList.add('is-open');
         box.wrap.style.display = 'flex';
         box.wrap.setAttribute('aria-hidden', 'false');
         box.ok.onclick = () => closeCurrent(true);
+        if (box.extra) box.extra.onclick = () => closeCurrent('extra');
         box.cancel.onclick = () => closeCurrent(false);
         box.wrap.onclick = (e) => {
             if (e.target === box.wrap && item.type === 'confirm') closeCurrent(false);
@@ -1233,6 +1242,100 @@
         if (S.katagoAvailable === undefined) S.katagoAvailable = false;
         if (S.computerSlot === undefined) S.computerSlot = null;
 
+        /** 座位 → 执方名（服务端下发的 sideLabels 优先，其次插件 slotUi，兜底黑/白） */
+        function qiSideNameOfSlot(slot) {
+            if (!slot) return '';
+            if (S.sideLabels && S.sideLabels[slot]) return String(S.sideLabels[slot]);
+            const ui = ctx.slotUi && ctx.slotUi[slot];
+            if (ui && ui.name) return String(ui.name);
+            return slot === 'player1' ? '黑方' : '白方';
+        }
+        /** 胜方座位 → 「黑胜/白胜/红胜…」：按实际执方名（player1 未必执黑），不写死黑白 */
+        function qiWinTextOfSlot(slot) {
+            if (slot === 'draw') return '和棋';
+            const name = qiSideNameOfSlot(slot);
+            return name ? name.replace(/方$/, '') + '胜' : '';
+        }
+
+        /* ---------- 棋谱导出 / 导入（含 SGF） ---------- */
+
+        /** 房间棋种 id（插件把它当 gameType 传进来；短链页再兜底 window.__qiRoomRoute） */
+        function qiRoomGameId() {
+            const route = (typeof window !== 'undefined' && window.__qiRoomRoute) || null;
+            return String(ctx.gameType || (route && route.gameType) || '');
+        }
+
+        /** 棋谱文件名前缀：插件 ctx → 棋种 shell 配置 → 「棋谱」（与各插件 downloadRecord 的口径一致） */
+        function qiRecordPrefix() {
+            if (ctx.recordDownloadPrefix) return String(ctx.recordDownloadPrefix);
+            const plugins = (typeof window !== 'undefined' && window.RoomPlugins) || null;
+            const plugin = plugins && plugins[qiRoomGameId()];
+            const shell = plugin && plugin.shell;
+            if (shell && shell.recordDownloadPrefix) return String(shell.recordDownloadPrefix);
+            return '棋谱';
+        }
+
+        function qiRecordFileStamp() {
+            const now = new Date();
+            const pad = (n) => String(n).padStart(2, '0');
+            return `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+        }
+
+        function qiDownloadTextFile(text, filename, mime) {
+            const blob = new Blob([text], { type: mime || 'text/plain;charset=utf-8' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+
+        let qiSgfMissingWarned = false;
+
+        /** 导出棋谱：能导 SGF 时问一句格式（JSON 走插件自己的 downloadRecord，SGF 走公共转换） */
+        function qiExportRecordWithFormatChoice(data) {
+            const Sgf = (typeof window !== 'undefined' && window.QiSgf) || null;
+            const gameId = qiRoomGameId();
+            const check = Sgf && data ? Sgf.canExportSgf(data, gameId) : { ok: false };
+            if (!check.ok) {
+                // 脚本没加载（/qi/sgf.js 404）时只有 JSON 一条路，别静默——留一条控制台线索
+                if (!Sgf && !qiSgfMissingWarned && typeof console !== 'undefined' && console.warn) {
+                    qiSgfMissingWarned = true;
+                    console.warn('[sgf] 未加载 /qi/sgf.js：本次只导出 JSON 棋谱（服务端需已更新，且页面要加载到该脚本）。');
+                }
+                ctx.downloadRecord(data);
+                return;
+            }
+            const prefix = qiRecordPrefix();
+            qiConfirm('SGF格式可能会损失信息。',
+                { title: '导出棋谱', okText: 'JSON 棋谱', extraText: 'SGF 棋谱', cancelText: '取消' })
+                .then((choice) => {
+                    if (choice === 'extra') {
+                        try {
+                            const text = Sgf.recordToSgf(data, { gameId });
+                            qiDownloadTextFile(text, `${prefix}_${qiRecordFileStamp()}.sgf`, 'application/x-go-sgf;charset=utf-8');
+                        } catch (err) {
+                            qiAlert('SGF 导出失败：' + ((err && err.message) ? err.message : err));
+                        }
+                        return;
+                    }
+                    if (choice === true) ctx.downloadRecord(data);
+                });
+        }
+
+        /** SGF 导入：转成站内棋谱再走原来的 importRecord（服务端不用改） */
+        function qiImportSgfText(text) {
+            const Sgf = (typeof window !== 'undefined' && window.QiSgf) || null;
+            if (!Sgf) { qiAlert('SGF 解析脚本没加载（/qi/sgf.js）'); return; }
+            const res = Sgf.sgfToRecord(text, { gameId: qiRoomGameId() });
+            if (!res.ok) { qiAlert(res.error || 'SGF 解析失败'); return; }
+            if (!S.ws || S.ws.readyState !== WebSocket.OPEN) { qiAlert('连接已断开，稍后再试。'); return; }
+            S.ws.send(JSON.stringify({ type: 'importRecord', data: res.record }));
+        }
+
         const vsComputerBtn = document.getElementById('vsComputerBtn');
         function updateVsComputerBtn() {
             if (!vsComputerBtn) return;
@@ -2033,29 +2136,22 @@
                         const wasOver = ctx.getGameOver();
                         syncStateWithMatch(msg);
                         if (msg.gameOver && !wasOver) {
-                            const slotName = (slot) =>
-                                (ctx.slotUi && ctx.slotUi[slot] && ctx.slotUi[slot].name)
-                                || (slot === 'player1' ? '黑方' : '白方');
-                            // 胜方文案按站点惯例去掉「方」：黑胜/白胜/红胜…（slotUi 以 player1/player2 为键）
-                            const winLabel = (slot) => `${slotName(slot).replace(/方$/, '')}胜`;
+                            // 胜方文案按站点惯例去掉「方」：黑胜/白胜/红胜…（按实际执方名，见 qiWinTextOfSlot）
                             if (msg.action === 'timeLoss') {
                                 // 少数棋种的 timeLoss 广播没带 player：败方 = 胜方的另一座
                                 const loserSlot = msg.player
                                     || (msg.winner === 'player1' ? 'player2' : (msg.winner === 'player2' ? 'player1' : null));
-                                const loser = loserSlot ? slotName(loserSlot) : '';
-                                const winText = msg.winner === 'draw' ? '和棋' : winLabel(msg.winner);
+                                const loser = loserSlot ? qiSideNameOfSlot(loserSlot) : '';
+                                const winText = qiWinTextOfSlot(msg.winner);
                                 qiAlert(`${loser}超时，${winText}。`);
                             }
                             else if (msg.recordResultText) qiAlert(msg.recordResultText);
-                            else if (msg.winner === 'player1') qiAlert(`${winLabel('player1')}。`);
-                            else if (msg.winner === 'player2') qiAlert(`${winLabel('player2')}。`);
+                            else if (msg.winner === 'player1') qiAlert(`${qiWinTextOfSlot('player1')}。`);
+                            else if (msg.winner === 'player2') qiAlert(`${qiWinTextOfSlot('player2')}。`);
                             else if (msg.winner === 'draw') qiAlert('和棋');
                         } else if (msg.action === 'drawAgreed' && !wasOver) qiAlert('和棋');
                         else if (msg.action === 'resign' && !wasOver) {
-                            const slotName = (slot) =>
-                                (ctx.slotUi && ctx.slotUi[slot] && ctx.slotUi[slot].name)
-                                || (slot === 'player1' ? '黑方' : '白方');
-                            qiAlert(`${slotName(msg.player)}认输`);
+                            qiAlert(`${qiSideNameOfSlot(msg.player)}认输`);
                         }
                     }
                     break;
@@ -2146,7 +2242,7 @@
                     qiConfirm('对方申请数点，是否同意？').then(ok => { ws.send(JSON.stringify({ type: 'endResponse', accept: !!ok })); });
                     break;
                 case 'gameRecord':
-                    ctx.downloadRecord(msg.data);
+                    qiExportRecordWithFormatChoice(msg.data);
                     break;
                 case 'importSuccess': {
                     const importPrevBoardSize = ctx.getBoardSize();
@@ -2293,6 +2389,8 @@
             const importBtn = document.getElementById('importBtn');
             const exportBtn = document.getElementById('exportBtn');
             if (!importBtn || !exportBtn) return;
+            // 「导出棋谱」任何时候都显示（还没开局就导空棋谱），所以它能和「导入棋谱」同时出现
+            exportBtn.style.display = '';
             const board = ctx.getBoard();
             // 围棋等用 0 表示空；象棋等用 '' 表示空；异形一维棋盘直接扫元素
             const hasAnyStone = Array.isArray(board) && (
@@ -2306,21 +2404,13 @@
             const freshCatalog = isQiLobbyFreshCatalogRoom();
             if (ctx.getReplayMode()) {
                 importBtn.style.display = 'none';
-                exportBtn.style.display = '';
                 return;
             }
-            if (!matchStarted && noPlayers && !hasAnyStone) {
+            if (noPlayers && !hasAnyStone && (!matchStarted || freshCatalog)) {
                 importBtn.style.display = '';
-                exportBtn.style.display = 'none';
-                return;
-            }
-            if (freshCatalog && noPlayers && !hasAnyStone) {
-                importBtn.style.display = '';
-                exportBtn.style.display = 'none';
                 return;
             }
             importBtn.style.display = 'none';
-            exportBtn.style.display = '';
         }
 
         function updateRadioStyles() {
@@ -2482,7 +2572,7 @@
         }
 
         const exportBtn = document.getElementById('exportBtn');
-        if (exportBtn !== null) 
+        if (exportBtn !== null)
         {
             exportBtn.onclick = () => {
                 S.ws.send(JSON.stringify({ type: 'exportRecord' }));
@@ -2513,8 +2603,13 @@
                 if (!file) return;
                 const reader = new FileReader();
                 reader.onload = (ev) => {
+                    const text = String(ev.target.result || '');
+                    // .sgf 后缀，或内容（去掉 BOM 后）以 ( 开头 → 按 SGF 走
+                    const isSgf = /\.sgf$/i.test(file.name || '')
+                        || text.replace(/^﻿/, '').trim().startsWith('(');
+                    if (isSgf) { qiImportSgfText(text); return; }
                     try {
-                        const data = JSON.parse(ev.target.result);
+                        const data = JSON.parse(text);
                         S.ws.send(JSON.stringify({ type: 'importRecord', data }));
                     } catch (err) {
                         qiAlert('棋谱文件解析失败');
@@ -2626,7 +2721,11 @@
                 closeRulesBtn.onclick = () => rulesModal.style.display = 'none';
             rulesModal.onclick = (e) => { if (e.target === rulesModal) rulesModal.style.display = 'none'; };
         }
-        return { handleMessage, updateRecordButtons, updateRadioStyles, updateSeatOverlay, updateVsComputerBtn };
+        return {
+            handleMessage, updateRecordButtons, updateRadioStyles, updateSeatOverlay, updateVsComputerBtn,
+            // 自己接管 gameRecord 的插件（黑白棋/WxD棋）也走同一套：能导 SGF 时先问格式
+            exportRecordWithFormatChoice: qiExportRecordWithFormatChoice
+        };
     }
 
     /**
@@ -3210,7 +3309,7 @@
         const now = new Date();
         const pad = n => n.toString().padStart(2, '0');
         const dateStr = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
-        const filename = `${filenamePrefix}_${data.boardSize}路_${dateStr}.json`;
+        const filename = `${filenamePrefix}_${dateStr}.json`;   // 棋类_时间.json（不再带路数）
         const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
@@ -4159,8 +4258,12 @@
             }
             if (ps.gameOver) {
                 dom.turnDisplay.innerText = '对局结束';
-                if (ps.winner === 'player1') dom.scoreTitle.innerText = '黑胜';
-                else if (ps.winner === 'player2') dom.scoreTitle.innerText = '白胜';
+                // 胜方文案按实际执方名（服务端下发的 sideLabels；缺省黑/白）——player1 未必执黑
+                if (ps.winner === 'player1' || ps.winner === 'player2') {
+                    const label = (ps.sideLabels && ps.sideLabels[ps.winner])
+                        || (ps.winner === 'player1' ? '黑方' : '白方');
+                    dom.scoreTitle.innerText = String(label).replace(/方$/, '') + '胜';
+                }
                 else if (ps.winner === 'draw') dom.scoreTitle.innerText = '和棋';
                 else dom.scoreTitle.innerText = '　';
                 ps.isMyTurn = false;

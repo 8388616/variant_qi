@@ -701,7 +701,7 @@ const scoreTitle = document.getElementById('scoreTitle');
         if (!importBtn || !exportBtn) return;
         if (replayMode) {
             importBtn.style.display = 'none';
-            exportBtn.style.display = 'none';
+            exportBtn.style.display = '';   // 导出棋谱任何时候都显示（还没开局就导空棋谱）
             return;
         }
         const noPlayers = !slots.player1 && !slots.player2;
@@ -710,7 +710,7 @@ const scoreTitle = document.getElementById('scoreTitle');
         const hasAnyStone = hasStoneOnBoard || hasMovesInRecord;
         if (noPlayers && !hasAnyStone) {
             importBtn.style.display = '';
-            exportBtn.style.display = 'none';
+            exportBtn.style.display = '';
         } else {
             importBtn.style.display = 'none';
             exportBtn.style.display = '';
@@ -880,7 +880,8 @@ const scoreTitle = document.getElementById('scoreTitle');
         const a = document.createElement('a');
         a.href = URL.createObjectURL(blob);
         const d = new Date();
-        a.download = `无格线围棋_${data.roadCount}路_${d.getFullYear()}${(d.getMonth() + 1).toString().padStart(2, '0')}${d.getDate().toString().padStart(2, '0')}.json`;
+        const _pad = (n) => n.toString().padStart(2, '0');
+        a.download = `无格线围棋_${d.getFullYear()}${_pad(d.getMonth() + 1)}${_pad(d.getDate())}_${_pad(d.getHours())}${_pad(d.getMinutes())}${_pad(d.getSeconds())}.json`;   // 棋类_时间.json（不再带路数）
         a.click();
         URL.revokeObjectURL(a.href);
     }

@@ -79,15 +79,6 @@ class MinesweeperWeiqiRoom extends QiTwoPlayerRoomBase
     onDrawResolved() { this.recordResultText = '和棋'; this.minesRevealedPublicly = true; }
     setScoreResultTextByLead(lead) { if (lead > 0) this.recordResultText = `黑胜${Math.abs(lead).toFixed(2).replace(/\.00$/, '')}点`; else if (lead < 0) this.recordResultText = `白胜${Math.abs(lead).toFixed(2).replace(/\.00$/, '')}点`; else this.recordResultText = '和棋'; }
     setTimeLossResultText(lostSlot) { if (lostSlot === 'player1') this.recordResultText = '黑方超时，白胜'; else if (lostSlot === 'player2') this.recordResultText = '白方超时，黑胜'; }
-    static parseResultTextToWinner(resultText) {
-        if (!resultText || typeof resultText !== 'string') return null;
-        if (resultText === '和棋' || resultText === 'draw') return 'draw';
-        if (resultText.includes('白胜')) return 'player2';
-        if (resultText.includes('黑胜')) return 'player1';
-        if (resultText === 'player1' || resultText === 'player2' || resultText === 'draw') return resultText;
-        return null;
-    }
-
     scrubBoardForViewer(brd) {
         const b = this.copyBoard(brd);
         if (this.randomMinesFromGame && !this.minesRevealedPublicly && !this.gameOver) {
@@ -414,13 +405,35 @@ class MinesweeperWeiqiRoom extends QiTwoPlayerRoomBase
         this.pendingScore = { requester, opponent, agreed: new Set() };
     }
 
+    /**
+     * 禁全同 key = 局面 + 「雷是否已生成」。雷一旦生成，后续演化（踩雷、翻洞、清雷）与未生成时完全不同，
+     * 所以「同盘面、雷状态不同」不是同一局面；只比盘面会把它误判成重复 → 错杀（第 2 手实着前后就是这样）。
+     */
+    superKoKey(board, generated) {
+        return this.boardToString(board) + '|' + (generated ? '1' : '0');
+    }
+
+    /** 编辑棋盘后种「这一手局面」用的 key（同一套定义，别退回纯盘面串） */
+    superKoSeedKey() { return this.superKoKey(this.board, this.holesGenerated); }
+
+    /** 某个历史快照当时的「雷已生成」标志：盘上有雷 ⇒ 已生成；否则看当时的实着数（生成发生在第 2 手实着之后） */
+    holesGeneratedAtSnapshot(board, stoneMoveCount) {
+        for (let r = 0; r < this.boardSize; r++) {
+            for (let c = 0; c < this.boardSize; c++) {
+                if (board[r][c] === MINE) return true;
+            }
+        }
+        return stoneMoveCount >= 2;
+    }
+
     replaceLastHistorySnapshot() {
         if (this.historyBoards.length === 0) return;
         const last = this.historyBoards[this.historyBoards.length - 1];
-        this.historyBoardSet.delete(this.boardToString(last));
+        // 被替换的这条是「生成雷之前」记下的（本函数只在生成那一刻调用）→ 用当时的状态删
+        this.historyBoardSet.delete(this.superKoKey(last, false));
         const next = this.copyBoard(this.board);
         this.historyBoards[this.historyBoards.length - 1] = next;
-        this.historyBoardSet.add(this.boardToString(next));
+        this.historyBoardSet.add(this.superKoKey(next, this.holesGenerated));
     }
 
     handleMessage(ws, msg) {
@@ -477,7 +490,7 @@ class MinesweeperWeiqiRoom extends QiTwoPlayerRoomBase
                 const playerVal = this.currentPlayer === 1 ? 1 : 2;
                 const newBoard = this.tryPlaceStone(this.board, row, col, playerVal);
                 if (!newBoard) return;
-                const newBoardStr = this.boardToString(newBoard);
+                const newBoardStr = this.superKoKey(newBoard, this.holesGenerated);
                 if (this.historyBoardSet.has(newBoardStr)) 
                 {
                     ws.send(JSON.stringify({ type: 'error', message: '禁全同。' }));
@@ -682,7 +695,7 @@ class MinesweeperWeiqiRoom extends QiTwoPlayerRoomBase
                 this.minesRevealedPublicly = false;
                 this.historyBoards = [this.copyBoard(this.board)];
                 this.historyBoardSet.clear();
-                this.historyBoardSet.add(this.boardToString(this.board));
+                this.historyBoardSet.add(this.superKoSeedKey());
                 this.moveHistory = [];
                 this.moveCoords = [];
                 this.historyMarkers = [];
@@ -733,8 +746,15 @@ class MinesweeperWeiqiRoom extends QiTwoPlayerRoomBase
         if (steps === 0 || steps > this.historyBoards.length) return;
 
         for (let i = 0; i < steps; i++) {
-            if (this.historyBoards.length > 0)
-                this.historyBoardSet.delete(this.boardToString(this.historyBoards.pop()));
+            const poppedCoord = this.moveCoords.length > 0 ? this.moveCoords[this.moveCoords.length - 1] : null;
+            if (this.historyBoards.length > 0) {
+                const poppedBoard = this.historyBoards.pop();
+                // 只有落子（type 'move'）进过集合：踩雷手只推了快照没记 key，拿它去 delete 会误删上一次落子的记录
+                if (poppedCoord && poppedCoord.type === 'move') {
+                    const stoneMovesUpTo = this.moveCoords.filter((m) => m.type === 'move').length;   // 含这一手
+                    this.historyBoardSet.delete(this.superKoKey(poppedBoard, this.holesGeneratedAtSnapshot(poppedBoard, stoneMovesUpTo)));
+                }
+            }
             if (this.historyMarkers.length > 0)
                 this.lastMoveMarkers = this.historyMarkers.pop() || [];
             else
@@ -752,7 +772,9 @@ class MinesweeperWeiqiRoom extends QiTwoPlayerRoomBase
             this.board = this.copyBoard(this.historyBoards.at(-1));
 
         const stoneMoves = this.moveCoords.filter(m => m.type === 'move');
-        this.holesGenerated = false;
+        // 「雷已生成」是一次性开关：只要下过第 2 手实着就已经生成过了。原来按「盘上还有没有雷」重算，
+        // 一旦雷被清光又悔棋，标志会退回 false → 下一手实着会**再生成一批雷**（并且禁全同 key 也跟着错）。
+        this.holesGenerated = this.holesGeneratedAtSnapshot(this.board, stoneMoves.length);
         this.snapshotHolesAfterGen = null;
         this.holes = [];
         for (let r = 0; r < this.boardSize; r++) {
@@ -760,8 +782,7 @@ class MinesweeperWeiqiRoom extends QiTwoPlayerRoomBase
                 if (this.board[r][c] === MINE) this.holes.push({ r, c });
             }
         }
-        if (stoneMoves.length >= 2 && this.holes.length > 0) {
-            this.holesGenerated = true;
+        if (this.holesGenerated && this.holes.length > 0) {
             this.snapshotHolesAfterGen = this.holes.map(h => ({ r: h.r, c: h.c }));
         }
         this.randomMinesFromGame = this.holesGenerated && this.snapshotHolesAfterGen && this.snapshotHolesAfterGen.length > 0
@@ -998,7 +1019,7 @@ class MinesweeperWeiqiRoom extends QiTwoPlayerRoomBase
 
         this.historyBoards = [this.copyBoard(this.board)];
         this.historyBoardSet.clear();
-        this.historyBoardSet.add(this.boardToString(this.board));
+        this.historyBoardSet.add(this.superKoSeedKey());
 
         const rawMoves = data.moves || [];
         const moves = rawMoves.map(MinesweeperWeiqiRoom.parseMove);
@@ -1021,7 +1042,7 @@ class MinesweeperWeiqiRoom extends QiTwoPlayerRoomBase
                     this.broadcast({ type: 'roomReset', ...this.getState() });
                     return;
                 }
-                const newBoardStr = this.boardToString(newBoard);
+                const newBoardStr = this.superKoKey(newBoard, this.holesGenerated);
                 this.historyBoards.push(this.copyBoard(newBoard));
                 this.historyBoardSet.add(newBoardStr);
                 this.historyMarkers.push(this.copyMarkers(this.lastMoveMarkers));
@@ -1108,11 +1129,11 @@ class MinesweeperWeiqiRoom extends QiTwoPlayerRoomBase
         }
 
         if ((data.result || data.resultText) && !this.gameOver) {
+            // 导入不做任何判定：结果只按棋谱记录显示（公共层已按本棋种执方名把文案折成座位）
             this.gameOver = true;
-            const importedResultText = data.resultText != null ? String(data.resultText) : String(data.result);
-            this.recordResultText = importedResultText;
-            this.winner = MinesweeperWeiqiRoom.parseResultTextToWinner(importedResultText);
-            if (!this.winner && (data.result === 'player1' || data.result === 'player2' || data.result === 'draw')) this.winner = data.result;
+            this.recordResultText = data.resultText ? String(data.resultText) : '';
+            if (data.result === 'player1' || data.result === 'player2' || data.result === 'draw')
+                this.winner = data.result;
         }
 
         const holesFromFile =

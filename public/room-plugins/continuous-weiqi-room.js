@@ -957,7 +957,9 @@ const scoreTitle = document.getElementById('scoreTitle');
         const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
         const a = document.createElement('a');
         a.href = URL.createObjectURL(blob);
-        a.download = `连续围棋_L${data.boardLength}_${new Date().toISOString().slice(0, 10)}.json`;
+        const _d = new Date();
+        const _pad = (n) => n.toString().padStart(2, '0');
+        a.download = `连续围棋_${_d.getFullYear()}${_pad(_d.getMonth() + 1)}${_pad(_d.getDate())}_${_pad(_d.getHours())}${_pad(_d.getMinutes())}${_pad(_d.getSeconds())}.json`;   // 棋类_时间.json（不再带路数）
         a.click();
         URL.revokeObjectURL(a.href);
     }

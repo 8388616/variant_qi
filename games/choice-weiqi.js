@@ -717,8 +717,14 @@ class ChoiceWeiqiRoom extends QiTwoPlayerRoomBase {
             return;
 
         for (let i = 0; i < steps; i++) {
-            if (this.historyBoards.length > 0)
-                this.historyBoardSet.delete(this.boardToString(this.historyBoards.pop()));
+            if (this.historyBoards.length > 0) {
+                // 只有进过集合的手才该删（虚着/踩雷等手同样推了历史快照、盘面与上一手相同，
+                // 拿它的快照去 delete 会误删上一次落子的记录 → 禁全同随后失效）
+                const skPopped = this.historyBoards.pop();
+                const skCoord = this.moveCoords.length > 0 ? this.moveCoords[this.moveCoords.length - 1] : null;
+                if (skCoord && ['move'].includes(skCoord.type))
+                    this.historyBoardSet.delete(this.boardToString(skPopped));
+            }
             if (this.historyMarkers.length > 0)
                 this.lastMoveMarkers = this.historyMarkers.pop() || [];
             else
@@ -1059,9 +1065,12 @@ class ChoiceWeiqiRoom extends QiTwoPlayerRoomBase {
             }
         }
 
+        // 导入不做任何判定：结果只按棋谱记录显示（公共层已按本棋种执方名把文案折成座位）
         if (data.result) {
             this.gameOver = true;
-            this.winner = data.result;
+            this.recordResultText = data.resultText ? String(data.resultText) : '';
+            if (data.result === 'player1' || data.result === 'player2' || data.result === 'draw')
+                this.winner = data.result;
         }
 
         // 候选生成（AI 模式为异步）完成后再广播导入结果

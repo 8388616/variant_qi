@@ -461,12 +461,61 @@ function qiWinnerResultText(self, slot) {
     return label.replace(/方$/, '') + '胜';
 }
 
-function parseQiRecordResultWinner(resultText) {
+/** 座位 → 终局文案（和棋 / 按本棋种执方名的「X胜」）。棋种内部一律用座位，只在这里变文案 */
+function qiResultTextOfSeat(self, seat) {
+    if (seat === 'draw') return '和棋';
+    if (seat === 'player1' || seat === 'player2') return qiWinnerResultText(self, seat);
+    return '';
+}
+
+/**
+ * 棋谱里的终局文案 → 座位（'player1'/'player2'/'draw'）。认不出来返回 null。
+ *
+ * 站内的约定是「内部一律用座位、颜色只出现在文案里」，所以颜色→座位的换算只在这里做一次：
+ *   1. 含「和」按和棋；
+ *   2. 取「胜」字前、最后一个逗号/顿号/冒号之后那一段里的颜色字
+ *      （「红方超时，绿胜」→绿、「黑 40 : 白 24，黑胜」→黑、「白方吃掉对方4枚获胜」→白），
+ *      段里没颜色就退回整段里最靠近「胜」的那个颜色字；
+ *   3. 只有「判负」时取另一方（两方棋种）；
+ *   4. 颜色再按本棋种声明的执方名定位座位（四色围棋「黑蓝胜」→player1）。
+ */
+function qiSeatOfResultText(self, resultText) {
     if (typeof resultText !== 'string') return null;
-    if (resultText === 'black' || resultText === 'white' || resultText === 'draw') return resultText;
-    if (resultText === '和棋') return 'draw';
-    if (resultText.includes('白胜')) return 'player2';
-    if (resultText.includes('黑胜')) return 'player1';
+    const text = resultText.trim();
+    if (!text) return null;
+    const SEPARATORS = ['，', ',', '、', '：', ':'];
+    const lastSeparator = (s) => {
+        let at = -1;
+        for (const sep of SEPARATORS) at = Math.max(at, s.lastIndexOf(sep));
+        return at;
+    };
+    const colorIn = (s, fromEnd) => {
+        const hits = s.match(/[黑白红绿蓝]/g);
+        if (!hits || hits.length === 0) return null;
+        return fromEnd ? hits[hits.length - 1] : hits[0];
+    };
+    const seatOfColor = (color) => {
+        if (!color) return null;
+        if (qiSideLabelOfSlot(self, 'player1').includes(color)) return 'player1';
+        if (qiSideLabelOfSlot(self, 'player2').includes(color)) return 'player2';
+        return null;
+    };
+    /** 「胜」「判负」之前那一段的（最后一个分隔符之后的）颜色 */
+    const colorBefore = (idx) => {
+        const head = text.slice(0, idx);
+        const cut = lastSeparator(head);
+        const segment = cut >= 0 ? head.slice(cut + 1) : head;
+        return colorIn(segment, false) || colorIn(head, true);
+    };
+    if (text.includes('和')) return 'draw';
+    const winIdx = text.lastIndexOf('胜');
+    if (winIdx >= 0) return seatOfColor(colorBefore(winIdx));
+    const loseIdx = text.lastIndexOf('判负');
+    if (loseIdx >= 0) {
+        const loser = seatOfColor(colorBefore(loseIdx));
+        if (loser === 'player1') return 'player2';
+        if (loser === 'player2') return 'player1';
+    }
     return null;
 }
 
@@ -509,35 +558,24 @@ function normalizeQiRecordForExport(self, record) {
         out.timeControl = null;
     else
         out.timeControl = encodeCompactTimeControl(self && self.tcSettings ? self.tcSettings : null);
-    const rawResult = out.result;
     if (self && self.gameOver) {
+        // 内部一律是座位 → 导出时按棋种自己声明的执方名变成「黑胜/白胜/红胜…」
         if (typeof self.recordResultText === 'string' && self.recordResultText.length > 0) {
             out.result = self.recordResultText;
-            return out;
+        } else if (self.winner === 'draw') {
+            out.result = '和棋';
+        } else if (self.winner === 'player1' || self.winner === 'player2') {
+            out.result = qiWinnerResultText(self, self.winner);
         }
-        const winner = self.winner;
-        if (winner === 'draw') out.result = '和棋';
-        else if (winner === 'player1' || winner === 'player2') out.result = qiWinnerResultText(self, winner);
-        else if (winner === 'black') out.result = '黑胜';
-        else if (winner === 'white') out.result = '白胜';
-        else if (typeof rawResult === 'string') {
-            const parsed = parseQiRecordResultWinner(rawResult);
-            if (parsed === 'draw') out.result = '和棋';
-            else if (parsed === 'black') out.result = '黑胜';
-            else if (parsed === 'white') out.result = '白胜';
-        }
-        return out;
-    }
-    if (typeof rawResult === 'string') {
-        const parsed = parseQiRecordResultWinner(rawResult);
-        if (parsed === 'draw') out.result = '和棋';
-        else if (parsed === 'black') out.result = '黑胜';
-        else if (parsed === 'white') out.result = '白胜';
     }
     return out;
 }
 
-function normalizeQiRecordForImport(data) {
+/**
+ * 导入棋谱的规范化。棋谱里的终局是文案（「黑胜」「红方超时，绿胜」…），
+ * 这里按**本棋种声明的执方名**折成座位后交给棋种；棋种内部只认座位。
+ */
+function normalizeQiRecordForImport(self, data) {
     if (!data || typeof data !== 'object') return data;
     const out = { ...data };
     if (Object.prototype.hasOwnProperty.call(out, 'timeControl')) {
@@ -545,10 +583,16 @@ function normalizeQiRecordForImport(data) {
     } else {
         out.timeControl = null;
     }
-    if (typeof out.result === 'string') {
-        out.resultText = out.result;
-        const parsed = parseQiRecordResultWinner(out.result);
-        if (parsed) out.result = parsed;
+    const rawText = typeof out.resultText === 'string' && out.resultText.trim() !== '' ? out.resultText : null;
+    const rawResult = typeof out.result === 'string' && out.result.trim() !== '' ? out.result.trim() : null;
+    const seatLike = rawResult === 'player1' || rawResult === 'player2' || rawResult === 'draw';
+    const text = rawText || (seatLike ? null : rawResult);
+    if (text != null) {
+        out.resultText = text;                            // 文案留着给界面显示
+        out.result = qiSeatOfResultText(self, text);      // 座位给棋种用（棋种内部只认座位）
+    } else {
+        out.resultText = rawText;
+        out.result = seatLike ? rawResult : null;         // 记录里本来就是座位：原样保留
     }
     return out;
 }
@@ -694,7 +738,7 @@ const qiProtocol = {
             ws.send(JSON.stringify({ type: 'error', message: blockedMsg }));
             return;
         }
-        self.importRecord(normalizeQiRecordForImport(msg.data), ws);
+        self.importRecord(normalizeQiRecordForImport(self, msg.data), ws);
     },
 
     /** 观战且无人入座时清空房间（需实现 resetToEmpty） */
@@ -1125,7 +1169,10 @@ const qiProtocol = {
         if (Array.isArray(self.historyBoards)) self.historyBoards = [];
         if (self.historyBoardSet && typeof self.historyBoardSet.clear === 'function') {
             self.historyBoardSet.clear();
-            if (typeof self.boardToString === 'function') {
+            if (typeof self.superKoSeedKey === 'function') {
+                // 棋种把「局面」定义得比盘面宽（含雷/隐身分布/棋子年龄/手数等）时，用它的 key 种这一手
+                self.historyBoardSet.add(self.superKoSeedKey());
+            } else if (typeof self.boardToString === 'function') {
                 self.historyBoardSet.add(self.boardToString(self.board));
             }
         }
@@ -2971,5 +3018,9 @@ module.exports = {
     computeBensonWeiqiLead,
     computeNearestWeiqiLead,
     squareWeiqiScoringOps,
-    gridGraphWeiqiScoringOps
+    gridGraphWeiqiScoringOps,
+    qiSideLabelOfSlot,
+    qiWinnerResultText,
+    qiResultTextOfSeat,
+    qiSeatOfResultText
 };

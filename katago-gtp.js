@@ -544,10 +544,20 @@ class KatagoGtpSession {
                 if (mNum) moveNum = Number(mNum[1]);
                 continue;
             }
-            const mRow = line.match(/^\s*\d+\s((?:[XO.]\S?\s*)+)$/);
+            // 棋盘行必须按**固定宽度**切格：`Board::printBoard`（board.cpp）对最近三手的棋子
+            // 会紧跟着打印标记数字、**且该格后面不补空格**，于是与下一格黏成 `X1.` / `O2.` 这种 token。
+            // 用 split(/\s+/) 切会让格数变少（整行对不上 expectCols → 回 null → 自检静默失效，实为从未生效）。
+            // 每格恒为 2 字元（色字元 + 标记数字或空白；末格可能只有 1 字元），故直接按 2 字元步进。
+            const mRow = line.match(/^\s*\d+\s(.*)$/);
             if (!mRow) continue;
-            const cells = mRow[1].trim().split(/\s+/).map((t) => t[0]);
-            rows.push(cells.map((c) => (c === 'X' ? 1 : (c === 'O' ? 2 : 0))));
+            const rest = mRow[1].replace(/\s+$/, '');
+            const cells = [];
+            for (let i = 0; i < rest.length; i += 2) {
+                const ch = rest[i];
+                if (ch !== 'X' && ch !== 'O' && ch !== '.' && ch !== '@') continue;
+                cells.push(ch === 'X' ? 1 : (ch === 'O' ? 2 : 0));
+            }
+            rows.push(cells);
         }
         if (!rows.length) return null;
         if (Number.isFinite(expectRows) && rows.length !== expectRows) return null;

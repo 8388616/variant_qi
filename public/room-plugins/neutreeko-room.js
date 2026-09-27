@@ -688,6 +688,7 @@ const boardSizeSelect = document.getElementById('boardSizeSelect');
                 return false;
             }
 
+            let bindingsUpdateRecordButtons = null;   // 公共实现（_seatOverlay 建好后赋值）
             function updateRecordButtons() {
                 const importBtn = document.getElementById('importBtn');
                 const exportBtn = document.getElementById('exportBtn');
@@ -696,9 +697,11 @@ const boardSizeSelect = document.getElementById('boardSizeSelect');
                 // 开局（开赛/计时协商中/已有落子）隐藏路数选择；终局开新局（盘面清空、未开赛）后恢复可选，
                 // 是否已就座不影响——否则新局后玩家仍在座会永远隐藏。
                 boardSizeSelect.style.display = 'none';   // 结子棋固定 5×5
+                // 按钮显隐走公共实现（导出棋谱任何时候都显示）；下面留一份兜底，万一没接上 bindings
+                if (bindingsUpdateRecordButtons) { bindingsUpdateRecordButtons(); return; }
                 if (!hasPlayers && !hasMoves) {
                     importBtn.style.display = '';
-                    exportBtn.style.display = 'none';
+                    exportBtn.style.display = '';   // 导出棋谱任何时候都显示（还没开局就导空棋谱）
                 } else {
                     importBtn.style.display = 'none';
                     exportBtn.style.display = '';
@@ -730,6 +733,7 @@ const boardSizeSelect = document.getElementById('boardSizeSelect');
                 // 试下虚着/悔棋要落到具体某一步：seatOverlayOnly 短路后公共代码只能靠这里拿到步进函数
                 setTryPlayStep,
                 colorStatus});
+            bindingsUpdateRecordButtons = _seatOverlay.updateRecordButtons;
 
             function updateRadioStyles() {
                 _seatOverlay.updateRadioStyles();

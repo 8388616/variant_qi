@@ -524,15 +524,6 @@ class SudokuWeiqiRoom extends QiTwoPlayerRoomBase {
         else if (lostSlot === 'player2') this.recordResultText = '白方超时，黑胜';
     }
 
-    static parseResultTextToWinner(resultText) {
-        if (!resultText || typeof resultText !== 'string') return null;
-        if (resultText === '和棋' || resultText === 'draw') return 'draw';
-        if (resultText.includes('白胜')) return 'player2';
-        if (resultText.includes('黑胜')) return 'player1';
-        if (resultText === 'player1' || resultText === 'player2' || resultText === 'draw') return resultText;
-        return null;
-    }
-
     copyMarkers(markers) {
         return markers.map(m => ({ row: m.row, col: m.col, color: m.color, digit: m.digit }));
     }
@@ -907,13 +898,11 @@ class SudokuWeiqiRoom extends QiTwoPlayerRoomBase {
         }
 
         if (data.result || data.resultText) {
+            // 导入不做任何判定：结果只按棋谱记录显示（公共层已按本棋种执方名把文案折成座位）
             this.gameOver = true;
-            const importedResultText = data.resultText != null ? String(data.resultText) : String(data.result);
-            this.recordResultText = importedResultText;
-            this.winner = SudokuWeiqiRoom.parseResultTextToWinner(importedResultText);
-            if (!this.winner && (data.result === 'player1' || data.result === 'player2' || data.result === 'draw')) {
+            this.recordResultText = data.resultText ? String(data.resultText) : '';
+            if (data.result === 'player1' || data.result === 'player2' || data.result === 'draw')
                 this.winner = data.result;
-            }
         }
 
         this.broadcast({

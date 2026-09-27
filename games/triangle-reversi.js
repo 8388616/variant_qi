@@ -496,24 +496,10 @@ class TriangleReversiRoom extends QiTwoPlayerRoomBase {
 
         this.importReplayNoJudge = false;
         // 导入不做任何判定：结果只按棋谱记录显示（局面与记录不一致时也以记录为准）。
-        const recResult = data.result != null && data.result !== '' ? data.result
-            : (data.resultText != null && data.resultText !== '' ? data.resultText : null);
-        if (recResult != null) {
+        if (data.result === 'player1' || data.result === 'player2' || data.result === 'draw') {
             this.gameOver = true;
-            this.recordResultText = data.resultText ? String(data.resultText) : String(recResult);
-            const rt = String(this.recordResultText);
-            const SLOT_OF_COLOR = { 黑: 'player1', 白: 'player2' };   // player1 执黑、player2 执白
-            const win = /(黑|白|红|绿|蓝)\s*(?:方)?[^，。]{0,6}胜/.exec(rt);
-            let color = win ? win[1] : null;
-            if (!color) {
-                const lose = /(黑|白|红|绿|蓝)\s*(?:方)?[^，。]{0,6}判负/.exec(rt);
-                if (lose) color = Object.keys(SLOT_OF_COLOR).find((k) => k !== lose[1]) || null;
-                else if (recResult === 'black' || recResult === 'player1') color = '黑';
-                else if (recResult === 'white' || recResult === 'player2') color = '白';
-            }
-            if (recResult === 'draw' || rt.includes('和')) this.winner = 'draw';
-            else if (color && SLOT_OF_COLOR[color]) this.winner = SLOT_OF_COLOR[color];
-            else this.winner = recResult;
+            this.winner = data.result;
+            this.recordResultText = data.resultText ? String(data.resultText) : '';
         }
         this.broadcast({ type: 'importSuccess', ...this.getState(), replayData: { moves: this.moveCoords.map((m) => ({ ...m })) } });
     }

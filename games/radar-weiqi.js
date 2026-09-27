@@ -130,6 +130,32 @@ class InvisibleStone2WeiqiRoom extends QiTwoPlayerRoomBase {
     }
     copyInvisible(src) { return src.map(row => row.slice()); }
 
+    /**
+     * 隐身分布的紧凑串（禁全同 key 用）：'1' = 对对手不可见，'0' = 可见。行序与盘面一致，只用于判等。
+     */
+    invisibleKey(invisible) {
+        if (!Array.isArray(invisible)) return '';
+        const rows = [];
+        for (let r = 0; r < this.boardSize; r++) {
+            const row = invisible[r] || [];
+            let line = '';
+            for (let c = 0; c < this.boardSize; c++) line += row[c] ? '1' : '0';
+            rows.push(line);
+        }
+        return rows.join('/');
+    }
+
+    /**
+     * 禁全同 key = 局面 + 隐身分布。隐身不是纯显示状态：它决定「点对方隐身子显形」这一手还存不存在，
+     * 也决定双方看得到哪些子（同盘面、不同隐身 = 不同局面）。只比盘面会把后者误判成重复 → 错杀。
+     */
+    superKoKey(board, invisible) {
+        return this.boardToString(board) + '|' + this.invisibleKey(invisible);
+    }
+
+    /** 编辑棋盘后种「这一手局面」用的 key（同一套定义，别退回纯盘面串） */
+    superKoSeedKey() { return this.superKoKey(this.board, this.invisible); }
+
     diffRemovedStones(oldBoard, newBoard) {
         const out = [];
         for (let r = 0; r < this.boardSize; r++) {
@@ -273,15 +299,6 @@ class InvisibleStone2WeiqiRoom extends QiTwoPlayerRoomBase {
     setTimeLossResultText(lostSlot) {
         if (lostSlot === 'player1') this.recordResultText = '黑方超时，白胜';
         else if (lostSlot === 'player2') this.recordResultText = '白方超时，黑胜';
-    }
-
-    static parseResultTextToWinner(resultText) {
-        if (!resultText || typeof resultText !== 'string') return null;
-        if (resultText === '和棋' || resultText === 'draw') return 'draw';
-        if (resultText.includes('白胜')) return 'player2';
-        if (resultText.includes('黑胜')) return 'player1';
-        if (resultText === 'player1' || resultText === 'player2' || resultText === 'draw') return resultText;
-        return null;
     }
 
     /**
@@ -665,12 +682,10 @@ class InvisibleStone2WeiqiRoom extends QiTwoPlayerRoomBase {
                 const oldBoard = this.copyBoard(this.board);
                 const newBoard = this.tryPlaceStone(this.board, row, col, playerVal);
                 if (!newBoard) return;
-                const newBoardStr = this.boardToString(newBoard);
-                if (this.historyBoardSet.has(newBoardStr))
-                {
-                    ws.send(JSON.stringify({ type: 'error', message: '禁全同。' }));
-                    return;
-                }
+                // 禁全同要连隐身分布一起比，而隐身是「这一手之后」才更新（提子显形、新子隐身、参与提子的隐身子显形），
+                // 所以判定挪到下面隐身更新之后再做；先存一份现场，被判禁全同时回滚（那些改动都在判定之前做了）。
+                const invBefore = this.copyInvisible(this.invisible);
+                const recordFlagsBefore = this.moveCoords.map((m) => [m.invisible, m.concealedFromOpponent]);
 
                 const nextHand = this.moveHistory.length + 1;
                 const isInvisibleStone =
@@ -692,6 +707,19 @@ class InvisibleStone2WeiqiRoom extends QiTwoPlayerRoomBase {
                 }
 
                 this.revealParticipatingInvisibleForCapture(removed);
+
+                const newBoardStr = this.superKoKey(this.board, this.invisible);
+                if (this.historyBoardSet.has(newBoardStr)) {
+                    // 这一手判禁全同：盘面、隐身分布、历史着法上的隐身标记全部回滚（都在判定之前改过了）
+                    this.board = oldBoard;
+                    this.invisible = invBefore;
+                    this.moveCoords.forEach((m, i) => {
+                        const f = recordFlagsBefore[i];
+                        if (f) { m.invisible = f[0]; m.concealedFromOpponent = f[1]; }
+                    });
+                    ws.send(JSON.stringify({ type: 'error', message: '禁全同。' }));
+                    return;
+                }
 
                 this.historyBoards.push(this.copyBoard(this.board));
                 this.historyInvisible.push(this.copyInvisible(this.invisible));
@@ -885,10 +913,15 @@ class InvisibleStone2WeiqiRoom extends QiTwoPlayerRoomBase {
         if (steps === 0 || steps > this.historyBoards.length) return;
 
         for (let i = 0; i < steps; i++) {
-            if (this.historyBoards.length > 0)
-                this.historyBoardSet.delete(this.boardToString(this.historyBoards.pop()));
-            if (this.historyInvisible.length > 0)
-                this.historyInvisible.pop();
+            const poppedCoord = this.moveCoords.length > 0 ? this.moveCoords[this.moveCoords.length - 1] : null;
+            if (this.historyBoards.length > 0) {
+                const poppedBoard = this.historyBoards.pop();
+                const poppedInvisible = this.historyInvisible.length > 0 ? this.historyInvisible.pop() : null;
+                // 只有落子（type 'move'）进过集合：虚着/点隐身子显形只推了快照没记 key，
+                // 拿它们的快照去 delete 会误删「同一盘面上一次落子」的记录（禁全同随后失效）。
+                if (poppedCoord && poppedCoord.type === 'move')
+                    this.historyBoardSet.delete(this.superKoKey(poppedBoard, poppedInvisible || this.emptyInvisible()));
+            }
             if (this.historyMarkers.length > 0)
                 this.lastMoveMarkers = this.historyMarkers.pop() || [];
             else
@@ -1110,7 +1143,6 @@ class InvisibleStone2WeiqiRoom extends QiTwoPlayerRoomBase {
                     this.broadcastPerClientReset();
                     return;
                 }
-                const newBoardStr = this.boardToString(newBoard);
                 this.board = this.copyBoard(newBoard);
                 const removed = this.removedStonesForCapture(oldBoard, this.board, row, col, playerVal);
                 for (const { row: rr, col: cc } of removed)
@@ -1124,6 +1156,7 @@ class InvisibleStone2WeiqiRoom extends QiTwoPlayerRoomBase {
                     this.invisible[row][col] = true;
                 this.revealParticipatingInvisibleForCapture(removed);
 
+                const newBoardStr = this.superKoKey(this.board, this.invisible);
                 this.historyBoards.push(this.copyBoard(this.board));
                 this.historyInvisible.push(this.copyInvisible(this.invisible));
                 this.historyBoardSet.add(newBoardStr);
@@ -1193,11 +1226,10 @@ class InvisibleStone2WeiqiRoom extends QiTwoPlayerRoomBase {
         }
 
         if (data.result || data.resultText) {
+            // 导入不做任何判定：结果只按棋谱记录显示（公共层已按本棋种执方名把文案折成座位）
             this.gameOver = true;
-            const importedResultText = data.resultText != null ? String(data.resultText) : String(data.result);
-            this.recordResultText = importedResultText;
-            this.winner = InvisibleStone2WeiqiRoom.parseResultTextToWinner(importedResultText);
-            if (!this.winner && (data.result === 'player1' || data.result === 'player2' || data.result === 'draw'))
+            this.recordResultText = data.resultText ? String(data.resultText) : '';
+            if (data.result === 'player1' || data.result === 'player2' || data.result === 'draw')
                 this.winner = data.result;
         }
 

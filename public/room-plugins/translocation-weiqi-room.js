@@ -543,7 +543,6 @@ const scoreTitle = document.getElementById('scoreTitle');
                 if (state.komi != null && Number.isFinite(state.komi)) ps.KOMI = state.komi;
                 else ps.KOMI = komiForSize(incomingSize);
                 ps.board = page.initBoardArray(ps.BOARD_SIZE);
-                ps.maxTranspositionMoves = computeMaxTranspositionMoves(ps.BOARD_SIZE);
                 page.updateBoardGeometry();
                 const sizeSelect = document.getElementById('boardSizeSelect');
                 if (sizeSelect) sizeSelect.value = String(ps.BOARD_SIZE);
@@ -551,6 +550,12 @@ const scoreTitle = document.getElementById('scoreTitle');
                 ps.KOMI = state.komi;
                 if (komiInfo) page.updateBoardGeometry();
             }
+            // 易位手数上限：服务端 getState() 会下发权威值（按路数算好），优先用它；没有才按公式推。
+            // 注意别只在 needGeometry 分支里赋值——否则「进已成型房间」这类不走几何分支的路径会留着旧值。
+            const incomingMax = Number(state.maxTranspositionMoves);
+            ps.maxTranspositionMoves = Number.isFinite(incomingMax) && incomingMax > 0
+                ? incomingMax
+                : computeMaxTranspositionMoves(ps.BOARD_SIZE);
             ps.numberOfHands = state.numberOfHands || 1;
             ps.currentPlayer = state.currentPlayer;
             ps.gameOver = state.gameOver || false;
@@ -925,7 +930,14 @@ const scoreTitle = document.getElementById('scoreTitle');
             setLiveViewStep,
             getWs: () => ps.ws,
             getBoardSize: () => ps.BOARD_SIZE,
-            setBoardSize: (n) => { ps.BOARD_SIZE = n; },
+            setBoardSize: (n) => {
+                ps.BOARD_SIZE = n;
+                // 运行时在「进房 / 导入 / 重置」时走它自己那条路：只调 setBoardSize + 重画，不走 syncStateImpl。
+                // 所以随路数变的字段（易位手数上限）必须在这里一起更新，并且立刻把面板刷一遍，
+                // 否则后进房间的人会看到上一个路数（默认 19 路）的手数。
+                ps.maxTranspositionMoves = computeMaxTranspositionMoves(n);
+                updateTranspositionInfo();
+            },
             getKomi: () => ps.KOMI,
             setKomi: (n) => { ps.KOMI = n; },
             getBoard: () => ps.board,

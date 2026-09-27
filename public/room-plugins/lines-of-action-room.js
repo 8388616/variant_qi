@@ -775,6 +775,7 @@ const boardSizeSelect = document.getElementById('boardSizeSelect');
                 return false;
             }
 
+            let bindingsUpdateRecordButtons = null;   // 公共实现（_seatOverlay 建好后赋值）
             function updateRecordButtons() {
                 const importBtn = document.getElementById('importBtn');
                 const exportBtn = document.getElementById('exportBtn');
@@ -783,9 +784,11 @@ const boardSizeSelect = document.getElementById('boardSizeSelect');
                 // 路数选择：观战者、无人入座、未开局、无着法时才显示（与其它可变路数棋种一致）；
                 // 新局会释放座位，所以新局后又能改
                 boardSizeSelect.style.display = canChangeBoardSize() ? 'inline-block' : 'none';
+                // 按钮显隐走公共实现（导出棋谱任何时候都显示）；下面留一份兜底，万一没接上 bindings
+                if (bindingsUpdateRecordButtons) { bindingsUpdateRecordButtons(); return; }
                 if (!hasPlayers && !hasMoves) {
                     importBtn.style.display = '';
-                    exportBtn.style.display = 'none';
+                    exportBtn.style.display = '';   // 导出棋谱任何时候都显示（还没开局就导空棋谱）
                 } else {
                     importBtn.style.display = 'none';
                     exportBtn.style.display = '';
@@ -817,6 +820,7 @@ const boardSizeSelect = document.getElementById('boardSizeSelect');
                 // 试下虚着/悔棋要落到具体某一步：seatOverlayOnly 短路后公共代码只能靠这里拿到步进函数
                 setTryPlayStep,
                 colorStatus});
+            bindingsUpdateRecordButtons = _seatOverlay.updateRecordButtons;
 
             function updateRadioStyles() {
                 _seatOverlay.updateRadioStyles();

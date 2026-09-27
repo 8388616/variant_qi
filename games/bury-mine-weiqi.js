@@ -49,7 +49,56 @@ class BuryMineWeiqiRoom extends WeiqiRoom {
         this.reburySkipOpp = { player1: false, player2: false };
         this.minesRevealedPublicly = false;
         this.isInitialBury = false;
+        // 每手额外记一份「那一步之前的雷区状态 + 那一步记进集合的禁全同 key」：
+        // 雷不在盘上，悔棋光靠盘面回不去；而新 key 含雷区，事后也重建不出来 → 直接存。
+        this.historySuperKoEntries = [];
     }
+
+    /** 雷区状态快照（含配额/阶段/补埋轮次等一切影响后续走法的雷区信息） */
+    mineStateSnapshot() {
+        const arr = (set) => Array.from(set || []);
+        return {
+            phase: this.phase,
+            mineQuota: { player1: this.mineQuota.player1 | 0, player2: this.mineQuota.player2 | 0 },
+            buryDone: { player1: !!this.buryDone.player1, player2: !!this.buryDone.player2 },
+            pendingRebury: { player1: this.pendingRebury.player1 | 0, player2: this.pendingRebury.player2 | 0 },
+            reburySkipOpp: { player1: !!this.reburySkipOpp.player1, player2: !!this.reburySkipOpp.player2 },
+            mines: { player1: arr(this.mines.player1), player2: arr(this.mines.player2) },
+            lockedMines: { player1: arr(this.lockedMines.player1), player2: arr(this.lockedMines.player2) }
+        };
+    }
+
+    restoreMineState(snap) {
+        if (!snap) return;
+        this.phase = snap.phase;
+        this.mineQuota = { player1: snap.mineQuota.player1 | 0, player2: snap.mineQuota.player2 | 0 };
+        this.buryDone = { player1: !!snap.buryDone.player1, player2: !!snap.buryDone.player2 };
+        this.pendingRebury = { player1: snap.pendingRebury.player1 | 0, player2: snap.pendingRebury.player2 | 0 };
+        this.reburySkipOpp = { player1: !!snap.reburySkipOpp.player1, player2: !!snap.reburySkipOpp.player2 };
+        this.mines = { player1: new Set(snap.mines.player1), player2: new Set(snap.mines.player2) };
+        this.lockedMines = { player1: new Set(snap.lockedMines.player1), player2: new Set(snap.lockedMines.player2) };
+    }
+
+    /**
+     * 禁全同 key = 盘面 + 雷区状态。雷不在盘上，却决定后续一切（踩雷、清雷、补埋、配额），
+     * 所以「同盘面、不同雷区」不是同一局面；只比盘面会把它误判成重复 → 错杀。
+     */
+    superKoKey(board, mineState) {
+        const st = mineState || this.mineStateSnapshot();
+        const part = (list) => (list || []).slice().sort().join(' ');
+        return this.boardToString(board) + '#' + [
+            st.phase,
+            st.mineQuota.player1, st.mineQuota.player2,
+            st.buryDone.player1 ? 1 : 0, st.buryDone.player2 ? 1 : 0,
+            st.pendingRebury.player1, st.pendingRebury.player2,
+            st.reburySkipOpp.player1 ? 1 : 0, st.reburySkipOpp.player2 ? 1 : 0,
+            part(st.mines.player1), part(st.mines.player2),
+            part(st.lockedMines.player1), part(st.lockedMines.player2)
+        ].join('|');
+    }
+
+    /** 编辑棋盘后种「这一手局面」用的 key（同一套定义，别退回纯盘面串） */
+    superKoSeedKey() { return this.superKoKey(this.board); }
 
     _resetMineSessionForNewGame() {
         this._initMineFields();
@@ -446,10 +495,12 @@ class BuryMineWeiqiRoom extends WeiqiRoom {
 
     _handleMineHit(ws, slot, row, col, owners) {
         const playerVal = this.currentPlayer === 1 ? 1 : 2;
+        const mineBefore = this.mineStateSnapshot();      // 清雷之前的雷区（悔棋要回到这里）
         this._clearMinesAt(row, col);
         for (const owner of owners) this._noteMineCleared(owner, slot);
 
         this.historyBoards.push(this.copyBoard(this.board));
+        this.historySuperKoEntries.push({ key: null, mine: mineBefore });
         this.historyMarkers.push(this.copyMarkers(this.lastMoveMarkers));
         this.moveHistory.push(slot);
         this.moveCoords.push({ type: 'mineHit', player: slot, row, col, owners: owners.slice() });
@@ -498,14 +549,16 @@ class BuryMineWeiqiRoom extends WeiqiRoom {
         const playerVal = this.currentPlayer === 1 ? 1 : 2;
         const newBoard = this.tryPlaceStone(this.board, row, col, playerVal);
         if (!newBoard) return;
-        const newBoardStr = this.boardToString(newBoard);
+        const newBoardStr = this.superKoKey(newBoard);
         if (this.historyBoardSet.has(newBoardStr)) {
             ws.send(JSON.stringify({ type: 'error', message: '禁全同。' }));
             return;
         }
+        const mineBefore = this.mineStateSnapshot();
 
         this.historyBoards.push(this.copyBoard(newBoard));
         this.historyBoardSet.add(newBoardStr);
+        this.historySuperKoEntries.push({ key: newBoardStr, mine: mineBefore });
         this.historyMarkers.push(this.copyMarkers(this.lastMoveMarkers));
         this.moveHistory.push(moveSlot);
         this.moveCoords.push({ type: 'move', player: moveSlot, row, col });
@@ -531,6 +584,7 @@ class BuryMineWeiqiRoom extends WeiqiRoom {
         if (!passSlot || passSlot !== (this.currentPlayer === 1 ? 'player1' : 'player2')) return;
 
         this.historyBoards.push(this.copyBoard(this.board));
+        this.historySuperKoEntries.push({ key: null, mine: this.mineStateSnapshot() });
         this.historyMarkers.push(this.copyMarkers(this.lastMoveMarkers));
         this.moveHistory.push(passSlot);
         this.moveCoords.push({ type: 'pass', player: passSlot });
@@ -614,7 +668,17 @@ class BuryMineWeiqiRoom extends WeiqiRoom {
 
     performUndo(steps, requesterWs) {
         if (this.phase === 'burying') return;
+        while (this.historySuperKoEntries.length > this.historyBoards.length) this.historySuperKoEntries.pop();
+        const popped = [];
+        for (let i = 0; i < steps; i++) {
+            const e = this.historySuperKoEntries.pop();
+            if (e) popped.push(e);
+        }
+        // 先把雷区退回到「最早被撤那一步之前」，再让父类恢复盘面/记录/轮次（它广播时状态就已经正确）
+        if (popped.length > 0) this.restoreMineState(popped[popped.length - 1].mine);
         super.performUndo(steps, requesterWs);
+        // 父类按纯盘面串删不动新 key（key 含雷区）→ 这里按存的 key 删
+        for (const e of popped) if (e.key) this.historyBoardSet.delete(e.key);
         this.pendingRebury = { player1: 0, player2: 0 };
         this.reburySkipOpp = { player1: false, player2: false };
     }
@@ -735,9 +799,11 @@ class BuryMineWeiqiRoom extends WeiqiRoom {
                     this.broadcast({ type: 'roomReset', ...this.getState() });
                     return;
                 }
-                const newBoardStr = this.boardToString(newBoard);
+                const newBoardStr = this.superKoKey(newBoard);
+                const mineBefore = this.mineStateSnapshot();
                 this.historyBoards.push(this.copyBoard(newBoard));
                 this.historyBoardSet.add(newBoardStr);
+                this.historySuperKoEntries.push({ key: newBoardStr, mine: mineBefore });
                 this.historyMarkers.push(this.copyMarkers(this.lastMoveMarkers));
                 this.moveHistory.push(slot);
                 this.moveCoords.push({ type: 'move', player: slot, row, col });
@@ -747,8 +813,10 @@ class BuryMineWeiqiRoom extends WeiqiRoom {
                 this.passCounter = 0;
             } else if (move.type === 'mineHit') {
                 const { row, col } = move;
+                const mineBefore = this.mineStateSnapshot();
                 this._clearMinesAt(row, col);
                 this.historyBoards.push(this.copyBoard(this.board));
+                this.historySuperKoEntries.push({ key: null, mine: mineBefore });
                 this.historyMarkers.push(this.copyMarkers(this.lastMoveMarkers));
                 this.moveHistory.push(slot);
                 this.moveCoords.push({ type: 'mineHit', player: slot, row, col });
@@ -757,6 +825,7 @@ class BuryMineWeiqiRoom extends WeiqiRoom {
                 this.passCounter = 0;
             } else if (move.type === 'pass') {
                 this.historyBoards.push(this.copyBoard(this.board));
+                this.historySuperKoEntries.push({ key: null, mine: this.mineStateSnapshot() });
                 this.historyMarkers.push(this.copyMarkers(this.lastMoveMarkers));
                 this.moveHistory.push(slot);
                 this.moveCoords.push({ type: 'pass', player: slot });
@@ -786,13 +855,11 @@ class BuryMineWeiqiRoom extends WeiqiRoom {
         }
 
         if (data.result || data.resultText) {
+            // 导入不做任何判定：结果只按棋谱记录显示（公共层已按本棋种执方名把文案折成座位）
             this.gameOver = true;
-            const importedResultText = data.resultText != null ? String(data.resultText) : String(data.result);
-            this.recordResultText = importedResultText;
-            this.winner = WeiqiRoom.parseResultTextToWinner(importedResultText);
-            if (!this.winner && (data.result === 'player1' || data.result === 'player2' || data.result === 'draw')) {
+            this.recordResultText = data.resultText ? String(data.resultText) : '';
+            if (data.result === 'player1' || data.result === 'player2' || data.result === 'draw')
                 this.winner = data.result;
-            }
         }
 
         this.broadcast({

@@ -1216,7 +1216,7 @@
         </main>
     </div>
 
-    <input type="file" id="lobbyImportFileInput" accept=".json,application/json" style="display:none;" aria-hidden="true">
+    <input type="file" id="lobbyImportFileInput" accept=".json,.sgf,application/json" style="display:none;" aria-hidden="true">
 
     <div id="lobbyQrModal" class="qi-time-control-modal lobby-qr-modal" aria-hidden="true">
         <div class="qi-time-control-dialog" role="dialog" aria-modal="true" aria-labelledby="lobbyQrModalTitle">
@@ -1242,6 +1242,7 @@
         </div>
     </div>
 
+    <script src="/qi/sgf.js"></script>
     <script src="/qi/qi.js"></script>
     <script src="/qi/qrcode.min.js"></script>
     <script>
@@ -1462,13 +1463,34 @@
             }
         }
 
+        /** SGF 里的棋种标记 → 大厅棋种 id（本站导出的带 RU[muzei/<id>]，第三方谱按名字或 GM 兜底） */
+        function lobbyResolveSgfGameId(markers) {
+            const name = markers && markers.gn ? String(markers.gn).trim() : '';
+            if (name) {
+                const hit = GAMES_DATA.find(g => g.enabled && (g.name === name || g.id === name));
+                if (hit) return hit.id;
+            }
+            return markers && markers.gm === 4 ? 'wuziqi' : 'weiqi';
+        }
+
         async function lobbyImportRecordFromFile(file) {
             let data;
-            try {
-                data = JSON.parse(await file.text());
-            } catch (e) {
-                qiAlert('棋谱文件解析失败');
-                return;
+            const text = await file.text();
+            const isSgf = /\.sgf$/i.test(file.name || '')
+                || text.replace(/^﻿/, '').trim().startsWith('(');
+            if (isSgf) {
+                const Sgf = window.QiSgf;
+                if (!Sgf) { qiAlert('SGF 解析脚本没加载（/qi/sgf.js）'); return; }
+                const res = Sgf.sgfToRecord(text, { resolveGameId: lobbyResolveSgfGameId });
+                if (!res.ok) { qiAlert(res.error || 'SGF 解析失败'); return; }
+                data = res.record;
+            } else {
+                try {
+                    data = JSON.parse(text);
+                } catch (e) {
+                    qiAlert('棋谱文件解析失败');
+                    return;
+                }
             }
             const gameId = data && data.gameId;
             if (!gameId || typeof gameId !== 'string') {

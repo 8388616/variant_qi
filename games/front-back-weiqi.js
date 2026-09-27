@@ -631,12 +631,12 @@ class FrontBackWeiqiRoom extends QiTwoPlayerRoomBase {
             } : { timed: false };
             this.matchStarted = true;
         }
+        // 导入不做任何判定：结果只按棋谱记录显示（公共层已按本棋种执方名把文案折成座位）
         if (data.result) {
             this.gameOver = true;
-            this.recordResultText = data.result;
-            if (String(data.result).includes('白胜') || data.result === 'player2') this.winner = 'player2';
-            else if (String(data.result).includes('黑胜') || data.result === 'player1') this.winner = 'player1';
-            else this.winner = 'draw';
+            this.recordResultText = data.resultText ? String(data.resultText) : '';
+            if (data.result === 'player1' || data.result === 'player2' || data.result === 'draw')
+                this.winner = data.result;
         }
         if (!this.matchStarted && this.moveCoords.length > 0) {
             this.matchStarted = true;

@@ -183,15 +183,6 @@ class UkrainianWeiqiRoom extends QiTwoPlayerRoomBase {
         else if (lostSlot === 'player2') this.recordResultText = '白方超时，黑胜';
     }
 
-    static parseResultTextToWinner(resultText) {
-        if (!resultText || typeof resultText !== 'string') return null;
-        if (resultText === '和棋' || resultText === 'draw') return 'draw';
-        if (resultText.includes('白胜')) return 'player2';
-        if (resultText.includes('黑胜')) return 'player1';
-        if (resultText === 'player1' || resultText === 'player2' || resultText === 'draw') return resultText;
-        return null;
-    }
-
     transformCoords(baseCoords, rot, flip) {
         return baseCoords.map(([dr, dc]) => {
             let r = dr, c = dc;
@@ -202,8 +193,11 @@ class UkrainianWeiqiRoom extends QiTwoPlayerRoomBase {
     }
 
     generatePlacementCoords(shapeIdx, rot, flip, refRow, refCol) {
-        const base = this.SHAPES[shapeIdx];
-        const transformed = this.transformCoords(base, rot, flip);
+        // 形状序号/旋转/翻转都可能来自客户端，非法值按「落不下」处理，别让消息处理抛异常
+        const base = this.SHAPES[shapeIdx | 0];
+        if (!Array.isArray(base)) return null;
+        const safeRot = Number.isInteger(rot) ? (((rot | 0) % 4) + 4) % 4 : 0;
+        const transformed = this.transformCoords(base, safeRot, !!flip);
         return transformed.map(([dr, dc]) => [refRow + dr, refCol + dc]);
     }
 
@@ -375,12 +369,59 @@ class UkrainianWeiqiRoom extends QiTwoPlayerRoomBase {
         return markers.map(m => ({ row: m.row, col: m.col, color: m.color }));
     }
 
+    /** 本手之后的「双方上一手形状」：形状池限制下一手能下什么（同形不能连下），所以它是局面的一部分 */
+    shapeStateAfter(playerVal, shapeIndex) {
+        const lu = { 1: this.lastUsedShapeByColor[1] | 0, 2: this.lastUsedShapeByColor[2] | 0 };
+        lu[playerVal] = (shapeIndex == null ? -1 : (shapeIndex | 0));
+        return lu;
+    }
+
+    /**
+     * 禁全同 key = 局面 + 双方「上一手用过的形状」。
+     * 复合棋子的形状序号属于状态：同盘面、不同已用形状时，下一手能下的形状不同 → 不是同一局面。
+     * （nextShapeIndex 是每手推进的轮转指针，不进 key：进去会让 key 永不重复、禁全同形同虚设。）
+     * 对照：对称点/对称围棋那种**对称序号不进 key**（只要盘上棋子相同就算全同）。
+     */
+    superKoKey(board, shapeState) {
+        const lu = shapeState || this.lastUsedShapeByColor || { 1: -1, 2: -1 };
+        return this.boardToString(board) + '#' + (lu[1] | 0) + ',' + (lu[2] | 0);
+    }
+
+    /** 编辑棋盘后种「这一手局面」用的 key */
+    superKoSeedKey() { return this.superKoKey(this.board, this.lastUsedShapeByColor); }
+
+    /** 悔棋删 key 用：按被撤那一手的着法条目 + 当时的形状快照，重建它记过的 key */
+    superKoKeyForUndo(board, coord, shapeBefore) {
+        const pre = shapeBefore || { 1: -1, 2: -1 };
+        const isSingle = coord && (coord.singleStone === true || (Array.isArray(coord.stones) && coord.stones.length === 1));
+        // 着法条目未必带 shapeIndex（russian/ukrainian 只记落点）→ 用落点反推形状
+        let shape = null;
+        if (coord && !isSingle) {
+            if (coord.shapeIndex != null) shape = coord.shapeIndex;
+            else if (Array.isArray(coord.stones)) {
+                const si = this.inferShapeIndexFromStones(coord.stones);
+                shape = si >= 0 ? si : null;
+            }
+        }
+        return this.superKoKey(board, this.shapeStateAfter(
+            coord && coord.player === 'player2' ? 2 : 1,
+            shape
+        ));
+    }
+
     performUndo(steps, requesterWs) {
         if (steps === 0 || steps > this.historyBoards.length) return;
+        // 本棋种的 historyBoards 存的是「每手**之前**的盘面」，而集合记的是「每手**之后**」的 key
+        // → 撤第 k 手要用「第 k 手之后的盘面」：第一轮是当前盘面，之后是上一轮弹出来的那份
+        let keyBoard = this.board;
         for (let i = 0; i < steps; i++) {
+            const lastCoord = this.moveCoords.length > 0 ? this.moveCoords[this.moveCoords.length - 1] : null;
+            const lastShapeBefore = this.historyLastUsed.length > 0
+                ? this.historyLastUsed[this.historyLastUsed.length - 1]
+                : this.lastUsedShapeByColor;
             if (this.historyBoards.length > 0) {
-                const lastBoardStr = this.boardToString(this.historyBoards[this.historyBoards.length - 1]);
-                this.historyBoardSet.delete(lastBoardStr);
+                this.historyBoardSet.delete(this.superKoKeyForUndo(keyBoard, lastCoord, lastShapeBefore));
+                keyBoard = this.historyBoards[this.historyBoards.length - 1];
                 this.historyBoards.pop();
             }
             if (this.historyMarkers.length > 0) this.lastMoveMarkers = this.historyMarkers.pop() || [];
@@ -444,7 +485,7 @@ class UkrainianWeiqiRoom extends QiTwoPlayerRoomBase {
         const room = this.room;
         const passPlayerVal = this.currentPlayer === 1 ? 1 : 2;
         this.historyBoards.push(this.copyBoard(this.board));
-        this.historyBoardSet.add(this.boardToString(this.board));
+        this.historyBoardSet.add(this.superKoKey(this.board, this.shapeStateAfter(passPlayerVal, null)));
         this.historyMarkers.push(this.copyMarkers(this.lastMoveMarkers));
         this.historyLastUsed.push({ 1: this.lastUsedShapeByColor[1], 2: this.lastUsedShapeByColor[2] });
         this.moveHistory.push(slot);
@@ -485,7 +526,7 @@ class UkrainianWeiqiRoom extends QiTwoPlayerRoomBase {
             ? opts.preBoard
             : this.tryPlaceShape(this.board, shapeIndex, rotation, flipped, row, col, playerVal);
         if (!newBoard) return false;
-        const newBoardStr = this.boardToString(newBoard);
+        const newBoardStr = this.superKoKey(newBoard, this.shapeStateAfter(playerVal, shapeIndex));
         if (this.historyBoardSet.has(newBoardStr)) return false;
         if (!this._drainClockBeforeMove(moveSlot)) return false;
 
@@ -497,7 +538,8 @@ class UkrainianWeiqiRoom extends QiTwoPlayerRoomBase {
         this.board = newBoard;
         const coords = this.generatePlacementCoords(shapeIndex, rotation, flipped, row, col);
         const stoneList = coords.map(([r, c]) => [r, c]);
-        this.moveCoords.push({ type: 'move', player: moveSlot, stones: stoneList });
+        // 记下形状序号：悔棋要用它重建禁全同 key（光靠落点反推不出带旋转的形状）
+        this.moveCoords.push({ type: 'move', player: moveSlot, stones: stoneList, shapeIndex });
         this.lastMoveMarkers = coords.map(([r, c]) => ({ row: r, col: c, color: playerVal }));
         this.lastUsedShapeByColor[playerVal] = shapeIndex;
         this.currentPlayer = 3 - this.currentPlayer;
@@ -522,7 +564,7 @@ class UkrainianWeiqiRoom extends QiTwoPlayerRoomBase {
             ? opts.preBoard
             : this.tryPlaceStonesAt(this.board, [[row, col]], playerVal);
         if (!newBoard) return false;
-        const newBoardStr = this.boardToString(newBoard);
+        const newBoardStr = this.superKoKey(newBoard, this.shapeStateAfter(playerVal, null));
         if (this.historyBoardSet.has(newBoardStr)) return false;
         if (!this._drainClockBeforeMove(moveSlot)) return false;
 
@@ -577,7 +619,7 @@ class UkrainianWeiqiRoom extends QiTwoPlayerRoomBase {
                     const playerVal = this.currentPlayer === 1 ? 1 : 2;
                     const newBoard = this.tryPlaceStonesAt(this.board, [[row, col]], playerVal);
                     if (!newBoard) return;
-                    const newBoardStr = this.boardToString(newBoard);
+                    const newBoardStr = this.superKoKey(newBoard, this.shapeStateAfter(playerVal, null));
                     if (this.historyBoardSet.has(newBoardStr)) {
                         ws.send(JSON.stringify({ type: 'error', message: '禁全同。' }));
                         return;
@@ -591,7 +633,7 @@ class UkrainianWeiqiRoom extends QiTwoPlayerRoomBase {
                 if (this.lastUsedShapeByColor[playerVal] === shapeIndex) return;
                 const newBoard = this.tryPlaceShape(this.board, shapeIndex, rotation, flipped, row, col, playerVal);
                 if (!newBoard) return;
-                const newBoardStr = this.boardToString(newBoard);
+                const newBoardStr = this.superKoKey(newBoard, this.shapeStateAfter(playerVal, shapeIndex));
                 if (this.historyBoardSet.has(newBoardStr)) {
                     ws.send(JSON.stringify({ type: 'error', message: '禁全同。' }));
                     return;
@@ -858,7 +900,8 @@ class UkrainianWeiqiRoom extends QiTwoPlayerRoomBase {
                     this.broadcast({ type: 'roomReset', ...this.getState() });
                     return;
                 }
-                const newBoardStr = this.boardToString(newBoard);
+                const newBoardStr = this.superKoKey(newBoard, this.shapeStateAfter(playerVal,
+                    (stones.length === 1 || move.singleStone === true) ? null : this.inferShapeIndexFromStones(stones)));
                 if (this.historyBoardSet.has(newBoardStr)) {
                     this.resetToEmpty();
                     requesterWs.send(JSON.stringify({ type: 'error', message: `棋谱回放失败：第${i + 1}手禁全同` }));
@@ -875,7 +918,8 @@ class UkrainianWeiqiRoom extends QiTwoPlayerRoomBase {
                     type: 'move',
                     player: slot,
                     stones: stones.map(([r, c]) => [r, c]),
-                    ...(singleStone ? { singleStone: true } : {})
+                    // 形状序号也记下来：悔棋要用它重建禁全同 key（光靠落点反推不出带旋转的形状）
+                    ...(singleStone ? { singleStone: true } : { shapeIndex: this.inferShapeIndexFromStones(stones) })
                 });
                 this.board = newBoard;
                 this.lastMoveMarkers = stones.map(([r, c]) => ({ row: r, col: c, color: playerVal }));
@@ -894,7 +938,7 @@ class UkrainianWeiqiRoom extends QiTwoPlayerRoomBase {
                     return;
                 }
                 this.historyBoards.push(this.copyBoard(this.board));
-                this.historyBoardSet.add(this.boardToString(this.board));
+                this.historyBoardSet.add(this.superKoKey(this.board, this.shapeStateAfter(playerVal, null)));
                 this.historyMarkers.push(this.copyMarkers(this.lastMoveMarkers));
                 this.historyLastUsed.push({ 1: this.lastUsedShapeByColor[1], 2: this.lastUsedShapeByColor[2] });
                 this.moveHistory.push(slot);
@@ -924,11 +968,10 @@ class UkrainianWeiqiRoom extends QiTwoPlayerRoomBase {
         }
 
         if (data.result || data.resultText) {
+            // 导入不做任何判定：结果只按棋谱记录显示（公共层已按本棋种执方名把文案折成座位）
             this.gameOver = true;
-            const importedResultText = data.resultText != null ? String(data.resultText) : String(data.result);
-            this.recordResultText = importedResultText;
-            this.winner = UkrainianWeiqiRoom.parseResultTextToWinner(importedResultText);
-            if (!this.winner && (data.result === 'player1' || data.result === 'player2' || data.result === 'draw'))
+            this.recordResultText = data.resultText ? String(data.resultText) : '';
+            if (data.result === 'player1' || data.result === 'player2' || data.result === 'draw')
                 this.winner = data.result;
         }
 

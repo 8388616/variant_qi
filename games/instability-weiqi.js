@@ -31,7 +31,7 @@ class InstabilityWeiqiRoom extends QiTwoPlayerRoomBase
         this.pendingEnd = null;
         this.pendingScore = null;
         this.scoreProposalData = null;
-        this.historyBoardSet.add(this.stateToString(this.board, this.unstableInfo));
+        this.historyBoardSet.add(this.superKoKey(this.board, this.unstableInfo, this.moveCount));
         this.recordResultText = null;
         /** @type {{ black: number|null, white: number|null }} */
         this.slotJoinedAt = { player1: null, player2: null };
@@ -209,6 +209,18 @@ class InstabilityWeiqiRoom extends QiTwoPlayerRoomBase
         }
         return rows.join(';');
     }
+
+    /**
+     * 禁全同 key = 状态（盘面 + 不稳定信息）+ 当前手数。
+     * 不稳定子按「落子手数 + 寿命」到点消失，所以手数不同 = 之后会发生什么不同；
+     * 只比（盘面 + 不稳定信息）会把「同状态、不同手数」误判成同一局面 → 错杀。
+     */
+    superKoKey(board, unstableInfo, moveCount) {
+        return this.stateToString(board, unstableInfo) + '|' + (moveCount | 0);
+    }
+
+    /** 编辑棋盘后种「这一手局面」用的 key（同一套定义，别退回纯盘面串） */
+    superKoSeedKey() { return this.superKoKey(this.board, this.unstableInfo, this.moveCount); }
 
     rebuildBornAt(unstableInfo) {
         const bornAt = [];
@@ -422,7 +434,7 @@ class InstabilityWeiqiRoom extends QiTwoPlayerRoomBase
                 if (!result) {
                     return;
                 }
-                const newStr = this.stateToString(result.board, result.unstableInfo);
+                const newStr = this.superKoKey(result.board, result.unstableInfo, result.moveCount);
                 if (this.historyBoardSet.has(newStr)) 
                 {
                     ws.send(JSON.stringify({ type: 'error', message: '禁全同。' }));
@@ -456,7 +468,7 @@ class InstabilityWeiqiRoom extends QiTwoPlayerRoomBase
                 }
                 if (!this._drainClockBeforeMove(slot)) return;
                 const passResult = this.applyPass(this.board, this.unstableInfo, this.moveCount);
-                const passStr = this.stateToString(passResult.board, passResult.unstableInfo);
+                const passStr = this.superKoKey(passResult.board, passResult.unstableInfo, passResult.moveCount);
                 if (this.historyBoardSet.has(passStr)) {
                     return;
                 }
@@ -610,7 +622,7 @@ class InstabilityWeiqiRoom extends QiTwoPlayerRoomBase
         for (let i = 0; i < steps; i++) {
             const popped = this.historySnapshots.pop();
             if (popped)
-                this.historyBoardSet.delete(this.stateToString(popped.board, popped.unstableInfo));
+                this.historyBoardSet.delete(this.superKoKey(popped.board, popped.unstableInfo, popped.moveCount));
             if (this.moveHistory.length > 0)
                 this.moveHistory.pop();
             if (this.moveCoords.length > 0)
@@ -669,7 +681,7 @@ class InstabilityWeiqiRoom extends QiTwoPlayerRoomBase
         this.currentPlayer = 1;
         this.historySnapshots = [];
         this.historyBoardSet.clear();
-        this.historyBoardSet.add(this.stateToString(this.board, this.unstableInfo));
+        this.historyBoardSet.add(this.superKoKey(this.board, this.unstableInfo, this.moveCount));
         this.moveHistory = [];
         this.historyMarkers = [];
         this.moveCoords = [];
@@ -724,7 +736,7 @@ class InstabilityWeiqiRoom extends QiTwoPlayerRoomBase
         this.currentPlayer = 1;
         this.historySnapshots = [];
         this.historyBoardSet.clear();
-        this.historyBoardSet.add(this.stateToString(this.board, this.unstableInfo));
+        this.historyBoardSet.add(this.superKoKey(this.board, this.unstableInfo, this.moveCount));
         this.moveHistory = [];
         this.moveCoords = [];
         this.historyMarkers = [];
@@ -765,7 +777,7 @@ class InstabilityWeiqiRoom extends QiTwoPlayerRoomBase
             }
         }
         this.historyBoardSet.clear();
-        this.historyBoardSet.add(this.stateToString(this.board, this.unstableInfo));
+        this.historyBoardSet.add(this.superKoKey(this.board, this.unstableInfo, this.moveCount));
     }
 
     static parseMove(entry) {
@@ -815,7 +827,7 @@ class InstabilityWeiqiRoom extends QiTwoPlayerRoomBase
                     this.broadcast({ type: 'roomReset', ...this.getState() });
                     return;
                 }
-                const newStr = this.stateToString(r.board, r.unstableInfo);
+                const newStr = this.superKoKey(r.board, r.unstableInfo, r.moveCount);
                 if (this.historyBoardSet.has(newStr)) {
                     this.resetToEmpty();
                     requesterWs.send(JSON.stringify({ type: 'error', message: `棋谱回放失败：第${i + 1}手违反禁全同。` }));
@@ -839,7 +851,7 @@ class InstabilityWeiqiRoom extends QiTwoPlayerRoomBase
                 });
             } else if (move.type === 'pass') {
                 const pr = this.applyPass(this.board, this.unstableInfo, this.moveCount);
-                const passStr = this.stateToString(pr.board, pr.unstableInfo);
+                const passStr = this.superKoKey(pr.board, pr.unstableInfo, pr.moveCount);
                 if (this.historyBoardSet.has(passStr)) {
                     this.resetToEmpty();
                     requesterWs.send(JSON.stringify({ type: 'error', message: `棋谱回放失败：第${i + 1}手虚着违反禁全同。` }));
@@ -880,11 +892,10 @@ class InstabilityWeiqiRoom extends QiTwoPlayerRoomBase
         }
 
         if (data.result || data.resultText) {
+            // 导入不做任何判定：结果只按棋谱记录显示（公共层已按本棋种执方名把文案折成座位）
             this.gameOver = true;
-            const importedResultText = data.resultText != null ? String(data.resultText) : String(data.result);
-            this.recordResultText = importedResultText;
-            this.winner = InstabilityWeiqiRoom.parseResultTextToWinner(importedResultText);
-            if (!this.winner && (data.result === 'player1' || data.result === 'player2' || data.result === 'draw'))
+            this.recordResultText = data.resultText ? String(data.resultText) : '';
+            if (data.result === 'player1' || data.result === 'player2' || data.result === 'draw')
                 this.winner = data.result;
         }
 
@@ -896,15 +907,6 @@ class InstabilityWeiqiRoom extends QiTwoPlayerRoomBase
                 moves: this.moveCoords.map(m => ({ ...m }))
             }
         });
-    }
-
-    static parseResultTextToWinner(resultText) {
-        if (!resultText || typeof resultText !== 'string') return null;
-        if (resultText === '和棋' || resultText === 'draw') return 'draw';
-        if (resultText.includes('白胜')) return 'white';
-        if (resultText.includes('黑胜')) return 'black';
-        if (resultText === 'black' || resultText === 'white' || resultText === 'draw') return resultText;
-        return null;
     }
 
     getMoveCount() {

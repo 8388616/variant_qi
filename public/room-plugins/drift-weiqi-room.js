@@ -961,6 +961,15 @@ const scoreTitle = document.getElementById('scoreTitle');
 
         function applyLiveReplayIncrementalDrift(moveCoords) {
             const startLen = ps.liveReplayBoards.length - 1;
+            // 运行时那条通用路径（进房 / 重置 / 换路数：room.js 里直接 `ps.liveReplayBoards = [开局盘面]`）
+            // 只会设 liveReplayBoards，不会碰本棋种自己的「年龄图 / 漂移次数」两条伴生数组。
+            // 长度对不上时必须返回 false 让调用方退回**整段重建**，否则这里会读到 undefined：
+            // 现象是「中途进有落子的漂移房」直接抛异常（Cannot read properties of undefined），盘面也不再刷新。
+            const aligned = Array.isArray(ps.liveReplayHandNumAts)
+                && Array.isArray(ps.liveReplayDriftCounts)
+                && ps.liveReplayHandNumAts.length === ps.liveReplayBoards.length
+                && ps.liveReplayDriftCounts.length === ps.liveReplayBoards.length;
+            if (!aligned) return false;
             const mcs = moveCoords || [];
             if (mcs.length <= startLen) return true;
             const boardSize = ps.BOARD_SIZE;
@@ -976,7 +985,9 @@ const scoreTitle = document.getElementById('scoreTitle');
 
                 const playerVal = move.player === 'player1' ? 1 : 2;
                 ps.liveReplayStepPlayers.push(playerVal);
-                const completedPlyCount = liveReplayStepPlayers.length - 1;
+                // 原来这里漏了 ps. 前缀（引用了不存在的全局名），只要走到增量路径就 ReferenceError；
+                // 中途进房/重连正是走这条路的，所以一直没被发现。
+                const completedPlyCount = ps.liveReplayStepPlayers.length - 1;
                 const driftNow = rwWillDriftThisPly(driftCount, driftInterval, completedPlyCount);
                 if (move.type === 'move') {
                     let lastMoveMarkers;
@@ -1387,7 +1398,13 @@ const scoreTitle = document.getElementById('scoreTitle');
             setLiveViewStep,
             getWs: () => ps.ws,
             getBoardSize: () => ps.BOARD_SIZE,
-            setBoardSize: (n) => { ps.BOARD_SIZE = n; },
+            setBoardSize: (n) => {
+                ps.BOARD_SIZE = n;
+                // 运行时「进房 / 导入 / 重置」那条路只调这个钩子（不走 syncStateImpl），而漂移间隔随路数变
+                // （规则里的映射表：8→5、10→7 …）；本地重放/追状态全靠它——不同步的话后进房间的人
+                // 会按上一个路数的间隔重放，盘面直接错。
+                ps.driftInterval = rwComputeInterval(n);
+            },
             getKomi: () => ps.KOMI,
             setKomi: (n) => { ps.KOMI = n; },
             getBoard: () => ps.board,

@@ -607,7 +607,8 @@ class GuessNumberRoom {
             history: { player1: this.history.player1, player2: this.history.player2 },
             round: this.round,
             winner: this.winner,
-            result: this.resultText
+            result: this.winner,          // 座位（导出时公共层会按执方色写成「黑胜/白胜…」）
+            resultText: this.resultText
         };
     }
 
@@ -628,7 +629,8 @@ class GuessNumberRoom {
         };
         this.round = Number(data.round) || 0;
         this.winner = data.winner || null;
-        this.resultText = data.result || '';
+        // 棋谱里的终局是文案（resultText）；result 由公共层折成座位，不能当文案用
+        this.resultText = data.resultText ? String(data.resultText) : '';
         this.gameOver = this.phase === 'over';
         this.confirmed = { player1: !!this.grids.player1, player2: !!this.grids.player2 };
         this.drafts = { player1: this.grids.player1, player2: this.grids.player2 };

@@ -438,19 +438,22 @@ const scoreTitle = document.getElementById('scoreTitle');
             updateRecordButtons();
         }
 
+        let bindingsUpdateRecordButtons = null;   // 公共实现（_seatOverlay 建好后赋值）
         function updateRecordButtons() {
+            // 按钮显隐走公共实现（导出棋谱任何时候都显示）；下面留一份兜底，万一没接上 bindings
+            if (bindingsUpdateRecordButtons) { bindingsUpdateRecordButtons(); return; }
             const importBtn = document.getElementById('importBtn');
             const exportBtn = document.getElementById('exportBtn');
             if (!importBtn || !exportBtn) return;
             if (replayMode) {
                 importBtn.style.display = 'none';
-                exportBtn.style.display = 'none';
+                exportBtn.style.display = '';   // 导出棋谱任何时候都显示（还没开局就导空棋谱）
             } else {
                 const hasAnyStone = board.some(row => row.some(v => v !== 0));
                 const noPlayers = !slots.player1 && !slots.player2;
                 if (noPlayers && !hasAnyStone) {
                     importBtn.style.display = '';
-                    exportBtn.style.display = 'none';
+                    exportBtn.style.display = '';
                 } else {
                     importBtn.style.display = 'none';
                     exportBtn.style.display = '';
@@ -738,6 +741,7 @@ syncState,
             standardWeiqiMatchTime,
             boardSeatOverlay: true
         });
+        bindingsUpdateRecordButtons = _seatOverlay.updateRecordButtons;
         const baseRoomHandleMessage = _weiqiBindings.handleMessage;
 
         // WebSocket

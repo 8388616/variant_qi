@@ -898,6 +898,7 @@ function maybeScheduleKatago(self) {
         const gen = self._qiKatagoGen;
         self._qiKatagoBusy = true;
         touchKatagoActivity(self);
+		
         self._qiKatago.genMove(colorOfSlot(self.computerSlot)).then((mv) => {
             if (gen !== self._qiKatagoGen || self.gameOver || !self.computerSlot) return;
             if (mv && mv.pass) {

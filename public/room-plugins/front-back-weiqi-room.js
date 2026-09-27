@@ -1350,7 +1350,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             const now = new Date();
             const pad = n => n.toString().padStart(2, '0');
             const dateStr = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
-            const filename = `正反面围棋_${data.boardSize}路_${dateStr}.json`;
+            const filename = `正反面围棋_${dateStr}.json`;   // 棋类_时间.json（不再带路数）
             const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
