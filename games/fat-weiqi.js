@@ -5,21 +5,46 @@ const { qiBoardSeatOverlay, QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl,
 // ======================== 胖围棋规则 ========================
 // 胖围棋在围棋基础上修改三条规则：
 //  1) 落子不能与任何棋盘上已有的棋子相邻（上下左右四邻）。
-//  2) 同色棋子按「胖连接」成组：坐标差 (±1,±1) 或 (±1,±2)/(±2,±1) 的点相连
-//     （普通四邻不相连）；提子整组提。
+//  2) 同色棋子按「胖连接」成组：坐标差 (±1,±1)（小尖）、(±1,±2)/(±2,±1)（小飞）
+//     或 (±2,0)/(0,±2)（跳）的点相连（普通四邻不相连）；提子整组提。
+//     跳要跨过中间那个空点；若双方的跳在同一中间点交叉（十字形，四个端点两种颜色），
+//     则这两个跳都不算相连。
 //  3) 一组若能「落一个子与它相连」的点（胖邻且可落子的空点）全部不存在，
 //     则整组被提 —— 可落子点被自己或对方占掉、或因四邻有子而不可落，都会让它失气。
 // 落子后只判定受影响组：落点 p 及其四邻空点的可落性变化，
 // 会影响的组 = p 与其四邻点的胖邻棋子所在组；先判对方提子再判己方。
 const ORTH_DIRS = [[-1, 0], [1, 0], [0, -1], [0, 1]];
 const FAT_DIRS = [
-    [-1, -1], [-1, 1], [1, -1], [1, 1],       // 横纵各差 1
-    [-1, -2], [-1, 2], [1, -2], [1, 2],       // 横差 1 纵差 2
-    [-2, -1], [-2, 1], [2, -1], [2, 1]        // 横差 2 纵差 1
+    [-1, -1], [-1, 1], [1, -1], [1, 1],       // 小尖：横纵各差 1
+    [-1, -2], [-1, 2], [1, -2], [1, 2],       // 小飞：横差 1 纵差 2
+    [-2, -1], [-2, 1], [2, -1], [2, 1],       // 小飞：横差 2 纵差 1
+    [-2, 0], [2, 0], [0, -2], [0, 2]          // 跳：同一条轴上隔一点
 ];
 const inB = (r, c, n) => r >= 0 && r < n && c >= 0 && c < n;
 
-/** 收集 (r,c) 同色棋子所在的胖组（12 向递归闭包），返回 [[r,c],...]（不含 (r,c) 为空的情况） */
+/**
+ * (r,c) 一步走到 (tr,tc) 是否算「胖相连」。这里的 (tr,tc) 既可以是同色棋子（连组用），
+ * 也可以是用来判「可落子相连点」的空点（连组用不到颜色对，判定与落子后一致）。
+ *  - 小尖/小飞：跃过去，中间有没有子都一样算相连；
+ *  - 跳：中间那个空点必须还是空的；若与对方的跳在同一中间点交叉则不算相连 ——
+ *    交叉即另一条轴的上下（或左右）两格都是对方棋子（对方那两格相距 2、中间点同为该点，
+ *    所以那也正是对方的一个跳，一并失效）。
+ */
+function fatLinkOk(board, r, c, tr, tc, n) {
+    const dr = tr - r;
+    const dc = tc - c;
+    if (dr !== 0 && dc !== 0) return true;
+    const mr = (r + tr) / 2;
+    const mc = (c + tc) / 2;
+    if (!inB(mr, mc, n) || board[mr][mc] !== 0) return false;
+    const opp = 3 - board[r][c];
+    const a = dr === 0 ? [mr - 1, mc] : [mr, mc - 1];
+    const b = dr === 0 ? [mr + 1, mc] : [mr, mc + 1];
+    if (!inB(a[0], a[1], n) || !inB(b[0], b[1], n)) return true;
+    return !(board[a[0]][a[1]] === opp && board[b[0]][b[1]] === opp);
+}
+
+/** 收集 (r,c) 同色棋子所在的胖组（胖相连递归闭包），返回 [[r,c],...]（不含 (r,c) 为空的情况） */
 function fatGroupStones(board, r, c, n) {
     const color = board[r][c];
     if (color === 0) return [];
@@ -33,17 +58,17 @@ function fatGroupStones(board, r, c, n) {
         for (const [dr, dc] of FAT_DIRS) {
             const nr = cr + dr;
             const nc = cc + dc;
-            if (inB(nr, nc, n) && board[nr][nc] === color && !visited[nr][nc]) {
-                visited[nr][nc] = 1;
-                queue.push([nr, nc]);
-            }
+            if (!inB(nr, nc, n) || board[nr][nc] !== color || visited[nr][nc]) continue;
+            if (!fatLinkOk(board, cr, cc, nr, nc, n)) continue;
+            visited[nr][nc] = 1;
+            queue.push([nr, nc]);
         }
     }
     return stones;
 }
 
 /**
- * 组是否有「可落子相连点」：存在空点 q，q 胖邻于组内某子，
+ * 组是否有「可落子相连点」：存在空点 q，q 胖相连于组内某子，
  * 且 q 的上下左右四邻没有任何棋子（规则 1，可合法落子）。
  */
 function fatGroupHasPlayableSpot(board, stones, n) {
@@ -53,6 +78,7 @@ function fatGroupHasPlayableSpot(board, stones, n) {
             const nr = r + dr;
             const nc = c + dc;
             if (!inB(nr, nc, n) || board[nr][nc] !== 0) continue;
+            if (!fatLinkOk(board, r, c, nr, nc, n)) continue;   // 中间被占 / 与对方的跳交叉：这一步不算相连
             const key = nr * n + nc;
             if (seenSpots.has(key)) continue;
             seenSpots.add(key);
@@ -68,23 +94,11 @@ function fatGroupHasPlayableSpot(board, stones, n) {
     return false;
 }
 
-/** 在盘面上把 (r,c) 所在的整组（12 向同色）清空 */
+/** 在盘面上把 (r,c) 所在的整组（胖相连）清空 */
 function fatRemoveGroupAt(board, r, c, n) {
-    const color = board[r][c];
-    if (color === 0) return;
-    const queue = [[r, c]];
-    board[r][c] = 0;
-    for (let i = 0; i < queue.length; i++) {
-        const [cr, cc] = queue[i];
-        for (const [dr, dc] of FAT_DIRS) {
-            const nr = cr + dr;
-            const nc = cc + dc;
-            if (inB(nr, nc, n) && board[nr][nc] === color) {
-                board[nr][nc] = 0;
-                queue.push([nr, nc]);
-            }
-        }
-    }
+    // 跳/交叉的判定依赖盘面，所以要先把整组算出来再统一清空（边提边算会算歪）
+    const stones = fatGroupStones(board, r, c, n);
+    for (const [r2, c2] of stones) board[r2][c2] = 0;
 }
 
 class WeiqiRoom extends QiTwoPlayerRoomBase
@@ -210,7 +224,7 @@ class WeiqiRoom extends QiTwoPlayerRoomBase
     }
 
     countGroupLiberties(board, row, col) {
-        // 胖语义：该胖组「可落子的相连点」个数（空点胖邻于组且其四邻无子）
+        // 胖语义：该胖组「可落子的相连点」个数（空点胖相连于组且其四邻无子）
         const n = this.boardSize;
         const stones = fatGroupStones(board, row, col, n);
         const seenSpots = new Set();
@@ -220,6 +234,7 @@ class WeiqiRoom extends QiTwoPlayerRoomBase
                 const nr = r + dr;
                 const nc = c + dc;
                 if (!inB(nr, nc, n) || board[nr][nc] !== 0) continue;
+                if (!fatLinkOk(board, r, c, nr, nc, n)) continue;   // 中间被占 / 与对方的跳交叉：这一步不算相连
                 const key = nr * n + nc;
                 if (seenSpots.has(key)) continue;
                 seenSpots.add(key);
@@ -277,10 +292,10 @@ class WeiqiRoom extends QiTwoPlayerRoomBase
                     for (const [dr2, dc2] of FAT_DIRS) {
                         const ar = cr + dr2;
                         const ac = cc + dc2;
-                        if (inB(ar, ac, n) && newBoard[ar][ac] === color && !visitedCells[ar][ac]) {
-                            visitedCells[ar][ac] = 1;
-                            queue.push([ar, ac]);
-                        }
+                        if (!inB(ar, ac, n) || newBoard[ar][ac] !== color || visitedCells[ar][ac]) continue;
+                        if (!fatLinkOk(newBoard, cr, cc, ar, ac, n)) continue;
+                        visitedCells[ar][ac] = 1;
+                        queue.push([ar, ac]);
                     }
                 }
                 candidates.push({ color, stones });
@@ -589,7 +604,7 @@ class WeiqiRoom extends QiTwoPlayerRoomBase
 
     setBoardSize(newSize, requesterWs)
     {
-        if (!Number.isInteger(newSize) || newSize < 7 || newSize > 27) {
+        if (!Number.isInteger(newSize) || newSize < 7 || newSize > 21) {
             requesterWs.send(JSON.stringify({ type: 'error', message: '棋盘大小无效' }));
             return false;
         }
@@ -676,7 +691,7 @@ class WeiqiRoom extends QiTwoPlayerRoomBase
             return;
         }
         const newSize = data.boardSize || 19;
-        if (!Number.isInteger(newSize) || newSize > 27) {
+        if (!Number.isInteger(newSize) || newSize > 21) {
             requesterWs.send(JSON.stringify({ type: 'error', message: '棋谱中棋盘大小无效' }));
             return;
         }

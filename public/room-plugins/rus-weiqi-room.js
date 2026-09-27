@@ -12,6 +12,7 @@ window.RoomPlugins['rus-weiqi'] = {
         "useBenson": false,
         "standardWeiqiMatchTime": true,
         "features": {
+            "showEstimate": true,
             "woodTexture": true,
             "zoomScroll": false,
             "editBoard": true,

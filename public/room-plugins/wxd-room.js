@@ -11,6 +11,7 @@ window.RoomPlugins["wxd"] = {
         "recordDownloadPrefix": "WxD棋",
         "standardWeiqiMatchTime": true,
         "features": {
+            "showEstimate": true,
             "woodTexture": true,
             "editBoard": true,
             "customTimeControl": true

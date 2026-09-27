@@ -781,21 +781,11 @@ class FrontBackWeiqiRoom extends QiTwoPlayerRoomBase {
                 break;
 
             case 'requestNewGame':
-                if (!slot) return;
-                {
-                    const newGameOpponent = room.getPlayerBySlot(slot === 'player1' ? 'player2' : 'player1');
-                    if (!newGameOpponent) this.resetGame();
-                    else {
-                        this.pendingNewGame = ws;
-                        newGameOpponent.send(JSON.stringify({ type: 'newGameRequest' }));
-                    }
-                }
+                qiProtocol.requestNewGame(this, ws, slot);
                 break;
 
             case 'newGameResponse':
-                if (this.pendingNewGame && msg.accept) this.resetGame();
-                else if (this.pendingNewGame && !msg.accept) this.pendingNewGame.send(JSON.stringify({ type: 'error', message: '对方拒绝开始新局' }));
-                this.pendingNewGame = null;
+                qiProtocol.newGameResponse(this, ws, msg, { newGameDeniedMsg: '对方拒绝开始新局' });
                 break;
 
             case 'requestDraw':

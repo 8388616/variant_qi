@@ -2,11 +2,11 @@ window.RoomPlugins = window.RoomPlugins || {};
 window.RoomPlugins["rotation-wuziqi"] = {
     shell: {
         "title": "旋转五子棋",
-        "rulesHtml": "基本规则同五子棋。<br /><br />棋盘分为四个板块。每隔<strong>0.07×棋盘总点数，向上取奇</strong>数手，所有板块沿<strong>顺时针</strong>轮换旋转。若旋转后双方同时连五则和棋。<br /><br />最多旋转 <strong>8</strong> 次（两整圈），之后不再旋转。<br /><br />棋盘的路数和旋转手数的映射关系为：<br /><strong>8 </strong>5<br /><strong>10 </strong>7<br /><strong>12 </strong>11<br /><strong>14 </strong>15<br /><strong>16 </strong>19<br /><strong>18 </strong>23<br /><strong>20 </strong>29<br /><br />",
+        "rulesHtml": "基本规则同五子棋。<br /><br />落子时，落子点周围八格的棋子沿<strong>顺时针</strong>旋转一格。<br /><br />双方同时形成五连时，落子方判负。<br /><br />",
         "defaultKomiText": "无禁手",
-        "boardSizeMin": 8,
-        "boardSizeMax": 20,
-        "defaultBoardSize": 12,
+        "boardSizeMin": 7,
+        "boardSizeMax": 15,
+        "defaultBoardSize": 13,
         "minLib": 1,
         "recordDownloadPrefix": "旋转五子棋",
         "standardWeiqiMatchTime": true,
@@ -14,29 +14,10 @@ window.RoomPlugins["rotation-wuziqi"] = {
             "woodTexture": true,
             "editBoard": true
         },
-        "boardSizeStep": 2,
-        "boardSizeValues": [
-            8,
-            10,
-            12,
-            14,
-            16,
-            18,
-            20
-        ],
         "editTools": [
-            {
-                "value": "empty",
-                "label": "空"
-            },
-            {
-                "value": "black",
-                "label": "黑子"
-            },
-            {
-                "value": "white",
-                "label": "白子"
-            }
+            { "value": "empty", "label": "空" },
+            { "value": "black", "label": "黑子" },
+            { "value": "white", "label": "白子" }
         ]
     },
     mount: function (ctx) {
@@ -50,264 +31,8 @@ window.RoomPlugins["rotation-wuziqi"] = {
 
 
         (function () {
-const C = () => QiSquareWeiqiCanvas;
-        const R = () => QiWeiqiSquarePageRuntime;
-
-        const RW_MAX_ROT = 8;
-        const RW_TINT = '#cb9665';
-        const pageHolder = { ref: null };
-
-        function rwComputeInterval(n) {
-            let x = Math.ceil(0.07 * n * n);
-            if (x % 2 === 0) x += 1;
-            return x;
-        }
-        function rwRotateCell(r, c, half) {
-            if (r < half && c < half) return [r, c + half];
-            if (r < half) return [r + half, c];
-            if (c < half) return [r - half, c];
-            return [r, c - half];
-        }
-        function rwInitZero(n) {
-            return Array(n).fill(0).map(() => Array(n).fill(0));
-        }
-        function rwNormalizeMatrix(raw, n) {
-            const normalized = rwInitZero(n);
-            if (!Array.isArray(raw)) return normalized;
-            for (let r = 0; r < n; r++) {
-                if (!Array.isArray(raw[r])) continue;
-                for (let c = 0; c < n; c++) {
-                    const value = raw[r][c];
-                    if (Number.isFinite(value)) normalized[r][c] = value;
-                }
-            }
-            return normalized;
-        }
-        function rwSafeMatrixAt(matrix, r, c) {
-            const row = Array.isArray(matrix) ? matrix[r] : null;
-            const value = Array.isArray(row) ? row[c] : 0;
-            return Number.isFinite(value) ? value : 0;
-        }
-        function rwRotateBoardLike(board, n, mapCell) {
-            const nb = rwInitZero(n);
-            for (let r = 0; r < n; r++) {
-                for (let c = 0; c < n; c++) {
-                    const [nr, nc] = mapCell(r, c);
-                    nb[nr][nc] = board[r][c];
-                }
-            }
-            return nb;
-        }
-        function rwRotateQuadrantsClockwise(board, handNumAt, n) {
-            const half = n / 2;
-            const mapCell = (r, c) => rwRotateCell(r, c, half);
-            return {
-                board: rwRotateBoardLike(board, n, mapCell),
-                handNumAt: rwRotateBoardLike(handNumAt, n, mapCell)
-            };
-        }
-        function rwRotateMarkers(markers, n) {
-            if (!markers || !markers.length) return [];
-            const half = n / 2;
-            return markers.map(m => {
-                const [nr, nc] = rwRotateCell(m.row, m.col, half);
-                return { row: nr, col: nc, color: m.color };
-            });
-        }
-        function rwSyncHand(board, hand) {
-            const n = board.length;
-            for (let r = 0; r < n; r++) {
-                for (let c = 0; c < n; c++) {
-                    if (board[r][c] === 0) hand[r][c] = 0;
-                }
-            }
-        }
-        function rwMaybeRotate(board, handNumAt, rotationCount, n, rotationInterval, completedPlyCount, lastMoveMarkers) {
-            if (rotationCount >= RW_MAX_ROT) {
-                return { board, handNumAt, rotationCount, lastMoveMarkers };
-            }
-            if (completedPlyCount <= 0 || completedPlyCount % rotationInterval !== 0) {
-                return { board, handNumAt, rotationCount, lastMoveMarkers };
-            }
-            const r = rwRotateQuadrantsClockwise(board, handNumAt, n);
-            return {
-                board: r.board,
-                handNumAt: r.handNumAt,
-                rotationCount: rotationCount + 1,
-                lastMoveMarkers: rwRotateMarkers(lastMoveMarkers, n)
-            };
-        }
-        function rwBoardHasFiveForColor(board, boardSize, colorVal) {
-            for (let r = 0; r < boardSize; r++) {
-                for (let c = 0; c < boardSize; c++) {
-                    if (board[r][c] === colorVal && R().checkWuziqiFiveInRow(board, r, c, colorVal, boardSize)) {
-                        return true;
-                    }
-                }
-            }
-            return false;
-        }
-        /** 旋转后连五判胜；双方同时连五判和棋。 */
-        function rwWinnerSlotAfterRotation(board, boardSize) {
-            const blackFive = rwBoardHasFiveForColor(board, boardSize, 1);
-            const whiteFive = rwBoardHasFiveForColor(board, boardSize, 2);
-            if (blackFive && whiteFive) return 'draw';
-            if (blackFive) return 'black';
-            if (whiteFive) return 'white';
-            return null;
-        }
-        function rwRotateUserBoardMarks(map, n) {
-            if (!map || typeof map !== 'object') return;
-            const half = n / 2;
-            const entries = Object.keys(map);
-            const next = Object.create(null);
-            for (const key of entries) {
-                const [r, c] = key.split(',').map(Number);
-                if (r < 0 || r >= n || c < 0 || c >= n) continue;
-                const [nr, nc] = rwRotateCell(r, c, half);
-                next[`${nr},${nc}`] = map[key];
-            }
-            for (const key of entries) delete map[key];
-            for (const k of Object.keys(next)) map[k] = next[k];
-        }
-
-        function getQuadrantTintRects(boardSize, padding, cellSize) {
-            const span = boardSize / 2 - 0.5;
-            const wh = span * cellSize;
-            const x0 = padding;
-            const x1 = padding + wh;
-            const y0 = padding;
-            const y1 = padding + wh;
-            return {
-                tl: { x: x0, y: y0, w: wh, h: wh },
-                tr: { x: x1, y: y0, w: wh, h: wh },
-                bl: { x: x0, y: y1, w: wh, h: wh },
-                br: { x: x1, y: y1, w: wh, h: wh }
-            };
-        }
-        function rwGetTintPairKeys(rotationCount) {
-            return ((rotationCount | 0) % 2 === 0) ? ['tl', 'br'] : ['tr', 'bl'];
-        }
-        function drawQuadrantTint(ctx, boardSize, padding, cellSize, show, rotationCount) {
-            if (!show || boardSize % 2 !== 0) return;
-            const RQ = getQuadrantTintRects(boardSize, padding, cellSize);
-            const keys = rwGetTintPairKeys(rotationCount);
-            ctx.save();
-            ctx.fillStyle = RW_TINT;
-            for (const k of keys) {
-                const q = RQ[k];
-                ctx.fillRect(q.x, q.y, q.w, q.h);
-            }
-            ctx.restore();
-        }
-
-        /** 与盘面象限顺时针轮换一致：底色块从当前象限移到顺时针下一象限 */
-        function rwTintQuadKeyStepCW(k) {
-            const m = { tl: 'tr', tr: 'br', br: 'bl', bl: 'tl' };
-            return m[k];
-        }
-        function rwTintQuadKeyStepCWNTimes(k, n) {
-            let x = k;
-            for (let i = 0; i < n; i++) x = rwTintQuadKeyStepCW(x);
-            return x;
-        }
-        /** 旋转动画：两块底色从旋转前象限沿顺时针插值到旋转后象限 */
-        function drawQuadrantTintAnimated(ctx, boardSize, padding, cellSize, t, preRotationCount, rotationDelta) {
-            if (boardSize % 2 !== 0) return;
-            const RQ = getQuadrantTintRects(boardSize, padding, cellSize);
-            const dr = Math.max(0, rotationDelta | 0);
-            if (dr === 0) return;
-            const preRc = preRotationCount | 0;
-            const keys = rwGetTintPairKeys(preRc);
-            const lerp = (a, b) => a + (b - a) * t;
-            ctx.save();
-            ctx.fillStyle = RW_TINT;
-            for (const k of keys) {
-                const from = RQ[k];
-                const endK = rwTintQuadKeyStepCWNTimes(k, dr);
-                const to = RQ[endK];
-                ctx.fillRect(lerp(from.x, to.x, t), lerp(from.y, to.y, t), from.w, from.h);
-            }
-            ctx.restore();
-        }
-
-        function drawQuadrantWarningStroke(ctx, boardSize, padding, cellSize) {
-            const RQ = getQuadrantTintRects(boardSize, padding, cellSize);
-            ctx.save();
-            ctx.strokeStyle = '#e02020';
-            ctx.lineWidth = 3;
-            for (const k of ['tl', 'tr', 'bl', 'br']) {
-                const q = RQ[k];
-                ctx.strokeRect(q.x, q.y, q.w, q.h);
-            }
-            ctx.restore();
-        }
-
-        function startQuadrantBlink(allowReplayBlink) {
-            if (ps.rotationAnimating) return;
-            if (!allowReplayBlink && (ps.replayMode || isBrowsingLiveReplay(ps))) return;
-            let count = 0;
-            const tick = () => {
-                ps.blinkQuadrants = !ps.blinkQuadrants;
-                pageHolder.ref.drawBoard();
-                count++;
-                if (count < 6) setTimeout(tick, 200);
-                else {
-                    ps.blinkQuadrants = false;
-                    pageHolder.ref.drawBoard();
-                }
-            };
-            tick();
-        }
-
-        function rwWillRotateThisPly(rotationCount, rotationInterval, completedPlyCount) {
-            if (rotationCount >= RW_MAX_ROT) return false;
-            if (completedPlyCount <= 0 || completedPlyCount % rotationInterval !== 0) return false;
-            return true;
-        }
-
-        /** 与服务器 rotateQuadrantsClockwise 互逆的一步：由旋转后的盘面还原旋转前 */
-        function rwUnrotateBoardOnce(post, n) {
-            const half = n / 2;
-            const pre = rwInitZero(n);
-            for (let r = 0; r < n; r++) {
-                for (let c = 0; c < n; c++) {
-                    const [nr, nc] = rwRotateCell(r, c, half);
-                    pre[r][c] = post[nr][nc];
-                }
-            }
-            return pre;
-        }
-        function rwRotateCellCCW(r, c, half) {
-            let a = r, b = c;
-            for (let i = 0; i < 3; i++) [a, b] = rwRotateCell(a, b, half);
-            return [a, b];
-        }
-        function rwRotateMarkersCCW(markers, n) {
-            if (!markers || !markers.length) return [];
-            const half = n / 2;
-            return markers.map(m => {
-                const [r, c] = rwRotateCellCCW(m.row, m.col, half);
-                return { row: r, col: c, color: m.color };
-            });
-        }
-
-        function isBrowsingLiveReplay(pageState) {
-            if (!pageState || !pageState.liveReplayBoards || !pageState.liveReplayBoards.length) return false;
-            const total = Math.max(0, pageState.liveReplayBoards.length - 1);
-            return pageState.liveViewStep < total;
-        }
-
-        function isUserBoardMarkVisibleAt(ps) {
-            return function (r, c) {
-                if (r < 0 || r >= ps.BOARD_SIZE || c < 0 || c >= ps.BOARD_SIZE) return false;
-                if (ps.board[r][c] !== 0) return false;
-                return true;
-            };
-        }
-
 const ps = {
-            BOARD_SIZE: 12,
+            BOARD_SIZE: 13,
             KOMI: 0,
             PADDING: 0,
             CELL_SIZE: 0,
@@ -329,8 +54,6 @@ const ps = {
             replayMode: false,
             replayBoards: [],
             replayMarkers: [],
-            replayHandNumAts: [],
-            replayRotationCounts: [],
             replayStepPlayers: [],
             replayStep: 0,
             replayTotalSteps: 0,
@@ -345,35 +68,22 @@ const ps = {
             tryPlayTotalSteps: 0,
             liveReplayBoards: [],
             liveReplayMarkers: [],
-            liveReplayHandNumAts: [],
-            liveReplayRotationCounts: [],
             liveReplayStepPlayers: [],
             liveViewStep: 0,
             liveFollowLatest: true,
             userBoardMarks: Object.create(null),
             hoverRow: -1,
             hoverCol: -1,
-            isHoverValid: false,
-            handNumAt: [],
-            rotationCount: 0,
-            rotationInterval: rwComputeInterval(12),
-            showBlockTint: true,
-            blinkQuadrants: false,
-            rotationAnimating: false,
-            lastSyncedMoveCoords: [],
-            /** null = 尚未与本局对齐，首次同步不播放旋转动画（中途进房/重连追状态） */
-            lastRotationCountForAnim: null
+            isHoverValid: false
         };
         (function initSquareGeometry() {
             const g = QiSquareWeiqiCanvas.computePaddingAndCell(ps.BOARD_SIZE);
             ps.PADDING = g.padding;
             ps.CELL_SIZE = g.cellSize;
             ps.board = Array(ps.BOARD_SIZE).fill().map(() => Array(ps.BOARD_SIZE).fill(0));
-            ps.handNumAt = rwInitZero(ps.BOARD_SIZE);
-            ps.rotationInterval = rwComputeInterval(ps.BOARD_SIZE);
         })();
 
-        const BOARD_MARK_CHAR_LIST = (() => {
+const BOARD_MARK_CHAR_LIST = (() => {
             const a = [];
             a.push('?', '!');
             for (let i = 0; i < 26; i++) a.push(String.fromCharCode(65 + i));
@@ -414,445 +124,172 @@ const scoreTitle = document.getElementById('scoreTitle');
             colorStatus
         };
 
-        function drawSingleStone(ctx, x, y, cellSize, val) {
-            const radius = cellSize * 0.44;
-            ctx.save();
-            ctx.shadowBlur = 6;
-            ctx.shadowColor = 'rgba(0,0,0,0.5)';
-            ctx.shadowOffsetY = 2;
-            const gradient = ctx.createRadialGradient(x - 3, y - 3, radius * 0.2, x, y, radius * 1.2);
-            if (val === 1) {
-                gradient.addColorStop(0, '#444');
-                gradient.addColorStop(0.6, '#222');
-                gradient.addColorStop(1, '#111');
-            } else {
-                gradient.addColorStop(0, '#fff');
-                gradient.addColorStop(0.5, '#eee');
-                gradient.addColorStop(1, '#aaa');
+        /* ---------- 环旋转孪生：与服务端 games/rotation-%GAME%.js 同逻辑 ----------
+           落子后，落点周围八格的棋子沿**顺时针**整体挪一格；边、角处只有盘内的邻格参与，
+           按顺时针顺序构成闭环。屏幕上顺时针 = 北→东北→东→东南→南→西南→西→西北；
+           本仓库 row 0 在最下方，故顺时针序列为 (+1,0),(+1,+1),(0,+1),(-1,+1),(-1,0),(-1,-1),(0,-1),(+1,-1)。 */
+        const RING_CW = [[1, 0], [1, 1], [0, 1], [-1, 1], [-1, 0], [-1, -1], [0, -1], [1, -1]];
+
+        /** 把落点周围的环顺时针挪一格；board 需已含刚落下的子（落点本身不动） */
+        function rotateRingClockwise(board, row, col, boardSize) {
+            const cells = [];
+            for (const [dr, dc] of RING_CW) {
+                const r = row + dr;
+                const c = col + dc;
+                if (r >= 0 && r < boardSize && c >= 0 && c < boardSize) cells.push([r, c]);
             }
-            ctx.beginPath();
-            ctx.arc(x, y, radius, 0, 2 * Math.PI);
-            ctx.fillStyle = gradient;
-            ctx.fill();
-            ctx.restore();
-            if (!ps.showMoveNumbers) {
-                ctx.beginPath();
-                ctx.arc(x - 3, y - 3, radius * 0.15, 0, 2 * Math.PI);
-                ctx.fillStyle = val === 1 ? '#444' : '#fff';
-                ctx.fill();
+            if (cells.length < 2) return board;
+            const next = QiSquareWeiqiCanvas.deepCopyBoard(board);
+            for (let i = 0; i < cells.length; i++) {
+                const [r, c] = cells[i];
+                const [pr, pc] = cells[(i - 1 + cells.length) % cells.length];   // 顺时针上一格
+                next[r][c] = board[pr][pc];
             }
+            return next;
         }
 
-        function drawRotationAnimFrame(anim, t) {
-            const d = C().draw;
-            const cs = C().DEFAULT_CANVAS_SIZE;
-            const cellSize = ps.CELL_SIZE;
-            const n = ps.BOARD_SIZE;
-            const half = n / 2;
-            const pad = ps.PADDING;
-            const preB = anim.preBoard;
-            const preH = anim.preHandNumAt;
-            d.clear(domPage.ctx, cs);
-            if (ps.showBlockTint) {
-                const preRc = anim.preRotationCount != null ? anim.preRotationCount : 0;
-                const rd = anim.rotationDelta != null ? anim.rotationDelta : 1;
-                drawQuadrantTintAnimated(domPage.ctx, n, pad, cellSize, t, preRc, rd);
-            }
-            d.grid(domPage.ctx, n, pad, cellSize, cs);
-            d.starPoints(domPage.ctx, n, pad, cellSize);
-            d.coordLabels(domPage.ctx, n, pad, cellSize);
-            for (let r = 0; r < n; r++) {
-                for (let c = 0; c < n; c++) {
-                    const v = rwSafeMatrixAt(preB, r, c);
-                    if (!v) continue;
-                    const [nr, nc] = rwRotateCell(r, c, half);
-                    const x0 = pad + c * cellSize;
-                    const y0 = pad + r * cellSize;
-                    const x1 = pad + nc * cellSize;
-                    const y1 = pad + nr * cellSize;
-                    const x = x0 + (x1 - x0) * t;
-                    const y = y0 + (y1 - y0) * t;
-                    drawSingleStone(domPage.ctx, x, y, cellSize, v);
-                    const moveNum = rwSafeMatrixAt(preH, r, c);
-                    if (ps.showMoveNumbers && moveNum > 0) {
-                        const numStr = String(moveNum);
-                        const fontSize = Math.max(9, Math.floor(cellSize * (numStr.length >= 3 ? 0.308 : 0.396)));
-                        domPage.ctx.font = `bold ${fontSize}px Arial`;
-                        domPage.ctx.fillStyle = v === 1 ? '#fff' : '#000';
-                        domPage.ctx.textAlign = 'center';
-                        domPage.ctx.textBaseline = 'middle';
-                        domPage.ctx.fillText(numStr, x, y + 1);
-                    }
+        /** 落子 + 环旋转（试下/回放/实时步进共用） */
+        function tryPlaceStoneRot(board, row, col, playerVal, boardSize) {
+            const placed = QiSquareWeiqiCanvas.deepCopyBoard(board);
+            placed[row][col] = playerVal;
+            return rotateRingClockwise(placed, row, col, boardSize);
+        }
+
+        /** 整盘扫描某色是否已成五（旋转可能把别处的棋子摆成五，不能只看落点） */
+        function hasFiveOnBoard(board, colorVal, boardSize) {
+            for (let r = 0; r < boardSize; r++) {
+                for (let c = 0; c < boardSize; c++) {
+                    if (board[r][c] === colorVal
+                        && QiWeiqiSquarePageRuntime.checkWuziqiFiveInRow(board, r, c, colorVal, boardSize)) return true;
                 }
             }
-            if (anim.preMarkers && anim.preMarkers.length) {
-                const pm = anim.preMarkers[0];
-                const [nr, nc] = rwRotateCell(pm.row, pm.col, half);
-                const x = pad + (pm.col + (nc - pm.col) * t) * cellSize;
-                const y = pad + (pm.row + (nr - pm.row) * t) * cellSize;
-                domPage.ctx.beginPath();
-                domPage.ctx.moveTo(x, y);
-                domPage.ctx.lineTo(x + cellSize * 0.352, y);
-                domPage.ctx.lineTo(x, y + cellSize * 0.352);
-                domPage.ctx.closePath();
-                domPage.ctx.fillStyle = pm.color === 1 ? '#ffffff' : '#222222';
-                domPage.ctx.fill();
-            }
+            return false;
         }
 
-        function runRotationAnimation(anim, msg, onDone) {
-            ps.rotationAnimating = true;
-            const DURATION = 750;
-            const t0 = performance.now();
-            function easeOutQuad(u) {
-                return 1 - (1 - u) * (1 - u);
-            }
-            function frame(now) {
-                const u = Math.min(1, (now - t0) / DURATION);
-                const t = easeOutQuad(u);
-                drawRotationAnimFrame(anim, t);
-                if (u < 1) requestAnimationFrame(frame);
-                else {
-                    ps.rotationAnimating = false;
-                    ps.board = msg.board.map(row => row.slice());
-                    ps.handNumAt = (msg.handNumAt || []).map(row => row.slice());
-                    ps.lastMoveMarkers = (msg.lastMoveMarkers || []).map(mm => ({ ...mm }));
-                    rotationWuziqiDrawBoardImpl();
-                    onDone && onDone();
-                }
-            }
-            requestAnimationFrame(frame);
-        }
-
-        function rotationWuziqiDrawBoardImpl() {
-            if (ps.rotationAnimating) return;
-            const d = C().draw;
-            const cs = C().DEFAULT_CANVAS_SIZE;
-            const cellSize = ps.CELL_SIZE;
-            d.clear(domPage.ctx, cs);
-            drawQuadrantTint(domPage.ctx, ps.BOARD_SIZE, ps.PADDING, cellSize, ps.showBlockTint, ps.rotationCount | 0);
-            if (ps.blinkQuadrants) drawQuadrantWarningStroke(domPage.ctx, ps.BOARD_SIZE, ps.PADDING, cellSize);
-            d.grid(domPage.ctx, ps.BOARD_SIZE, ps.PADDING, cellSize, cs);
-            d.starPoints(domPage.ctx, ps.BOARD_SIZE, ps.PADDING, cellSize);
-            d.coordLabels(domPage.ctx, ps.BOARD_SIZE, ps.PADDING, cellSize);
-            const stoneRadius = cellSize * 0.44;
-            const markLenDefault = cellSize * 0.352;
-            const lowerLastMoveMarker = ps.showMoveNumbers;
-            if (lowerLastMoveMarker) {
-                d.lastMoveMarkersLower(domPage.ctx, ps.lastMoveMarkers, ps.PADDING, cellSize, stoneRadius, ps.BOARD_SIZE);
-            }
-            d.stonesBlackWhite(domPage.ctx, ps.board, ps.BOARD_SIZE, ps.PADDING, cellSize, stoneRadius, ps.showMoveNumbers);
-            if (!lowerLastMoveMarker) {
-                d.lastMoveMarkersUpper(domPage.ctx, ps.lastMoveMarkers, ps.PADDING, cellSize, markLenDefault, ps.BOARD_SIZE);
-            }
-            d.userBoardMarks(domPage.ctx, ps.userBoardMarks, ps.BOARD_SIZE, ps.PADDING, cellSize, isUserBoardMarkVisibleAt(ps));
-            if (ps.showMoveNumbers && ps.handNumAt && ps.handNumAt.length === ps.BOARD_SIZE && ps.handNumAt[0].length === ps.BOARD_SIZE) {
-                d.moveNumbersOnStones(domPage.ctx, ps.handNumAt, ps.board, ps.BOARD_SIZE, ps.PADDING, cellSize);
-            }
-            d.hoverPreviewStone(domPage.ctx, ps.hoverRow, ps.hoverCol, ps.board, ps.PADDING, cellSize, {
-                tryPlayMode: ps.tryPlayMode,
-                tryPlayCurrentPlayer: ps.tryPlayCurrentPlayer,
-                gameOver: ps.gameOver,
-                isMyTurn: ps.isMyTurn,
-                mySlot: ps.mySlot,
-                isHoverValid: ps.isHoverValid,
-                hoverCapture: !!ps.hoverCapture,
-                pageState: ps,
-                editModeEnabled: !!ps.editModeEnabled,
-                editTool: ps.editTool
-            });
-        }
-
-        function simulateRotationWuziqiLine(moves, boardSize, rotationInterval) {
-            let curBoard = QiSquareWeiqiCanvas.initBoardArray(boardSize);
-            let handNumAt = rwInitZero(boardSize);
-            let rotationCount = 0;
-            const replayBoards = [C().deepCopyBoard(curBoard)];
-            const replayMarkers = [[]];
-            const replayHandNumAts = [C().deepCopyBoard(handNumAt)];
-            const replayRotationCounts = [0];
-            const replayStepPlayers = [0];
+        /** 打谱局面：逐手「落子 → 环旋转」，判定同服务端（先看对方成五，再看自己） */
+        function buildRotationReplaySnapshots(moves, boardSize) {
+            const snaps = [];
+            let b = page.initBoardArray(boardSize);
+            let cur = 1;
             let trailingPass = 0;
-
-            for (const raw of moves) {
-                let entry = raw;
-                if (typeof entry === 'string') {
-                    const player = entry[0] === 'B' ? 'player1' : 'player2';
-                    if (entry.length >= 2 && entry[1] === 'p') {
-                        entry = { type: 'pass', player };
-                    } else {
-                        const coords = entry.substring(1).split(',').map(Number);
-                        entry = { type: 'move', player, row: coords[0], col: coords[1] };
-                    }
-                }
-                const playerVal = entry.player === 'player1' ? 1 : 2;
-                replayStepPlayers.push(playerVal);
-                const completedPly = replayStepPlayers.length - 1;
-
-                if (entry.type === 'pass') {
+            snaps.push({ board: QiSquareWeiqiCanvas.deepCopyBoard(b), lastMoveMarkers: [], currentPlayer: 1, gameOver: false, winner: null });
+            for (const rawMove of moves || []) {
+                const m = QiWeiqiSquarePageRuntime.parseWuziqiRecordMoveEntry(rawMove);
+                if (!m) return null;
+                let go = false;
+                let win = null;
+                let nextCur = cur;
+                let markers = [];
+                if (m.type === 'pass') {
                     trailingPass++;
-                    let markers = [];
-                    const prevRot = rotationCount;
-                    const rot = rwMaybeRotate(curBoard, handNumAt, rotationCount, boardSize, rotationInterval, completedPly, markers);
-                    curBoard = rot.board;
-                    handNumAt = rot.handNumAt;
-                    rotationCount = rot.rotationCount;
-                    markers = rot.lastMoveMarkers;
-                    replayBoards.push(C().deepCopyBoard(curBoard));
-                    replayMarkers.push(markers.map(m => ({ ...m })));
-                    replayHandNumAts.push(C().deepCopyBoard(handNumAt));
-                    replayRotationCounts.push(rotationCount);
-                    if (rotationCount > prevRot) {
-                        const rw = rwWinnerSlotAfterRotation(curBoard, boardSize);
-                        if (rw) break;
-                    }
-                    if (trailingPass >= 2) break;
-                    continue;
-                }
-                trailingPass = 0;
-
-                const nb = C().deepCopyBoard(curBoard);
-                nb[entry.row][entry.col] = playerVal;
-                rwSyncHand(nb, handNumAt);
-                handNumAt[entry.row][entry.col] = completedPly;
-
-                curBoard = nb;
-                let markers = [{ row: entry.row, col: entry.col, color: playerVal }];
-                if (R().checkWuziqiFiveInRow(curBoard, entry.row, entry.col, playerVal, boardSize)) {
-                    replayBoards.push(C().deepCopyBoard(curBoard));
-                    replayMarkers.push(markers.map(m => ({ ...m })));
-                    replayHandNumAts.push(C().deepCopyBoard(handNumAt));
-                    replayRotationCounts.push(rotationCount);
-                    break;
-                }
-                const prevRot = rotationCount;
-                const rot = rwMaybeRotate(curBoard, handNumAt, rotationCount, boardSize, rotationInterval, completedPly, markers);
-                curBoard = rot.board;
-                handNumAt = rot.handNumAt;
-                rotationCount = rot.rotationCount;
-                markers = rot.lastMoveMarkers;
-                replayBoards.push(C().deepCopyBoard(curBoard));
-                replayMarkers.push(markers.map(m => ({ ...m })));
-                replayHandNumAts.push(C().deepCopyBoard(handNumAt));
-                replayRotationCounts.push(rotationCount);
-                if (rotationCount > prevRot) {
-                    const rw = rwWinnerSlotAfterRotation(curBoard, boardSize);
-                    if (rw) break;
-                }
-                let full = true;
-                for (let r = 0; r < boardSize && full; r++) {
-                    for (let c = 0; c < boardSize && full; c++) {
-                        if (curBoard[r][c] === 0) full = false;
-                    }
-                }
-                if (full) break;
-            }
-            return {
-                replayBoards,
-                replayMarkers,
-                replayHandNumAts,
-                replayRotationCounts,
-                replayStepPlayers,
-                replayTotalSteps: replayBoards.length - 1
-            };
-        }
-
-        function tryApplyHandNumAtFromState(state) {
-            const bs = ps.BOARD_SIZE;
-            const h = state && state.handNumAt;
-            if (!h || !Array.isArray(h) || h.length !== bs) return false;
-            if (!h[0] || h[0].length !== bs) return false;
-            ps.handNumAt = h.map(row => row.slice());
-            return true;
-        }
-
-        function rwMovesForSimulate(moveCoords) {
-            return (moveCoords || []).map(m => {
-                if (m.type === 'pass') return `${m.player === 'player1' ? 'B' : 'W'}p`;
-                return `${m.player === 'player1' ? 'B' : 'W'}${m.row},${m.col}`;
-            });
-        }
-
-        function recomputeHandNumAtFromMovesRotationWuziqi(moveCoords, boardSize, rotationInterval) {
-            const moves = rwMovesForSimulate(moveCoords);
-            const o = simulateRotationWuziqiLine(moves, boardSize, rotationInterval);
-            if (!o.replayHandNumAts.length) return rwInitZero(boardSize);
-            const last = o.replayHandNumAts[o.replayHandNumAts.length - 1];
-            return C().deepCopyBoard(last);
-        }
-
-        function rebuildLiveReplayRotationWuziqi(moveCoords) {
-            const syncedLen = ps.liveReplayBoards.length - 1;
-            const mcs = moveCoords || [];
-            if (syncedLen >= 0 && mcs.length > syncedLen) {
-                if (applyLiveReplayIncremental(mcs)) return;
-            }
-            const moves = rwMovesForSimulate(mcs);
-            const o = simulateRotationWuziqiLine(moves, ps.BOARD_SIZE, ps.rotationInterval || rwComputeInterval(ps.BOARD_SIZE));
-            ps.liveReplayBoards = o.replayBoards;
-            ps.liveReplayMarkers = o.replayMarkers;
-            ps.liveReplayStepPlayers = o.replayStepPlayers;
-            ps.liveReplayHandNumAts = o.replayHandNumAts;
-            ps.liveReplayRotationCounts = o.replayRotationCounts;
-        }
-
-        function applyLiveReplayIncremental(moveCoords) {
-            const startLen = ps.liveReplayBoards.length - 1;
-            const mcs = rwMovesForSimulate(moveCoords);
-            if (mcs.length <= startLen) return true;
-            const boardSize = ps.BOARD_SIZE;
-            const rotationInterval = ps.rotationInterval || rwComputeInterval(boardSize);
-            let curBoard = C().deepCopyBoard(ps.liveReplayBoards[ps.liveReplayBoards.length - 1]);
-            let handNumAt = C().deepCopyBoard(ps.liveReplayHandNumAts[ps.liveReplayHandNumAts.length - 1]);
-            let rotationCount = ps.liveReplayRotationCounts[ps.liveReplayRotationCounts.length - 1] || 0;
-            let trailingPass = 0;
-            for (let i = startLen; i >= 1; i--) {
-                const mk = ps.liveReplayMarkers[i];
-                if (mk && mk.length) break;
-                trailingPass++;
-            }
-            for (let i = startLen; i < mcs.length; i++) {
-                let entry = mcs[i];
-                if (typeof entry === 'string') {
-                    const player = entry[0] === 'B' ? 'player1' : 'player2';
-                    if (entry.length >= 2 && entry[1] === 'p') {
-                        entry = { type: 'pass', player };
+                    markers = [];
+                    nextCur = cur === 1 ? 2 : 1;
+                    if (trailingPass >= 2) { go = true; win = 'draw'; nextCur = cur; }
+                } else {
+                    trailingPass = 0;
+                    const pv = m.player === 'player1' ? 1 : 2;
+                    b = tryPlaceStoneRot(b, m.row, m.col, pv, boardSize);
+                    markers = [{ row: m.row, col: m.col, color: pv }];
+                    const oppVal = pv === 1 ? 2 : 1;
+                    if (hasFiveOnBoard(b, oppVal, boardSize)) {
+                        go = true; win = m.player === 'player1' ? 'player2' : 'player1'; nextCur = cur;
+                    } else if (hasFiveOnBoard(b, pv, boardSize)) {
+                        go = true; win = m.player; nextCur = cur;
+                    } else if (QiWeiqiSquarePageRuntime.isWuziqiBoardFull(b, boardSize)) {
+                        go = true; win = 'draw'; nextCur = cur === 1 ? 2 : 1;
                     } else {
-                        const coords = entry.substring(1).split(',').map(Number);
-                        entry = { type: 'move', player, row: coords[0], col: coords[1] };
+                        nextCur = cur === 1 ? 2 : 1;
                     }
                 }
-                const playerVal = entry.player === 'player1' ? 1 : 2;
-                ps.liveReplayStepPlayers.push(playerVal);
-                const completedPly = ps.liveReplayStepPlayers.length - 1;
-                if (entry.type === 'pass') {
-                    trailingPass++;
-                    let markers = [];
-                    const prevRot = rotationCount;
-                    const rot = rwMaybeRotate(curBoard, handNumAt, rotationCount, boardSize, rotationInterval, completedPly, markers);
-                    curBoard = rot.board;
-                    handNumAt = rot.handNumAt;
-                    rotationCount = rot.rotationCount;
-                    markers = rot.lastMoveMarkers;
-                    ps.liveReplayBoards.push(C().deepCopyBoard(curBoard));
-                    ps.liveReplayMarkers.push(markers.map(m => ({ ...m })));
-                    ps.liveReplayHandNumAts.push(C().deepCopyBoard(handNumAt));
-                    ps.liveReplayRotationCounts.push(rotationCount);
-                    if (rotationCount > prevRot) {
-                        const rw = rwWinnerSlotAfterRotation(curBoard, boardSize);
-                        if (rw) return false;
-                    }
-                    if (trailingPass >= 2) return false;
-                    continue;
-                }
-                trailingPass = 0;
-                const nb = C().deepCopyBoard(curBoard);
-                nb[entry.row][entry.col] = playerVal;
-                rwSyncHand(nb, handNumAt);
-                handNumAt[entry.row][entry.col] = completedPly;
-                curBoard = nb;
-                let markers = [{ row: entry.row, col: entry.col, color: playerVal }];
-                if (R().checkWuziqiFiveInRow(curBoard, entry.row, entry.col, playerVal, boardSize)) {
-                    ps.liveReplayBoards.push(C().deepCopyBoard(curBoard));
-                    ps.liveReplayMarkers.push(markers.map(m => ({ ...m })));
-                    ps.liveReplayHandNumAts.push(C().deepCopyBoard(handNumAt));
-                    ps.liveReplayRotationCounts.push(rotationCount);
-                    return true;
-                }
-                const prevRot = rotationCount;
-                const rot = rwMaybeRotate(curBoard, handNumAt, rotationCount, boardSize, rotationInterval, completedPly, markers);
-                curBoard = rot.board;
-                handNumAt = rot.handNumAt;
-                rotationCount = rot.rotationCount;
-                markers = rot.lastMoveMarkers;
-                ps.liveReplayBoards.push(C().deepCopyBoard(curBoard));
-                ps.liveReplayMarkers.push(markers.map(m => ({ ...m })));
-                ps.liveReplayHandNumAts.push(C().deepCopyBoard(handNumAt));
-                ps.liveReplayRotationCounts.push(rotationCount);
-                if (rotationCount > prevRot) {
-                    const rw = rwWinnerSlotAfterRotation(curBoard, boardSize);
-                    if (rw) return true;
-                }
-                let full = true;
-                for (let r = 0; r < boardSize && full; r++) {
-                    for (let c = 0; c < boardSize && full; c++) {
-                        if (curBoard[r][c] === 0) full = false;
-                    }
-                }
-                if (full) return true;
+                snaps.push({
+                    board: QiSquareWeiqiCanvas.deepCopyBoard(b),
+                    lastMoveMarkers: markers.map((x) => ({ ...x })),
+                    currentPlayer: nextCur,
+                    gameOver: go,
+                    winner: go ? win : null
+                });
+                cur = nextCur;
+                if (go) break;
             }
-            return true;
+            return snaps;
         }
 
-        const page = QiWeiqiSquarePageRuntime.create(ps, domPage, {
+        let page;
+        page = QiWeiqiSquarePageRuntime.create(ps, domPage, {
             enableEditBoard: true,
             recordDownloadPrefix,
-            komiInfoText(p) {
-                const iv = p.rotationInterval != null ? p.rotationInterval : rwComputeInterval(p.BOARD_SIZE);
-                return `无禁手`;
-            },
+            komiInfoText: '无禁手',
             gameType,
             roomId,
             roomPassword,
             isMouseDevice,
             replayGameButtonIds: ['passBtn', 'undoBtn', 'resignBtn', 'drawBtn'],
-            drawBoard: rotationWuziqiDrawBoardImpl,
-            rebuildLiveReplayFromMoveCoords: rebuildLiveReplayRotationWuziqi,
-            tryPlaceStone: (b, r, c, pv) => R().tryPlaceStoneWuziqi(b, r, c, pv, ps.BOARD_SIZE, C().deepCopyBoard),
+            tryPlaceStone: (b, r, c, pv) => tryPlaceStoneRot(b, r, c, pv, ps.BOARD_SIZE),
             enterReplayMode(data) {
                 const bs = data.boardSize != null ? Number(data.boardSize) : ps.BOARD_SIZE;
-                const moves = data.moves || [];
-                const ri = rwComputeInterval(bs);
-                const built = simulateRotationWuziqiLine(moves, bs, ri);
-                if (!built.replayBoards.length) return;
+                const snaps = buildRotationReplaySnapshots(data.moves, bs);
+                if (!snaps || snaps.length === 0) return;
                 if (bs !== ps.BOARD_SIZE) {
                     ps.BOARD_SIZE = bs;
-                    ps.board = pageHolder.ref.initBoardArray(bs);
-                    ps.handNumAt = rwInitZero(bs);
-                    ps.rotationInterval = ri;
-                    pageHolder.ref.updateBoardGeometry();
+                    ps.board = page.initBoardArray(bs);
+                    page.updateBoardGeometry();
                     const bsEl = document.getElementById('boardSizeSelect');
                     if (bsEl) bsEl.value = String(bs);
                 }
-                ps.replayBoards = built.replayBoards;
-                ps.replayMarkers = built.replayMarkers;
-                ps.replayHandNumAts = built.replayHandNumAts;
-                ps.replayRotationCounts = built.replayRotationCounts;
-                ps.replayStepPlayers = built.replayStepPlayers;
-                ps.replayTotalSteps = built.replayTotalSteps;
+                ps.replayBoards = snaps.map(s => QiSquareWeiqiCanvas.deepCopyBoard(s.board));
+                ps.replayMarkers = snaps.map(s => (s.lastMoveMarkers || []).map(m => ({ ...m })));
+                ps.replayStepPlayers = snaps.map((s, i) => {
+                    if (i === 0) return 0;
+                    const moves = data.moves || [];
+                    const raw = moves[i - 1];
+                    const parsed = QiWeiqiSquarePageRuntime.parseWuziqiRecordMoveEntry(raw);
+                    if (parsed) return parsed.player === 'player1' ? 1 : 2;
+                    return i % 2 === 1 ? 1 : 2;
+                });
+                ps.replayTotalSteps = ps.replayBoards.length - 1;
                 ps.replayMode = true;
-                document.getElementById('replaySlider').max = ps.replayTotalSteps;
-                pageHolder.ref.setReplayStep(ps.replayTotalSteps);
-                pageHolder.ref.updateReplayUI();
+                const slider = document.getElementById('replaySlider');
+                slider.max = ps.replayTotalSteps;
+                page.setReplayStep(ps.replayTotalSteps);
+                page.updateReplayUI();
             },
-            setReplayStep(step) {
-                pageHolder.ref.clearMobileMovePreview();
-                if (step < 0) step = 0;
-                if (step > ps.replayTotalSteps) step = ps.replayTotalSteps;
-                ps.replayStep = step;
-                ps.board = C().deepCopyBoard(ps.replayBoards[step]);
-                ps.lastMoveMarkers = ps.replayMarkers[step].map(m => ({ ...m }));
-                ps.handNumAt = (ps.replayHandNumAts && ps.replayHandNumAts[step])
-                    ? C().deepCopyBoard(ps.replayHandNumAts[step])
-                    : rwInitZero(ps.BOARD_SIZE);
-                ps.rotationCount = (ps.replayRotationCounts && ps.replayRotationCounts[step] != null)
-                    ? ps.replayRotationCounts[step]
-                    : 0;
-                document.getElementById('replaySlider').value = step;
-                document.getElementById('replayStepDisplay').innerText = `${step} / ${ps.replayTotalSteps}`;
-                if (step === 0) {
-                    domPage.turnDisplay.innerText = '初始局面';
-                } else {
-                    const emoji = ps.replayStepPlayers[step] === 1 ? '⚫' : '⚪';
-                    domPage.turnDisplay.innerText = `${emoji} 第${step}手`;
+            tryPlayMove(row, col) {
+                if (ps.board[row][col] !== 0) return false;
+                const playerVal = ps.tryPlayCurrentPlayer;
+                const newBoard = tryPlaceStoneRot(ps.board, row, col, playerVal, ps.BOARD_SIZE);
+                if (!newBoard) return false;
+                if (ps.tryPlayStep < ps.tryPlayTotalSteps) {
+                    ps.tryPlayBoards.length = ps.tryPlayStep + 1;
+                    ps.tryPlayMarkers.length = ps.tryPlayStep + 1;
                 }
-                ps.isMyTurn = false;
-                pageHolder.ref.drawBoard();
+                ps.tryPlayBoards.push(QiSquareWeiqiCanvas.deepCopyBoard(newBoard));
+                ps.tryPlayMarkers.push([{ row, col, color: playerVal }]);
+                ps.tryPlayTotalSteps = ps.tryPlayBoards.length - 1;
+                ps.tryPlayStep = ps.tryPlayTotalSteps;
+                ps.tryPlayCurrentPlayer = 3 - ps.tryPlayCurrentPlayer;
+                ps.board = QiSquareWeiqiCanvas.deepCopyBoard(newBoard);
+                ps.lastMoveMarkers = [{ row, col, color: playerVal }];
+                ps.gameOver = false;
+                ps.winner = null;
+                // 判定同服务端：先看对方成五（含双方同时成五）→ 对方胜，再看自己
+                const oppVal = playerVal === 1 ? 2 : 1;
+                if (hasFiveOnBoard(ps.board, oppVal, ps.BOARD_SIZE)) {
+                    ps.gameOver = true;
+                    ps.winner = oppVal === 1 ? 'player1' : 'player2';
+                } else if (hasFiveOnBoard(ps.board, playerVal, ps.BOARD_SIZE)) {
+                    ps.gameOver = true;
+                    ps.winner = playerVal === 1 ? 'player1' : 'player2';
+                }
+                const slider = document.getElementById('replaySlider');
+                slider.max = ps.tryPlayTotalSteps;
+                slider.value = ps.tryPlayStep;
+                page.updateTryPlayDisplay();
+                page.drawBoard();
+                return true;
             }
         });
-        pageHolder.ref = page;
 
-        const origSync = page.syncState;
+        const _sync0 = page.syncState;
         page.syncState = function (state) {
             if (!state.moveCoords && state.moveHistory) {
                 state.moveCoords = state.moveHistory.map(m =>
@@ -861,101 +298,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                         : { type: 'move', player: m.player, row: m.row, col: m.col }
                 );
             }
-            const prevRc = ps.rotationCount | 0;
-            const nr = state.rotationCount | 0;
-            const prevAnim = ps.lastRotationCountForAnim;
-            const bs = state.boardSize || ps.BOARD_SIZE;
-            if (prevAnim != null && nr > prevRc) {
-                for (let i = 0; i < nr - prevRc; i++) rwRotateUserBoardMarks(ps.userBoardMarks, bs);
-            }
-            const iv = state.rotationInterval != null ? state.rotationInterval : rwComputeInterval(bs);
-            ps.rotationInterval = iv;
-            ps.rotationCount = nr;
-            ps.handNumAt = rwNormalizeMatrix(state.handNumAt || ps.handNumAt, bs);
-            ps.lastSyncedMoveCoords = (state.moveCoords && state.moveCoords.length)
-                ? state.moveCoords.map(m => ({ ...m }))
-                : [];
-
-            origSync(state);
-
-            if (!tryApplyHandNumAtFromState(state)) {
-                const bs2 = ps.BOARD_SIZE;
-                const iv2 = ps.rotationInterval != null ? ps.rotationInterval : rwComputeInterval(bs2);
-                if (ps.lastSyncedMoveCoords && ps.lastSyncedMoveCoords.length) {
-                    ps.handNumAt = recomputeHandNumAtFromMovesRotationWuziqi(ps.lastSyncedMoveCoords, bs2, iv2);
-                } else {
-                    ps.handNumAt = rwInitZero(bs2);
-                }
-            }
-
-            const mc = ps.lastSyncedMoveCoords.length;
-            const browsing = isBrowsingLiveReplay(ps);
-            const syncingImportedReplay = state.replayData != null;
-            if (!syncingImportedReplay && prevAnim != null && mc > 0 && (mc + 1) % iv === 0 && (ps.rotationCount | 0) < RW_MAX_ROT && !ps.replayMode && !browsing && !ps.rotationAnimating) {
-                queueMicrotask(() => {
-                    if (!ps.rotationAnimating && !ps.replayMode && !isBrowsingLiveReplay(ps)) startQuadrantBlink();
-                });
-            }
-            const deltaAnim = prevAnim != null ? nr - prevAnim : 0;
-            const ra = state.rotationAnimation;
-            if (!syncingImportedReplay && ra && ra.preBoard && ra.postBoard && !ps.replayMode && !browsing && !ps.rotationAnimating) {
-                const rotationDelta = Math.max(1, (nr - prevRc) || deltaAnim || 1);
-                const anim = {
-                    preBoard: ra.preBoard.map(row => row.slice()),
-                    postBoard: ra.postBoard.map(row => row.slice()),
-                    preHandNumAt: ra.preHandNumAt ? ra.preHandNumAt.map(row => row.slice()) : null,
-                    postHandNumAt: ra.postHandNumAt ? ra.postHandNumAt.map(row => row.slice()) : null,
-                    preMarkers: (ra.preMarkers || []).map(m => ({ ...m })),
-                    postMarkers: (ra.postMarkers || []).map(m => ({ ...m })),
-                    preRotationCount: prevRc,
-                    rotationDelta
-                };
-                const syntheticMsg = {
-                    board: anim.postBoard,
-                    handNumAt: anim.postHandNumAt || ps.handNumAt.map(row => row.slice()),
-                    lastMoveMarkers: anim.postMarkers
-                };
-                ps.board = anim.preBoard.map(row => row.slice());
-                ps.handNumAt = anim.preHandNumAt
-                    ? anim.preHandNumAt.map(row => row.slice())
-                    : rwInitZero(bs);
-                ps.lastMoveMarkers = anim.preMarkers.map(m => ({ ...m }));
-                rotationWuziqiDrawBoardImpl();
-                runRotationAnimation(anim, syntheticMsg, null);
-            } else if (!syncingImportedReplay && deltaAnim > 0 && prevAnim != null && !ps.replayMode && !browsing && !ps.rotationAnimating) {
-                const postBoard = ps.board.map(row => row.slice());
-                const postHand = ps.handNumAt.map(row => row.slice());
-                const postMarkers = (ps.lastMoveMarkers || []).map(m => ({ ...m }));
-                let preBoard = postBoard.map(row => row.slice());
-                let preHand = postHand.map(row => row.slice());
-                let preMarkers = postMarkers.map(m => ({ ...m }));
-                for (let i = 0; i < deltaAnim; i++) {
-                    preBoard = rwUnrotateBoardOnce(preBoard, bs);
-                    preHand = rwUnrotateBoardOnce(preHand, bs);
-                    preMarkers = rwRotateMarkersCCW(preMarkers, bs);
-                }
-                const syntheticMsg = {
-                    board: postBoard,
-                    handNumAt: postHand,
-                    lastMoveMarkers: postMarkers
-                };
-                const anim = {
-                    preBoard,
-                    postBoard,
-                    preHandNumAt: preHand,
-                    postHandNumAt: postHand,
-                    preMarkers,
-                    postMarkers,
-                    preRotationCount: prevAnim,
-                    rotationDelta: deltaAnim
-                };
-                ps.board = preBoard.map(row => row.slice());
-                ps.handNumAt = preHand.map(row => row.slice());
-                ps.lastMoveMarkers = preMarkers.map(m => ({ ...m }));
-                rotationWuziqiDrawBoardImpl();
-                runRotationAnimation(anim, syntheticMsg, null);
-            }
-            ps.lastRotationCountForAnim = nr;
+            _sync0(state);
         };
 
         const {
@@ -973,7 +316,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             tryPlayMove,
             setTryPlayStep,
             updateTryPlayDisplay,
-            setLiveViewStep: setLiveViewStepOrig,
+            setLiveViewStep,
             connectWebSocket,
             initBoardArray,
             updateBoardGeometry,
@@ -984,21 +327,12 @@ const scoreTitle = document.getElementById('scoreTitle');
             applyUserBoardMark
         } = page;
 
-        function setLiveViewStep(step) {
-            setLiveViewStepOrig(step);
-            if (ps.liveReplayHandNumAts && ps.liveReplayHandNumAts[ps.liveViewStep]) {
-                ps.handNumAt = C().deepCopyBoard(ps.liveReplayHandNumAts[ps.liveViewStep]);
-            }
-            if (ps.liveReplayRotationCounts && ps.liveReplayRotationCounts[ps.liveViewStep] != null) {
-                ps.rotationCount = ps.liveReplayRotationCounts[ps.liveViewStep];
-            }
-            drawBoard();
-        }
-
         const _weiqiBindings = QiBoardRoomClient.createWeiqiMessageBindings({
             onNewGameStarted() {
                 if (page && page.clearEditModeUi) page.clearEditModeUi();
             },
+            standardWeiqiMatchTime,
+            boardSeatOverlay: true,
             roomId,
             gameType,
             pageState: ps,
@@ -1007,7 +341,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             enterTryPlay,
             setTryPlayStep,
             setReplayStep,
-            setLiveViewStep: setLiveViewStep,
+            setLiveViewStep,
             getWs: () => ps.ws,
             getBoardSize: () => ps.BOARD_SIZE,
             setBoardSize: (n) => { ps.BOARD_SIZE = n; },
@@ -1046,17 +380,9 @@ syncState: page.syncState,
             updateTurn,
             updateReplayUI,
             showScoreConfirm: () => {},
-            isMouseDevice,
-            standardWeiqiMatchTime,
-            boardSeatOverlay: true
+            isMouseDevice
         });
-        const baseRoomHandleMessage = _weiqiBindings.handleMessage;
-        function handleMessage(msg) {
-            if (msg.type === 'joined' || msg.type === 'newGameStarted' || msg.type === 'roomReset' || msg.type === 'importSuccess') {
-                ps.lastRotationCountForAnim = null;
-            }
-            baseRoomHandleMessage(msg);
-        }
+        const handleMessage = _weiqiBindings.handleMessage;
         const updateRecordButtons = _weiqiBindings.updateRecordButtons;
         const updateRadioStyles = _weiqiBindings.updateRadioStyles;
 
@@ -1116,7 +442,6 @@ syncState: page.syncState,
                 e.preventDefault();
                 return;
             }
-            if (ps.rotationAnimating) return;
             const rect = canvas.getBoundingClientRect();
             const scale = 600 / rect.width;
             const x = (e.clientX - rect.left) * scale;

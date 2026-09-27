@@ -2,9 +2,8 @@ window.RoomPlugins = window.RoomPlugins || {};
 window.RoomPlugins['nopincer'] = {
     shell: {
         "title": "不夹棋",
-        "rulesHtml": "双方轮流落子，不可以虚着。<br /><br />"
-            + "落子后若形成夹，则对方获胜。<br /><br />"
-            + "可以正夹或斜夹，可以夹多子，但不能有间隔。<br /><br />",
+        "rulesHtml": "不允许夹，不允许虚着，不允许自尽，欠行落败。<br /><br />"
+            + "夹包括正夹或斜夹，可以夹多子，但不能有间隔。<br /><br />",
         "defaultKomiText": "无贴点",
         "boardSizeMin": 5,
         "boardSizeMax": 21,

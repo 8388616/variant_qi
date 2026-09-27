@@ -467,10 +467,7 @@ return {
             calcGeometry();
             ctx2d.clearRect(0, 0, canvas.width, canvas.height);
 
-            const boardFill = '#edbc80';
-            ctx2d.fillStyle = boardFill;
-            ctx2d.fillRect(offsetX, offsetY, R.BOARD_W * cellSize, R.BOARD_H * cellSize);
-
+            // 不铺盘底：直接用画布自身的底色（--qi-room-board），与象棋等其它棋种一致
             ctx2d.strokeStyle = '#3a281c';
             ctx2d.lineWidth = 1.2;
             for (let i = 0; i <= R.BOARD_W; i++) {
@@ -540,7 +537,7 @@ return {
                     ctx2d.shadowColor = 'rgba(0,0,0,0.4)';
                     ctx2d.beginPath();
                     ctx2d.arc(x, y, radius, 0, Math.PI * 2);
-                    ctx2d.fillStyle = '#e8d2a0';
+                    ctx2d.fillStyle = '#f4dcac';
                     ctx2d.fill();
                     ctx2d.shadowBlur = 0; ctx2d.shadowOffsetY = 0;
                     ctx2d.strokeStyle = '#c49c6a';

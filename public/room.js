@@ -804,6 +804,37 @@
             return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
         }
 
+        /** 时间框标题里的执方名（不含 emoji）与无圆点时的回退 emoji */
+        function timerSideName(slot) {
+            const ui = (ctx.slotUi && ctx.slotUi[slot]) || null;
+            return {
+                name: (ui && ui.name) ? ui.name : (slot === 'player1' ? '黑方' : '白方'),
+                emoji: (ui && ui.emoji) || (slot === 'player1' ? '⚫' : '⚪')
+            };
+        }
+
+        /**
+         * 写时间框标题：**保留标题里既有的颜色圆点**（.qi-side-dot），只换文字。
+         * 这里以前直接把 emoji 写回标题，而 emoji 圆点大小不一 —— ⚫=MEDIUM、🔴=LARGE（CSS 里
+         * .qi-side-dot 的注释就是为解决这个才引入的圆点），于是进房后第一次刷新时间框就会
+         * 把「两边一样大的圆点」变成「一红大一黑小」。标题里没有圆点时仍退回 emoji 文字。
+         */
+        function setTimerTitle(titleEl, text, emoji) {
+            if (!titleEl) return;
+            const dot = titleEl.querySelector('.qi-side-dot');
+            const m = dot && /qi-side-dot--([a-z]+)/.exec(dot.className);
+            if (!m) {
+                titleEl.textContent = `${emoji || ''} ${text}`.trim();
+                return;
+            }
+            titleEl.textContent = '';
+            const span = document.createElement('span');
+            span.className = `qi-side-dot qi-side-dot--${m[1]}`;
+            span.setAttribute('aria-hidden', 'true');
+            titleEl.appendChild(span);
+            titleEl.appendChild(document.createTextNode(text));
+        }
+
         function updateTimerPanel() {
             const panel = document.getElementById('goTimerPanel');
             if (!panel) return;
@@ -821,11 +852,8 @@
                         const left = !slotsNow[slot];
                         const titleEl = el.querySelector('.go-timer-title');
                         if (titleEl) {
-                            const ui = (ctx.slotUi && ctx.slotUi[slot]) || null;
-                            const base = ui
-                                ? `${ui.emoji || ''} ${ui.name || ''}`.trim()
-                                : (slot === 'player1' ? '⚫ 黑方' : '⚪ 白方');
-                            titleEl.textContent = left ? `${base}(已退出)` : base;
+                            const { name, emoji } = timerSideName(slot);
+                            setTimerTitle(titleEl, left ? `${name}(已退出)` : name, emoji);
                         }
                         el.classList.toggle('is-player-left', left);
                     });
@@ -885,6 +913,10 @@
                             activeClass = (slot === 'player1' ? mt.clock.display.player1Live : mt.clock.display.player2Live);
                         else
                             activeClass = mt.clock.activeSlot === slot;
+                    } else if (mt.settings && mt.settings.timed === false) {
+                        // 不限时：没有时钟可跟，就用状态里的 currentPlayer 把落子方的框也点出来
+                        const cur = S._timerPanelCurrentPlayer;
+                        activeClass = (cur === 1 && slot === 'player1') || (cur === 2 && slot === 'player2');
                     }
                     if (activeClass)
                         el.classList.add('is-active');
@@ -894,12 +926,9 @@
                     if (ruleEl) ruleEl.textContent = rule;
                     const titleEl = el.querySelector('.go-timer-title');
                     if (titleEl) {
-                        const ui = (ctx.slotUi && ctx.slotUi[slot]) || null;
-                        const base = ui
-                            ? `${ui.emoji || ''} ${ui.name || ''}`.trim()
-                            : (slot === 'player1' ? '⚫ 黑方' : '⚪ 白方');
+                        const { name, emoji } = timerSideName(slot);
                         const left = slot === 'player1' ? absentBlack : absentWhite;
-                        titleEl.textContent = left ? `${base}(已退出)` : base;
+                        setTimerTitle(titleEl, left ? `${name}(已退出)` : name, emoji);
                     }
                     el.classList.toggle('is-player-left', slot === 'player1' ? absentBlack : absentWhite);
                 }
@@ -958,10 +987,8 @@
                 if (r) r.textContent = '　';
                 if (t) {
                     const slot = el.getAttribute('data-go-timer');
-                    const ui = (ctx.slotUi && ctx.slotUi[slot]) || null;
-                    t.textContent = ui
-                        ? `${ui.emoji || ''} ${ui.name || ''}`.trim()
-                        : (slot === 'player2' ? '⚪ 白方' : '⚫ 黑方');
+                    const { name, emoji } = timerSideName(slot);
+                    setTimerTitle(t, name, emoji);
                 }
                 el.classList.remove('is-active', 'is-player-left');
             });
@@ -1779,11 +1806,8 @@
                     const left = slot === 'player1' ? absentBlack : absentWhite;
                     const titleEl = el.querySelector('.go-timer-title');
                     if (titleEl) {
-                        const ui = (ctx.slotUi && ctx.slotUi[slot]) || null;
-                        const base = ui
-                            ? `${ui.emoji || ''} ${ui.name || ''}`.trim()
-                            : (slot === 'player1' ? '⚫ 黑方' : '⚪ 白方');
-                        titleEl.textContent = left ? `${base}(已退出)` : base;
+                        const { name, emoji } = timerSideName(slot);
+                        setTimerTitle(titleEl, left ? `${name}(已退出)` : name, emoji);
                     }
                     el.classList.toggle('is-player-left', left);
                 });
@@ -1812,6 +1836,9 @@
         }
 
         function syncStateWithMatch(msg) {
+            // 分边时间框要知道「轮到谁」：不限时那档没有时钟，只能用状态里的 currentPlayer
+            if (msg && (msg.currentPlayer === 1 || msg.currentPlayer === 2))
+                S._timerPanelCurrentPlayer = msg.currentPlayer;
             if (msg && msg.sideLabels) S.sideLabels = msg.sideLabels;
             if (typeof applySeatRadioText === 'function') applySeatRadioText();
             if (typeof S._refreshTcColorLabels === 'function') { try { S._refreshTcColorLabels(); } catch (_) {} }
@@ -1999,6 +2026,9 @@
                     if (msg.action === 'move' || msg.action === 'clearMine' || msg.action === 'guess' || msg.action === 'pass' || msg.action === 'drop' || msg.action === 'capture' || msg.action === 'undoAccept' || msg.action === 'drawAgreed' || msg.action === 'resign'
                         || msg.action === 'invisibleReveal' || msg.action === 'endAgreed' || msg.action === 'scoreCountingStarted' || msg.action === 'mineHit' || msg.action === 'timeLoss'
                         || msg.action === 'setupSwap' || msg.action === 'setupDone'
+                        // 开局即判（编辑盘面后某方无将/无子可动，公共层在 matchStarted 时广播）：不处理的话
+                        // 页面既不提示胜负、本地 gameOver 也是旧的，点棋盘毫无反应（约 25 个棋种受影响）
+                        || msg.action === 'matchStartOver'
                         || msg.action === 'buryClick' || msg.action === 'buryDone' || msg.action === 'buryDoneAll' || msg.action === 'buryPhase') {
                         const wasOver = ctx.getGameOver();
                         syncStateWithMatch(msg);
@@ -7249,9 +7279,12 @@ function bensonCoreGraph(opts) {
     'use strict';
 
     function parseRoomFromPath() {
-        const pathMatch = window.location.pathname.match(/^\/qi\/([^/]+)\/(\d+)$/);
-        if (!pathMatch) return null;
-        return { gameType: pathMatch[1], roomId: pathMatch[2] };
+        // 只认房间短链：variantqi.com/rooms/<房间号>、maoshazhihe.com/qi/rooms/<房间号>。
+        // 棋种不在地址里，由服务端在页面 <head> 注入（qi-server.js 的 /rooms/:roomId、/qi/rooms/:roomId）
+        const m = window.location.pathname.match(/^\/(?:qi\/)?rooms\/(\d+)\/?$/);
+        const route = window.__qiRoomRoute;
+        if (m && route && route.gameType) return { gameType: route.gameType, roomId: m[1] };
+        return null;
     }
 
     function fillBoardSizeSelect(select, config) {
@@ -7594,7 +7627,10 @@ function bensonCoreGraph(opts) {
                 if (blackTitle) blackTitle.innerHTML = sideDot('red') + '红方';
                 if (whiteTitle) whiteTitle.innerHTML = sideDot('black') + '黑方';
             }
-            const hideIds = features.janggi
+            // 允许虚着的象棋变种（朝鲜将棋、磁性象棋）保留「虚着」按钮：
+            // 不做将死/困毙判断的棋种，无子可动时只能靠虚着把行棋权交出去
+            const keepPass = features.janggi || features.allowPass;
+            const hideIds = keepPass
                 ? ['estimateBtn', 'endReqBtn']
                 : ['estimateBtn', 'passBtn', 'endReqBtn'];
             hideIds.forEach((id) => {
@@ -7626,6 +7662,17 @@ function bensonCoreGraph(opts) {
                 const b = document.getElementById(id);
                 if (b) b.style.display = 'none';
             });
+        }
+
+        // 形势判断按钮与贴目信息：**默认隐藏**，棋种在 shell.features.showEstimate 里声明才显示。
+        // 围棋类（含翻转围棋、旋转/漂移围棋等）都声明了；WxD棋声明它是为了保持现状——它另有
+        // customTimeControl 隐掉按钮、贴目照旧显示；黑白棋/三角黑白棋现状本来就都隐藏，无需声明。
+        // 不围棋、不夹棋、五子棋等非围棋类一律看不到这两样。
+        if (!features.showEstimate) {
+            const estimateBtn = document.getElementById('estimateBtn');
+            if (estimateBtn) estimateBtn.style.display = 'none';
+            const komiInfoEl = document.getElementById('komiInfo');
+            if (komiInfoEl) komiInfoEl.hidden = true;
         }
         if (features.quoridorBags) {
             const showNum = document.querySelector('.show-numbers-label');

@@ -822,6 +822,11 @@ class RingChessRoom extends QiTwoPlayerRoomBase {
                 break;
             }
             case 'requestNewGame': {
+                // 无人入座（双方都退座/关页面）：房里任何人都能直接开新局（同公共 qiProtocol.requestNewGame）
+                if (!this.room.getPlayerBySlot('player1') && !this.room.getPlayerBySlot('player2')) {
+                    this._startNewGame();
+                    break;
+                }
                 if (!slot) return;
                 const opp = slot === 'player2' ? 'player1' : 'player2';
                 const oppWs = this.room.getPlayerBySlot(opp);

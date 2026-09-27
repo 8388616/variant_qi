@@ -501,8 +501,18 @@ class InvisibleStone2WeiqiRoom extends QiTwoPlayerRoomBase {
         }).map(m => ({ row: m.row, col: m.col, color: m.color }));
     }
 
-    getStateForClient(ws) {
-        const slot = this.room.getSlotByWs(ws);
+    /**
+     * 基类的 getStateForClient 包装只透传 ws（多余参数会被丢掉），所以每手广播直接调 getStateForSlot。
+     * full=true（入房 / 客户端主动要）：连逐手视图历史一起下发；full=false（每手广播）：只带当前这一步的
+     * 视图 —— 逐手视图历史是整盘级数组，每手全量重发会让广播随对局线性膨胀
+     * （实测 +770 B/手，1Mbps 下 150 手就 1 秒/手）。客户端翻看历史时再要一次全量（requestLiveViewHistory）。
+     */
+    getStateForClient(ws, opts = {}) {
+        return this.getStateForSlot(this.room.getSlotByWs(ws), opts);
+    }
+
+    getStateForSlot(slot, opts = {}) {
+        const full = opts.full !== false;
         return {
             boardSize: this.boardSize,
             board: this.buildViewBoard(slot),
@@ -516,17 +526,19 @@ class InvisibleStone2WeiqiRoom extends QiTwoPlayerRoomBase {
             moveCoords: this.filterMoveCoordsForSlot(slot),
             plainWeiqiStartHand: this.plainWeiqiStartHand,
             invisibleStoneCounts: this.getInvisibleStoneCounts(),
-            invisibleStoneCountsTimeline: this.buildInvisibleStoneCountsTimeline(),
-            replayViewBoards: this.buildReplayViewBoardsForSlot(slot),
-            replayViewInvisibleTints: this.buildReplayInvisibleTintKeyStringsForSlot(slot),
+            invisibleStoneCountsTimeline: full ? this.buildInvisibleStoneCountsTimeline() : null,
+            replayViewBoards: full ? this.buildReplayViewBoardsForSlot(slot) : null,
+            replayViewInvisibleTints: full ? this.buildReplayInvisibleTintKeyStringsForSlot(slot) : null,
             opponentDistanceGrid: this.buildOpponentDistanceGridForSlot(slot),
-            replayOpponentDistanceGrids: this.buildReplayOpponentDistanceGridsForSlot(slot),
+            replayOpponentDistanceGrids: full ? this.buildReplayOpponentDistanceGridsForSlot(slot) : null,
+            /** 全量标记：true=逐手视图历史都在这一份里；false=只带当前这一步（翻看历史时再要全量） */
+            stateFull: full,
             /** 完整手顺；对局中向对方/观战者不下发隐身子坐标（与 filterMoveCoordsForSlot 一致）。终局后全员下发完整手顺。 */
-            replaySync: {
+            replaySync: full ? {
                 initialPosition: encodeInitialPositionCompact(this.openingBoard, this.boardSize),
                 plainWeiqiStartHand: this.plainWeiqiStartHand,
                 moves: (this.gameOver ? this.moveCoords : this.filterMoveCoordsForSlot(slot)).map(m => ({ ...m }))
-            },
+            } : null,
             komi: 4.25,
             slots: {
                 player1: !!this.room.getPlayerBySlot('player1'),
@@ -552,7 +564,8 @@ class InvisibleStone2WeiqiRoom extends QiTwoPlayerRoomBase {
         const allClients = [...this.room.players.keys(), ...this.room.observers];
         for (const client of allClients) {
             if (client.readyState !== 1) continue;
-            const state = this.getStateForClient(client);
+            // 直接调 getStateForSlot：基类包装过的 getStateForClient 只透传 ws，多余参数会被丢掉
+            const state = this.getStateForSlot(this.room.getSlotByWs(client), { full: false });
             client.send(JSON.stringify({ type: 'broadcast', action, ...state, ...extra }));
         }
     }
@@ -585,6 +598,11 @@ class InvisibleStone2WeiqiRoom extends QiTwoPlayerRoomBase {
         const room = this.room;
 
         switch (msg.type) {
+            case 'requestLiveViewHistory':
+                // 逐手视图历史不在每手广播里，翻看时按需补一份全量
+                this.sendState(ws);
+                break;
+
             case 'selectColor':
                 if (slot) return;
                 const newSlot = this.assignSlot(ws, msg.color);
@@ -759,20 +777,11 @@ class InvisibleStone2WeiqiRoom extends QiTwoPlayerRoomBase {
                 break;
 
             case 'requestNewGame':
-                if (!slot) return;
-                const newGameOpponent = room.getPlayerBySlot(slot === 'player1' ? 'player2' : 'player1');
-                if (!newGameOpponent) this.resetGame();
-                else {
-                    this.pendingNewGame = ws;
-                    newGameOpponent.send(JSON.stringify({ type: 'newGameRequest' }));
-                }
+                qiProtocol.requestNewGame(this, ws, slot);
                 break;
 
             case 'newGameResponse':
-                if (this.pendingNewGame && msg.accept) this.resetGame();
-                else if (this.pendingNewGame && !msg.accept)
-                    this.pendingNewGame.send(JSON.stringify({ type: 'error', message: '对方拒绝开始新局' }));
-                this.pendingNewGame = null;
+                qiProtocol.newGameResponse(this, ws, msg, { newGameDeniedMsg: '对方拒绝开始新局' });
                 break;
 
             case 'requestDraw':

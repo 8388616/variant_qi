@@ -11,6 +11,7 @@ window.RoomPlugins['family-weiqi'] = {
         "recordDownloadPrefix": "全家福围棋",
         "standardWeiqiMatchTime": true,
         "features": {
+            "showEstimate": true,
             "woodTexture": true,
             "editBoard": true,
             "compoundPalette": false,

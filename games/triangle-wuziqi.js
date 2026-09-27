@@ -90,11 +90,6 @@ class TriangleWuziqiRoom extends QiTwoPlayerRoomBase {
             lastMoveMarkers: this.lastMoveMarkers,
             gameOver: this.gameOver,
             winner: this.winner,
-            moveHistory: this.moveHistory.map(m => (
-                m.type === 'pass'
-                    ? { type: 'pass', player: m.player }
-                    : { type: 'move', player: m.player, row: m.row, col: m.col }
-            )),
             moveCoords: this.wireMoveCoords(),
             matchTime: {
                 negotiation: this.tcNego,

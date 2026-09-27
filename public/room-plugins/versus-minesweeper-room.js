@@ -5,7 +5,7 @@ window.RoomPlugins["versus-minesweeper"] = {
         "rulesHtml": "基本规则同扫雷。<br /><br />双方互相埋雷。<br /><br />开局时会显视距离雷最远的格。<br /><br />",
         "defaultKomiText": "　",
         "boardSizeMin": 7,
-        "boardSizeMax": 27,
+        "boardSizeMax": 21,
         "defaultBoardSize": 19,
         "minLib": 1,
         "recordDownloadPrefix": "对战扫雷",

@@ -12,6 +12,7 @@ window.RoomPlugins["translocation-weiqi"] = {
         "useBenson": true,
         "standardWeiqiMatchTime": true,
         "features": {
+            "showEstimate": true,
             "woodTexture": true,
             "editBoard": true
         },
@@ -412,6 +413,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             if (ps.showEstimateActive && ps.cachedLiveBoard && ps.cachedTerritory) {
                 d.estimateOverlay(ctx, ps.board, ps.BOARD_SIZE, ps.PADDING, cellSize, ps.cachedLiveBoard, ps.cachedTerritory);
             }
+            updateTranspositionInfo();     // 面板没别的正经内容时，把易位信息写回 scoreBoard
         }
 
         function rebuildLiveReplayCore(coords, openingBoard) {
@@ -607,6 +609,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             page.updateReplayUI();
             _weiqiBindings.updateRecordButtons();
             ps._syncMoveCoordsLen = (state.moveCoords && state.moveCoords.length) || 0;
+            updateTranspositionInfo();     // 面板没别的正经内容时，把易位信息写回 scoreBoard
         }
 
         /** 与洞围棋等一致：紧凑数组 ["B3,3","W4,4"]；仍兼容旧棋谱 { player1:[], player2:[] } */
@@ -803,6 +806,24 @@ const scoreTitle = document.getElementById('scoreTitle');
                 const emoji = ps.tryPlayCurrentPlayer === 1 ? '⚫' : '⚪';
                 turnDisplay.innerText = `${emoji} 试下`;
             }
+        }
+
+        /**
+         * scoreBoard 的**默认内容**＝易位信息：「剩馀 N 手可易位」/「不可易位」。
+         * 面板要显示别的内容时不抢：
+         *   - 形势判断开着（showEstimateActive）时，面板是「黑: x 白: y」，这里直接让位；
+         *   - 终局/数点等其它写面板的地方都发生在形势判断分支里，同样让位。
+         * 挂在运行时 afterDrawBoard 上：公共逻辑每次重绘（含清空形势判断面板之后那次）都会调一次，
+         * 所以面板被清成空白时能立刻把易位信息补回去。
+         */
+        function updateTranspositionInfo() {
+            if (!scoreBoard) return;
+            if (ps.showEstimateActive) return;
+            const total = Number(ps.maxTranspositionMoves) || computeMaxTranspositionMoves(ps.BOARD_SIZE);
+            const used = Number(ps.moveCount) || 0;
+            const remain = Math.max(0, total - used);
+            const text = ps.canTransposition === false ? '不可易位' : `剩馀${remain}手可易位`;
+            if (scoreBoard.innerText !== text) scoreBoard.innerText = text;
         }
 
         const domPage = {

@@ -1,4 +1,12 @@
 ﻿const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, applyInitialPositionCompact, encodeInitialPositionCompact, qiBoardSeatOverlay, encodeOpeningPositionCompact } = require('../common');
+/**
+ * 不围棋（noweiqi）：棋盘棋子同围棋，黑先白后交替落子。
+ *
+ * 规则（2026-09-25 用户调整后）：
+ *   - **不允许提子**：这一手若会把对方某块提掉 → 直接不入法（不是「提子者判负」）；
+ *   - 不允许自尽（落子后自己没有气 → 不入法）；不允许虚着；
+ *   - **谁先不能落子谁输**：轮到的一方若哪一点都不能落（提子点、自尽点、满盘都算）→ 该方判负。
+ */
 class NoWeiqiRoom extends QiTwoPlayerRoomBase
 {
     constructor(room)
@@ -127,13 +135,22 @@ class NoWeiqiRoom extends QiTwoPlayerRoomBase
         this.recordResultText = '和棋';
     }
 
-    setCaptureLossResultText(lostByCaptureSlot) {
-        this.recordResultText = lostByCaptureSlot === 'player1' ? '黑提子白胜' : '白提子黑胜';
+    /** 谁先不能落子谁负：无子可下的一方判负（文案先负后胜） */
+    setNoMoveLossResultText(loserSlot) {
+        this.recordResultText = loserSlot === 'player1' ? '白胜' : '黑胜';
     }
 
-    setPassLossResultText(lostSlot) {
-        if (lostSlot === 'player1') this.recordResultText = '黑虚着白胜';
-        else if (lostSlot === 'player2') this.recordResultText = '白虚着黑胜';
+    /**
+     * 开局判定（含编辑盘面后开局）：轮到的一方若哪一点都不能落 → 直接判负。
+     */
+    onMatchStarted() {
+        if (this.gameOver) return;
+        if (this.hasAnyMove(this.board, this.currentPlayer)) return;
+        const loserSlot = this.currentPlayer === 1 ? 'player1' : 'player2';
+        this.gameOver = true;
+        this.winner = loserSlot === 'player1' ? 'player2' : 'player1';
+        this.setNoMoveLossResultText(loserSlot);
+        this._stopClockTicker();
     }
 
     /** 不围棋不允许虚着：引擎 pass 时由人机对战按「棋盘走满判和、否则判负」处理 */
@@ -163,28 +180,26 @@ class NoWeiqiRoom extends QiTwoPlayerRoomBase
         squareWeiqiRules.removeGroup(board, row, col, color, this.boardSize);
     }
 
-    /** 落子并返回 { newBoard, capturedOpponent }（房间内部判定「先提子的一方负」用） */
+    /**
+     * 落子并返回 { newBoard }，不入法时返回 null。
+     * **不允许提子**：这一手若会把对方某块提掉 → 直接判不入法（对方那块不动，盘面不变）；
+     * 不允许自尽：落子后自己（含相连的己方块）没有气 → 不入法。
+     */
     tryPlaceStoneResult(boardBefore, row, col, playerVal)
     {
         if (boardBefore[row][col] !== 0) return null;
         const newBoard = this.copyBoard(boardBefore);
         newBoard[row][col] = playerVal;
-        let capturedOpponent = false;
+        const enemy = 3 - playerVal;
         for (let i = 0; i < this.boardSize; i++)
         {
             for (let j = 0; j < this.boardSize; j++)
             {
-                if (newBoard[i][j] === 3 - playerVal && !this.hasLiberty(newBoard, i, j))
-                {
-                    capturedOpponent = true;
-                    this.removeGroup(newBoard, i, j, 3 - playerVal);
-                }
+                // 对方有块会被提掉 → 这一手不允许（本棋种禁提子）
+                if (newBoard[i][j] === enemy && !this.hasLiberty(newBoard, i, j))
+                    return null;
             }
         }
-        // 先提子的一方负：提子后局面有效，但落子方立即告负
-        if (capturedOpponent)
-            return { newBoard, capturedOpponent: true }
-        ;
 
         for (let i = 0; i < this.boardSize; i++)
         {
@@ -196,8 +211,16 @@ class NoWeiqiRoom extends QiTwoPlayerRoomBase
                 }
             }
         }
-        return { newBoard, capturedOpponent: false }
-        ;
+        return { newBoard };
+    }
+
+    /** 该方还有没有能落子的点（提子点、自尽点都不算） */
+    hasAnyMove(board, playerVal)
+    {
+        for (let r = 0; r < this.boardSize; r++)
+            for (let c = 0; c < this.boardSize; c++)
+                if (board[r][c] === 0 && this.tryPlaceStoneResult(board, r, c, playerVal)) return true;
+        return false;
     }
 
     /** 标准落子接口：返回新盘面或 null（与其它棋类一致，供人机对战 applyComputerMove 等调用） */
@@ -207,13 +230,6 @@ class NoWeiqiRoom extends QiTwoPlayerRoomBase
         return r ? r.newBoard : null;
     }
 
-    isBoardFull()
-    {
-        for (let r = 0; r < this.boardSize; r++)
-            for (let c = 0; c < this.boardSize; c++)
-                if (this.board[r][c] === 0) return false;
-        return true;
-    }
 
     getState()
     {
@@ -269,6 +285,9 @@ class NoWeiqiRoom extends QiTwoPlayerRoomBase
                 break;
 
             case 'move':
+                if (!slot || this.gameOver) return;          // 观战者不能落子
+                // 必须是轮到的那一方（不限时的对局 _timeAllowsPlay 不校验行棋方，这里补上）
+                if (slot !== (this.currentPlayer === 1 ? 'player1' : 'player2')) return;
                 if (!this._timeAllowsPlay(slot)) {
                     if (slot) ws.send(JSON.stringify({ type: 'error', message: '请先与对手确认限时规则。' }));
                     return;
@@ -282,7 +301,7 @@ class NoWeiqiRoom extends QiTwoPlayerRoomBase
                 const result = this.tryPlaceStoneResult(this.board, row, col, playerVal);
                 if (!result) return;
 
-                const { newBoard, capturedOpponent } = result;
+                const { newBoard } = result;
                 const newBoardStr = this.boardToString(newBoard);
                 if (this.historyBoardSet.has(newBoardStr))
                     return;
@@ -294,29 +313,17 @@ class NoWeiqiRoom extends QiTwoPlayerRoomBase
                 this.board = newBoard;
                 this.lastMoveMarkers = [{ row, col, color: playerVal }];
 
-                if (capturedOpponent)
+                this.currentPlayer = this.currentPlayer === 1 ? 2 : 1;
+                if (!this.hasAnyMove(this.board, this.currentPlayer))
                 {
+                    // 谁先不能落子谁负：轮到这一方却哪点都不能落（提子点/自尽点/满盘）→ 该方负
+                    const loserSlot = this.currentPlayer === 1 ? 'player1' : 'player2';
                     this.gameOver = true;
-                    this.winner = slot === 'player1' ? 'player2' : 'player1';
-                    this.setCaptureLossResultText(slot);
-                    this.broadcast({ type: 'broadcast', action: 'move', ...this.getState() });
+                    this.winner = loserSlot === 'player1' ? 'player2' : 'player1';
+                    this.setNoMoveLossResultText(loserSlot);
+                    this._stopClockTicker();
                 }
-                else
-                {
-                    this.currentPlayer = this.currentPlayer === 1 ? 2 : 1;
-
-                    if (this.isBoardFull())
-                    {
-                        this.gameOver = true;
-                        this.winner = 'draw';
-                        this.recordResultText = '和棋';
-                        this.broadcast({ type: 'broadcast', action: 'move', ...this.getState() });
-                    }
-                    else
-                    {
-                        this.broadcast({ type: 'broadcast', action: 'move', ...this.getState() });
-                    }
-                }
+                this.broadcast({ type: 'broadcast', action: 'move', ...this.getState() });
                 this._syncClockAfterTurnChange();
                 break;
 
@@ -577,7 +584,7 @@ class NoWeiqiRoom extends QiTwoPlayerRoomBase
                 this.broadcast({ type: 'roomReset', ...this.getState() });
                 return;
             }
-            const { newBoard, capturedOpponent } = result;
+            const { newBoard } = result;
             const newBoardStr = this.boardToString(newBoard);
             this.historyBoards.push(this.copyBoard(newBoard));
             this.historyBoardSet.add(newBoardStr);
@@ -586,19 +593,8 @@ class NoWeiqiRoom extends QiTwoPlayerRoomBase
             this.moveCoords.push({ type: 'move', player: slot, row, col });
             this.board = newBoard;
             this.lastMoveMarkers = [{ row, col, color: playerVal }];
-
-            if (capturedOpponent) {
-                this.gameOver = true;
-                this.winner = slot === 'player1' ? 'player2' : 'player1';
-                this.recordResultText = slot === 'player1' ? '黑提子白胜' : '白提子黑胜';
-                break;
-            }
             this.currentPlayer = 3 - this.currentPlayer;
-            if (this.isBoardFull()) {
-                this.gameOver = true;
-                this.winner = 'draw';
-                break;
-            }
+            // 导入不做判定（胜负只按棋谱记录显示）
         }
 
         if (data.timeControl && typeof data.timeControl === 'object') {

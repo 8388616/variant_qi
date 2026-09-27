@@ -40,7 +40,7 @@ const SUB_META = {
     'cairo-pentagon-weiqi': {
         name: '开罗五角围棋', gameType: '开罗五角围棋', prefix: '开罗五角围棋',
         min: 3, max: 9, def: 7,
-        komi: (lanes) => (lanes === 4 ? 2.5 : 2), gtpSize: (lanes) => 4 * lanes - 3
+        komi: (lanes) => (lanes === 3 ? 2 : 3), gtpSize: (lanes) => 4 * lanes - 3
     },
     'snub-quadrangle-weiqi': {
         name: '扭棱四角围棋', gameType: '扭棱四角围棋', prefix: '扭棱四角围棋',
@@ -1156,22 +1156,12 @@ class NonRectangularWeiqiRoom extends QiTwoPlayerRoomBase {
                 this.broadcast({ type: 'broadcast', action: 'resign', player: slot, winner: this.winner, ...this.getState() });
                 break;
 
-            case 'requestNewGame': {
-                if (!slot) return;
-                const newGameOpponent = room.getPlayerBySlot(slot === 'player1' ? 'player2' : 'player1');
-                if (!newGameOpponent) {
-                    this.resetGame();
-                } else {
-                    this.pendingNewGame = ws;
-                    newGameOpponent.send(JSON.stringify({ type: 'newGameRequest' }));
-                }
+            case 'requestNewGame':
+                qiProtocol.requestNewGame(this, ws, slot);
                 break;
-            }
 
             case 'newGameResponse':
-                if (this.pendingNewGame && msg.accept) this.resetGame();
-                else if (this.pendingNewGame && !msg.accept) this.pendingNewGame.send(JSON.stringify({ type: 'error', message: '对方拒绝开始新局' }));
-                this.pendingNewGame = null;
+                qiProtocol.newGameResponse(this, ws, msg, { newGameDeniedMsg: '对方拒绝开始新局' });
                 break;
 
             case 'requestDraw': {

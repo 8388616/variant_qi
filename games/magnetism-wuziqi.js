@@ -1,14 +1,47 @@
-const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWuziqiRules, squareWeiqiRules, qiBoardSeatOverlay } = require('../common');
+const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWuziqiRules, qiBoardSeatOverlay } = require('../common');
 
-class CaptureShiziqiRoom extends QiTwoPlayerRoomBase {
+/* ---------- 磁力规则：本棋种专属，不写进公共文件 ----------
+   落子后，落点的**八个方向**（上下左右 + 左上/右上/左下/右下）上各自「最近的一枚棋子」被磁力
+   拉动一格：与落子方**同色者远离一格、异色者靠近一格**；目标格出界、或已有棋子（遇到阻碍）时
+   该子不动。只结算一次、不连锁；八个方向一律按进入函数时的同一张盘面同时计算（两条不同射线
+   只交于落点，而落点必被刚落下的子占住，故彼此的落点不可能相同）。 */
+
+/**
+ * 结算磁力。board 必须是**已经落完这一子**的盘面（落点上有子）。
+ * @returns {{board: number[][], moves: Array}} 结算后的盘面；moves = 实际被拉动的棋子
+ */
+function applyMagnetism(board, row, col, playerVal, boardSize) {
+    const next = board.map((r) => r.slice());
+    const moves = [];
+    const dirs = [[-1, 0], [1, 0], [0, -1], [0, 1], [-1, -1], [-1, 1], [1, -1], [1, 1]];
+    const inB = (r, c) => r >= 0 && r < boardSize && c >= 0 && c < boardSize;
+    for (const [dr, dc] of dirs) {
+        let r = row + dr;
+        let c = col + dc;
+        while (inB(r, c) && board[r][c] === 0) { r += dr; c += dc; }
+        if (!inB(r, c)) continue;                     // 该方向没有棋子
+        const v = board[r][c];
+        const away = v === playerVal;                 // 同色远离、异色靠近
+        const tr = away ? r + dr : r - dr;
+        const tc = away ? c + dc : c - dc;
+        if (!inB(tr, tc)) continue;                   // 出界
+        if (board[tr][tc] !== 0) continue;            // 被占（紧贴落点时即落在落点上）
+        next[tr][tc] = v;
+        next[r][c] = 0;
+        moves.push({ fromRow: r, fromCol: c, toRow: tr, toCol: tc, color: v });
+    }
+    return { board: next, moves };
+}
+
+
+class MagnetismWuziqiRoom extends QiTwoPlayerRoomBase {
     constructor(room) {
         super(room);
-        this.BOARD_SIZE = 19;
+        this.BOARD_SIZE = 13;
         this.board = Array(this.BOARD_SIZE).fill().map(() => Array(this.BOARD_SIZE).fill(0));
         if (this.openingBoard === undefined) this.openingBoard = (typeof this.copyBoard === 'function' ? this.copyBoard(this.board) : (Array.isArray(this.board[0]) ? this.board.map(r => r.slice()) : this.board.slice()));
         this.currentPlayer = 1;
         this.historyBoards = [];
-        this.historyBoardSet = new Set();
         this.lastMoveMarkers = [];
         this.moveHistory = [];
         this.gameOver = false;
@@ -93,35 +126,38 @@ class CaptureShiziqiRoom extends QiTwoPlayerRoomBase {
         this._broadcastClock();
     }
 
-    checkTenInRow(board, row, col, colorVal) {
-        if (board[row][col] !== colorVal) return false;
-        const directions = [[1, 0], [0, 1], [1, 1], [1, -1]];
-        for (const [dx, dy] of directions) {
-            let count = 1;
-            for (let step = 1; step < 10; step++) {
-                const nr = row + dx * step;
-                const nc = col + dy * step;
-                if (nr < 0 || nr >= this.BOARD_SIZE || nc < 0 || nc >= this.BOARD_SIZE || board[nr][nc] !== colorVal) break;
-                count++;
+    checkWin(row, col, colorVal) {
+        return squareWuziqiRules.checkFiveInRow(this.board, row, col, colorVal, this.BOARD_SIZE);
+    }
+
+    /** 整盘扫描某色是否已成五：磁力可能把别处的棋子拉成五，不能只看落点那一路 */
+    hasFive(colorVal) {
+        for (let r = 0; r < this.BOARD_SIZE; r++) {
+            for (let c = 0; c < this.BOARD_SIZE; c++) {
+                if (this.board[r][c] === colorVal && this.checkWin(r, c, colorVal)) return true;
             }
-            for (let step = 1; step < 10; step++) {
-                const nr = row - dx * step;
-                const nc = col - dy * step;
-                if (nr < 0 || nr >= this.BOARD_SIZE || nc < 0 || nc >= this.BOARD_SIZE || board[nr][nc] !== colorVal) break;
-                count++;
-            }
-            if (count >= 10) return true;
         }
         return false;
     }
 
+    isBoardFull() {
+        return squareWuziqiRules.isBoardFull(this.board, this.BOARD_SIZE);
+    }
+
+    _trailingPassCount() {
+        let n = 0;
+        for (let i = this.moveHistory.length - 1; i >= 0; i--) {
+            if (this.moveHistory[i].type === 'pass') n++;
+            else break;
+        }
+        return n;
+    }
+
     wireMoveCoords() {
-        return this.moveHistory.map(m => ({
-            type: 'move',
-            player: m.player,
-            row: m.row,
-            col: m.col
-        }));
+        return this.moveHistory.map(m => {
+            if (m.type === 'pass') return { type: 'pass', player: m.player };
+            return { type: 'move', player: m.player, row: m.row, col: m.col };
+        });
     }
 
     getState() {
@@ -133,7 +169,6 @@ class CaptureShiziqiRoom extends QiTwoPlayerRoomBase {
             lastMoveMarkers: this.lastMoveMarkers,
             gameOver: this.gameOver,
             winner: this.winner,
-            moveHistory: this.moveHistory.map(m => ({ player: m.player, row: m.row, col: m.col })),
             moveCoords: this.wireMoveCoords(),
             matchTime: {
                 negotiation: this.tcNego,
@@ -156,11 +191,20 @@ class CaptureShiziqiRoom extends QiTwoPlayerRoomBase {
         return {
             format: 'muzei',
             version: 2,
-            gameType: '提子十字棋',
-            gameId: 'capture-qiziqi',
+            gameType: '磁性五子棋',
+            gameId: 'magnetism-wuziqi',
             boardSize: this.BOARD_SIZE,
-            moves: this.moveHistory.map(m => `${(m.player === 'player1' ? 'B' : 'W')}${m.row},${m.col}`),
+            moves: this.moveHistory.map(m => {
+                const p = (m.player === 'player1' ? 'B' : 'W');
+                return m.type === 'pass' ? `${p}p` : `${p}${m.row},${m.col}`;
+            }),
             result: this.gameOver ? this.winner : null,
+            timeControl: this.tcSettings ? {
+                enabled: this.tcSettings.timed === true,
+                mainMinutes: this.tcSettings.timed ? this.tcSettings.mainMinutes : 0,
+                byoyomiSeconds: this.tcSettings.timed ? this.tcSettings.byoyomiSeconds : 0,
+                maxTimeouts: this.tcSettings.timed ? this.tcSettings.maxTimeouts : 0
+            } : null,
             resultText: this.recordResultText
         };
     }
@@ -169,7 +213,6 @@ class CaptureShiziqiRoom extends QiTwoPlayerRoomBase {
         this.board = Array(this.BOARD_SIZE).fill().map(() => Array(this.BOARD_SIZE).fill(0));
         this.currentPlayer = 1;
         this.historyBoards = [];
-        this.historyBoardSet = new Set();
         this.lastMoveMarkers = [];
         this.moveHistory = [];
         this.gameOver = false;
@@ -188,7 +231,7 @@ class CaptureShiziqiRoom extends QiTwoPlayerRoomBase {
     }
 
     setBoardSize(newSize, requesterWs) {
-        if (!Number.isInteger(newSize) || newSize < 7 || newSize > 21) {
+        if (!Number.isInteger(newSize) || newSize < 7 || newSize > 15) {
             requesterWs.send(JSON.stringify({ type: 'error', message: '棋盘大小无效。' }));
             return false;
         }
@@ -206,12 +249,12 @@ class CaptureShiziqiRoom extends QiTwoPlayerRoomBase {
     }
 
     importRecord(data, requesterWs) {
-        if (!data || data.gameId !== 'capture-qiziqi') {
-            requesterWs.send(JSON.stringify({ type: 'error', message: '棋谱格式不匹配（需要提子十字棋棋谱）。' }));
+        if (!data || data.gameId !== 'magnetism-wuziqi') {
+            requesterWs.send(JSON.stringify({ type: 'error', message: '棋谱格式不匹配（需要磁性五子棋棋谱）。' }));
             return;
         }
-        const newSize = data.boardSize || 19;
-        if (!Number.isInteger(newSize) || newSize < 7 || newSize > 21) {
+        const newSize = data.boardSize || 13;
+        if (!Number.isInteger(newSize) || newSize < 7 || newSize > 15) {
             requesterWs.send(JSON.stringify({ type: 'error', message: '棋谱中棋盘大小无效。' }));
             return;
         }
@@ -225,21 +268,38 @@ class CaptureShiziqiRoom extends QiTwoPlayerRoomBase {
             let entry = rawMoves[i];
             if (typeof entry === 'string') {
                 const player = entry[0] === 'B' ? 'player1' : 'player2';
-                const coords = entry.substring(1).split(',').map(Number);
-                entry = { player, row: coords[0], col: coords[1] };
+                if (entry.length >= 2 && entry[1] === 'p') {
+                    entry = { type: 'pass', player };
+                } else {
+                    const coords = entry.substring(1).split(',').map(Number);
+                    entry = { player, row: coords[0], col: coords[1] };
+                }
             }
-            const { row, col, player } = entry;
-            const slot = player;
-            if (row < 0 || row >= this.BOARD_SIZE || col < 0 || col >= this.BOARD_SIZE) {
-                this.resetToEmpty();
-                requesterWs.send(JSON.stringify({ type: 'error', message: `棋谱回放失败：第${i + 1}手坐标越界。` }));
-                this.broadcast({ type: 'roomReset', ...this.getState() });
-                return;
-            }
+            const slot = entry.player;
             const expect = this.currentPlayer === 1 ? 'player1' : 'player2';
             if (slot !== expect) {
                 this.resetToEmpty();
                 requesterWs.send(JSON.stringify({ type: 'error', message: `棋谱回放失败：第${i + 1}手行棋方与局面不符。` }));
+                this.broadcast({ type: 'roomReset', ...this.getState() });
+                return;
+            }
+            if (entry.type === 'pass') {
+                this.lastMoveMarkers = [];
+                this.moveHistory.push({ type: 'pass', player: slot });
+                this.historyBoards.push(this.copyBoard(this.board));
+                this.currentPlayer = this.currentPlayer === 1 ? 2 : 1;
+                if (!this.importReplayNoJudge && this._trailingPassCount() >= 2) {
+                    this.gameOver = true;
+                    this.winner = 'draw';
+                    this.recordResultText = '和棋';
+                    break;
+                }
+                continue;
+            }
+            const { row, col } = entry;
+            if (row < 0 || row >= this.BOARD_SIZE || col < 0 || col >= this.BOARD_SIZE) {
+                this.resetToEmpty();
+                requesterWs.send(JSON.stringify({ type: 'error', message: `棋谱回放失败：第${i + 1}手坐标越界。` }));
                 this.broadcast({ type: 'roomReset', ...this.getState() });
                 return;
             }
@@ -249,40 +309,8 @@ class CaptureShiziqiRoom extends QiTwoPlayerRoomBase {
                 this.broadcast({ type: 'roomReset', ...this.getState() });
                 return;
             }
-            const playerVal = slot === 'player1' ? 1 : 2;
-            const boardBefore = this.copyBoard(this.board);
-            const boardAfterPlacement = this.copyBoard(this.board);
-            boardAfterPlacement[row][col] = playerVal;
-            this.historyBoards.push(boardBefore);
-            this.moveHistory.push({ player: slot, row, col });
-            this.lastMoveMarkers = [{ row, col, color: playerVal }];
-
-            if (!this.importReplayNoJudge && this.checkTenInRow(boardAfterPlacement, row, col, playerVal)) {
-                this.board = boardAfterPlacement;
-                this.historyBoardSet.add(this.boardToString(this.board));
-                this.gameOver = true;
-                this.winner = slot;
-                break;
-            }
-
-            const boardAfterCapture = squareWeiqiRules.tryPlaceStoneNLiberty(
-                this.board, row, col, playerVal, this.BOARD_SIZE, (b) => this.copyBoard(b), 1
-            );
-            const boardStr = this.boardToString(boardAfterCapture);
-            if (this.historyBoardSet.has(boardStr)) {
-                this.resetToEmpty();
-                requesterWs.send(JSON.stringify({ type: 'error', message: `棋谱回放失败：第${i + 1}手触发禁全同。` }));
-                this.broadcast({ type: 'roomReset', ...this.getState() });
-                return;
-            }
-            this.board = boardAfterCapture;
-            this.historyBoardSet.add(boardStr);
-
-            if (!this.importReplayNoJudge && squareWuziqiRules.isBoardFull(this.board, this.BOARD_SIZE)) {
-                this.gameOver = true;
-                this.winner = 'draw';
-                break;
-            }
+            this.historyBoards.push(this.copyBoard(this.board));
+            if (this._applyMoveCore(row, col, slot).ended) break;   // 回放期间不判定：ended 恒为 false
             this.currentPlayer = this.currentPlayer === 1 ? 2 : 1;
         }
 
@@ -320,9 +348,52 @@ class CaptureShiziqiRoom extends QiTwoPlayerRoomBase {
             boardSize: this.BOARD_SIZE,
             replayData: {
                 boardSize: this.BOARD_SIZE,
-                moves: this.moveHistory.map(m => `${(m.player === 'player1' ? 'B' : 'W')}${m.row},${m.col}`)
+                moves: this.moveHistory.map(m => {
+                    const p = (m.player === 'player1' ? 'B' : 'W');
+                    return m.type === 'pass' ? `${p}p` : `${p}${m.row},${m.col}`;
+                })
             }
         });
+    }
+
+    /**
+     * 走一手的完整结算：落子 → 磁力 → 判定。
+     * 判定**先看对方、再看自己**：
+     *   · 对方成五（含「双方同时成五」和「磁力把对方拉成五」）→ 对方胜，落子方负；
+     *   · 自己成五 → 自己胜；棋盘满 → 和棋。
+     * 回放棋谱期间只摆棋不判定（结果以棋谱记录为准）。
+     */
+    _applyMoveCore(row, col, slot) {
+        const playerVal = slot === 'player1' ? 1 : 2;
+        const oppVal = playerVal === 1 ? 2 : 1;
+        this.board[row][col] = playerVal;
+        this.board = applyMagnetism(this.board, row, col, playerVal, this.BOARD_SIZE).board;
+        this.lastMoveMarkers = [{ row, col, color: playerVal }];
+        this.moveHistory.push({ player: slot, row, col });
+
+        if (this.importReplayNoJudge) return { ended: false };
+
+        if (this.hasFive(oppVal)) {
+            this.gameOver = true;
+            this.winner = slot === 'player1' ? 'player2' : 'player1';
+            this.recordResultText = this.hasFive(playerVal)
+                ? '双方同时五连，落子方负'
+                : '磁力凑成对方五连，落子方负';
+            return { ended: true };
+        }
+        if (this.hasFive(playerVal)) {
+            this.gameOver = true;
+            this.winner = slot;
+            this.recordResultText = slot === 'player1' ? '黑中盘胜' : '白中盘胜';
+            return { ended: true };
+        }
+        if (this.isBoardFull()) {
+            this.gameOver = true;
+            this.winner = 'draw';
+            this.recordResultText = '和棋';
+            return { ended: true };
+        }
+        return { ended: false };
     }
 
     /** 认输：resignSlot 是**认输方**（公共层契约），player1 执黑 */
@@ -343,97 +414,89 @@ class CaptureShiziqiRoom extends QiTwoPlayerRoomBase {
             case 'timeControlAccept':
                 this._handleTimeControlAccept(ws);
                 break;
+
             case 'setBoardSize':
                 qiProtocol.setBoardSizeObserverOnly(this, ws, msg, slot);
                 break;
+
             case 'exportRecord':
                 qiProtocol.exportRecord(this, ws);
                 break;
+
             case 'importRecord':
                 qiProtocol.importRecord(this, ws, msg);
                 break;
+
             case 'resetRoom':
                 qiProtocol.resetRoomToEmpty(this, ws);
                 break;
-            case 'move': {
+
+            case 'move':
                 if (this.gameOver) return;
                 if (!this._timeAllowsPlay(slot)) return;
                 if (!this._drainClockBeforeMove(slot)) return;
                 const { row, col } = msg;
                 if (row < 0 || row >= this.BOARD_SIZE || col < 0 || col >= this.BOARD_SIZE) return;
-                if (this.board[row][col] !== 0) return;
-                const playerVal = this.currentPlayer === 1 ? 1 : 2;
-                const boardBefore = this.copyBoard(this.board);
-                const boardAfterPlacement = this.copyBoard(this.board);
-                boardAfterPlacement[row][col] = playerVal;
-
-                this.historyBoards.push(boardBefore);
-                this.lastMoveMarkers = [{ row, col, color: playerVal }];
-                this.moveHistory.push({ player: slot, row, col });
-
-                if (this.checkTenInRow(boardAfterPlacement, row, col, playerVal)) {
-                    this.board = boardAfterPlacement;
-                    this.historyBoardSet.add(this.boardToString(this.board));
-                    this.gameOver = true;
-                    this.winner = slot;
-                    this.recordResultText = slot === 'player1' ? '黑中盘胜' : '白中盘胜';
+                if (this.board[row][col] !== 0) {
+                    return;
+                }
+                // 磁力会改动盘面，悔棋要连磁力一起退：historyBoards 存**落子前**的盘面
+                this.historyBoards.push(this.copyBoard(this.board));
+                if (this._applyMoveCore(row, col, slot).ended) {
                     this._stopClockTicker();
                     this.broadcast({ type: 'broadcast', action: 'move', ...this.getState() });
                     return;
                 }
-
-                const boardAfterCapture = squareWeiqiRules.tryPlaceStoneNLiberty(
-                    this.board, row, col, playerVal, this.BOARD_SIZE, (b) => this.copyBoard(b), 1
-                );
-                const boardStr = this.boardToString(boardAfterCapture);
-                if (this.historyBoardSet.has(boardStr)) {
-                    this.historyBoards.pop();
-                    this.lastMoveMarkers = [];
-                    this.moveHistory.pop();
-                    ws.send(JSON.stringify({ type: 'error', message: '禁全同。' }));
-                    return;
-                }
-
-                this.board = boardAfterCapture;
-                this.historyBoardSet.add(boardStr);
-
                 this.currentPlayer = this.currentPlayer === 1 ? 2 : 1;
                 this._syncClockAfterTurnChange();
+                this.broadcast({ type: 'broadcast', action: 'move', ...this.getState() });
+                break;
 
-                if (squareWuziqiRules.isBoardFull(this.board, this.BOARD_SIZE)) {
+            case 'pass':
+                if (this.gameOver) return;
+                if (!this._timeAllowsPlay(slot)) return;
+                if (!this._drainClockBeforeMove(slot)) return;
+                this.lastMoveMarkers = [];
+                this.moveHistory.push({ type: 'pass', player: slot });
+                this.historyBoards.push(this.copyBoard(this.board));
+                this.currentPlayer = this.currentPlayer === 1 ? 2 : 1;
+                if (this._trailingPassCount() >= 2) {
                     this.gameOver = true;
                     this.winner = 'draw';
                     this.recordResultText = '和棋';
                     this._stopClockTicker();
-                    this.broadcast({ type: 'broadcast', action: 'move', ...this.getState() });
+                    this.broadcast({ type: 'broadcast', action: 'pass', ...this.getState() });
                     return;
                 }
-
-                this.broadcast({ type: 'broadcast', action: 'move', ...this.getState() });
+                this._syncClockAfterTurnChange();
+                this.broadcast({ type: 'broadcast', action: 'pass', ...this.getState() });
                 break;
-            }
+
             case 'requestUndo':
                 qiProtocol.undoWuziqiHistory(this, ws, msg, slot);
                 break;
+
             case 'undoResponse':
                 qiProtocol.undoResponseWuziqiHistory(this, ws, msg);
-                this.historyBoardSet = new Set();
-                for (const b of this.historyBoards) this.historyBoardSet.add(this.boardToString(b));
-                this.historyBoardSet.add(this.boardToString(this.board));
                 break;
+
             case 'resign':
                 qiProtocol.resign(this, ws, slot);
                 this._stopClockTicker();
                 break;
+
             case 'requestNewGame':
                 qiProtocol.requestNewGame(this, ws, slot);
                 break;
+
             case 'newGameResponse':
                 qiProtocol.newGameResponse(this, ws, msg);
                 break;
+
             case 'requestDraw':
                 qiProtocol.requestDraw(this, ws, slot);
                 break;
+
             case 'drawResponse':
                 qiProtocol.drawResponse(this, ws, msg, {
                     onDrawResolved: () => {
@@ -442,6 +505,7 @@ class CaptureShiziqiRoom extends QiTwoPlayerRoomBase {
                     }
                 });
                 break;
+
             default:
                 break;
         }
@@ -451,7 +515,6 @@ class CaptureShiziqiRoom extends QiTwoPlayerRoomBase {
         this.board = Array(this.BOARD_SIZE).fill().map(() => Array(this.BOARD_SIZE).fill(0));
         this.currentPlayer = 1;
         this.historyBoards = [];
-        this.historyBoardSet = new Set();
         this.lastMoveMarkers = [];
         this.moveHistory = [];
         this.gameOver = false;
@@ -481,7 +544,7 @@ class CaptureShiziqiRoom extends QiTwoPlayerRoomBase {
 
 module.exports = {
     initRoom(room) {
-        room.gameLogic = new CaptureShiziqiRoom(room);
+        room.gameLogic = new MagnetismWuziqiRoom(room);
         if (typeof qiBoardSeatOverlay !== 'undefined' && qiBoardSeatOverlay) qiBoardSeatOverlay.install(room.gameLogic);
         room.maxPlayers = 2;
     }

@@ -5,13 +5,14 @@ window.RoomPlugins["twisted-space-weiqi"] = {
         "rulesHtml": "基本规则同围棋。<br /><br />采用三角棋盘，棋子落在格内。<br /><br />每个点被分配了一个编号。相同编号的格子是相邻的。<br />",
         "defaultKomiText": "黑贴白4.75点",
         "boardSizeMin": 7,
-        "boardSizeMax": 27,
+        "boardSizeMax": 21,
         "defaultBoardSize": 9,
         "minLib": 1,
         "recordDownloadPrefix": "扭曲空间围棋",
         "useBenson": false,
         "standardWeiqiMatchTime": true,
         "features": {
+            "showEstimate": true,
             "woodTexture": true,
             "editBoard": true,
             "transparentCanvas": true

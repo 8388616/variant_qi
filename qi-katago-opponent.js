@@ -134,7 +134,9 @@ function buildKatagoSetupOpts(self, board) {
         boardSize: self.boardSize,
         komi: readKomi(self),
         board,
-        gameId: engineGameId(self)
+        gameId: engineGameId(self),
+        // 与 board 同一时刻的着法表长度：自检用它推算引擎着法史应有的手数（见 verifyEngineState）
+        moveCount: Array.isArray(self.moveCoords) ? self.moveCoords.length : 0
     };
     // 非方形棋盘（如开罗五角围棋）：定制 kataGo 支持 boardsize X:Y
     if (self.katagoBoardWidth && self.katagoBoardHeight) {
@@ -152,6 +154,24 @@ function buildKatagoSetupOpts(self, board) {
         // 权重局却拿不到权重矩阵 = 引擎按均权下棋（棋力会明显崩塌），必须显式告警
         console.warn(`[katago:${engineGameId(self)}] 权重局未取得 self.weights（缺失或尺寸不符），本次同步不含权重`);
     }
+    // 整段着法重放（棋种声明 katagoReplayHistory）：set_position 会清空引擎的对局历史——位置超级劫
+    // （禁全同）、重复局面罚分、虚着计数全丢，于是引擎可能提议一步重复局面的着法（最典型：刚同步完
+    // 就想把上一手易位换回来），被网站判禁全同后改成虚着。把整段着法一手手重放回去即可还原，
+    // 且行棋方由重放自然得出（不再需要下面的 lastMove 翻转），配额此时该发**绝对上限**（引擎历史手数完整）。
+    // 只能声明在「状态 = 开局盘面 + 着法表」的棋种上：洞/桥/雷/中立等特殊格只有 set_position 能发。
+    const replayHistory = buildReplayHistory(self);
+    if (replayHistory) {
+        opts.initialBoard = typeof self.copyBoard === 'function'
+            ? self.copyBoard(self.openingBoard)
+            : self.openingBoard.map((r) => r.slice());
+        opts.replayHistory = replayHistory;
+        if ('maxTranspositionMoves' in self && Number.isFinite(Number(self.maxTranspositionMoves))) {
+            opts.maxTranslocationMoves = Math.max(0, Number(self.maxTranspositionMoves) | 0);
+        }
+        // 不 return：下面仍照常备好 opts.lastMove —— 重放成功时用不到它，重放失败退回快照同步时
+        // 还靠它把引擎行棋方翻正（否则退回后轮到白会被引擎拒绝）。
+    }
+
     // set_position 后引擎行棋方（presumedNextMovePla）恒为黑；当前轮到白（player2 座）时，
     // 去掉最后一手再同步、重放最后一手来翻转行棋方，否则 genmove 会被引擎拒绝
     const nextSlot = seatToMove(self);
@@ -171,11 +191,75 @@ function buildKatagoSetupOpts(self, board) {
             };
         } else if (last.type === 'move' && Number.isInteger(last.row) && Number.isInteger(last.col)) {
             opts.lastMove = { player: lastColor, row: last.row, col: last.col, shapeIndex: null, stones: null };
+        } else if (last.type === 'swap' && Number.isInteger(last.fromRow) && Number.isInteger(last.fromCol)
+            && Number.isInteger(last.row) && Number.isInteger(last.col)) {
+            // 易位围棋：最后一手是易位同样要重放（`play B ts A B`），否则引擎行棋方停在黑，
+            // 随后 genmove 白会触发 AsyncBot::genMoveAsync 的 setPlayerAndClearHistory →
+            // `BoardHistory::clear()` 把**着法史**清空（禁全同知识、重复局面罚分、v17 的两个相位特征全丢）。
+            // 注：2026-09-27 重构后的引擎里 clear() 已不再清 maxTranslocationMoves（相位还在），
+            // 但丢历史这一条照旧 —— 所以「对齐行棋方、让引擎走上 setPlayerIfNew」这个做法仍然必要。
+            opts.lastMove = {
+                player: lastColor, type: 'swap',
+                fromRow: last.fromRow, fromCol: last.fromCol, row: last.row, col: last.col
+            };
         } else if (last.type === 'pass') {
             opts.lastMove = { player: lastColor, type: 'pass' };
         }
     }
+    // 引擎判 canTranslocate 用的是 `moveHistory.size() < maxTranslocationMoves`（boardhistory.cpp），
+    // 而「重放的那一手」在 set_position（历史清零）之后也会占掉一手历史：重放后 size=1。
+    // 所以重放了最后一手就要把配额补 1，否则电脑执白时引擎比网站少算一手，
+    // 网站上允许易位的最后那一手会被引擎拒绝（人机对局的最后一手易位白丢）。
+    // 重放同步时上面已发绝对上限（引擎历史手数完整），这一条只用于「整盘快照 + 末手重放」那条路
+    if (remain != null && opts.lastMove && !opts.replayHistory) opts.maxTranslocationMoves = remain + 1;
     return opts;
+}
+
+/**
+ * 着法表条目 → 引擎重放条目（`{ type:'move'|'swap'|'compound'|'pass', color:'black'|'white', … }`）。
+ * 引擎只认 black/white；不支持/信息不全的条目返回 null（调用方据此放弃重放、退回整盘快照同步）。
+ */
+function replayEntryOf(m) {
+    if (!m || (m.player !== 'player1' && m.player !== 'player2')) return null;
+    const color = colorOfSlot(m.player);
+    if (m.type === 'pass') return { type: 'pass', color };
+    if (m.type === 'swap' && Number.isInteger(m.fromRow) && Number.isInteger(m.fromCol)
+        && Number.isInteger(m.row) && Number.isInteger(m.col)) {
+        return { type: 'swap', color, fromRow: m.fromRow, fromCol: m.fromCol, row: m.row, col: m.col };
+    }
+    if (m.type === 'move' && Number.isInteger(m.row) && Number.isInteger(m.col)) {
+        if (Number.isInteger(m.shapeIndex)) {
+            return {
+                type: 'compound', color, row: m.row, col: m.col,
+                shapeIndex: m.shapeIndex,
+                orientIdx: compoundOrientToEngine(m.shapeIndex, m.rotation, m.flipped)
+            };
+        }
+        return { type: 'move', color, row: m.row, col: m.col };
+    }
+    return null;
+}
+
+/** 把整段着法历史交给引擎重放（见 buildKatagoSetupOpts 的注释）。
+ *  **默认开**：凡是「状态 = 开局盘面 + 着法表」的棋种都能重放；中局还有别的变化的棋种
+ *  （如埋雷围棋：雷是中局埋的、还能补埋，着法表里是 `mineHit`/`holeReveal` 这类条目）
+ *  显式声明 `this.katagoReplayHistory = false` 退出，回到整盘快照同步。
+ *  返回 null 表示不能重放（显式退出 / 开局盘面缺失 / 着法表里有引擎不认识的条目）。 */
+function buildReplayHistory(self) {
+    if (!self || self.katagoReplayHistory === false) return null;
+    if (!Array.isArray(self.openingBoard)) return null;
+    const mcs = Array.isArray(self.moveCoords) ? self.moveCoords : [];
+    if (!mcs.length) return null;
+    const entries = [];
+    for (const m of mcs) {
+        const e = replayEntryOf(m);
+        if (!e) {
+            console.warn(`[katago:${engineGameId(self)}] 着法表含无法重放的条目（type=${m && m.type}），本次仍用整盘快照同步`);
+            return null;
+        }
+        entries.push(e);
+    }
+    return entries;
 }
 
 function bumpMoveCount(self) {
@@ -673,6 +757,10 @@ function describeRecentMoves(self, n) {
 const WEIGHT_PROBE_EVERY = 5;
 function isWeightProbeDue(moveCount) { return moveCount > 0 && moveCount % WEIGHT_PROBE_EVERY === 0; }
 
+// 易位配额回读抽样：配额只该在同步时变（每局固定），但中途被清/被改就是引擎跟着网站规则跑偏的信号
+const TRANSLOC_PROBE_EVERY = 5;
+function isTranslocProbeDue(moveCount) { return moveCount > 0 && moveCount % TRANSLOC_PROBE_EVERY === 0; }
+
 /** 权重矩阵（站点 row 序）按站点→引擎的展开顺序拍平（与 setupGame 下发的顺序一致） */
 function flattenWeightsForEngine(self, weights, width, height) {
     const flat = [];
@@ -721,14 +809,29 @@ async function verifyEngineState(self, session, gen, trigger) {
     }
     const expectPla = colorOfSlot(seatToMove(self));
     const turnDiff = !!probed.nextPlayer && probed.nextPlayer !== expectPla;
+    const moveCount = Array.isArray(self.moveCoords) ? self.moveCoords.length : 0;
+    const reasons = [];
+    if (stoneDiff) reasons.push('棋盘有差异');
+    if (turnDiff) reasons.push(`行棋方 ${probed.nextPlayer}≠${expectPla}`);
+
+    // 引擎着法史手数（showboard 的 MoveNum = 引擎 BoardHistory::moveHistory.size()，即 set_position 之后
+    // 引擎实际收到的着手数）：盘面与行棋方都「看着对」、手数却少了 = 引擎的禁全同/重复局面罚分历史丢了
+    // （易位围棋还多两个 NN 相位特征跟着算错），表现就是「引擎一直提议网站判非法/判禁全同的着法 →
+    // 被驳回成虚着」。只在**整段重放同步**之后比对：那时网站着法表就是引擎收到的着手序列，逐手一一对应；
+    // 快照同步（含 mineHit/holeReveal 这类非着手条目的棋种）不比对，免得误报。
+    if (probed.moveNum != null && session.lastSyncReplayed
+        && session.lastSyncMoveNum != null && session.lastSyncSiteMoveCount != null) {
+        const expected = session.lastSyncMoveNum + (moveCount - session.lastSyncSiteMoveCount);
+        if (expected >= 0 && probed.moveNum !== expected) {
+            reasons.push(`引擎着法史 ${probed.moveNum}≠${expected}`);
+        }
+    }
 
     // 权重局：核对引擎手里的权重还是不是本站点这一局的那组（丢了 = 正按普通围棋下、分数全错）。
     // 权重只可能被 clear_board 作废，而每次 clear_board 之后都会重发并回读校验（见 setupGame），
     // 所以这里按 WEIGHT_PROBE_EVERY 手抽样即可；盘面/行棋方已发现异常时必查（便于一次性定位）。
-    let weightDiff = null;
-    const moveCount = Array.isArray(self.moveCoords) ? self.moveCoords.length : 0;
     if (isWeightWeiqiEngine(engineGameId(self)) && typeof session.probeWeights === 'function'
-        && (isWeightProbeDue(moveCount) || stoneDiff > 0 || turnDiff)) {
+        && (isWeightProbeDue(moveCount) || reasons.length > 0)) {
         const w = readWeights(self);
         let pw = null;
         try { pw = await session.probeWeights(); } catch (_) { pw = null; }
@@ -737,20 +840,32 @@ async function verifyEngineState(self, session, gen, trigger) {
             const flat = flattenWeightsForEngine(self, w, width, height);
             let am = 0;
             for (let i = 1; i < flat.length; i++) if (flat[i] > flat[am]) am = i;
-            if (pw.count !== flat.length) weightDiff = `权重个数 ${pw.count}≠${flat.length}`;
-            else if (pw.allEqual) weightDiff = '引擎权重全相等（等于没设权重，正按普通围棋下）';
-            else if (pw.argmax !== am) weightDiff = `最高权重点 ${pw.argmax}≠${am}`;
+            if (pw.count !== flat.length) reasons.push(`权重个数 ${pw.count}≠${flat.length}`);
+            else if (pw.allEqual) reasons.push('引擎权重全相等（等于没设权重，正按普通围棋下）');
+            else if (pw.argmax !== am) reasons.push(`最高权重点 ${pw.argmax}≠${am}`);
         }
         if (pw) self._qiKatagoWeightProbedAt = moveCount;   // 仅供调试观察，不参与判断
     }
 
-    if (!stoneDiff && !turnDiff && !weightDiff) return;
+    // 易位配额：引擎侧 maxTranslocationMoves 应当等于网站最近一次下发的值（规则权威在网站）。
+    // 配额被清/被改 → 引擎会认为「不在易位期」而不肯易位（或反之提议网站判非法的易位），
+    // 两种都会让引擎看起来在「乱下/虚着」。非易位引擎没有该命令 → probe 返回 null，跳过。
+    if (session.lastTranslocationBudget != null && typeof session.probeTranslocationMax === 'function'
+        && (isTranslocProbeDue(moveCount) || reasons.length > 0)) {
+        let pm = null;
+        try { pm = await session.probeTranslocationMax(); } catch (_) { pm = null; }
+        if (gen !== self._qiKatagoGen || session !== self._qiKatago) return;
+        if (pm != null && pm !== session.lastTranslocationBudget) {
+            reasons.push(`易位配额 ${pm}≠${session.lastTranslocationBudget}`);
+        }
+        self._qiKatagoBudgetProbedAt = moveCount;   // 仅供调试观察，不参与判断
+    }
+
+    if (!reasons.length) return;
 
     console.warn(`[katago:${engineGameId(self)}] 引擎状态与服务端不一致（触发：${trigger}；`
-        + `${stoneDiff ? '棋盘有差异' : ''}${stoneDiff && (turnDiff || weightDiff) ? '、' : ''}`
-        + `${turnDiff ? `行棋方 ${probed.nextPlayer}≠${expectPla}` : ''}${turnDiff && weightDiff ? '、' : ''}`
-        + `${weightDiff || ''}`
-        + `，手数 ${(self.moveCoords || []).length}）：全量重同步引擎状态。最近几手：${describeRecentMoves(self, 6)}`);
+        + `${reasons.join('、')}`
+        + `，手数 ${moveCount}）：全量重同步引擎状态。最近几手：${describeRecentMoves(self, 6)}`);
     try {
         const snap = typeof self.copyBoard === 'function' ? self.copyBoard(self.board) : self.board.map((r) => r.slice());
         await session.setupGame(buildKatagoSetupOpts(self, snap));

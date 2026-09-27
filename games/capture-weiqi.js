@@ -9,6 +9,16 @@
  */
 const crypto = require('crypto');
 
+function komiForSize(boardSize) {
+    if (boardSize === 7) return 2.5;
+    if (boardSize === 8) return 2.75;
+    if (boardSize === 9) return 2.75;
+    if (boardSize === 10) return 2.75;
+    if (boardSize === 11) return 2.75;
+    if (boardSize === 12) return 3.0;
+    return 3.5;
+}
+
 const { qiBoardSeatOverlay, QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, applyInitialPositionCompact, encodeInitialPositionCompact, encodeOpeningPositionCompact , computeNearestWeiqiLead, squareWeiqiScoringOps } = require('../common');
 class WeiqiRoom extends QiTwoPlayerRoomBase
 {
@@ -295,7 +305,7 @@ class WeiqiRoom extends QiTwoPlayerRoomBase
             : this.copyBoard(this.board);
         return {
             boardSize: this.boardSize,
-            komi: this.boardSize <= 8 ? 3.5 : 2.5,
+            komi: komiForSize(this.boardSize),
             board: this.board,
             initialBoard,
             numberOfHands: 1 + this.historyBoards.length,
@@ -525,7 +535,7 @@ class WeiqiRoom extends QiTwoPlayerRoomBase
 
     setBoardSize(newSize, requesterWs)
     {
-        if (!Number.isInteger(newSize) || newSize < 7 || newSize > 27) {
+        if (!Number.isInteger(newSize) || newSize < 7 || newSize > 21) {
             requesterWs.send(JSON.stringify({ type: 'error', message: '棋盘大小无效' }));
             return false;
         }
@@ -556,7 +566,7 @@ class WeiqiRoom extends QiTwoPlayerRoomBase
             gameType: '吃子围棋',
             gameId: 'capture-weiqi',
             boardSize: this.boardSize,
-            komi: this.boardSize <= 8 ? 3.5 : 2.5,
+            komi: komiForSize(this.boardSize),
             players: { player1: null, player2: null },
             initialPosition: encodeOpeningPositionCompact(this),
             moves: this.moveCoords.map(m => {
@@ -612,7 +622,7 @@ class WeiqiRoom extends QiTwoPlayerRoomBase
             return;
         }
         const newSize = data.boardSize || 19;
-        if (!Number.isInteger(newSize) || newSize > 27) {
+        if (!Number.isInteger(newSize) || newSize > 21) {
             requesterWs.send(JSON.stringify({ type: 'error', message: '棋谱中棋盘大小无效' }));
             return;
         }

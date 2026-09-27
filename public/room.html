@@ -11,12 +11,15 @@
     <link rel="stylesheet" href="/qi/room.css">
     <script>
     (function () {
-        var m = location.pathname.match(/^\/qi\/([a-zA-Z0-9_-]+)\/[^/]+\/?$/);
-        if (!m) return;
+        // 房间短链（/rooms/<房间号> 或 /qi/rooms/<房间号>）：棋种由服务端注入
+        // window.__qiRoomRoute（见 qi-server.js 的 serveRoomPage，注入点在 <head> 之后、本脚本之前）
+        var m = location.pathname.match(/^\/(?:qi\/)?rooms\/(\d+)\/?$/);
+        var game = m && window.__qiRoomRoute && window.__qiRoomRoute.gameType;
+        if (!game) return;
         var l = document.createElement('link');
         l.rel = 'preload';
         l.as = 'script';
-        l.href = '/qi/room-plugins/' + m[1] + '-room.js';
+        l.href = '/qi/room-plugins/' + game + '-room.js';
         document.head.appendChild(l);
     })();
     </script>

@@ -1,5 +1,13 @@
 const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWuziqiRules, qiBoardSeatOverlay } = require('../common');
-class ReverseWuziqiRoom extends QiTwoPlayerRoomBase {
+/**
+ * 不五子棋（nowuziqi）：棋盘棋子同五子棋，黑先白后交替落子。
+ *
+ * 规则（2026-09-25 用户调整后）：
+ *   - **不允许成五**：这一手若会连成五子 → 直接不入法（不是「成五者判负」）；
+ *   - 不允许虚着；
+ *   - **谁先不能落子谁输**：轮到的一方若哪一点都不能落（落下去都会成五、或已满盘）→ 该方判负。
+ */
+class NowuziqiRoom extends QiTwoPlayerRoomBase {
     constructor(room) {
         super(room);
         this.BOARD_SIZE = 13;
@@ -22,13 +30,42 @@ class ReverseWuziqiRoom extends QiTwoPlayerRoomBase {
         this.matchStarted = false;
     }
 
-    checkWin(row, col, colorVal) {
-        return squareWuziqiRules.checkFiveInRow(this.board, row, col, colorVal, this.BOARD_SIZE);
+    /** 不允许成五：这一手落下去会不会连成五子（在副本上试，不动真盘面） */
+    wouldMakeFive(row, col, colorVal) {
+        const tmp = this.copyBoard(this.board);
+        tmp[row][col] = colorVal;
+        return squareWuziqiRules.checkFiveInRow(tmp, row, col, colorVal, this.BOARD_SIZE);
     }
 
-    isBoardFull() {
-        return squareWuziqiRules.isBoardFull(this.board, this.BOARD_SIZE);
+    /** 该方还有没有能落子的点（落下去不成五的点） */
+    hasAnyMove(board, colorVal) {
+        for (let r = 0; r < this.BOARD_SIZE; r++) {
+            for (let c = 0; c < this.BOARD_SIZE; c++) {
+                if (board[r][c] !== 0) continue;
+                const tmp = this.copyBoard(board);
+                tmp[r][c] = colorVal;
+                if (!squareWuziqiRules.checkFiveInRow(tmp, r, c, colorVal, this.BOARD_SIZE)) return true;
+            }
+        }
+        return false;
     }
+
+    /** 谁先不能落子谁负：无子可下的一方判负（文案先负后胜） */
+    setNoMoveLossResultText(loserSlot) {
+        this.recordResultText = loserSlot === 'player1' ? '白胜' : '黑胜';
+    }
+
+    /** 开局判定（含编辑盘面后开局）：轮到的一方若哪一点都不能落 → 直接判负 */
+    onMatchStarted() {
+        if (this.gameOver) return;
+        if (this.hasAnyMove(this.board, this.currentPlayer)) return;
+        const loserSlot = this.currentPlayer === 1 ? 'player1' : 'player2';
+        this.gameOver = true;
+        this.winner = loserSlot === 'player1' ? 'player2' : 'player1';
+        this.setNoMoveLossResultText(loserSlot);
+        this._stopClockTicker();
+    }
+
 
     wireMoveCoords() {
         return this.moveHistory.map(m => ({
@@ -135,7 +172,6 @@ class ReverseWuziqiRoom extends QiTwoPlayerRoomBase {
             lastMoveMarkers: this.lastMoveMarkers,
             gameOver: this.gameOver,
             winner: this.winner,
-            moveHistory: this.moveHistory.map(m => ({ player: m.player, row: m.row, col: m.col })),
             moveCoords: this.wireMoveCoords(),
             slots: {
                 player1: !!this.room.getPlayerBySlot('player1'),
@@ -160,8 +196,8 @@ class ReverseWuziqiRoom extends QiTwoPlayerRoomBase {
         return {
             format: 'muzei',
             version: 2,
-            gameType: '反五子棋',
-            gameId: 'reverse-wuziqi',
+            gameType: '不五子棋',
+            gameId: 'nowuziqi',
             boardSize: this.BOARD_SIZE,
             moves: this.moveHistory.map(m => `${(m.player === 'player1' ? 'B' : 'W')}${m.row},${m.col}`),
             result: this.gameOver ? this.winner : null
@@ -207,8 +243,8 @@ class ReverseWuziqiRoom extends QiTwoPlayerRoomBase {
     }
 
     importRecord(data, requesterWs) {
-        if (!data || data.gameId !== 'reverse-wuziqi') {
-            requesterWs.send(JSON.stringify({ type: 'error', message: '棋谱格式不匹配（需要反五子棋棋谱）。' }));
+        if (!data || data.gameId !== 'nowuziqi') {
+            requesterWs.send(JSON.stringify({ type: 'error', message: '棋谱格式不匹配（需要不五子棋棋谱）。' }));
             return;
         }
         const newSize = data.boardSize || 13;
@@ -256,16 +292,7 @@ class ReverseWuziqiRoom extends QiTwoPlayerRoomBase {
             this.moveHistory.push({ player: slot, row, col });
             this.historyBoards.push(this.copyBoard(this.board));
 
-            if (!this.importReplayNoJudge && this.checkWin(row, col, playerVal)) {
-                this.gameOver = true;
-                this.winner = slot === 'player1' ? 'player2' : 'player1';
-                break;
-            }
-            if (!this.importReplayNoJudge && this.isBoardFull()) {
-                this.gameOver = true;
-                this.winner = 'draw';
-                break;
-            }
+            // 导入不做判定（胜负只按棋谱记录显示）
             this.currentPlayer = this.currentPlayer === 1 ? 2 : 1;
         }
 
@@ -346,27 +373,21 @@ class ReverseWuziqiRoom extends QiTwoPlayerRoomBase {
                     return;
                 }
                 const playerVal = this.currentPlayer === 1 ? 1 : 2;
+                // **不允许成五**：这一手若会连成五子 → 不入法
+                if (this.wouldMakeFive(row, col, playerVal)) return;
                 this.board[row][col] = playerVal;
                 this.lastMoveMarkers = [{ row, col, color: playerVal }];
                 this.moveHistory.push({ player: slot, row, col });
-
-                if (this.checkWin(row, col, playerVal)) {
-                    this.gameOver = true;
-                    this.winner = (slot === 'player1') ? 'player2' : 'player1';
-                    this._stopClockTicker();
-                    this.broadcast({ type: 'broadcast', action: 'move', ...this.getState() });
-                    return;
-                }
-
                 this.historyBoards.push(this.copyBoard(this.board));
                 this.currentPlayer = this.currentPlayer === 1 ? 2 : 1;
 
-                if (this.isBoardFull()) {
+                if (!this.hasAnyMove(this.board, this.currentPlayer)) {
+                    // 谁先不能落子谁负：轮到这一方却哪点都不能落（落下去都会成五/满盘）→ 该方负
+                    const loserSlot = this.currentPlayer === 1 ? 'player1' : 'player2';
                     this.gameOver = true;
-                    this.winner = 'draw';
+                    this.winner = loserSlot === 'player1' ? 'player2' : 'player1';
+                    this.setNoMoveLossResultText(loserSlot);
                     this._stopClockTicker();
-                    this.broadcast({ type: 'broadcast', action: 'move', ...this.getState() });
-                    return;
                 }
 
                 this.broadcast({ type: 'broadcast', action: 'move', ...this.getState() });
@@ -440,7 +461,7 @@ class ReverseWuziqiRoom extends QiTwoPlayerRoomBase {
 
 module.exports = {
     initRoom(room) {
-        room.gameLogic = new ReverseWuziqiRoom(room);
+        room.gameLogic = new NowuziqiRoom(room);
         if (typeof qiBoardSeatOverlay !== 'undefined' && qiBoardSeatOverlay) qiBoardSeatOverlay.install(room.gameLogic);
         room.maxPlayers = 2;
     }

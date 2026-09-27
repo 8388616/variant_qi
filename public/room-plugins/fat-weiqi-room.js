@@ -2,16 +2,17 @@ window.RoomPlugins = window.RoomPlugins || {};
 window.RoomPlugins['fat-weiqi'] = {
     shell: {
         "title": "胖围棋",
-        "rulesHtml": "基本规则类似围棋。<br /><br />落子时不能与任何棋盘上已有的棋子相邻。<br /><br />每个点与其横纵坐标都差1的点，以及横纵坐标分别差1和2的点相连。相连的棋子被视为在同一组内，提子时需要被同时提起。<br /><br />每组棋子没有可落子的相连点时需要被提掉。<br /><br />",
+        "rulesHtml": "基本规则类似围棋。<br /><br />落子时不能与任何棋盘上已有的棋子相邻。<br /><br />每个点与尖、跳、小飞相连，但双方两组跳交叉时都不相连。<br /><br />相连的棋子被视为在同一组内，提子时需要被同时提起。<br /><br />每组棋子没有可落子的相连点时需要被提掉。<br /><br />",
         "defaultKomiText": "黑贴白3.25点",
         "boardSizeMin": 7,
-        "boardSizeMax": 27,
+        "boardSizeMax": 21,
         "defaultBoardSize": 19,
         "minLib": 1,
         "recordDownloadPrefix": "胖围棋",
         "useBenson": false,
         "standardWeiqiMatchTime": true,
         "features": {
+            "showEstimate": true,
             "woodTexture": true,
             "zoomScroll": true,
             "editBoard": true,
@@ -221,14 +222,34 @@ const BOARD_MARK_CHAR_LIST = (() => {
         // ======================== 本地胖规则引擎（试下/实况回放演算用，与服务器 games/fat-weiqi.js 一致） ========================
         const ORTH2 = [[-1, 0], [1, 0], [0, -1], [0, 1]];
         const FAT2 = [
-            [-1, -1], [-1, 1], [1, -1], [1, 1],
-            [-1, -2], [-1, 2], [1, -2], [1, 2],
-            [-2, -1], [-2, 1], [2, -1], [2, 1]
+            [-1, -1], [-1, 1], [1, -1], [1, 1],       // 小尖：横纵各差 1
+            [-1, -2], [-1, 2], [1, -2], [1, 2],       // 小飞：横差 1 纵差 2
+            [-2, -1], [-2, 1], [2, -1], [2, 1],       // 小飞：横差 2 纵差 1
+            [-2, 0], [2, 0], [0, -2], [0, 2]          // 跳：同一条轴上隔一点
         ];
         const inB2 = (r, c, n) => r >= 0 && r < n && c >= 0 && c < n;
         const copy2 = (b) => b.map((row) => row.slice());
 
-        /** 收集 (r,c) 同色棋子的胖组（12 向递归闭包） */
+        /**
+         * (r,c) 一步走到 (tr,tc) 是否算「胖相连」（与服务器 fatLinkOk 同语义）。
+         * 小尖/小飞跃过去都算相连；跳要跨过中间的空点，且与对方的跳在同一中间点交叉
+         * （十字形，四个端点两种颜色）时这两个跳都不算相连。
+         */
+        function localFatLink(board, r, c, tr, tc, n) {
+            const dr = tr - r;
+            const dc = tc - c;
+            if (dr !== 0 && dc !== 0) return true;
+            const mr = (r + tr) / 2;
+            const mc = (c + tc) / 2;
+            if (!inB2(mr, mc, n) || board[mr][mc] !== 0) return false;
+            const opp = 3 - board[r][c];
+            const a = dr === 0 ? [mr - 1, mc] : [mr, mc - 1];
+            const b = dr === 0 ? [mr + 1, mc] : [mr, mc + 1];
+            if (!inB2(a[0], a[1], n) || !inB2(b[0], b[1], n)) return true;
+            return !(board[a[0]][a[1]] === opp && board[b[0]][b[1]] === opp);
+        }
+
+        /** 收集 (r,c) 同色棋子的胖组（胖相连递归闭包） */
         function localFatStones(board, r, c, n) {
             const color = board[r][c];
             if (!color) return [];
@@ -242,16 +263,16 @@ const BOARD_MARK_CHAR_LIST = (() => {
                 for (const [dr, dc] of FAT2) {
                     const nr = cr + dr;
                     const nc = cc + dc;
-                    if (inB2(nr, nc, n) && board[nr][nc] === color && !visited[nr][nc]) {
-                        visited[nr][nc] = 1;
-                        queue.push([nr, nc]);
-                    }
+                    if (!inB2(nr, nc, n) || board[nr][nc] !== color || visited[nr][nc]) continue;
+                    if (!localFatLink(board, cr, cc, nr, nc, n)) continue;
+                    visited[nr][nc] = 1;
+                    queue.push([nr, nc]);
                 }
             }
             return stones;
         }
 
-        /** 组是否有「可落子相连点」：胖邻空点 q 且 q 的上下左右四邻无任何棋子 */
+        /** 组是否有「可落子相连点」：胖相连空点 q 且 q 的上下左右四邻无任何棋子 */
         function localFatHasSpot(board, stones, n) {
             const seen = new Set();
             for (const [r, c] of stones) {
@@ -259,6 +280,7 @@ const BOARD_MARK_CHAR_LIST = (() => {
                     const nr = r + dr;
                     const nc = c + dc;
                     if (!inB2(nr, nc, n) || board[nr][nc] !== 0) continue;
+                    if (!localFatLink(board, r, c, nr, nc, n)) continue;   // 中间被占 / 与对方的跳交叉：这一步不算相连
                     const key = nr * n + nc;
                     if (seen.has(key)) continue;
                     seen.add(key);
@@ -309,10 +331,10 @@ const BOARD_MARK_CHAR_LIST = (() => {
                         for (const [dr2, dc2] of FAT2) {
                             const ar = cr + dr2;
                             const ac = cc + dc2;
-                            if (inB2(ar, ac, n) && newBoard[ar][ac] === color && !visitedCells[ar][ac]) {
-                                visitedCells[ar][ac] = 1;
-                                queue.push([ar, ac]);
-                            }
+                            if (!inB2(ar, ac, n) || newBoard[ar][ac] !== color || visitedCells[ar][ac]) continue;
+                            if (!localFatLink(newBoard, cr, cc, ar, ac, n)) continue;
+                            visitedCells[ar][ac] = 1;
+                            queue.push([ar, ac]);
                         }
                     }
                     candidates.push({ color, stones });

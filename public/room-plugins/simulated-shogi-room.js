@@ -553,7 +553,7 @@ return {
                 btn.type = 'button';
                 btn.textContent = label;
                 btn.dataset.promote = promote ? '1' : '0';
-                btn.style.cssText = 'min-width:52px;height:36px;border:none;border-radius:6px;background:#e8d2a0;color:#932c13;font:14px "Segoe UI",sans-serif;cursor:pointer;line-height:1;padding:0 8px;';
+                btn.style.cssText = 'min-width:52px;height:36px;border:none;border-radius:6px;background:#f4dcac;color:#932c13;font:14px "Segoe UI",sans-serif;cursor:pointer;line-height:1;padding:0 8px;';
                 btn.onclick = () => {
                     if (!ps.pendingPromote) return;
                     const { fromRow, fromCol, toRow, toCol, tryPlay } = ps.pendingPromote;
@@ -806,7 +806,7 @@ return {
                     ctx2d.shadowColor = 'rgba(0,0,0,0.4)';
                     ctx2d.beginPath();
                     ctx2d.arc(x, y, radius, 0, Math.PI * 2);
-                    ctx2d.fillStyle = '#e8d2a0';
+                    ctx2d.fillStyle = '#f4dcac';
                     ctx2d.fill();
                     ctx2d.shadowBlur = 0; ctx2d.shadowOffsetY = 0;
                     ctx2d.strokeStyle = '#c49c6a';

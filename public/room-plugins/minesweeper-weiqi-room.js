@@ -11,6 +11,7 @@ window.RoomPlugins['minesweeper-weiqi'] = {
         "recordDownloadPrefix": "扫雷围棋",
         "standardWeiqiMatchTime": true,
         "features": {
+            "showEstimate": true,
             "woodTexture": true,
             "editBoard": false,
             "compoundPalette": false,

@@ -11,6 +11,7 @@ window.RoomPlugins["weight-weiqi"] = {
         "recordDownloadPrefix": "权重围棋",
         "standardWeiqiMatchTime": true,
         "features": {
+            "showEstimate": true,
             "woodTexture": true,
             "editBoard": true
         },

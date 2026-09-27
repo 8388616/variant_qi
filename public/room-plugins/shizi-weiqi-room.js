@@ -12,6 +12,7 @@ window.RoomPlugins['shizi-weiqi'] = {
         "useBenson": true,
         "standardWeiqiMatchTime": true,
         "features": {
+            "showEstimate": true,
             "woodTexture": true,
             "zoomScroll": true,
             "editBoard": true,

@@ -1,132 +1,51 @@
-'use strict';
-
 const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWuziqiRules, qiBoardSeatOverlay } = require('../common');
 
-const MAX_ROTATIONS = 8;
+/* ---------- 环旋转：本棋种专属，不写进公共文件 ----------
+   落子后，落点周围八格的棋子沿**顺时针**整体挪一格（每格取顺时针方向上一格的内容）。
+   边、角上只有盘内的邻格参与，它们按顺时针顺序构成闭环（边 5 格、角 3 格），棋子不会转到盘外。
+   屏幕上顺时针 = 北→东北→东→东南→南→西南→西→西北；本仓库 row 0 在最下方，
+   所以顺时针序列是 (+1,0),(+1,+1),(0,+1),(-1,+1),(-1,0),(-1,-1),(0,-1),(+1,-1)。 */
+const RING_CW = [[1, 0], [1, 1], [0, 1], [-1, 1], [-1, 0], [-1, -1], [0, -1], [1, -1]];
 
-function computeRotationInterval(n) {
-    let x = Math.ceil(0.07 * n * n);
-    if (x % 2 === 0) x += 1;
-    return x;
-}
-
-/** 与旋转围棋/rotation-weiqi.js 中象限顺时针轮换一致 */
-function rotateCell(r, c, half) {
-    if (r < half && c < half) return [r, c + half];
-    if (r < half) return [r + half, c];
-    if (c < half) return [r - half, c];
-    return [r, c - half];
-}
-
-function initZero2D(n) {
-    return Array(n).fill(0).map(() => Array(n).fill(0));
-}
-
-function rotateBoardLike(board, n, mapCell) {
-    const nb = initZero2D(n);
-    for (let r = 0; r < n; r++) {
-        for (let c = 0; c < n; c++) {
-            const [nr, nc] = mapCell(r, c);
-            nb[nr][nc] = board[r][c];
-        }
+/** 环上的盘内格，顺时针顺序 */
+function ringCells(row, col, boardSize) {
+    const cells = [];
+    for (const [dr, dc] of RING_CW) {
+        const r = row + dr;
+        const c = col + dc;
+        if (r >= 0 && r < boardSize && c >= 0 && c < boardSize) cells.push([r, c]);
     }
-    return nb;
+    return cells;
 }
 
-function rotateQuadrantsClockwise(board, handNumAt, n) {
-    const half = n / 2;
-    const mapCell = (r, c) => rotateCell(r, c, half);
-    return {
-        board: rotateBoardLike(board, n, mapCell),
-        handNumAt: rotateBoardLike(handNumAt, n, mapCell)
-    };
-}
-
-function rotateLastMoveMarkers(markers, n) {
-    if (!markers || !markers.length) return [];
-    const half = n / 2;
-    return markers.map(m => {
-        const [nr, nc] = rotateCell(m.row, m.col, half);
-        return { row: nr, col: nc, color: m.color };
-    });
-}
-
-function syncHandNumWithBoard(board, handNumAt) {
-    const n = board.length;
-    for (let r = 0; r < n; r++) {
-        for (let c = 0; c < n; c++) {
-            if (board[r][c] === 0) handNumAt[r][c] = 0;
-        }
+/** 把落点周围的环顺时针挪一格；board 需已含刚落下的子（落点本身不动） */
+function rotateRingClockwise(board, row, col, boardSize) {
+    const cells = ringCells(row, col, boardSize);
+    if (cells.length < 2) return board;
+    const next = board.map((r) => r.slice());
+    for (let i = 0; i < cells.length; i++) {
+        const [r, c] = cells[i];
+        const [pr, pc] = cells[(i - 1 + cells.length) % cells.length];   // 顺时针上一格
+        next[r][c] = board[pr][pc];
     }
+    return next;
 }
 
-function maybeRotateAfterPly(opts) {
-    const {
-        board,
-        handNumAt,
-        rotationCount,
-        n,
-        rotationInterval,
-        completedPlyCount,
-        lastMoveMarkers
-    } = opts;
-    if (rotationCount >= MAX_ROTATIONS) {
-        return { board, handNumAt, rotationCount, lastMoveMarkers };
-    }
-    if (completedPlyCount <= 0 || completedPlyCount % rotationInterval !== 0) {
-        return { board, handNumAt, rotationCount, lastMoveMarkers };
-    }
-    const r = rotateQuadrantsClockwise(board, handNumAt, n);
-    return {
-        board: r.board,
-        handNumAt: r.handNumAt,
-        rotationCount: rotationCount + 1,
-        lastMoveMarkers: rotateLastMoveMarkers(lastMoveMarkers, n)
-    };
-}
 
-/** 全盘是否存在该颜色的连五（用于板块旋转后的胜负判定） */
-function boardHasFiveForColor(board, n, colorVal) {
-    for (let r = 0; r < n; r++) {
-        for (let c = 0; c < n; c++) {
-            if (board[r][c] === colorVal && squareWuziqiRules.checkFiveInRow(board, r, c, colorVal, n)) {
-                return true;
-            }
-        }
-    }
-    return false;
-}
-
-/**
- * 旋转后若形成连五则终局。双方同时连五判和棋。
- * @returns {'player1'|'player2'|'draw'|null} 座位名（player1 执黑、黑先）
- */
-function winnerSlotAfterRotation(board, n) {
-    const blackFive = boardHasFiveForColor(board, n, 1);
-    const whiteFive = boardHasFiveForColor(board, n, 2);
-    if (blackFive && whiteFive) return 'draw';
-    if (blackFive) return 'player1';
-    if (whiteFive) return 'player2';
-    return null;
-}
 
 class RotationWuziqiRoom extends QiTwoPlayerRoomBase {
-    constructor(room, initialSize = 12) {
+    constructor(room) {
         super(room);
-        this.BOARD_SIZE = initialSize;
+        this.BOARD_SIZE = 13;
         this.board = Array(this.BOARD_SIZE).fill().map(() => Array(this.BOARD_SIZE).fill(0));
         if (this.openingBoard === undefined) this.openingBoard = (typeof this.copyBoard === 'function' ? this.copyBoard(this.board) : (Array.isArray(this.board[0]) ? this.board.map(r => r.slice()) : this.board.slice()));
-        this.handNumAt = initZero2D(this.BOARD_SIZE);
-        this.rotationCount = 0;
-        this.rotationInterval = computeRotationInterval(this.BOARD_SIZE);
         this.currentPlayer = 1;
         this.historyBoards = [];
-        this.historyHandNumAts = [];
-        this.historyRotationCounts = [];
-        this.moveHistory = [];
         this.lastMoveMarkers = [];
+        this.moveHistory = [];
         this.gameOver = false;
         this.winner = null;
+        this.recordResultText = null;
         this.pendingNewGame = null;
         this.pendingUndo = null;
         this.pendingDraw = null;
@@ -138,8 +57,124 @@ class RotationWuziqiRoom extends QiTwoPlayerRoomBase {
         this.matchStarted = false;
     }
 
+    _stopClockTicker() {
+        if (this._clockInterval) {
+            clearInterval(this._clockInterval);
+            this._clockInterval = null;
+        }
+    }
+
+    _broadcastClock() {
+        if (!this.tcClock || !this.tcClock.timed || this.gameOver) return;
+        this.broadcast({ type: 'clockUpdate', clock: qiMatchTimeControl.snapshotForClient(this.tcClock) });
+    }
+
+    _startClockTicker() {
+        this._stopClockTicker();
+        if (!this.tcClock || !this.tcClock.timed) return;
+        this._clockInterval = setInterval(() => {
+            if (!this.tcClock || !this.tcClock.timed || this.gameOver) return;
+            const { lostSlot, winnerSlot } = qiMatchTimeControl.drain(this.tcClock, Date.now());
+            if (lostSlot) {
+                this._stopClockTicker();
+                this.gameOver = true;
+                this.winner = winnerSlot;
+                this.recordResultText = lostSlot === 'player1' ? '黑方超时，白胜' : '白方超时，黑胜';
+                this.broadcast({ type: 'broadcast', action: 'timeLoss', player: lostSlot, winner: winnerSlot, ...this.getState() });
+                return;
+            }
+            this._broadcastClock();
+        }, 1000);
+    }
+
+    _firstPickerSlot() {
+        const tb = this.slotJoinedAt.player1;
+        const tw = this.slotJoinedAt.player2;
+        if (tb == null || tw == null) return 'player1';
+        return tb <= tw ? 'player1' : 'player2';
+    }
+    afterColorAssigned(ws, slot) {
+        this.slotJoinedAt[slot] = Date.now();
+        this._maybeBeginTimeNegotiation();
+    }
+    _timeAllowsPlay(slot) {
+        if (this.gameOver || !this.matchStarted || this.tcNego || this.tcSettings === null) return false;
+        const expect = this.currentPlayer === 1 ? 'player1' : 'player2';
+        return slot === expect;
+    }
+
+    _drainClockBeforeMove(slot) {
+        if (!this.tcClock || !this.tcClock.timed || this.gameOver) return true;
+        const expect = this.currentPlayer === 1 ? 'player1' : 'player2';
+        if (slot !== expect) return true;
+        const { lostSlot, winnerSlot } = qiMatchTimeControl.drain(this.tcClock, Date.now());
+        if (lostSlot) {
+            this._stopClockTicker();
+            this.gameOver = true;
+            this.winner = winnerSlot;
+            this.recordResultText = lostSlot === 'player1' ? '黑方超时，白胜' : '白方超时，黑胜';
+            this.broadcast({ type: 'broadcast', action: 'timeLoss', player: lostSlot, winner: winnerSlot, ...this.getState() });
+            return false;
+        }
+        return true;
+    }
+
+    _syncClockAfterTurnChange() {
+        if (!this.tcClock || !this.tcClock.timed || this.gameOver) return;
+        qiMatchTimeControl.setActiveSlot(this.tcClock, this.currentPlayer === 1 ? 'player1' : 'player2', Date.now());
+        this._broadcastClock();
+    }
+
     checkWin(row, col, colorVal) {
         return squareWuziqiRules.checkFiveInRow(this.board, row, col, colorVal, this.BOARD_SIZE);
+    }
+
+    /** 整盘扫描某色是否已成五（旋转可能把别处的棋子摆成五，不能只看落点） */
+    hasFive(colorVal) {
+        for (let r = 0; r < this.BOARD_SIZE; r++) {
+            for (let c = 0; c < this.BOARD_SIZE; c++) {
+                if (this.board[r][c] === colorVal && this.checkWin(r, c, colorVal)) return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * 走一手的完整结算：落子 → 环旋转 → 判定。
+     * 判定**先看对方、再看自己**：对方成五（含「双方同时成五」与「旋转凑成对方五连」）→ 对方胜、
+     * 落子方负；只有自己成五才自己胜；棋盘满作和。回放棋谱期间只摆棋不判定。
+     */
+    _applyMoveCore(row, col, slot) {
+        const playerVal = slot === 'player1' ? 1 : 2;
+        const oppVal = playerVal === 1 ? 2 : 1;
+        this.board[row][col] = playerVal;
+        this.board = rotateRingClockwise(this.board, row, col, this.BOARD_SIZE);
+        this.lastMoveMarkers = [{ row, col, color: playerVal }];
+        this.moveHistory.push({ player: slot, row, col });
+
+        if (this.importReplayNoJudge) return { ended: false };
+
+        if (this.hasFive(oppVal)) {
+            this.gameOver = true;
+            this.winner = slot === 'player1' ? 'player2' : 'player1';
+            this.recordResultText = this.hasFive(playerVal)
+                ? '双方同时五连，落子方负'
+                : '旋转凑成对方五连，落子方负';
+            return { ended: true };
+        }
+        if (this.hasFive(playerVal)) {
+            this.gameOver = true;
+            this.winner = slot;
+            this.recordResultText = slot === 'player1' ? '黑中盘胜' : '白中盘胜';
+            return { ended: true };
+        }
+        if (this.isBoardFull()) {
+            this.gameOver = true;
+            this.winner = 'draw';
+            this.recordResultText = '和棋';
+            return { ended: true };
+        }
+        return { ended: false };
     }
 
     isBoardFull() {
@@ -162,111 +197,26 @@ class RotationWuziqiRoom extends QiTwoPlayerRoomBase {
         });
     }
 
-    _stopClockTicker() {
-        if (this._clockInterval) {
-            clearInterval(this._clockInterval);
-            this._clockInterval = null;
-        }
-    }
-
-    _broadcastClock() {
-        if (!this.tcClock || !this.tcClock.timed || this.gameOver) return;
-        this.broadcast({ type: 'clockUpdate', clock: qiMatchTimeControl.snapshotForClient(this.tcClock) });
-    }
-
-    _startClockTicker() {
-        this._stopClockTicker();
-        if (!this.tcClock || !this.tcClock.timed) return;
-        this._clockInterval = setInterval(() => {
-            if (!this.tcClock || !this.tcClock.timed || this.gameOver) {
-                this._stopClockTicker();
-                return;
-            }
-            const { lostSlot, winnerSlot } = qiMatchTimeControl.drain(this.tcClock, Date.now());
-            if (lostSlot) {
-                this._stopClockTicker();
-                this.gameOver = true;
-                this.winner = winnerSlot;
-                this.broadcast({ type: 'broadcast', action: 'timeLoss', player: lostSlot, winner: winnerSlot, ...this.getState() });
-                return;
-            }
-            this._broadcastClock();
-        }, 1000);
-    }
-
-    _syncClockAfterTurnChange() {
-        if (!this.tcClock || !this.tcClock.timed || this.gameOver) return;
-        qiMatchTimeControl.setActiveSlot(this.tcClock, this.currentPlayer === 1 ? 'player1' : 'player2', Date.now());
-        this._broadcastClock();
-    }
-
-    _drainClockBeforeMove(slot) {
-        if (!this.tcClock || !this.tcClock.timed || this.gameOver) return true;
-        const expected = this.currentPlayer === 1 ? 'player1' : 'player2';
-        if (slot !== expected) return true;
-        const { lostSlot, winnerSlot } = qiMatchTimeControl.drain(this.tcClock, Date.now());
-        if (!lostSlot) return true;
-        this._stopClockTicker();
-        this.gameOver = true;
-        this.winner = winnerSlot;
-        this.broadcast({ type: 'broadcast', action: 'timeLoss', player: lostSlot, winner: winnerSlot, ...this.getState() });
-        return false;
-    }
-
-    _firstPickerSlot() {
-        const tb = this.slotJoinedAt.player1;
-        const tw = this.slotJoinedAt.player2;
-        if (tb == null || tw == null) return 'player1';
-        return tb <= tw ? 'player1' : 'player2';
-    }
-    afterColorAssigned(ws, slot) {
-        this.slotJoinedAt[slot] = Date.now();
-        this._maybeBeginTimeNegotiation();
-    }
-    _finalizeTimeControl(valid) {
-        this.tcSettings = valid.timed
-            ? { timed: true, mainMinutes: valid.mainMinutes, byoyomiSeconds: valid.byoyomiSeconds, maxTimeouts: valid.maxTimeouts }
-            : { timed: false };
-        this.tcNego = null;
-        this.matchStarted = true;
-        this.tcClock = qiMatchTimeControl.createClock(this.tcSettings, Date.now());
-        if (this.tcClock && this.tcClock.timed) {
-            qiMatchTimeControl.setActiveSlot(this.tcClock, this.currentPlayer === 1 ? 'player1' : 'player2', Date.now());
-            this._startClockTicker();
-            this._broadcastClock();
-        } else this.tcClock = null;
-        this.broadcast({ type: 'timeControlAgreed', settings: this.tcSettings, clock: this.tcClock ? qiMatchTimeControl.snapshotForClient(this.tcClock) : null });
-    }
     getState() {
         return {
             board: this.board,
             boardSize: this.BOARD_SIZE,
-            handNumAt: this.handNumAt,
-            rotationCount: this.rotationCount,
-            rotationInterval: this.rotationInterval,
             currentPlayer: this.currentPlayer,
             numberOfHands: this.moveHistory.length + 1,
             lastMoveMarkers: this.lastMoveMarkers,
             gameOver: this.gameOver,
             winner: this.winner,
-            moveHistory: this.moveHistory.map(m => (
-                m.type === 'pass'
-                    ? { type: 'pass', player: m.player }
-                    : { type: 'move', player: m.player, row: m.row, col: m.col }
-            )),
             moveCoords: this.wireMoveCoords(),
-            slots: {
-                player1: !!this.room.getPlayerBySlot('player1'),
-                player2: !!this.room.getPlayerBySlot('player2')
-            },
             matchTime: {
                 negotiation: this.tcNego,
                 settings: this.tcSettings,
-                clock: this.tcClock && this.tcClock.timed
-                    ? qiMatchTimeControl.snapshotForClient(this.tcClock)
-                    : (this.tcSettings && this.tcSettings.timed === false ? { timed: false, ruleLine: '本局不限时' } : null)
+                clock: this.tcClock && this.tcClock.timed ? qiMatchTimeControl.snapshotForClient(this.tcClock) : null
             },
-            matchStarted: this.matchStarted
+            matchStarted: this.matchStarted,
+            slots: {
+                player1: !!this.room.getPlayerBySlot('player1'),
+                player2: !!this.room.getPlayerBySlot('player2')
+            }
         };
     }
 
@@ -285,24 +235,27 @@ class RotationWuziqiRoom extends QiTwoPlayerRoomBase {
                 const p = (m.player === 'player1' ? 'B' : 'W');
                 return m.type === 'pass' ? `${p}p` : `${p}${m.row},${m.col}`;
             }),
-            result: this.gameOver ? this.winner : null
+            result: this.gameOver ? this.winner : null,
+            timeControl: this.tcSettings ? {
+                enabled: this.tcSettings.timed === true,
+                mainMinutes: this.tcSettings.timed ? this.tcSettings.mainMinutes : 0,
+                byoyomiSeconds: this.tcSettings.timed ? this.tcSettings.byoyomiSeconds : 0,
+                maxTimeouts: this.tcSettings.timed ? this.tcSettings.maxTimeouts : 0
+            } : null,
+            resultText: this.recordResultText
         };
     }
 
     resetToEmpty() {
         this.board = Array(this.BOARD_SIZE).fill().map(() => Array(this.BOARD_SIZE).fill(0));
-        this.handNumAt = initZero2D(this.BOARD_SIZE);
-        this.rotationCount = 0;
-        this.rotationInterval = computeRotationInterval(this.BOARD_SIZE);
         this.currentPlayer = 1;
         this.historyBoards = [];
-        this.historyHandNumAts = [];
-        this.historyRotationCounts = [];
-        this.moveHistory = [];
         this.lastMoveMarkers = [];
+        this.moveHistory = [];
         this.gameOver = false;
         this.importReplayNoJudge = false;
         this.winner = null;
+        this.recordResultText = null;
         this.pendingNewGame = null;
         this.pendingUndo = null;
         this.pendingDraw = null;
@@ -315,8 +268,8 @@ class RotationWuziqiRoom extends QiTwoPlayerRoomBase {
     }
 
     setBoardSize(newSize, requesterWs) {
-        if (!Number.isInteger(newSize) || newSize < 8 || newSize > 20 || newSize % 2 !== 0) {
-            requesterWs.send(JSON.stringify({ type: 'error', message: '棋盘大小须为 8～20 之间的偶数路。' }));
+        if (!Number.isInteger(newSize) || newSize < 7 || newSize > 15) {
+            requesterWs.send(JSON.stringify({ type: 'error', message: '棋盘大小无效。' }));
             return false;
         }
         const hasAnyStone = this.board.some(row => row.some(v => v !== 0));
@@ -332,318 +285,13 @@ class RotationWuziqiRoom extends QiTwoPlayerRoomBase {
         return true;
     }
 
-    performUndoSteps(steps) {
-        for (let i = 0; i < steps; i++) {
-            if (this.historyBoards.length > 0) {
-                this.historyBoards.pop();
-                this.historyHandNumAts.pop();
-                this.historyRotationCounts.pop();
-            }
-            if (this.moveHistory.length > 0) this.moveHistory.pop();
-        }
-        if (this.historyBoards.length === 0) {
-            this.board = Array(this.BOARD_SIZE).fill().map(() => Array(this.BOARD_SIZE).fill(0));
-            this.handNumAt = initZero2D(this.BOARD_SIZE);
-            this.rotationCount = 0;
-        } else {
-            this.board = this.copyBoard(this.historyBoards.at(-1));
-            this.handNumAt = this.copyBoard(this.historyHandNumAts.at(-1));
-            this.rotationCount = this.historyRotationCounts.at(-1);
-        }
-        let newPlayer = this.currentPlayer;
-        for (let i = 0; i < steps; i++) {
-            newPlayer = newPlayer === 1 ? 2 : 1;
-        }
-        this.currentPlayer = newPlayer;
-        this.lastMoveMarkers = [];
-        this.gameOver = false;
-        this.winner = null;
-        this.broadcast({ type: 'broadcast', action: 'undoAccept', ...this.getState() });
-        this._syncClockAfterTurnChange();
-    }
-
-    handleMessage(ws, msg) {
-        const slot = this.room.getSlotByWs(ws);
-
-        switch (msg.type) {
-            case 'selectColor':
-                qiProtocol.selectColor(this, ws, msg, { afterColorAssigned: this.afterColorAssigned ? this.afterColorAssigned.bind(this) : undefined });
-                break;
-            case 'timeControlSubmit':
-                this._handleTimeControlSubmit(ws, msg);
-                break;
-            case 'timeControlAccept':
-                this._handleTimeControlAccept(ws);
-                break;
-
-            case 'setBoardSize':
-                qiProtocol.setBoardSizeObserverOnly(this, ws, msg, slot);
-                break;
-
-            case 'exportRecord':
-                qiProtocol.exportRecord(this, ws);
-                break;
-
-            case 'importRecord':
-                qiProtocol.importRecord(this, ws, msg);
-                break;
-
-            case 'resetRoom':
-                qiProtocol.resetRoomToEmpty(this, ws);
-                break;
-
-            case 'move':
-                if (this.gameOver) return;
-                if (!this.matchStarted || this.tcSettings === null || this.tcNego) return;
-                if (!slot || slot !== (this.currentPlayer === 1 ? 'player1' : 'player2')) return;
-                if (!this._drainClockBeforeMove(slot)) return;
-                const { row, col } = msg;
-                if (row < 0 || row >= this.BOARD_SIZE || col < 0 || col >= this.BOARD_SIZE) return;
-                if (this.board[row][col] !== 0) return;
-
-                const playerVal = this.currentPlayer === 1 ? 1 : 2;
-                const newBoard = this.copyBoard(this.board);
-                newBoard[row][col] = playerVal;
-
-                const handNumAt = this.copyBoard(this.handNumAt);
-                syncHandNumWithBoard(newBoard, handNumAt);
-                const completedPlyCount = this.moveHistory.length + 1;
-                handNumAt[row][col] = completedPlyCount;
-
-                this.board = newBoard;
-                this.handNumAt = handNumAt;
-                this.lastMoveMarkers = [{ row, col, color: playerVal }];
-                this.moveHistory.push({ player: slot, row, col });
-
-                if (this.checkWin(row, col, playerVal)) {
-                    this.gameOver = true;
-                    this.winner = slot;
-                    this._stopClockTicker();
-                    this.broadcast({ type: 'broadcast', action: 'move', ...this.getState() });
-                    return;
-                }
-
-                const prevRotationCount = this.rotationCount;
-                const preBoardAnim = this.copyBoard(this.board);
-                const preHandAnim = this.copyBoard(this.handNumAt);
-                const preMarkersAnim = [{ row, col, color: playerVal }];
-
-                const rot = maybeRotateAfterPly({
-                    board: this.board,
-                    handNumAt: this.handNumAt,
-                    rotationCount: this.rotationCount,
-                    n: this.BOARD_SIZE,
-                    rotationInterval: this.rotationInterval,
-                    completedPlyCount,
-                    lastMoveMarkers: this.lastMoveMarkers
-                });
-
-                const rotatedThisPly = rot.rotationCount > prevRotationCount;
-                this.board = rot.board;
-                this.handNumAt = rot.handNumAt;
-                this.rotationCount = rot.rotationCount;
-                this.lastMoveMarkers = rot.lastMoveMarkers;
-
-                this.historyBoards.push(this.copyBoard(this.board));
-                this.historyHandNumAts.push(this.copyBoard(this.handNumAt));
-                this.historyRotationCounts.push(this.rotationCount);
-
-                if (rotatedThisPly) {
-                    const rotWin = winnerSlotAfterRotation(this.board, this.BOARD_SIZE);
-                    if (rotWin) {
-                        this.gameOver = true;
-                        this.winner = rotWin;
-                        this._stopClockTicker();
-                    }
-                }
-
-                if (!this.gameOver) {
-                    this.currentPlayer = this.currentPlayer === 1 ? 2 : 1;
-                } else if (this.winner === 'player1' || this.winner === 'player2') {
-                    this.currentPlayer = this.winner === 'player1' ? 1 : 2;
-                }
-
-                if (!this.gameOver && this.isBoardFull()) {
-                    this.gameOver = true;
-                    this.winner = 'draw';
-                    this._stopClockTicker();
-                }
-
-                const payload = { type: 'broadcast', action: 'move', ...this.getState() };
-                if (rotatedThisPly) {
-                    payload.rotationAnimation = {
-                        preBoard: preBoardAnim,
-                        postBoard: this.copyBoard(this.board),
-                        preHandNumAt: preHandAnim,
-                        postHandNumAt: this.copyBoard(this.handNumAt),
-                        preMarkers: preMarkersAnim,
-                        postMarkers: this.lastMoveMarkers.map(m => ({ ...m }))
-                    };
-                }
-                this.broadcast(payload);
-                this._syncClockAfterTurnChange();
-
-                if (
-                    !this.gameOver
-                    && (this.moveHistory.length + 1) % this.rotationInterval === 0
-                    && this.rotationCount < MAX_ROTATIONS
-                ) {
-                    this.broadcast({ type: 'rotatePrepare' });
-                }
-                break;
-
-            case 'pass': {
-                if (this.gameOver) return;
-                if (!this.matchStarted || this.tcSettings === null || this.tcNego) return;
-                if (!slot || slot !== (this.currentPlayer === 1 ? 'player1' : 'player2')) return;
-                if (!this._drainClockBeforeMove(slot)) return;
-
-                this.lastMoveMarkers = [];
-                this.moveHistory.push({ type: 'pass', player: slot });
-                const completedPlyCount = this.moveHistory.length;
-
-                const prevRotationCount = this.rotationCount;
-                const preBoardAnim = this.copyBoard(this.board);
-                const preHandAnim = this.copyBoard(this.handNumAt);
-                const preMarkersAnim = [];
-
-                const rot = maybeRotateAfterPly({
-                    board: this.board,
-                    handNumAt: this.handNumAt,
-                    rotationCount: this.rotationCount,
-                    n: this.BOARD_SIZE,
-                    rotationInterval: this.rotationInterval,
-                    completedPlyCount,
-                    lastMoveMarkers: this.lastMoveMarkers
-                });
-
-                const rotatedThisPly = rot.rotationCount > prevRotationCount;
-                this.board = rot.board;
-                this.handNumAt = rot.handNumAt;
-                this.rotationCount = rot.rotationCount;
-                this.lastMoveMarkers = rot.lastMoveMarkers;
-
-                this.historyBoards.push(this.copyBoard(this.board));
-                this.historyHandNumAts.push(this.copyBoard(this.handNumAt));
-                this.historyRotationCounts.push(this.rotationCount);
-
-                if (rotatedThisPly) {
-                    const rotWin = winnerSlotAfterRotation(this.board, this.BOARD_SIZE);
-                    if (rotWin) {
-                        this.gameOver = true;
-                        this.winner = rotWin;
-                        this._stopClockTicker();
-                    }
-                }
-
-                if (!this.gameOver && this._trailingPassCount() >= 2) {
-                    this.gameOver = true;
-                    this.winner = 'draw';
-                    this._stopClockTicker();
-                }
-
-                if (!this.gameOver) {
-                    this.currentPlayer = this.currentPlayer === 1 ? 2 : 1;
-                } else if (this.winner === 'player1' || this.winner === 'player2') {
-                    this.currentPlayer = this.winner === 'player1' ? 1 : 2;
-                }
-
-                if (!this.gameOver && this.isBoardFull()) {
-                    this.gameOver = true;
-                    this.winner = 'draw';
-                    this._stopClockTicker();
-                }
-
-                const passPayload = { type: 'broadcast', action: 'pass', ...this.getState() };
-                if (rotatedThisPly) {
-                    passPayload.rotationAnimation = {
-                        preBoard: preBoardAnim,
-                        postBoard: this.copyBoard(this.board),
-                        preHandNumAt: preHandAnim,
-                        postHandNumAt: this.copyBoard(this.handNumAt),
-                        preMarkers: preMarkersAnim,
-                        postMarkers: this.lastMoveMarkers.map(m => ({ ...m }))
-                    };
-                }
-                this.broadcast(passPayload);
-                this._syncClockAfterTurnChange();
-
-                if (
-                    !this.gameOver
-                    && (this.moveHistory.length + 1) % this.rotationInterval === 0
-                    && this.rotationCount < MAX_ROTATIONS
-                ) {
-                    this.broadcast({ type: 'rotatePrepare' });
-                }
-                break;
-            }
-
-            case 'requestUndo':
-                qiProtocol.undoWuziqiHistory(this, ws, msg, slot);
-                break;
-
-            case 'undoResponse':
-                qiProtocol.undoResponseWuziqiHistory(this, ws, msg);
-                break;
-
-            case 'resign':
-                qiProtocol.resign(this, ws, slot);
-                if (this.gameOver) this._stopClockTicker();
-                break;
-
-            case 'requestNewGame':
-                qiProtocol.requestNewGame(this, ws, slot);
-                break;
-
-            case 'newGameResponse':
-                qiProtocol.newGameResponse(this, ws, msg);
-                break;
-
-            case 'requestDraw':
-                qiProtocol.requestDraw(this, ws, slot);
-                break;
-
-            case 'drawResponse':
-                qiProtocol.drawResponse(this, ws, msg);
-                if (this.gameOver) this._stopClockTicker();
-                break;
-
-            default:
-                break;
-        }
-    }
-
-    resetGame() {
-        this.board = Array(this.BOARD_SIZE).fill().map(() => Array(this.BOARD_SIZE).fill(0));
-        this.handNumAt = initZero2D(this.BOARD_SIZE);
-        this.rotationCount = 0;
-        this.rotationInterval = computeRotationInterval(this.BOARD_SIZE);
-        this.currentPlayer = 1;
-        this.historyBoards = [];
-        this.historyHandNumAts = [];
-        this.historyRotationCounts = [];
-        this.moveHistory = [];
-        this.lastMoveMarkers = [];
-        this.gameOver = false;
-        this.importReplayNoJudge = false;
-        this.winner = null;
-        this.slotJoinedAt = { player1: null, player2: null };
-        this.tcNego = null;
-        this.tcSettings = null;
-        this.tcClock = null;
-        this.matchStarted = false;
-        this._stopClockTicker();
-        qiProtocol.releaseAllSeats(this);
-        this.broadcast({ type: 'newGameStarted', ...this.getState(), slots: { player1: false, player2: false } });
-    }
-
     importRecord(data, requesterWs) {
         if (!data || data.gameId !== 'rotation-wuziqi') {
             requesterWs.send(JSON.stringify({ type: 'error', message: '棋谱格式不匹配（需要旋转五子棋棋谱）。' }));
             return;
         }
-        const newSize = data.boardSize || 12;
-        if (!Number.isInteger(newSize) || newSize < 8 || newSize > 20 || newSize % 2 !== 0) {
+        const newSize = data.boardSize || 13;
+        if (!Number.isInteger(newSize) || newSize < 7 || newSize > 15) {
             requesterWs.send(JSON.stringify({ type: 'error', message: '棋谱中棋盘大小无效。' }));
             return;
         }
@@ -672,49 +320,19 @@ class RotationWuziqiRoom extends QiTwoPlayerRoomBase {
                 this.broadcast({ type: 'roomReset', ...this.getState() });
                 return;
             }
-
             if (entry.type === 'pass') {
                 this.lastMoveMarkers = [];
                 this.moveHistory.push({ type: 'pass', player: slot });
-                const completedPlyCount = this.moveHistory.length;
-                const prevRotationForImport = this.rotationCount;
-                const rot = maybeRotateAfterPly({
-                    board: this.board,
-                    handNumAt: this.handNumAt,
-                    rotationCount: this.rotationCount,
-                    n: this.BOARD_SIZE,
-                    rotationInterval: this.rotationInterval,
-                    completedPlyCount,
-                    lastMoveMarkers: this.lastMoveMarkers
-                });
-                this.board = rot.board;
-                this.handNumAt = rot.handNumAt;
-                this.rotationCount = rot.rotationCount;
-                this.lastMoveMarkers = rot.lastMoveMarkers;
                 this.historyBoards.push(this.copyBoard(this.board));
-                this.historyHandNumAts.push(this.copyBoard(this.handNumAt));
-                this.historyRotationCounts.push(this.rotationCount);
-                const rotatedThisPlyImport = rot.rotationCount > prevRotationForImport;
-                if (!this.importReplayNoJudge && rotatedThisPlyImport) {
-                    const rotWin = winnerSlotAfterRotation(this.board, this.BOARD_SIZE);
-                    if (rotWin) {
-                        this.gameOver = true;
-                        this.winner = rotWin;
-                        if (rotWin === 'black' || rotWin === 'white') {
-                            this.currentPlayer = rotWin === 'player1' ? 1 : 2;
-                        }
-                        break;
-                    }
-                }
+                this.currentPlayer = this.currentPlayer === 1 ? 2 : 1;
                 if (!this.importReplayNoJudge && this._trailingPassCount() >= 2) {
                     this.gameOver = true;
                     this.winner = 'draw';
+                    this.recordResultText = '和棋';
                     break;
                 }
-                this.currentPlayer = this.currentPlayer === 1 ? 2 : 1;
                 continue;
             }
-
             const { row, col } = entry;
             if (row < 0 || row >= this.BOARD_SIZE || col < 0 || col >= this.BOARD_SIZE) {
                 this.resetToEmpty();
@@ -728,68 +346,9 @@ class RotationWuziqiRoom extends QiTwoPlayerRoomBase {
                 this.broadcast({ type: 'roomReset', ...this.getState() });
                 return;
             }
-
-            const playerVal = slot === 'player1' ? 1 : 2;
-            const newBoard = this.copyBoard(this.board);
-            newBoard[row][col] = playerVal;
-            const hn = this.copyBoard(this.handNumAt);
-            syncHandNumWithBoard(newBoard, hn);
-            const completedPlyCount = this.moveHistory.length + 1;
-            hn[row][col] = completedPlyCount;
-            this.board = newBoard;
-            this.handNumAt = hn;
-            this.lastMoveMarkers = [{ row, col, color: playerVal }];
-            this.moveHistory.push({ player: slot, row, col });
-
-            if (!this.importReplayNoJudge && this.checkWin(row, col, playerVal)) {
-                this.gameOver = true;
-                this.winner = slot;
-                break;
-            }
-
-            const prevRotationForImport = this.rotationCount;
-            const rot = maybeRotateAfterPly({
-                board: this.board,
-                handNumAt: this.handNumAt,
-                rotationCount: this.rotationCount,
-                n: this.BOARD_SIZE,
-                rotationInterval: this.rotationInterval,
-                completedPlyCount,
-                lastMoveMarkers: this.lastMoveMarkers
-            });
-            this.board = rot.board;
-            this.handNumAt = rot.handNumAt;
-            this.rotationCount = rot.rotationCount;
-            this.lastMoveMarkers = rot.lastMoveMarkers;
-
             this.historyBoards.push(this.copyBoard(this.board));
-            this.historyHandNumAts.push(this.copyBoard(this.handNumAt));
-            this.historyRotationCounts.push(this.rotationCount);
-
-            const rotatedThisPlyImport = rot.rotationCount > prevRotationForImport;
-            if (!this.importReplayNoJudge && rotatedThisPlyImport) {
-                const rotWin = winnerSlotAfterRotation(this.board, this.BOARD_SIZE);
-                if (rotWin) {
-                    this.gameOver = true;
-                    this.winner = rotWin;
-                    if (rotWin === 'black' || rotWin === 'white') {
-                        this.currentPlayer = rotWin === 'player1' ? 1 : 2;
-                    }
-                    break;
-                }
-            }
-
-            if (!this.gameOver) {
-                this.currentPlayer = this.currentPlayer === 1 ? 2 : 1;
-            } else if (this.winner === 'player1' || this.winner === 'player2') {
-                this.currentPlayer = this.winner === 'player1' ? 1 : 2;
-            }
-
-            if (!this.importReplayNoJudge && !this.gameOver && this.isBoardFull()) {
-                this.gameOver = true;
-                this.winner = 'draw';
-                break;
-            }
+            if (this._applyMoveCore(row, col, slot).ended) break;   // 回放期间不判定：ended 恒为 false
+            this.currentPlayer = this.currentPlayer === 1 ? 2 : 1;
         }
 
         this.importReplayNoJudge = false;
@@ -815,6 +374,10 @@ class RotationWuziqiRoom extends QiTwoPlayerRoomBase {
             else if (color && SLOT_OF_COLOR[color]) this.winner = SLOT_OF_COLOR[color];
             else this.winner = recResult;
         }
+        if (!this.matchStarted && this.moveHistory.length > 0) {
+            this.matchStarted = true;
+            this.tcSettings = this.tcSettings || { timed: false };
+        }
 
         this.broadcast({
             type: 'importSuccess',
@@ -830,6 +393,141 @@ class RotationWuziqiRoom extends QiTwoPlayerRoomBase {
         });
     }
 
+    /** 认输：resignSlot 是**认输方**（公共层契约），player1 执黑 */
+    onResignResolved(resignSlot) {
+        this.recordResultText = resignSlot === 'player1' ? '白中盘胜' : '黑中盘胜';
+    }
+
+    handleMessage(ws, msg) {
+        const slot = this.room.getSlotByWs(ws);
+
+        switch (msg.type) {
+            case 'selectColor':
+                qiProtocol.selectColor(this, ws, msg);
+                break;
+            case 'timeControlSubmit':
+                this._handleTimeControlSubmit(ws, msg);
+                break;
+            case 'timeControlAccept':
+                this._handleTimeControlAccept(ws);
+                break;
+
+            case 'setBoardSize':
+                qiProtocol.setBoardSizeObserverOnly(this, ws, msg, slot);
+                break;
+
+            case 'exportRecord':
+                qiProtocol.exportRecord(this, ws);
+                break;
+
+            case 'importRecord':
+                qiProtocol.importRecord(this, ws, msg);
+                break;
+
+            case 'resetRoom':
+                qiProtocol.resetRoomToEmpty(this, ws);
+                break;
+
+            case 'move':
+                if (this.gameOver) return;
+                if (!this._timeAllowsPlay(slot)) return;
+                if (!this._drainClockBeforeMove(slot)) return;
+                const { row, col } = msg;
+                if (row < 0 || row >= this.BOARD_SIZE || col < 0 || col >= this.BOARD_SIZE) return;
+                if (this.board[row][col] !== 0) {
+                    return;
+                }
+                // 旋转会改动盘面，悔棋要连旋转一起退：historyBoards 存**落子前**的盘面
+                this.historyBoards.push(this.copyBoard(this.board));
+                if (this._applyMoveCore(row, col, slot).ended) {
+                    this._stopClockTicker();
+                    this.broadcast({ type: 'broadcast', action: 'move', ...this.getState() });
+                    return;
+                }
+                this.currentPlayer = this.currentPlayer === 1 ? 2 : 1;
+                this._syncClockAfterTurnChange();
+                this.broadcast({ type: 'broadcast', action: 'move', ...this.getState() });
+                break;
+
+            case 'pass':
+                if (this.gameOver) return;
+                if (!this._timeAllowsPlay(slot)) return;
+                if (!this._drainClockBeforeMove(slot)) return;
+                this.lastMoveMarkers = [];
+                this.moveHistory.push({ type: 'pass', player: slot });
+                this.historyBoards.push(this.copyBoard(this.board));
+                this.currentPlayer = this.currentPlayer === 1 ? 2 : 1;
+                if (this._trailingPassCount() >= 2) {
+                    this.gameOver = true;
+                    this.winner = 'draw';
+                    this.recordResultText = '和棋';
+                    this._stopClockTicker();
+                    this.broadcast({ type: 'broadcast', action: 'pass', ...this.getState() });
+                    return;
+                }
+                this._syncClockAfterTurnChange();
+                this.broadcast({ type: 'broadcast', action: 'pass', ...this.getState() });
+                break;
+
+            case 'requestUndo':
+                qiProtocol.undoWuziqiHistory(this, ws, msg, slot);
+                break;
+
+            case 'undoResponse':
+                qiProtocol.undoResponseWuziqiHistory(this, ws, msg);
+                break;
+
+            case 'resign':
+                qiProtocol.resign(this, ws, slot);
+                this._stopClockTicker();
+                break;
+
+            case 'requestNewGame':
+                qiProtocol.requestNewGame(this, ws, slot);
+                break;
+
+            case 'newGameResponse':
+                qiProtocol.newGameResponse(this, ws, msg);
+                break;
+
+            case 'requestDraw':
+                qiProtocol.requestDraw(this, ws, slot);
+                break;
+
+            case 'drawResponse':
+                qiProtocol.drawResponse(this, ws, msg, {
+                    onDrawResolved: () => {
+                        this.recordResultText = '和棋';
+                        this._stopClockTicker();
+                    }
+                });
+                break;
+
+            default:
+                break;
+        }
+    }
+
+    resetGame() {
+        this.board = Array(this.BOARD_SIZE).fill().map(() => Array(this.BOARD_SIZE).fill(0));
+        this.currentPlayer = 1;
+        this.historyBoards = [];
+        this.lastMoveMarkers = [];
+        this.moveHistory = [];
+        this.gameOver = false;
+        this.importReplayNoJudge = false;
+        this.winner = null;
+        this.recordResultText = null;
+        this.slotJoinedAt = { player1: null, player2: null };
+        this.tcNego = null;
+        this.tcSettings = null;
+        this.tcClock = null;
+        this.matchStarted = false;
+        this._stopClockTicker();
+        qiProtocol.releaseAllSeats(this);
+        this.broadcast({ type: 'newGameStarted', ...this.getState(), slots: { player1: false, player2: false } });
+    }
+
     onPlayerLeave(ws) {
         const slot = this.room.getSlotByWs(ws);
         if (slot) this.room.broadcast({ type: 'playerLeft', slot });
@@ -838,9 +536,6 @@ class RotationWuziqiRoom extends QiTwoPlayerRoomBase {
             this.tcNego = null;
             this.room.broadcast({ type: 'timeControlReset', reason: 'playerLeft' });
         }
-        if (this.pendingUndo && this.pendingUndo.requester === ws) this.pendingUndo = null;
-        if (this.pendingNewGame === ws) this.pendingNewGame = null;
-        if (this.pendingDraw === ws) this.pendingDraw = null;
     }
 }
 

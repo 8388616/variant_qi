@@ -441,7 +441,7 @@ const canvas = document.getElementById('goBoard');
                     ctx2d.shadowBlur = radius * 0.28;
                     ctx2d.shadowColor = 'rgba(0,0,0,0.35)';
                     ctx2d.beginPath();
-                    ctx2d.fillStyle = '#e8d2a0';
+                    ctx2d.fillStyle = '#f4dcac';
                     ctx2d.arc(x, y, radius, 0, Math.PI * 2);
                     ctx2d.fill();
                     ctx2d.shadowBlur = 0; ctx2d.shadowOffsetY = 0;

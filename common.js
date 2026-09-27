@@ -2603,8 +2603,10 @@ const qiBoardSeatOverlay = {
         self._qiParseColorChoice = function (msg, slot) {
             const raw = msg && msg.colorChoice;
             let colorChoice = 'player1';
-            if (raw === 'black' || raw === 'hostBlack') colorChoice = 'player1';
-            else if (raw === 'white' || raw === 'hostWhite') colorChoice = 'player2';
+            // 新客户端（落座蒙版那套限时对话框）发的是座位名 player1/player2（player1 = 先手），
+            // 老客户端发的是颜色名 black/white；两种都要认 —— 只认颜色名会把「执白」悄悄吃成默认的 player1。
+            if (raw === 'player1' || raw === 'black' || raw === 'hostBlack') colorChoice = 'player1';
+            else if (raw === 'player2' || raw === 'white' || raw === 'hostWhite') colorChoice = 'player2';
             else if (raw === 'random') colorChoice = 'random';
             return { colorChoice, colorChooserSlot: slot };
         };

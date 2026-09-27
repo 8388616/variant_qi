@@ -414,6 +414,19 @@ class ChoiceWeiqiRoom extends QiTwoPlayerRoomBase {
         }
     }
 
+    /**
+     * 广播用的着法表：只带落子方与坐标（与围棋等棋种同形），**不带每手的候选点快照**。
+     * 候选快照只在棋谱导出（exportRecord）与打谱数据（replayData）里给客户端；
+     * 若跟着每手广播一起全量重发，载荷会随对局长度线性膨胀（19 路约 200 B/手，
+     * 200 手就 40 KB），1Mbps 线路上落子要等三百毫秒才显示 —— 表现为「落子卡顿一下才出现」。
+     * 客户端直播路径（moveLog、增量重建直播回放）只用 type/player/row/col。
+     */
+    wireMoveCoords() {
+        return this.moveCoords.map(m => (m.type === 'pass'
+            ? { type: 'pass', player: m.player }
+            : { type: 'move', player: m.player, row: m.row, col: m.col }));
+    }
+
     getState() {
         return {
             boardSize: this.boardSize,
@@ -424,7 +437,7 @@ class ChoiceWeiqiRoom extends QiTwoPlayerRoomBase {
             lastMoveMarkers: this.lastMoveMarkers,
             gameOver: this.gameOver,
             winner: this.winner,
-            moveCoords: this.moveCoords,
+            moveCoords: this.wireMoveCoords(),
             candidates: this.candidates,
             aiCandidates: this.aiCandidatesEnabled,
             matchStarted: this.matchStarted,
@@ -601,23 +614,11 @@ class ChoiceWeiqiRoom extends QiTwoPlayerRoomBase {
                 break;
 
             case 'requestNewGame':
-                if (!slot) return;
-                const newGameOpponent = room.getPlayerBySlot(slot === 'player1' ? 'player2' : 'player1');
-                if (!newGameOpponent) {
-                    this.resetGame();
-                } else {
-                    this.pendingNewGame = ws;
-                    newGameOpponent.send(JSON.stringify({ type: 'newGameRequest' }));
-                }
+                qiProtocol.requestNewGame(this, ws, slot);
                 break;
 
             case 'newGameResponse':
-                if (this.pendingNewGame && msg.accept) {
-                    this.resetGame();
-                } else if (this.pendingNewGame && !msg.accept) {
-                    this.pendingNewGame.send(JSON.stringify({ type: 'error', message: '对方拒绝开始新局' }));
-                }
-                this.pendingNewGame = null;
+                qiProtocol.newGameResponse(this, ws, msg, { newGameDeniedMsg: '对方拒绝开始新局' });
                 break;
 
             case 'requestDraw':

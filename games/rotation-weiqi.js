@@ -1,204 +1,49 @@
-﻿'use strict';
+const crypto = require('crypto');
 
-const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, applyInitialPositionCompact, encodeInitialPositionCompact, qiBoardSeatOverlay, encodeOpeningPositionCompact, computeBensonWeiqiLead, squareWeiqiScoringOps } = require('../common');
+const { qiBoardSeatOverlay, QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, applyInitialPositionCompact, encodeInitialPositionCompact, encodeOpeningPositionCompact, computeBensonWeiqiLead, squareWeiqiScoringOps } = require('../common');
 
-const MAX_ROTATIONS = 8;
+/* ---------- 环旋转：本棋种专属，不写进公共文件 ----------
+   落子后，落点周围八格的棋子沿**顺时针**整体挪一格（每格取顺时针方向上一格的内容）。
+   边、角上只有盘内的邻格参与，它们按顺时针顺序构成闭环（边 5 格、角 3 格），棋子不会转到盘外。
+   屏幕上顺时针 = 北→东北→东→东南→南→西南→西→西北；本仓库 row 0 在最下方，
+   所以顺时针序列是 (+1,0),(+1,+1),(0,+1),(-1,+1),(-1,0),(-1,-1),(0,-1),(+1,-1)。 */
+const RING_CW = [[1, 0], [1, 1], [0, 1], [-1, 1], [-1, 0], [-1, -1], [0, -1], [1, -1]];
 
-function computeRotationInterval(n) {
-    let x = Math.ceil(0.07 * n * n);
-    if (x % 2 === 0) x += 1;
-    return x;
-}
-
-function rotateCell(r, c, half) {
-    if (r < half && c < half) return [r, c + half];
-    if (r < half) return [r + half, c];
-    if (c < half) return [r - half, c];
-    return [r, c - half];
-}
-
-function initZero2D(n) {
-    return Array(n).fill(0).map(() => Array(n).fill(0));
-}
-
-function rotateBoardLike(board, n, mapCell) {
-    const nb = initZero2D(n);
-    for (let r = 0; r < n; r++) {
-        for (let c = 0; c < n; c++) {
-            const [nr, nc] = mapCell(r, c);
-            nb[nr][nc] = board[r][c];
-        }
+/** 环上的盘内格，顺时针顺序 */
+function ringCells(row, col, boardSize) {
+    const cells = [];
+    for (const [dr, dc] of RING_CW) {
+        const r = row + dr;
+        const c = col + dc;
+        if (r >= 0 && r < boardSize && c >= 0 && c < boardSize) cells.push([r, c]);
     }
-    return nb;
+    return cells;
 }
 
-function rotateQuadrantsClockwise(board, handNumAt, n) {
-    const half = n / 2;
-    const mapCell = (r, c) => rotateCell(r, c, half);
-    return {
-        board: rotateBoardLike(board, n, mapCell),
-        handNumAt: rotateBoardLike(handNumAt, n, mapCell)
-    };
-}
-
-function rotateLastMoveMarkers(markers, n) {
-    if (!markers || !markers.length) return [];
-    const half = n / 2;
-    return markers.map(m => {
-        const [nr, nc] = rotateCell(m.row, m.col, half);
-        return { row: nr, col: nc, color: m.color };
-    });
-}
-
-function syncHandNumWithBoard(board, handNumAt) {
-    const n = board.length;
-    for (let r = 0; r < n; r++) {
-        for (let c = 0; c < n; c++) {
-            if (board[r][c] === 0) handNumAt[r][c] = 0;
-        }
+/** 把落点周围的环顺时针挪一格；board 需已含刚落下的子（落点本身不动） */
+function rotateRingClockwise(board, row, col, boardSize) {
+    const cells = ringCells(row, col, boardSize);
+    if (cells.length < 2) return board;
+    const next = board.map((r) => r.slice());
+    for (let i = 0; i < cells.length; i++) {
+        const [r, c] = cells[i];
+        const [pr, pc] = cells[(i - 1 + cells.length) % cells.length];   // 顺时针上一格
+        next[r][c] = board[pr][pc];
     }
+    return next;
 }
 
-function willRotateThisPly(completedPlyCount, rotationInterval, rotationCount) {
-    if (rotationCount >= MAX_ROTATIONS) return false;
-    if (completedPlyCount <= 0 || completedPlyCount % rotationInterval !== 0) return false;
-    return true;
-}
 
-function collectSeedsOnFirstLine(board, n, color) {
-    const seeds = [];
-    for (let r = 0; r < n; r++) {
-        for (let c = 0; c < n; c++) {
-            if (r !== 0 && r !== n - 1 && c !== 0 && c !== n - 1) continue;
-            if (board[r][c] === color) seeds.push([r, c]);
-        }
-    }
-    return seeds;
-}
-
-function findGroupRepresentative(board, row, col, color, boardSize) {
-    const dirs = [[-1, 0], [1, 0], [0, -1], [0, 1]];
-    let bestR = row;
-    let bestC = col;
-    const queue = [[row, col]];
-    const visited = new Set([`${row},${col}`]);
-    while (queue.length) {
-        const [r, c] = queue.shift();
-        if (r < bestR || (r === bestR && c < bestC)) {
-            bestR = r;
-            bestC = c;
-        }
-        for (const [dr, dc] of dirs) {
-            const nr = r + dr;
-            const nc = c + dc;
-            if (nr < 0 || nr >= boardSize || nc < 0 || nc >= boardSize) continue;
-            const k = `${nr},${nc}`;
-            if (visited.has(k)) continue;
-            if (board[nr][nc] === color) {
-                visited.add(k);
-                queue.push([nr, nc]);
-            }
-        }
-    }
-    return [bestR, bestC];
-}
-
-function uniqueGroupRootsFromSeeds(board, seeds, color, boardSize) {
-    const roots = [];
-    const seenGroups = new Set();
-    for (const [sr, sc] of seeds) {
-        if (board[sr][sc] !== color) continue;
-        const rep = findGroupRepresentative(board, sr, sc, color, boardSize);
-        const key = `${rep[0]},${rep[1]}`;
-        if (!seenGroups.has(key)) {
-            seenGroups.add(key);
-            roots.push(rep);
-        }
-    }
-    return roots;
-}
-
-/**
- * 旋转手：旋转后的提子顺序为先对方（落子邻接 + 一路线）再己方（落子点 + 一路线）。
- * hasPlacement 为 false 时（虚着触发旋转）仅检查一路线。
- */
-function applyRotationPlyCaptures(board, placeR, placeC, playerVal, boardSize, hasPlacement, rules) {
-    const enemyColor = 3 - playerVal;
-    const dirs = [[-1, 0], [1, 0], [0, -1], [0, 1]];
-    const enemySeeds = [];
-    if (hasPlacement) {
-        for (const [dr, dc] of dirs) {
-            const nr = placeR + dr;
-            const nc = placeC + dc;
-            if (nr >= 0 && nr < boardSize && nc >= 0 && nc < boardSize && board[nr][nc] === enemyColor) {
-                enemySeeds.push([nr, nc]);
-            }
-        }
-    }
-    enemySeeds.push(...collectSeedsOnFirstLine(board, boardSize, enemyColor));
-    const enemyRoots = uniqueGroupRootsFromSeeds(board, enemySeeds, enemyColor, boardSize);
-    for (const [gr, gc] of enemyRoots) {
-        if (rules.countGroupLiberties(board, gr, gc, boardSize) < 1) {
-            rules.removeGroup(board, gr, gc, enemyColor, boardSize);
-        }
-    }
-
-    const ownSeeds = [];
-    if (hasPlacement && board[placeR][placeC] === playerVal) {
-        ownSeeds.push([placeR, placeC]);
-    }
-    ownSeeds.push(...collectSeedsOnFirstLine(board, boardSize, playerVal));
-    const ownRoots = uniqueGroupRootsFromSeeds(board, ownSeeds, playerVal, boardSize);
-    for (const [gr, gc] of ownRoots) {
-        if (rules.countGroupLiberties(board, gr, gc, boardSize) < 1) {
-            rules.removeGroup(board, gr, gc, playerVal, boardSize);
-        }
-    }
-}
-
-function maybeRotateAfterPly(opts) {
-    const {
-        board,
-        handNumAt,
-        rotationCount,
-        n,
-        rotationInterval,
-        completedPlyCount,
-        lastMoveMarkers
-    } = opts;
-    if (rotationCount >= MAX_ROTATIONS) {
-        return { board, handNumAt, rotationCount, lastMoveMarkers };
-    }
-    if (completedPlyCount <= 0 || completedPlyCount % rotationInterval !== 0) {
-        return { board, handNumAt, rotationCount, lastMoveMarkers };
-    }
-    const r = rotateQuadrantsClockwise(board, handNumAt, n);
-    return {
-        board: r.board,
-        handNumAt: r.handNumAt,
-        rotationCount: rotationCount + 1,
-        lastMoveMarkers: rotateLastMoveMarkers(lastMoveMarkers, n)
-    };
-}
-
-function komiForSize(boardSize) {
-    return boardSize <= 8 ? 4.25 : 3.25;
-}
-
-class RotationWeiqiRoom extends QiTwoPlayerRoomBase {
-    constructor(room, initialSize = 18) {
+class RotationWeiqiRoom extends QiTwoPlayerRoomBase
+{
+    constructor(room, initialSize = 19) {
         super(room);
         this.boardSize = initialSize;
         this.board = Array(this.boardSize).fill().map(() => Array(this.boardSize).fill(0));
-        if (this.openingBoard === undefined) this.openingBoard = (typeof this.copyBoard === 'function' ? this.copyBoard(this.board) : (Array.isArray(this.board[0]) ? this.board.map(r => r.slice()) : this.board.slice()));
-        this.handNumAt = initZero2D(this.boardSize);
-        this.rotationCount = 0;
-        this.rotationInterval = computeRotationInterval(this.boardSize);
+        this.openingBoard = this.copyBoard(this.board);
         this.currentPlayer = 1;
         this.historyBoards = [];
         this.historyBoardSet = new Set();
-        this.historyHandNumAts = [];
-        this.historyRotationCounts = [];
         this.moveHistory = [];
         this.historyMarkers = [];
         this.lastMoveMarkers = [];
@@ -213,12 +58,18 @@ class RotationWeiqiRoom extends QiTwoPlayerRoomBase {
         this.scoreProposalData = null;
         this.moveCoords = [];
         this.recordResultText = null;
+        /** @type {{ black: number|null, white: number|null }} */
         this.slotJoinedAt = { player1: null, player2: null };
         this.tcNego = null;
+        /** @type {{ timed: boolean, mainMinutes?: number, byoyomiSeconds?: number, maxTimeouts?: number }|null} */
         this.tcSettings = null;
         this.tcClock = null;
         this._clockInterval = null;
         this.matchStarted = false;
+        /** 先落座者为房主（WebSocket） */
+        this.hostWs = null;
+        /** 是否启用棋盘落座蒙版协议（执子由房主在限时对话框选择） */
+        this.boardSeatOverlay = true;
     }
 
     _stopClockTicker() {
@@ -230,7 +81,8 @@ class RotationWeiqiRoom extends QiTwoPlayerRoomBase {
 
     _broadcastClock() {
         if (!this.tcClock || !this.tcClock.timed || this.gameOver) return;
-        this.broadcast({ type: 'clockUpdate', clock: qiMatchTimeControl.snapshotForClient(this.tcClock) });
+        const snap = qiMatchTimeControl.snapshotForClient(this.tcClock);
+        this.broadcast({ type: 'clockUpdate', clock: snap });
     }
 
     _startClockTicker() {
@@ -242,29 +94,30 @@ class RotationWeiqiRoom extends QiTwoPlayerRoomBase {
                 return;
             }
             if (this.pendingScore) return;
-            const { lostSlot, winnerSlot } = qiMatchTimeControl.drain(this.tcClock, Date.now());
+            const now = Date.now();
+            const { lostSlot, winnerSlot } = qiMatchTimeControl.drain(this.tcClock, now);
             if (lostSlot) {
                 this._stopClockTicker();
                 this.gameOver = true;
                 this.winner = winnerSlot;
-                this.recordResultText = lostSlot === 'player1' ? '黑方超时，白胜' : '白方超时，黑胜';
-                this.broadcast({ type: 'broadcast', action: 'timeLoss', player: lostSlot, winner: winnerSlot, ...this.getState() });
+                this.setTimeLossResultText(lostSlot);
+                this.broadcast({
+                    type: 'broadcast',
+                    action: 'timeLoss',
+                    player: lostSlot,
+                    winner: winnerSlot,
+                    ...this.getState()
+                });
                 return;
             }
             this._broadcastClock();
         }, 1000);
     }
 
-    _firstPickerSlot() {
-        const tb = this.slotJoinedAt.player1;
-        const tw = this.slotJoinedAt.player2;
-        if (tb == null || tw == null) return 'player1';
-        return tb <= tw ? 'player1' : 'player2';
-    }
-    afterColorAssigned(ws, slot) {
-        this.slotJoinedAt[slot] = Date.now();
-        this._maybeBeginTimeNegotiation();
-    }
+    /** 按「选择者己方执子」交换座位：colorChoice 为 black|white|random */
+
+    /** 把当前协商界面重新推给某客户端，避免提交被忽略后卡死 */
+
     _timeAllowsPlay(slot) {
         if (this.gameOver) return false;
         if (!this.matchStarted) return false;
@@ -283,8 +136,14 @@ class RotationWeiqiRoom extends QiTwoPlayerRoomBase {
             this._stopClockTicker();
             this.gameOver = true;
             this.winner = winnerSlot;
-            this.recordResultText = lostSlot === 'player1' ? '黑方超时，白胜' : '白方超时，黑胜';
-            this.broadcast({ type: 'broadcast', action: 'timeLoss', player: lostSlot, winner: winnerSlot, ...this.getState() });
+            this.setTimeLossResultText(lostSlot);
+            this.broadcast({
+                type: 'broadcast',
+                action: 'timeLoss',
+                player: lostSlot,
+                winner: winnerSlot,
+                ...this.getState()
+            });
             return false;
         }
         return true;
@@ -292,7 +151,8 @@ class RotationWeiqiRoom extends QiTwoPlayerRoomBase {
 
     _syncClockAfterTurnChange() {
         if (!this.tcClock || !this.tcClock.timed || this.gameOver) return;
-        qiMatchTimeControl.setActiveSlot(this.tcClock, this.currentPlayer === 1 ? 'player1' : 'player2', Date.now());
+        const slot = this.currentPlayer === 1 ? 'player1' : 'player2';
+        qiMatchTimeControl.setActiveSlot(this.tcClock, slot, Date.now());
         this._broadcastClock();
     }
 
@@ -304,11 +164,28 @@ class RotationWeiqiRoom extends QiTwoPlayerRoomBase {
         squareWeiqiRules.removeGroup(board, row, col, color, this.boardSize);
     }
 
+    /**
+     * 落子结算（覆写围棋的公共口径）：落子 → **先旋转环** → 再结算提子。
+     * 提子顺序按本棋种约定：先对方（全盘无气组一次提完），提掉后再己方（可自杀）。
+     */
     tryPlaceStone(boardBefore, row, col, playerVal) {
-        return squareWeiqiRules.tryPlaceStoneNLiberty(
-            boardBefore, row, col, playerVal, this.boardSize, (b) => this.copyBoard(b), 1
-        );
+        if (boardBefore[row][col] !== 0) return null;
+        const b = this.copyBoard(boardBefore);
+        b[row][col] = playerVal;
+        const rotated = rotateRingClockwise(b, row, col, this.boardSize);
+        const n = this.boardSize;
+        for (const color of [3 - playerVal, playerVal]) {
+            for (let r = 0; r < n; r++) {
+                for (let c = 0; c < n; c++) {
+                    if (rotated[r][c] === color && squareWeiqiRules.countGroupLiberties(rotated, r, c, n) < 1) {
+                        squareWeiqiRules.removeGroup(rotated, r, c, color, n);
+                    }
+                }
+            }
+        }
+        return rotated;
     }
+
 
     isLibertySurroundedByOpponent(board, libertyRow, libertyCol, opponentColor) {
         return squareWeiqiRules.isLibertySurroundedByOpponent(
@@ -328,22 +205,56 @@ class RotationWeiqiRoom extends QiTwoPlayerRoomBase {
         return squareWeiqiRules.computeScore(liveBoard, territory, this.boardSize);
     }
 
-    /** 形势判断 / 数点：用 Benson 档（公共口径：弱气去死子 ↔ Benson 保活 → 最近归属 → 确定领地覆盖） */
+    /** 形势判断 / 数点：用 Benson 档（公共口径；子类要改口径就覆写这个方法） */
     computeLead() {
-        const { lead } = computeBensonWeiqiLead(this.board, komiForSize(this.boardSize), squareWeiqiScoringOps(this.boardSize, {
+        const KOMI = this.boardSize <= 8 ? 4.25 : 3.25;
+        const { lead } = computeBensonWeiqiLead(this.board, KOMI, squareWeiqiScoringOps(this.boardSize, {
             copyBoard: (b) => this.copyBoard(b)
         }));
         return lead;
     }
 
-    getState() {
+    onResignResolved(resignSlot) {
+        this.recordResultText = resignSlot === 'player1' ? '白中盘胜' : '黑中盘胜';
+    }
+
+    onDrawResolved() {
+        this.recordResultText = '和棋';
+    }
+
+    setScoreResultTextByLead(lead) {
+        if (!Number.isFinite(lead) || lead === 0) {
+            this.recordResultText = '和棋';
+            return;
+        }
+        const winnerSide = lead > 0 ? '黑' : '白';
+        this.recordResultText = `${winnerSide}胜${Math.abs(lead).toFixed(2)}点`;
+    }
+
+    setTimeLossResultText(lostSlot) {
+        if (lostSlot === 'player1') this.recordResultText = '黑方超时，白胜';
+        else if (lostSlot === 'player2') this.recordResultText = '白方超时，黑胜';
+    }
+
+    static parseResultTextToWinner(resultText) {
+        if (!resultText || typeof resultText !== 'string') return null;
+        if (resultText === '和棋' || resultText === 'draw') return 'draw';
+        if (resultText.includes('白胜')) return 'player2';
+        if (resultText.includes('黑胜')) return 'player1';
+        if (resultText === 'player1' || resultText === 'player2' || resultText === 'draw') return resultText;
+        return null;
+    }
+
+    getState()
+    {
+        const initialBoard = this.openingBoard
+            ? this.copyBoard(this.openingBoard)
+            : this.copyBoard(this.board);
         return {
             boardSize: this.boardSize,
-            komi: komiForSize(this.boardSize),
+            komi: this.boardSize <= 8 ? 4.25 : 3.25,
             board: this.board,
-            handNumAt: this.handNumAt,
-            rotationCount: this.rotationCount,
-            rotationInterval: this.rotationInterval,
+            initialBoard,
             numberOfHands: 1 + this.historyBoards.length,
             currentPlayer: this.currentPlayer,
             lastMoveMarkers: this.lastMoveMarkers,
@@ -354,15 +265,27 @@ class RotationWeiqiRoom extends QiTwoPlayerRoomBase {
                 player1: !!this.room.getPlayerBySlot('player1'),
                 player2: !!this.room.getPlayerBySlot('player2')
             },
+            hostSlot: this.hostWs ? this.room.getSlotByWs(this.hostWs) : null,
+            boardSeatOverlay: !!this.boardSeatOverlay,
             matchTime: {
                 negotiation: this.tcNego,
                 settings: this.tcSettings,
                 clock: this.tcClock && this.tcClock.timed
                     ? qiMatchTimeControl.snapshotForClient(this.tcClock)
-                    : (this.tcSettings && this.tcSettings.timed === false ? { timed: false, ruleLine: '本局不限时' } : null)
+                    : (this.tcSettings && this.tcSettings.timed === false
+                        ? { timed: false, ruleLine: '本局不限时' }
+                        : null)
             },
             matchStarted: this.matchStarted
         };
+    }
+
+    getInitialState() {
+        return this.getState();
+    }
+
+    getStateForClient() {
+        return this.getState();
     }
 
     startScoreCounting(requester, opponent) {
@@ -375,244 +298,40 @@ class RotationWeiqiRoom extends QiTwoPlayerRoomBase {
         this.pendingScore = { requester, opponent, agreed: new Set() };
     }
 
-    rotationWeiqiMove(ws, msg, slot) {
-        if (!this._timeAllowsPlay(slot)) return;
-        if (!this._drainClockBeforeMove(slot)) return;
-        const beforeLen = this.moveCoords.length;
-        if (this.gameOver) return;
-        if (!slot || slot !== (this.currentPlayer === 1 ? 'player1' : 'player2')) return;
-        const { row, col } = msg;
-        if (row < 0 || row >= this.boardSize || col < 0 || col >= this.boardSize) return;
-        if (this.board[row][col] !== 0) return;
-        const playerVal = this.currentPlayer === 1 ? 1 : 2;
-        const completedPlyCount = this.moveCoords.length + 1;
-        const rotateNow = willRotateThisPly(completedPlyCount, this.rotationInterval, this.rotationCount);
-
-        let finalBoard;
-        let finalHand;
-        let finalRotationCount;
-        let finalMarkers;
-
-        let preBoardAnim = null;
-        let preHandAnim = null;
-        const preMarkersAnim = rotateNow ? [{ row, col, color: playerVal }] : null;
-
-        if (rotateNow) {
-            const placedOnly = this.copyBoard(this.board);
-            placedOnly[row][col] = playerVal;
-            finalHand = this.copyBoard(this.handNumAt);
-            syncHandNumWithBoard(placedOnly, finalHand);
-            finalHand[row][col] = completedPlyCount;
-
-            preBoardAnim = this.copyBoard(placedOnly);
-            preHandAnim = this.copyBoard(finalHand);
-
-            const half = this.boardSize / 2;
-            const mapCell = (r, c) => rotateCell(r, c, half);
-            finalBoard = rotateBoardLike(placedOnly, this.boardSize, mapCell);
-            finalHand = rotateBoardLike(finalHand, this.boardSize, mapCell);
-            const [pr, pc] = rotateCell(row, col, half);
-            applyRotationPlyCaptures(
-                finalBoard, pr, pc, playerVal, this.boardSize, true, squareWeiqiRules
-            );
-            syncHandNumWithBoard(finalBoard, finalHand);
-            finalRotationCount = this.rotationCount + 1;
-            finalMarkers = rotateLastMoveMarkers([{ row, col, color: playerVal }], this.boardSize);
-        } else {
-            const newBoard = this.tryPlaceStone(this.board, row, col, playerVal);
-            if (!newBoard) return;
-
-            const handNumAt = this.copyBoard(this.handNumAt);
-            syncHandNumWithBoard(newBoard, handNumAt);
-            handNumAt[row][col] = completedPlyCount;
-
-            const rot = maybeRotateAfterPly({
-                board: newBoard,
-                handNumAt,
-                rotationCount: this.rotationCount,
-                n: this.boardSize,
-                rotationInterval: this.rotationInterval,
-                completedPlyCount,
-                lastMoveMarkers: [{ row, col, color: playerVal }]
-            });
-
-            finalBoard = rot.board;
-            finalHand = rot.handNumAt;
-            finalRotationCount = rot.rotationCount;
-            finalMarkers = rot.lastMoveMarkers;
-        }
-
-        const newBoardStr = this.boardToString(finalBoard);
-        if (this.historyBoardSet.has(newBoardStr)) {
-            ws.send(JSON.stringify({ type: 'error', message: '禁全同。' }));
-            return;
-        }
-
-        const rotatedThisPly = finalRotationCount > this.rotationCount;
-
-        this.historyMarkers.push(this.copyMarkers(this.lastMoveMarkers));
-        this.historyBoards.push(this.copyBoard(finalBoard));
-        this.historyBoardSet.add(newBoardStr);
-        this.historyHandNumAts.push(this.copyBoard(finalHand));
-        this.historyRotationCounts.push(finalRotationCount);
-
-        this.moveHistory.push(slot);
-        this.moveCoords.push({ type: 'move', player: slot, row, col });
-        this.board = finalBoard;
-        this.handNumAt = finalHand;
-        this.rotationCount = finalRotationCount;
-        this.lastMoveMarkers = finalMarkers;
-        this.currentPlayer = 3 - this.currentPlayer;
-        this.passCounter = 0;
-
-        const payload = { type: 'broadcast', action: 'move', ...this.getState() };
-        if (rotatedThisPly) {
-            payload.rotationAnimation = {
-                preBoard: preBoardAnim,
-                postBoard: this.copyBoard(finalBoard),
-                preHandNumAt: preHandAnim,
-                postHandNumAt: this.copyBoard(finalHand),
-                preMarkers: preMarkersAnim,
-                postMarkers: finalMarkers.map(m => ({ ...m }))
-            };
-        }
-        this.broadcast(payload);
-        if (this.moveCoords.length !== beforeLen) this._syncClockAfterTurnChange();
-        if (
-            (this.moveCoords.length + 1) % this.rotationInterval === 0
-            && this.rotationCount < MAX_ROTATIONS
-        ) {
-            this.broadcast({ type: 'rotatePrepare' });
-        }
-    }
-
-    rotationWeiqiPass(ws, slot) {
-        if (!this._timeAllowsPlay(slot)) return;
-        if (!this._drainClockBeforeMove(slot)) return;
-        const beforeLen = this.moveCoords.length;
-        const room = this.room;
-        if (this.gameOver) return;
-        if (!slot || slot !== (this.currentPlayer === 1 ? 'player1' : 'player2')) return;
-
-        const completedPlyCount = this.moveCoords.length + 1;
-        const workingBoard = this.copyBoard(this.board);
-        const workingHand = this.copyBoard(this.handNumAt);
-        const passerVal = this.currentPlayer === 1 ? 1 : 2;
-        const rotateNow = willRotateThisPly(completedPlyCount, this.rotationInterval, this.rotationCount);
-
-        let finalBoard;
-        let finalHand;
-        let finalRotationCount;
-        let finalMarkers;
-
-        if (rotateNow) {
-            const r = rotateQuadrantsClockwise(workingBoard, workingHand, this.boardSize);
-            applyRotationPlyCaptures(
-                r.board, 0, 0, passerVal, this.boardSize, false, squareWeiqiRules
-            );
-            syncHandNumWithBoard(r.board, r.handNumAt);
-            finalBoard = r.board;
-            finalHand = r.handNumAt;
-            finalRotationCount = this.rotationCount + 1;
-            finalMarkers = rotateLastMoveMarkers([], this.boardSize);
-        } else {
-            const rot = maybeRotateAfterPly({
-                board: workingBoard,
-                handNumAt: workingHand,
-                rotationCount: this.rotationCount,
-                n: this.boardSize,
-                rotationInterval: this.rotationInterval,
-                completedPlyCount,
-                lastMoveMarkers: []
-            });
-            finalBoard = rot.board;
-            finalHand = rot.handNumAt;
-            finalRotationCount = rot.rotationCount;
-            finalMarkers = rot.lastMoveMarkers;
-        }
-
-        const rotatedThisPly = finalRotationCount > this.rotationCount;
-        const preBoardAnim = rotatedThisPly ? this.copyBoard(workingBoard) : null;
-        const preHandAnim = rotatedThisPly ? this.copyBoard(workingHand) : null;
-
-        this.historyBoards.push(this.copyBoard(finalBoard));
-        this.historyMarkers.push(this.copyMarkers(this.lastMoveMarkers));
-        this.historyHandNumAts.push(this.copyBoard(finalHand));
-        this.historyRotationCounts.push(finalRotationCount);
-
-        this.moveHistory.push(slot);
-        this.moveCoords.push({ type: 'pass', player: slot });
-        this.board = finalBoard;
-        this.handNumAt = finalHand;
-        this.rotationCount = finalRotationCount;
-        this.currentPlayer = this.currentPlayer === 1 ? 2 : 1;
-        this.passCounter++;
-        this.lastMoveMarkers = finalMarkers;
-
-        const passPayload = { type: 'broadcast', action: 'pass', ...this.getState() };
-        if (rotatedThisPly) {
-            passPayload.rotationAnimation = {
-                preBoard: preBoardAnim,
-                postBoard: this.copyBoard(finalBoard),
-                preHandNumAt: preHandAnim,
-                postHandNumAt: this.copyBoard(finalHand),
-                preMarkers: [],
-                postMarkers: finalMarkers.map(m => ({ ...m }))
-            };
-        }
-        this.broadcast(passPayload);
-        if (this.moveCoords.length !== beforeLen) this._syncClockAfterTurnChange();
-        if (
-            (this.moveCoords.length + 1) % this.rotationInterval === 0
-            && this.rotationCount < MAX_ROTATIONS
-        ) {
-            this.broadcast({ type: 'rotatePrepare' });
-        }
-
-        if (this.passCounter >= 2) {
-            this.passCounter = 0;
-            const blackPlayer = room.getPlayerBySlot('player1');
-            const whitePlayer = room.getPlayerBySlot('player2');
-            if (blackPlayer && whitePlayer) {
-                this.startScoreCounting(blackPlayer, whitePlayer);
-            } else {
-                this.gameOver = true;
-                this.broadcast({ type: 'broadcast', action: 'endAgreed', ...this.getState() });
-            }
-        }
-    }
-
-    /** 认输：resignSlot 是**认输方**（公共层契约），player1 执黑 */
-    onResignResolved(resignSlot) {
-        this.recordResultText = resignSlot === 'player1' ? '白中盘胜' : '黑中盘胜';
-    }
-
-    handleMessage(ws, msg) {
+    handleMessage(ws, msg)
+    {
         const slot = this.room.getSlotByWs(ws);
         const room = this.room;
 
-        switch (msg.type) {
-            case 'selectColor':
-                qiProtocol.selectColor(this, ws, msg);
-                break;
-            case 'timeControlSubmit':
-                this._handleTimeControlSubmit(ws, msg);
-                break;
-            case 'timeControlAccept':
-                this._handleTimeControlAccept(ws);
-                break;
-
+        switch (msg.type)
+        {
             case 'setBoardSize':
                 qiProtocol.setBoardSizeWeiqiObserver(this, ws, msg, slot);
                 break;
 
-            case 'move':
-                this.rotationWeiqiMove(ws, msg, slot);
+            case 'move': {
+                const moveSlot = slot;
+                if (!this._timeAllowsPlay(moveSlot)) {
+                    if (moveSlot) ws.send(JSON.stringify({ type: 'error', message: '请先与对手确认限时规则。' }));
+                    return;
+                }
+                const before = () => this._drainClockBeforeMove(moveSlot);
+                qiProtocol.weiqiMove(this, ws, msg, moveSlot, { beforeCommit: before });
+                this._syncClockAfterTurnChange();
                 break;
+            }
 
-            case 'pass':
-                this.rotationWeiqiPass(ws, slot);
+            case 'pass': {
+                const passSlot = slot;
+                if (!this._timeAllowsPlay(passSlot)) {
+                    if (passSlot) ws.send(JSON.stringify({ type: 'error', message: '请先与对手确认限时规则。' }));
+                    return;
+                }
+                const beforeP = () => this._drainClockBeforeMove(passSlot);
+                qiProtocol.weiqiPass(this, ws, passSlot, { beforeCommit: beforeP });
+                this._syncClockAfterTurnChange();
                 break;
+            }
 
             case 'requestUndo':
                 qiProtocol.weiqiRequestUndo(this, ws, slot);
@@ -624,7 +343,6 @@ class RotationWeiqiRoom extends QiTwoPlayerRoomBase {
 
             case 'resign':
                 qiProtocol.resign(this, ws, slot);
-                this._stopClockTicker();
                 break;
 
             case 'requestNewGame':
@@ -640,12 +358,7 @@ class RotationWeiqiRoom extends QiTwoPlayerRoomBase {
                 break;
 
             case 'drawResponse':
-                qiProtocol.drawResponse(this, ws, msg, {
-                    onDrawResolved: () => {
-                        this.recordResultText = '和棋';
-                        this._stopClockTicker();
-                    }
-                });
+                qiProtocol.drawResponse(this, ws, msg);
                 break;
 
             case 'requestEnd':
@@ -669,14 +382,15 @@ class RotationWeiqiRoom extends QiTwoPlayerRoomBase {
                 break;
 
             case 'scoreResponse':
-                if (this.pendingScore && (ws === this.pendingScore.requester || ws === this.pendingScore.opponent)) {
+                if (this.pendingScore && (ws === this.pendingScore.requester || ws === this.pendingScore.opponent))
+                {
                     if (msg.accept) {
                         this.pendingScore.agreed.add(ws);
                         if (this.pendingScore.agreed.size === 2) {
                             const lead = this.scoreProposalData.lead;
                             this.gameOver = true;
                             this.winner = lead > 0 ? 'player1' : (lead < 0 ? 'player2' : 'draw');
-                            this.recordResultText = lead === 0 ? '和棋' : `${lead > 0 ? '黑' : '白'}胜${Math.abs(lead).toFixed(2)}点`;
+                            this.setScoreResultTextByLead(lead);
                             this.broadcast({ type: 'scoreAgreed', winner: this.winner, lead });
                             this.pendingScore = null;
                             this.scoreProposalData = null;
@@ -708,58 +422,53 @@ class RotationWeiqiRoom extends QiTwoPlayerRoomBase {
         }
     }
 
-    performUndo(steps, requesterWs) {
-        if (steps === 0 || steps > this.historyBoards.length) return;
+    performUndo(steps, requesterWs)
+    {
+        if (steps === 0 || steps > this.historyBoards.length)
+            return;
 
-        for (let i = 0; i < steps; i++) {
-            if (this.historyBoards.length > 0) {
+        for (let i = 0; i < steps; i++)
+        {
+            if (this.historyBoards.length > 0)
                 this.historyBoardSet.delete(this.boardToString(this.historyBoards.pop()));
-            }
-            if (this.historyHandNumAts.length > 0) this.historyHandNumAts.pop();
-            if (this.historyRotationCounts.length > 0) this.historyRotationCounts.pop();
-            if (this.historyMarkers.length > 0) {
+            if (this.historyMarkers.length > 0)
                 this.lastMoveMarkers = this.historyMarkers.pop() || [];
-            } else {
+            else
                 this.lastMoveMarkers = [];
-            }
-            if (this.moveHistory.length > 0) this.moveHistory.pop();
-            if (this.moveCoords.length > 0) this.moveCoords.pop();
+            if (this.moveHistory.length > 0)
+                this.moveHistory.pop();
+            if (this.moveCoords.length > 0)
+                this.moveCoords.pop();
+
             this.currentPlayer = 3 - this.currentPlayer;
         }
-
-        if (this.historyBoards.length === 0) {
+        if (this.historyBoards.length == 0)
             this.board = Array(this.boardSize).fill().map(() => Array(this.boardSize).fill(0));
-            this.handNumAt = initZero2D(this.boardSize);
-            this.rotationCount = 0;
-        } else {
+        else
             this.board = this.copyBoard(this.historyBoards.at(-1));
-            this.handNumAt = this.copyBoard(this.historyHandNumAts.at(-1));
-            this.rotationCount = this.historyRotationCounts.at(-1);
-        }
         this.broadcast({ type: 'broadcast', action: 'undoAccept', ...this.getState() });
+        this._syncClockAfterTurnChange();
     }
 
-    copyMarkers(markers) {
+    copyMarkers(markers)
+    {
         return markers.map(m => ({ row: m.row, col: m.col, color: m.color }));
     }
 
-    resetGame() {
-        this.board = Array(this.boardSize).fill().map(() => Array(this.boardSize).fill(0));
-        this.handNumAt = initZero2D(this.boardSize);
-        this.rotationCount = 0;
-        this.rotationInterval = computeRotationInterval(this.boardSize);
-        this.currentPlayer = 1;
+    resetGame()
+    {
+        this._stopClockTicker();
         this.slotJoinedAt = { player1: null, player2: null };
+        this.hostWs = null;
         this.tcNego = null;
         this.tcSettings = null;
         this.tcClock = null;
         this.recordResultText = null;
         this.matchStarted = false;
-        this._stopClockTicker();
+        this.board = Array(this.boardSize).fill().map(() => Array(this.boardSize).fill(0));
+        this.currentPlayer = 1;
         this.historyBoards = [];
         this.historyBoardSet.clear();
-        this.historyHandNumAts = [];
-        this.historyRotationCounts = [];
         this.moveHistory = [];
         this.historyMarkers = [];
         this.lastMoveMarkers = [];
@@ -771,28 +480,26 @@ class RotationWeiqiRoom extends QiTwoPlayerRoomBase {
         this.broadcast({ type: 'newGameStarted', ...this.getState(), slots: { player1: false, player2: false } });
     }
 
-    setBoardSize(newSize, requesterWs) {
-        if (!Number.isInteger(newSize) || newSize < 8 || newSize > 20 || newSize % 2 !== 0) {
-            requesterWs.send(JSON.stringify({ type: 'error', message: '棋盘大小须为 8～20 之间的偶数路' }));
+    setBoardSize(newSize, requesterWs)
+    {
+        if (!Number.isInteger(newSize) || newSize < 7 || newSize > 21) {
+            requesterWs.send(JSON.stringify({ type: 'error', message: '棋盘大小无效' }));
             return false;
         }
         const hasAnyStone = this.board.some(row => row.some(v => v !== 0));
         const hasPlayer = this.room.getPlayerBySlot('player1') || this.room.getPlayerBySlot('player2');
-        if (hasAnyStone || hasPlayer) return false;
+        if (hasAnyStone || hasPlayer) {
+
+            return false;
+        }
         this.boardSize = newSize;
-        this.rotationInterval = computeRotationInterval(this.boardSize);
         this.resetGame();
         this.broadcast({ type: 'boardSizeChanged', boardSize: this.boardSize });
         return true;
     }
 
-    exportRecord() {
-        const exportedTimeControl = this.tcSettings ? {
-            enabled: this.tcSettings.timed === true,
-            mainMinutes: this.tcSettings.timed ? this.tcSettings.mainMinutes : 0,
-            byoyomiSeconds: this.tcSettings.timed ? this.tcSettings.byoyomiSeconds : 0,
-            maxTimeouts: this.tcSettings.timed ? this.tcSettings.maxTimeouts : 0
-        } : null;
+    exportRecord()
+    {
         let resultText = null;
         if (this.gameOver) {
             if (this.recordResultText) resultText = this.recordResultText;
@@ -806,7 +513,7 @@ class RotationWeiqiRoom extends QiTwoPlayerRoomBase {
             gameType: '旋转围棋',
             gameId: 'rotation-weiqi',
             boardSize: this.boardSize,
-            komi: komiForSize(this.boardSize),
+            komi: this.boardSize <= 8 ? 4.25 : 3.25,
             players: { player1: null, player2: null },
             initialPosition: encodeOpeningPositionCompact(this),
             moves: this.moveCoords.map(m => {
@@ -819,22 +526,18 @@ class RotationWeiqiRoom extends QiTwoPlayerRoomBase {
     }
 
     resetToEmpty() {
-        this.board = Array(this.boardSize).fill().map(() => Array(this.boardSize).fill(0));
-        this.handNumAt = initZero2D(this.boardSize);
-        this.rotationCount = 0;
+        this._stopClockTicker();
         this.slotJoinedAt = { player1: null, player2: null };
+        this.hostWs = null;
         this.tcNego = null;
         this.tcSettings = null;
         this.tcClock = null;
         this.recordResultText = null;
         this.matchStarted = false;
-        this._stopClockTicker();
-        this.rotationInterval = computeRotationInterval(this.boardSize);
+        this.board = Array(this.boardSize).fill().map(() => Array(this.boardSize).fill(0));
         this.currentPlayer = 1;
         this.historyBoards = [];
         this.historyBoardSet = new Set();
-        this.historyHandNumAts = [];
-        this.historyRotationCounts = [];
         this.moveHistory = [];
         this.moveCoords = [];
         this.historyMarkers = [];
@@ -865,21 +568,19 @@ class RotationWeiqiRoom extends QiTwoPlayerRoomBase {
             requesterWs.send(JSON.stringify({ type: 'error', message: '棋谱格式不匹配（需要旋转围棋棋谱）。' }));
             return;
         }
-        const newSize = data.boardSize || 18;
-        if (!Number.isInteger(newSize) || newSize < 8 || newSize > 20 || newSize % 2 !== 0) {
+        const newSize = data.boardSize || 19;
+        if (!Number.isInteger(newSize) || newSize > 21) {
             requesterWs.send(JSON.stringify({ type: 'error', message: '棋谱中棋盘大小无效' }));
             return;
         }
 
         this.boardSize = newSize;
-        this.rotationInterval = computeRotationInterval(this.boardSize);
         this.resetToEmpty();
 
         applyInitialPositionCompact(this.board, this.boardSize, data.initialPosition);
 
         const rawMoves = data.moves || [];
         const moves = rawMoves.map(RotationWeiqiRoom.parseMove);
-
         for (let i = 0; i < moves.length; i++) {
             const move = moves[i];
             const slot = move.player;
@@ -892,135 +593,31 @@ class RotationWeiqiRoom extends QiTwoPlayerRoomBase {
                     this.broadcast({ type: 'roomReset', ...this.getState() });
                     return;
                 }
-                this.historyMarkers.push(this.copyMarkers(this.lastMoveMarkers));
-                const completedPlyCount = this.moveCoords.length + 1;
-                const rotateNow = willRotateThisPly(
-                    completedPlyCount, this.rotationInterval, this.rotationCount
-                );
-
-                let finalBoard;
-                let finalHand;
-                let finalRotationCount;
-                let finalMarkers;
-
-                if (rotateNow) {
-                    if (this.board[row][col] !== 0) {
-                        this.resetToEmpty();
-                        requesterWs.send(JSON.stringify({ type: 'error', message: `棋谱回放失败：第${i + 1}手无法落子` }));
-                        this.broadcast({ type: 'roomReset', ...this.getState() });
-                        return;
-                    }
-                    const placedOnly = this.copyBoard(this.board);
-                    placedOnly[row][col] = playerVal;
-                    finalHand = this.copyBoard(this.handNumAt);
-                    syncHandNumWithBoard(placedOnly, finalHand);
-                    finalHand[row][col] = completedPlyCount;
-
-                    const half = this.boardSize / 2;
-                    const mapCell = (r, c) => rotateCell(r, c, half);
-                    finalBoard = rotateBoardLike(placedOnly, this.boardSize, mapCell);
-                    finalHand = rotateBoardLike(finalHand, this.boardSize, mapCell);
-                    const [pr, pc] = rotateCell(row, col, half);
-                    applyRotationPlyCaptures(
-                        finalBoard, pr, pc, playerVal, this.boardSize, true, squareWeiqiRules
-                    );
-                    syncHandNumWithBoard(finalBoard, finalHand);
-                    finalRotationCount = this.rotationCount + 1;
-                    finalMarkers = rotateLastMoveMarkers([{ row, col, color: playerVal }], this.boardSize);
-                } else {
-                    const newBoard = this.tryPlaceStone(this.board, row, col, playerVal);
-                    if (!newBoard) {
-                        this.resetToEmpty();
-                        requesterWs.send(JSON.stringify({ type: 'error', message: `棋谱回放失败：第${i + 1}手无法落子` }));
-                        this.broadcast({ type: 'roomReset', ...this.getState() });
-                        return;
-                    }
-                    syncHandNumWithBoard(newBoard, this.handNumAt);
-                    this.handNumAt[row][col] = completedPlyCount;
-
-                    const rot = maybeRotateAfterPly({
-                        board: newBoard,
-                        handNumAt: this.handNumAt,
-                        rotationCount: this.rotationCount,
-                        n: this.boardSize,
-                        rotationInterval: this.rotationInterval,
-                        completedPlyCount,
-                        lastMoveMarkers: [{ row, col, color: playerVal }]
-                    });
-
-                    finalBoard = rot.board;
-                    finalHand = rot.handNumAt;
-                    finalRotationCount = rot.rotationCount;
-                    finalMarkers = rot.lastMoveMarkers;
+                const newBoard = this.tryPlaceStone(this.board, row, col, playerVal);
+                if (!newBoard) {
+                    this.resetToEmpty();
+                    requesterWs.send(JSON.stringify({ type: 'error', message: `棋谱回放失败：第${i + 1}手无法落子` }));
+                    this.broadcast({ type: 'roomReset', ...this.getState() });
+                    return;
                 }
-
-                const newBoardStr = this.boardToString(finalBoard);
-                this.historyBoards.push(this.copyBoard(finalBoard));
+                const newBoardStr = this.boardToString(newBoard);
+                this.historyBoards.push(this.copyBoard(newBoard));
                 this.historyBoardSet.add(newBoardStr);
-                this.historyHandNumAts.push(this.copyBoard(finalHand));
-                this.historyRotationCounts.push(finalRotationCount);
-
+                this.historyMarkers.push(this.copyMarkers(this.lastMoveMarkers));
                 this.moveHistory.push(slot);
                 this.moveCoords.push({ type: 'move', player: slot, row, col });
-                this.board = finalBoard;
-                this.handNumAt = finalHand;
-                this.rotationCount = finalRotationCount;
-                this.lastMoveMarkers = finalMarkers;
+                this.board = newBoard;
+                this.lastMoveMarkers = [{ row, col, color: playerVal }];
                 this.currentPlayer = 3 - this.currentPlayer;
                 this.passCounter = 0;
             } else if (move.type === 'pass') {
+                this.historyBoards.push(this.copyBoard(this.board));
                 this.historyMarkers.push(this.copyMarkers(this.lastMoveMarkers));
-                const completedPlyCount = this.moveCoords.length + 1;
-                const workingBoard = this.copyBoard(this.board);
-                const workingHand = this.copyBoard(this.handNumAt);
-                const passerVal = slot === 'player1' ? 1 : 2;
-                const rotateNow = willRotateThisPly(
-                    completedPlyCount, this.rotationInterval, this.rotationCount
-                );
-
-                let finalBoard;
-                let finalHand;
-                let finalRotationCount;
-                let finalMarkers;
-
-                if (rotateNow) {
-                    const r = rotateQuadrantsClockwise(workingBoard, workingHand, this.boardSize);
-                    applyRotationPlyCaptures(
-                        r.board, 0, 0, passerVal, this.boardSize, false, squareWeiqiRules
-                    );
-                    syncHandNumWithBoard(r.board, r.handNumAt);
-                    finalBoard = r.board;
-                    finalHand = r.handNumAt;
-                    finalRotationCount = this.rotationCount + 1;
-                    finalMarkers = rotateLastMoveMarkers([], this.boardSize);
-                } else {
-                    const rot = maybeRotateAfterPly({
-                        board: workingBoard,
-                        handNumAt: workingHand,
-                        rotationCount: this.rotationCount,
-                        n: this.boardSize,
-                        rotationInterval: this.rotationInterval,
-                        completedPlyCount,
-                        lastMoveMarkers: []
-                    });
-                    finalBoard = rot.board;
-                    finalHand = rot.handNumAt;
-                    finalRotationCount = rot.rotationCount;
-                    finalMarkers = rot.lastMoveMarkers;
-                }
-
-                this.historyBoards.push(this.copyBoard(finalBoard));
-                this.historyHandNumAts.push(this.copyBoard(finalHand));
-                this.historyRotationCounts.push(finalRotationCount);
-
                 this.moveHistory.push(slot);
                 this.moveCoords.push({ type: 'pass', player: slot });
-                this.board = finalBoard;
-                this.handNumAt = finalHand;
-                this.rotationCount = finalRotationCount;
                 this.currentPlayer = 3 - this.currentPlayer;
                 this.passCounter++;
-                this.lastMoveMarkers = finalMarkers;
+                this.lastMoveMarkers = [];
             }
         }
 
@@ -1043,13 +640,9 @@ class RotationWeiqiRoom extends QiTwoPlayerRoomBase {
             this.gameOver = true;
             const importedResultText = data.resultText != null ? String(data.resultText) : String(data.result);
             this.recordResultText = importedResultText;
-            if (importedResultText === '和棋' || importedResultText === 'draw') this.winner = 'draw';
-            else if (importedResultText.includes('白胜') || importedResultText === 'player2') this.winner = 'player2';
-            else if (importedResultText.includes('黑胜') || importedResultText === 'player1') this.winner = 'player1';
-        }
-        if (!this.matchStarted && this.moveCoords.length > 0) {
-            this.matchStarted = true;
-            this.tcSettings = this.tcSettings || { timed: false };
+            this.winner = RotationWeiqiRoom.parseResultTextToWinner(importedResultText);
+            if (!this.winner && (data.result === 'player1' || data.result === 'player2' || data.result === 'draw'))
+                this.winner = data.result;
         }
 
         this.broadcast({
@@ -1066,9 +659,17 @@ class RotationWeiqiRoom extends QiTwoPlayerRoomBase {
         return this.moveHistory.length;
     }
 
-    onPlayerLeave(ws) {
+    onPlayerLeave(ws)
+    {
         const slot = this.room.getSlotByWs(ws);
-        if (slot) this.room.broadcast({ type: 'playerLeft', slot });
+        if (slot) this.room.broadcast({ type: 'playerLeft', slot, matchStarted: !!this.matchStarted });
+
+        if (this.hostWs === ws) {
+            const other = slot === 'player1'
+                ? this.room.getPlayerBySlot('player2')
+                : this.room.getPlayerBySlot('player1');
+            this.hostWs = other || null;
+        }
 
         if (this.pendingUndo && this.pendingUndo.requester === ws) this.pendingUndo = null;
         if (this.pendingNewGame === ws) this.pendingNewGame = null;
@@ -1088,10 +689,13 @@ class RotationWeiqiRoom extends QiTwoPlayerRoomBase {
 }
 
 module.exports = {
+    RotationWeiqiRoom,
     initRoom(room) {
         room.gameLogic = new RotationWeiqiRoom(room);
-        if (typeof qiBoardSeatOverlay !== 'undefined' && qiBoardSeatOverlay) qiBoardSeatOverlay.install(room.gameLogic);
-        if (typeof qiProtocol.installStandardEditBoard === 'function') qiProtocol.installStandardEditBoard(room.gameLogic);
         room.maxPlayers = 2;
+        if (typeof qiBoardSeatOverlay !== 'undefined' && qiBoardSeatOverlay) qiBoardSeatOverlay.install(room.gameLogic);
+        if (typeof qiProtocol.installStandardEditBoard === 'function') {
+            qiProtocol.installStandardEditBoard(room.gameLogic);
+        }
     }
 };

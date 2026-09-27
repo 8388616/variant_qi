@@ -12,6 +12,7 @@ window.RoomPlugins['triangle-weiqi'] = {
         "useBenson": true,
         "standardWeiqiMatchTime": true,
         "features": {
+            "showEstimate": true,
             "woodTexture": true,
             "zoomScroll": false,
             "editBoard": true,

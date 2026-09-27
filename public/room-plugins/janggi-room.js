@@ -830,7 +830,7 @@ return {
                     ctx2d.fill();
                     ctx2d.shadowBlur = 0; ctx2d.shadowOffsetY = 0;
                     pathOctagon(x, y, radius);
-                    ctx2d.fillStyle = '#e8d2a0';
+                    ctx2d.fillStyle = '#f4dcac';
                     ctx2d.fill();
                     ctx2d.strokeStyle = 'rgba(200,160,104,1)';
                     ctx2d.lineWidth = 1.5;

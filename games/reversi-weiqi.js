@@ -475,7 +475,7 @@ class ReversiWeiqiRoom extends QiTwoPlayerRoomBase
 
     setBoardSize(newSize, requesterWs)
     {
-        if (!Number.isInteger(newSize) || newSize < 7 || newSize > 27) {
+        if (!Number.isInteger(newSize) || newSize < 7 || newSize > 21) {
             requesterWs.send(JSON.stringify({ type: 'error', message: '棋盘大小无效' }));
             return false;
         }
@@ -562,7 +562,7 @@ class ReversiWeiqiRoom extends QiTwoPlayerRoomBase
             return;
         }
         const newSize = data.boardSize || 19;
-        if (!Number.isInteger(newSize) || newSize > 27) {
+        if (!Number.isInteger(newSize) || newSize > 21) {
             requesterWs.send(JSON.stringify({ type: 'error', message: '棋谱中棋盘大小无效' }));
             return;
         }

@@ -34,6 +34,10 @@ class BuryMineWeiqiRoom extends WeiqiRoom {
     }
 
     _initMineFields() {
+        // 人机同步：本棋种**不能**用「开局盘面 + 整段着法重放」同步——雷是中局埋的、还能补埋，
+        // 着法表里是 mineHit 这类条目，局面不是「开局盘面 + 着法表」能表达的。
+        // 显式退出，仍走整盘快照 set_position（见 qi-katago-opponent.js 的 buildReplayHistory）。
+        this.katagoReplayHistory = false;
         const q = defaultMineQuota(this.boardSize);
         /** @type {'waiting'|'burying'|'playing'} */
         this.phase = 'waiting';

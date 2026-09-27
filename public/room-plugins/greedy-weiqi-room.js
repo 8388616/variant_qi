@@ -12,6 +12,7 @@ window.RoomPlugins['greedy-weiqi'] = {
         "useBenson": true,
         "standardWeiqiMatchTime": true,
         "features": {
+            "showEstimate": true,
             "woodTexture": true,
             "zoomScroll": false,
             "editBoard": true,
@@ -43,7 +44,7 @@ window.RoomPlugins['greedy-weiqi'] = {
 
         (function () {
 // ======================== 配置 ========================
-        function greedyKomiForSize(boardSize) {
+        function komiForSize(boardSize) {
 			if (boardSize === 3) return 4.5;
 			if (boardSize === 5) return 12.5;
 			if (boardSize === 7) return 3.0;
@@ -54,7 +55,7 @@ window.RoomPlugins['greedy-weiqi'] = {
 
         const ps = {
             BOARD_SIZE: 19,
-            KOMI: greedyKomiForSize(19),
+            KOMI: komiForSize(19),
             PADDING: 0,
             CELL_SIZE: 0,
             numberOfHands: 1,
@@ -488,7 +489,7 @@ const page = QiWeiqiSquarePageRuntime.create(ps, domPage, {
             getBoardSize: () => ps.BOARD_SIZE,
             setBoardSize: (n) => {
                 ps.BOARD_SIZE = n;
-                ps.KOMI = greedyKomiForSize(n);
+                ps.KOMI = komiForSize(n);
             },
             getKomi: () => ps.KOMI,
             setKomi: (n) => { ps.KOMI = n; },

@@ -137,7 +137,7 @@ class NoPincerRoom extends QiTwoPlayerRoomBase
 
     /** 夹成形的那一方（落子方）负：先负后胜 */
     setPincerLossResultText(lostByPincerSlot) {
-        this.recordResultText = lostByPincerSlot === 'player1' ? '黑夹成形白胜' : '白夹成形黑胜';
+        this.recordResultText = lostByPincerSlot === 'player1' ? '白胜' : '黑胜';
     }
 
     setPassLossResultText(lostSlot) {

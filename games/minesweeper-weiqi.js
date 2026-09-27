@@ -28,6 +28,9 @@ class MinesweeperWeiqiRoom extends QiTwoPlayerRoomBase
         this.scoreProposalData = null;
         this.moveCoords = [];
         /** 对局中随机雷未向客户端公开时为 true；编辑棋盘摆洞为 false */
+        // 人机同步：本棋种**不能**用「开局盘面 + 整段着法重放」同步（扫雷：中局会翻洞/踩雷（holeReveal / mineHit 条目），局面不是「开局盘面+着法表」），
+        // 显式退出，仍走整盘快照 set_position（见 qi-katago-opponent.js 的 buildReplayHistory）。
+        this.katagoReplayHistory = false;
         this.randomMinesFromGame = false;
         /** 终局、或进入数点阶段后，客户端可见全部 -1 雷位；数点被拒后仍保持 */
         this.minesRevealedPublicly = false;

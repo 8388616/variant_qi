@@ -3,15 +3,16 @@ window.RoomPlugins['capture-weiqi'] = {
     shell: {
         "title": "吃子围棋",
         "rulesHtml": "基本规则同围棋。<br /><br />提子即获胜；自杀算对方获胜；双方都没有提子则数点。<br /><br />",
-        "defaultKomiText": "黑贴白2.5点",
+        "defaultKomiText": "黑贴白3.5点",
         "boardSizeMin": 7,
-        "boardSizeMax": 27,
+        "boardSizeMax": 21,
         "defaultBoardSize": 19,
         "minLib": 1,
         "recordDownloadPrefix": "吃子围棋",
         "useBenson": false,
         "standardWeiqiMatchTime": true,
         "features": {
+            "showEstimate": true,
             "zoomScroll": true,
             "editBoard": true,
             "compoundPalette": false
@@ -41,6 +42,16 @@ window.RoomPlugins['capture-weiqi'] = {
         var standardWeiqiMatchTime = config.standardWeiqiMatchTime != null ? config.standardWeiqiMatchTime : true;
 
         (function () {
+		function komiForSize(boardSize) {
+			if (boardSize === 7) return 2.5;
+			if (boardSize === 8) return 2.75;
+			if (boardSize === 9) return 2.75;
+			if (boardSize === 10) return 2.75;
+			if (boardSize === 11) return 2.75;
+			if (boardSize === 12) return 3.0;
+			return 3.5;
+		}
+
 // ======================== 配置 ========================
         const ps = {
             BOARD_SIZE: 19,
@@ -285,8 +296,11 @@ const BOARD_MARK_CHAR_LIST = (() => {
             setLiveViewStep,
             getWs: () => ps.ws,
             getBoardSize: () => ps.BOARD_SIZE,
-            setBoardSize: (n) => { ps.BOARD_SIZE = n; },
-            getKomi: () => ps.KOMI,
+            setBoardSize: (n) => {
+                ps.BOARD_SIZE = n;
+                ps.KOMI = komiForSize(n);
+            },
+			getKomi: () => ps.KOMI,
             setKomi: (n) => { ps.KOMI = n; },
             getBoard: () => ps.board,
             setBoard: (b) => { ps.board = b; },

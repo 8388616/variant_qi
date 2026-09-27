@@ -878,7 +878,8 @@ const boardSizeSelect = document.getElementById('boardSizeSelect');
                         }
                         break;
                     case 'broadcast':
-                        if (msg.action === 'move' || msg.action === 'undoAccept' || msg.action === 'resign' || msg.action === 'drawAgreed' || msg.action === 'timeLoss') {
+                        // matchStartOver = 开局即判（编辑盘面后某方无子/无子可动）：漏掉会既不提示胜负、本地 gameOver 也还是旧的
+                        if (msg.action === 'move' || msg.action === 'undoAccept' || msg.action === 'resign' || msg.action === 'drawAgreed' || msg.action === 'timeLoss' || msg.action === 'matchStartOver') {
                             const wasOver = ps.gameOver;
                             syncState(msg);
                             if (!wasOver && msg.gameOver) {

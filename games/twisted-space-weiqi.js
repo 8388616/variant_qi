@@ -308,7 +308,7 @@ class TwistedSpaceWeiqiRoom extends QiTwoPlayerRoomBase {
     }
 
     setBoardSize(newSize, requesterWs) {
-        if (!Number.isInteger(newSize) || newSize < 7 || newSize > 27) {
+        if (!Number.isInteger(newSize) || newSize < 7 || newSize > 21) {
             requesterWs.send(JSON.stringify({ type: 'error', message: '棋盘路数无效' }));
             return false;
         }
@@ -369,7 +369,7 @@ class TwistedSpaceWeiqiRoom extends QiTwoPlayerRoomBase {
             return;
         }
         const newSize = data.boardSize || 9;
-        if (!Number.isInteger(newSize) || newSize < 7 || newSize > 27) {
+        if (!Number.isInteger(newSize) || newSize < 7 || newSize > 21) {
             requesterWs.send(JSON.stringify({ type: 'error', message: '棋谱中棋盘路数无效' }));
             return;
         }

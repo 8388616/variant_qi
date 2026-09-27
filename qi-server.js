@@ -289,6 +289,22 @@ class BaseGameRoom
     }
 }
 
+/** 房间号是否已被占用（跨棋种唯一：房间短链 /rooms/<房间号> 要能反查出棋种，见下方 findGameIdByRoomId） */
+function isRoomIdTaken(roomId) {
+    for (const game of Object.keys(rooms)) {
+        if (rooms[game] && rooms[game][roomId]) return true;
+    }
+    return false;
+}
+
+/** 由房间号反查棋种（房间号全局唯一） */
+function findGameIdByRoomId(roomId) {
+    for (const game of Object.keys(rooms)) {
+        if (rooms[game] && rooms[game][roomId]) return game;
+    }
+    return null;
+}
+
 Express.post('/qi/create', (request, response) => {
     try {
         const { game, password } = request.body;
@@ -302,7 +318,7 @@ Express.post('/qi/create', (request, response) => {
             roomId = Math.floor(1000 + Math.random() * 9000).toString();
             attempts++;
             if (attempts > 50) return response.json({ success: false, error: '房间创建失败，请稍后再试' });
-        } while (rooms[game][roomId]);
+        } while (isRoomIdTaken(roomId));
 
         const hasPassword = !!password;
         const passwordHash = hasPassword ? crypto.createHash('sha256').update(password).digest('hex') : null;
@@ -315,9 +331,16 @@ Express.post('/qi/create', (request, response) => {
             delete rooms[game][roomId];
             return response.json({ success: false, error: '游戏模块不存在' });
         }
-        // 每次创建房间都重新 require：文件更新立即生效（不做 mtime 缓存）
+        // 每次创建房间都重新 require：文件更新立即生效（不做 mtime 缓存）。
+        // 连 games/ 下的依赖一起失效：棋种模块会在顶层 require 兄弟模块（如 './xiangqi-rules'、
+        // './weiqi'），只删棋种自己那一份会拿到 require 缓存里的旧模块 —— 典型症状是上传了新文件
+        // 但没重启服务端时，游戏中途报 `R.applyMagnetism is not a function`。
+        // （common.js 在仓库根目录，仍按老规矩：改了它必须重启。）
         try {
-            delete require.cache[require.resolve(gameModulePath)];
+            const gamesDir = path.dirname(gameModulePath) + path.sep;
+            for (const key of Object.keys(require.cache)) {
+                if (key.startsWith(gamesDir)) delete require.cache[key];
+            }
         }
         catch (error) { /* ignore */ }
 
@@ -417,6 +440,9 @@ function sendPublicFile(response, relPath) {
     const abs = resolveUnderPublic(relPath);
     if (!abs) return response.status(404).send('Not found');
     const ext = path.extname(abs).toLowerCase();
+    // 必须显式禁缓存：不写 Cache-Control 时浏览器会「启发式缓存」（按 Last-Modified 估一个新鲜期），
+    // 改了 room.js/规则脚本后老页面会继续用旧文件 → 出现「点了没反应」这类怪象。no-cache = 仍可存但每次要回源校验。
+    response.setHeader('Cache-Control', 'no-cache');
     if (GZIP_SKIP_EXT.has(ext)) return response.sendFile(abs);
     let buf;
     try {
@@ -429,7 +455,32 @@ function sendPublicFile(response, relPath) {
     return response.send(buf);
 }
 
-/** 静态文件发送：不做任何浏览器缓存（不设 Cache-Control），保证更新立即生效。
+/** 发 HTML 并在 <head> 后注入一小段 <script>（房间短链 /rooms/<房间号> 用它告诉页面自己属于哪个棋种）。
+ *  注入了内容就没法复用「按路径压缩」，这里每次现压 —— 只有进房那一次请求，几十 KB 可接受。 */
+function sendPublicHtmlInjected(response, relPath, injectHtml) {
+    const abs = resolveUnderPublic(relPath);
+    if (!abs) return response.status(404).send('Not found');
+    let html;
+    try {
+        html = fs.readFileSync(abs, 'utf8');
+    } catch (_) {
+        return response.status(404).send('Not found');
+    }
+    const headOpen = html.search(/<head[^>]*>/i);
+    if (headOpen >= 0) {
+        const close = html.indexOf('>', headOpen) + 1;   // 注入点在所有 <script> 之前，页面脚本能直接读到
+        html = html.slice(0, close) + injectHtml + html.slice(close);
+    } else {
+        html = injectHtml + html;
+    }
+    response.setHeader('Cache-Control', 'no-cache');
+    response.setHeader('Content-Type', 'text/html; charset=utf-8');
+    response.setHeader('Content-Encoding', 'gzip');
+    return response.send(zlib.gzipSync(Buffer.from(html, 'utf8')));
+}
+
+/** 静态文件发送：显式 Cache-Control: no-cache（可缓存但每次回源校验），保证更新立即生效。
+ *  不写这个头时浏览器会启发式缓存，插件/规则改了老页面仍用旧的。
  * 仅保留 gzip 压缩减少 1Mbps 带宽下的传输量；每次请求现读现压。 */
 function sendCachedPublic(response, absPath) {
     let real;
@@ -442,6 +493,7 @@ function sendCachedPublic(response, absPath) {
         return response.status(404).send('Not found');
     }
     const ext = path.extname(real).toLowerCase();
+    response.setHeader('Cache-Control', 'no-cache');
     if (GZIP_SKIP_EXT.has(ext)) {
         return response.sendFile(real);
     }
@@ -516,26 +568,25 @@ Express.use("/qi/fonts", express.static(path.join(PUBLIC_ROOT, "fonts"), {
 }));
 Express.get("/qi/qrcode.min.js", (request, response) => sendPublicFile(response, "qrcode.min.js"));
 
-Express.get('/qi/:game/:roomId', (request, response) => {
-    try {
-        const game = request.params.game;
-        if (game === 'fonts' || game === 'room-plugins' || game === 'katago-available') {
-            return response.status(404).type('text/plain').send('Not found');
-        }
-        if (!/^[a-zA-Z0-9_-]+$/.test(game)) return response.status(400).send('Invalid game');
-        if (!findGameModulePath(game)) return response.status(404).send('Game not found');
+/**
+ * 房间页：地址里只有房间号，棋种由服务端反查内存里的房间表后注入页面（见 findGameIdByRoomId）。
+ * 两个域名各用一种前缀，同一个处理函数：
+ *   https://variantqi.com/rooms/<房间号>
+ *   https://maoshazhihe.com/qi/rooms/<房间号>
+ * 旧格式 /qi/<棋种>/<房间号> 已不再支持（用户要求）。
+ */
+function serveRoomPage(request, response) {
+    const roomId = String(request.params.roomId);
+    if (!/^\d+$/.test(roomId)) return response.status(400).type('text/plain').send('Invalid room');
+    const game = findGameIdByRoomId(roomId);
+    // 房间不存在/已销毁：照样发房间页（注入 gameType:null），让页面弹自己的「无效的房间链接。」提示
+    const page = (game && !usesRoomShell(game)) ? `${game}.html` : 'room.html';
+    return sendPublicHtmlInjected(response, page,
+        `<script>window.__qiRoomRoute=${JSON.stringify({ gameType: game || null, roomId })};</script>`);
+}
 
-        if (usesRoomShell(game)) {
-            return sendPublicFile(response, 'room.html');
-        }
-
-        return sendPublicFile(response, `${game}.html`);
-    }
-    catch (error) {
-        console.error(error);
-        response.status(400).json({ error: "Internal error." });
-    }
-});
+Express.get('/rooms/:roomId', serveRoomPage);
+Express.get('/qi/rooms/:roomId', serveRoomPage);
 
 const wss = new ws.Server({ noServer: true });
 const Server_ = Express.listen(PORT, '127.0.0.1', () => { console.log(`棋类服务器运行在端口 ${PORT}`); });

@@ -477,16 +477,21 @@ const boardSizeSelect = document.getElementById('boardSizeSelect');
                 }
 
                 const stoneRadius = ps.CELL_SIZE * 0.42;
+                // 最后落子标记（与围棋同一套口径）：平时是从棋子中心往右上画的小三角、在棋子里面；
+                // 只有显示手数时才画到棋子外（右下角），而且要画在棋子底下，免得压住序号。
+                const markLen = ps.CELL_SIZE * 0.352;
 
-                for (const marker of ps.lastMoveMarkers) {
-                    const p = boardCenterOfCell(marker.row, marker.col);
-                    ctx.beginPath();
-                    ctx.moveTo(p.x + stoneRadius, p.y + stoneRadius);
-                    ctx.lineTo(p.x, p.y + stoneRadius);
-                    ctx.lineTo(p.x + stoneRadius, p.y);
-                    ctx.closePath();
-                    ctx.fillStyle = marker.color === 1 ? '#fff' : '#222';
-                    ctx.fill();
+                if (ps.showMoveNumbers) {
+                    for (const marker of ps.lastMoveMarkers) {
+                        const p = boardCenterOfCell(marker.row, marker.col);
+                        ctx.beginPath();
+                        ctx.moveTo(p.x + stoneRadius, p.y + stoneRadius);
+                        ctx.lineTo(p.x, p.y + stoneRadius);
+                        ctx.lineTo(p.x + stoneRadius, p.y);
+                        ctx.closePath();
+                        ctx.fillStyle = marker.color === 1 ? '#fff' : '#222';
+                        ctx.fill();
+                    }
                 }
 
                 for (let r = 0; r < ps.ROWS; r++) {
@@ -513,6 +518,19 @@ const boardSizeSelect = document.getElementById('boardSizeSelect');
                         ctx.fillStyle = grad;
                         ctx.fill();
                         ctx.restore();
+                    }
+                }
+
+                if (!ps.showMoveNumbers) {
+                    for (const marker of ps.lastMoveMarkers) {
+                        const p = boardCenterOfCell(marker.row, marker.col);
+                        ctx.beginPath();
+                        ctx.moveTo(p.x, p.y);
+                        ctx.lineTo(p.x + markLen, p.y);
+                        ctx.lineTo(p.x, p.y + markLen);
+                        ctx.closePath();
+                        ctx.fillStyle = marker.color === 1 ? '#fff' : '#222';
+                        ctx.fill();
                     }
                 }
 
@@ -585,14 +603,7 @@ const boardSizeSelect = document.getElementById('boardSizeSelect');
                 ps.whiteCount = counts.white;
                 scoreBoard.textContent = `黑: ${counts.black}　白: ${counts.white}`;
                 updateKomiText();
-                if (ps.gameOver) {
-                    leadInfo.textContent = `终局：` + (ps.winner === 'player1' ? '黑胜' : (ps.winner === 'player2' ? '白胜' : '和棋'))
-                        + `（${counts.black} : ${counts.white}）`;
-                } else if (ps.passNotice) {
-                    leadInfo.textContent = (ps.passNotice === 'player1' ? '黑方' : '白方') + '无棋可下，过手';
-                } else {
-                    leadInfo.textContent = '　';
-                }
+                leadInfo.textContent = '　'
             }
 
             function updateTurn() {
@@ -674,7 +685,8 @@ const boardSizeSelect = document.getElementById('boardSizeSelect');
                     const row = m.row;
                     const col = m.col;
                     const playerVal = m.player === 'player1' ? 1 : 2;
-                    if (row < 0 || row >= n || col < 0 || col >= n) continue;
+                    // 六角盘：行数是 ROWS=2n-1、每行格数 rowLen(row)，不能用路数 n 当边界
+                    if (row < 0 || row >= ps.ROWS || col < 0 || col >= rowLen(row)) continue;
                     if (curBoard[row][col] !== 0) continue;
                     reversiApplyOn(curBoard, n, row, col, playerVal);
                     curCounts = reversiCountOn(curBoard, n);

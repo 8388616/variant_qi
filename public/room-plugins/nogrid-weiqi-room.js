@@ -11,6 +11,7 @@ window.RoomPlugins["nogrid-weiqi"] = {
         "recordDownloadPrefix": "无格线围棋",
         "standardWeiqiMatchTime": true,
         "features": {
+            "showEstimate": true,
             "woodTexture": true,
             "editBoard": false,
             "nogridExtras": true
@@ -1132,7 +1133,8 @@ syncState,
             ws.send(JSON.stringify({ type: 'resetRoom' }));
             return;
         }
-        if (!mySlot) { qiAlert('只有对局者可以开始新局'); return; }
+        // 旁观者：只在房里有人入座时拦（无人入座时任何人在此都能开新局，与公共客户端判断一致）
+        if (!mySlot && (slots.player1 || slots.player2)) { qiAlert('只有对局者可以开始新局。'); return; }
         const opp = mySlot === 'player1' ? 'player2' : 'player1';
         if (slots[opp]) {
             qiConfirm('确定向对方申请开始新局吗？').then(ok => { if (ok) ws.send(JSON.stringify({ type: 'requestNewGame' })); });

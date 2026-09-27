@@ -5,7 +5,7 @@ window.RoomPlugins["square-diagonal-four"] = {
         "rulesHtml": "形成方四胜，形成斜四负。同时形成负。<br /><br />规则和AI由@ProjectCF提供。",
         "defaultKomiText": "",
         "boardSizeMin": 7,
-        "boardSizeMax": 27,
+        "boardSizeMax": 21,
         "defaultBoardSize": 13,
         "minLib": 1,
         "recordDownloadPrefix": "方斜四棋",

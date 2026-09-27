@@ -11,6 +11,7 @@ window.RoomPlugins['sudoku-weiqi'] = {
         "useBenson": false,
         "standardWeiqiMatchTime": true,
         "features": {
+            "showEstimate": true,
             "woodTexture": true,
             "editBoard": false,
             "compoundPalette": false,

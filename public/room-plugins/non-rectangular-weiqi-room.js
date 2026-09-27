@@ -11,6 +11,7 @@ window.RoomPlugins['non-rectangular-weiqi'] = {
         "recordDownloadPrefix": "非四角围棋",
         "standardWeiqiMatchTime": true,
         "features": {
+            "showEstimate": true,
             "woodTexture": true,
             "zoomScroll": false,
             "editBoard": true,
@@ -62,7 +63,7 @@ window.RoomPlugins['non-rectangular-weiqi'] = {
             },
             'cairo-pentagon-weiqi': {
                 name: '开罗五角围棋', min: 3, max: 9, def: 7,
-                komi: (lanes) => (lanes === 4 ? 2.5 : 2),
+                komi: (lanes) => (lanes === 3 ? 2 : 3),
                 rulesHtml: '基本规则同围棋。<br /><br />采用开罗五角棋盘。<br />',
                 prefix: '开罗五角围棋'
             },

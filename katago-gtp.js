@@ -104,7 +104,9 @@ function toGtpVertex(row, col, boardSize, boardHeight) {
 function fromGtpVertex(vertex, boardSize, boardHeight) {
     if (vertex == null) return { pass: true };
     const s = String(vertex).trim();
-    if (!s || /^pass$/i.test(s) || /^resign$/i.test(s)) return { pass: true };
+    if (!s || /^pass$/i.test(s)) return { pass: true };
+    // 认输单独标出来：网站目前按虚着处理，但**必须让上层能看见**（否则日志里就是「莫名虚着」）
+    if (/^resign$/i.test(s)) return { pass: true, resign: true };
     const m = s.match(/^([A-Za-z]{1,2})\s*(\d+)$/);
     if (!m) return null;
     const col = gtpLettersToCol(m[1]);
@@ -118,12 +120,14 @@ function fromGtpVertex(vertex, boardSize, boardHeight) {
 
 /**
  * 解析 genmove / play 着法：pass、落子、或易位 `ts A1 B1`（两端无序）。
- * @returns {{ pass: true } | { pass: false, row: number, col: number } | { pass: false, swap: true, aRow: number, aCol: number, bRow: number, bCol: number } | null}
+ * @returns {{ pass: true, resign?: true } | { pass: false, row: number, col: number } | { pass: false, swap: true, aRow: number, aCol: number, bRow: number, bCol: number } | null}
  */
 function fromGtpMove(raw, boardSize, boardHeight) {
     if (raw == null) return { pass: true };
     const s = String(raw).trim();
-    if (!s || /^pass$/i.test(s) || /^resign$/i.test(s)) return { pass: true };
+    if (!s || /^pass$/i.test(s)) return { pass: true };
+    // 认输单独标出来：网站目前按虚着处理，但**必须让上层能看见**（否则日志里就是「莫名虚着」）
+    if (/^resign$/i.test(s)) return { pass: true, resign: true };
     // 复合棋子着法（罗斯围棋等）：`rs <anchorX> <anchorY> <shapeIdx> <orientIdx>`
     //   anchor 为 0 基坐标、y 自上而下（与普通 GTP 字母坐标的 y 翻转不同，不能走 fromGtpVertex）
     const rs = s.match(/^rs\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)$/i);
@@ -158,6 +162,24 @@ function slotToGtpColor(slot) {
     return slot === 'white' ? 'W' : 'B';
 }
 
+/**
+ * 调试用：`QI_KATAGO_LOG=1` 时把 GTP 往来打到服务端日志（长响应只打前 300 字；kata-raw-nn 只打命令）。
+ * 排查「引擎乱下/莫名虚着」时，这一份往来是最直接的证据。
+ */
+function gtpTrafficLog(gameId, cmd, resp, isErr) {
+    if (!process.env.QI_KATAGO_LOG) return;
+    const c = String(cmd);
+    if (/^kata-raw-nn\b/.test(c)) { console.log(`[gtp:${gameId}] > ${c}`); return; }
+    let out;
+    if (isErr) out = '!! ' + (resp && resp.message ? resp.message : String(resp));
+    else {
+        const t = String(resp == null ? '' : resp).replace(/\s+/g, ' ').trim();
+        out = t.length > 300 ? t.slice(0, 300) + ` …(共 ${t.length} 字)` : t;
+    }
+    console.log(`[gtp:${gameId}] > ${c}`);
+    console.log(`[gtp:${gameId}] < ${out}`);
+}
+
 class KatagoGtpSession {
     /**
      * @param {string} gameId
@@ -175,6 +197,14 @@ class KatagoGtpSession {
         this.boardWidth = null;
         this.boardHeight = null;
         this._nnPrimedForSize = null;
+        /** 上次同步后引擎着法史应有的手数（set_position 之后实际喂进去的着手数）；null = 未知，自检跳过 */
+        this.lastSyncMoveNum = null;
+        /** 上次同步时网站的着法表长度（与 lastSyncMoveNum 配对，用来推算此刻应有的手数） */
+        this.lastSyncSiteMoveCount = null;
+        /** 最近一次实际下发的易位配额（kata-set-max-translocation-moves）；null = 没下发过 */
+        this.lastTranslocationBudget = null;
+        /** 本次同步是否走了整段着法重放（= 网站着法表就是纯引擎着手序列，手数才可逐手比对） */
+        this.lastSyncReplayed = false;
     }
 
     start() {
@@ -379,10 +409,12 @@ class KatagoGtpSession {
                 timer: null,
                 resolve: (v) => {
                     this._clearEntryTimer(entry);
+                    gtpTrafficLog(this.gameId, entry.cmd, v, false);
                     resolve(v);
                 },
                 reject: (e) => {
                     this._clearEntryTimer(entry);
+                    gtpTrafficLog(this.gameId, entry.cmd, e, true);
                     reject(e);
                 }
             };
@@ -477,12 +509,16 @@ class KatagoGtpSession {
     }
 
     /**
-     * 回读引擎当前局面（showboard）：棋子分布与行棋方，供上层与服务端盘面比对。
+     * 回读引擎当前局面（showboard）：棋子分布、行棋方、引擎着法史手数，供上层与服务端盘面比对。
      * 行序与站点 row 一致（引擎内部 y=0 即站点 row 0）；只认 X/O/.，遇到特殊格（洞/桥等）或
      * 行数/行长不符则返回 null（不误报）。任何异常都返回 null：自检不能影响对局。
+     * moveNum = `BoardHistory::printBasicInfo` 打印的 `MoveNum:`（= `moveHistory.size()`，即
+     * set_position 之后引擎实际收到的着手数）：整段重放正常时应当等于网站着法表长度，
+     * 对不上就是「盘面/行棋方看着都对、引擎着法史其实丢了」——那正是引擎乱提议（被网站驳回成虚着）
+     * 的根因。旧引擎不打这一行 → moveNum 为 null，跳过该项检查。
      * @param {number} expectRows 期望行数（棋盘行数）
      * @param {number} expectCols 期望列数
-     * @returns {Promise<{stones: number[][], nextPlayer: ('black'|'white'|null)}|null>}
+     * @returns {Promise<{stones: number[][], nextPlayer: ('black'|'white'|null), moveNum: (number|null)}|null>}
      */
     async probeBoard(expectRows, expectCols) {
         let resp;
@@ -493,12 +529,19 @@ class KatagoGtpSession {
         }
         const rows = [];
         let nextPlayer = null;
+        let moveNum = null;
         for (const raw of String(resp).split('\n')) {
             const line = raw.replace(/\r/g, '');
             const mNext = line.match(/Next player:\s*(\w+)/i);
             if (mNext) {
                 const v = mNext[1].toUpperCase();
                 nextPlayer = v.startsWith('B') ? 'black' : (v.startsWith('W') ? 'white' : null);
+                continue;
+            }
+            // MoveNum 头：`MoveNum: 12 HASH: …`（printBoard 在传了着法史时打印）
+            if (/^MoveNum:/.test(line)) {
+                const mNum = line.match(/MoveNum:\s*(\d+)/);
+                if (mNum) moveNum = Number(mNum[1]);
                 continue;
             }
             const mRow = line.match(/^\s*\d+\s((?:[XO.]\S?\s*)+)$/);
@@ -511,7 +554,27 @@ class KatagoGtpSession {
         for (const r of rows) {
             if (Number.isFinite(expectCols) && r.length !== expectCols) return null;
         }
-        return { stones: rows, nextPlayer };
+        return { stones: rows, nextPlayer, moveNum };
+    }
+
+    /**
+     * 回读引擎当前局面的易位配额（kata-get-max-translocation-moves）。
+     * 引擎侧它就是 `BoardHistory::maxTranslocationMoves`（相位总长，绝对手数）；网站每次同步都会
+     * 下发自己的值，所以这里回读应当等于**网站最近一次下发的值**（见 lastTranslocationBudget）。
+     * 非易位引擎 / 旧引擎没有该命令 → 返回 null，跳过检查。
+     * @returns {Promise<number|null>}
+     */
+    async probeTranslocationMax() {
+        let resp;
+        try {
+            resp = await this.command('kata-get-max-translocation-moves');
+        } catch (_) {
+            return null;
+        }
+        const m = String(resp).match(/-?\d+/);
+        if (!m) return null;
+        const v = Number(m[0]);
+        return Number.isFinite(v) ? v : null;
     }
 
     /**
@@ -558,13 +621,28 @@ class KatagoGtpSession {
         const boardWidth = (opts.boardWidth | 0) || (opts.boardSize | 0);
         const boardHeight = (opts.boardHeight | 0) || boardWidth;
         const komi = Number(opts.komi);
+        // 同步期间先作废「引擎着法史手数」基准：中途抛错时基于陈旧基准的判断会误报（见 verifyEngineState）
+        this.lastSyncMoveNum = null;
+        this.lastSyncSiteMoveCount = null;
+        this.lastSyncReplayed = false;
         // 轮到白时（opts.lastMove）：最后一手不 set_position（set_position 后引擎行棋方恒为黑，
-        // 重放最后一手才能翻转为白），先从其子从盘面移除
+        // 重放最后一手才能翻转为白），先把这一手从盘面上撤掉，重放时才合法
         const lastMove = opts.lastMove || null;
         let board = opts.board;
         if (lastMove && Array.isArray(board)) {
             board = board.map((r) => r.slice());
-            if (Array.isArray(lastMove.stones)) {
+            if (lastMove.type === 'swap' && Number.isInteger(lastMove.fromRow) && Number.isInteger(lastMove.fromCol)
+                && Number.isInteger(lastMove.row) && Number.isInteger(lastMove.col)) {
+                // 易位：把两端换回去（易位是自逆的），否则重放 `play B ts A B` 时引擎看到的
+                // 是「一端空着」的盘面 → 报 illegal move（只清落点那颗子是不够的）
+                const a = board[lastMove.fromRow];
+                const b = board[lastMove.row];
+                if (a && b && a[lastMove.fromCol] !== undefined && b[lastMove.col] !== undefined) {
+                    const tmp = a[lastMove.fromCol];
+                    a[lastMove.fromCol] = b[lastMove.col];
+                    b[lastMove.col] = tmp;
+                }
+            } else if (Array.isArray(lastMove.stones)) {
                 for (const [r, c] of lastMove.stones) {
                     if (board[r] && board[r][c] !== undefined) board[r][c] = 0;
                 }
@@ -573,8 +651,6 @@ class KatagoGtpSession {
                     board[lastMove.row][lastMove.col] = 0;
             }
         }
-        // 结构洞棋盘（非方形，如开罗五角）：无效格由引擎按尺寸自动识别（C_WALL），不传 -1
-        const structuralHoles = boardWidth !== boardHeight;
         // 重复 boardsize 会触发引擎重配缓冲，首着极慢；路数未变则跳过
         // 非方形（开罗等）用 "X:Y"（定制引擎支持）；正方形保持标准 "boardsize N" 兼容普通引擎
         if (this.boardWidth !== boardWidth || this.boardHeight !== boardHeight) {
@@ -619,6 +695,80 @@ class KatagoGtpSession {
             }
         }
 
+        // 着法历史重放（棋种声明 katagoReplayHistory 时由上层给出）：set_position 会把引擎的对局历史清零
+        // （禁全同知识、重复局面罚分、虚着计数全丢），把整段着法一手手重放回去能一并还原。
+        // 此时基准盘面是**开局盘面**（棋子由重放摆回来），行棋方也由重放自然得出，不需要 lastMove 那套翻转技巧。
+        const replayHistory = Array.isArray(opts.replayHistory) ? opts.replayHistory : null;
+        const baseBoard = (replayHistory && replayHistory.length && Array.isArray(opts.initialBoard))
+            ? opts.initialBoard
+            : board;
+
+        // 网站着法表长度（与 opts.board 同一时刻）：自检据此推算引擎着法史应有的手数
+        const siteCount = Number.isFinite(Number(opts.moveCount)) ? (Number(opts.moveCount) | 0) : null;
+        await this.syncPositionAndBudget(baseBoard, opts);
+        if (replayHistory && replayHistory.length) {
+            let replayed = false;
+            let idx = 0;
+            try {
+                for (idx = 0; idx < replayHistory.length; idx++) {
+                    await this.playReplayEntry(replayHistory[idx]);
+                }
+                replayed = true;
+            } catch (err) {
+                console.warn(`[katago:${this.gameId}] 着法重放失败（第 ${idx + 1}/${replayHistory.length} 手），`
+                    + `退回整盘快照同步：${err && err.message ? err.message : err}`);
+            }
+            if (replayed) {                              // 重放成功：盘面/行棋方/历史都对上了
+                this.lastSyncMoveNum = replayHistory.length;
+                this.lastSyncSiteMoveCount = siteCount;
+                this.lastSyncReplayed = true;            // 着法表 = 纯引擎着手序列（自检才敢按手数比对）
+                return;
+            }
+            await this.syncPositionAndBudget(board, opts);   // 退回：用最终盘面重设，再按老办法补最后一手
+        }
+
+        // 重放最后一手：set_position 后引擎行棋方恒为黑，只有轮到白时才需要。
+        // 单条被拒（如该手带提子的易位还原不回来）不能让整次同步失败：盘面已经设对了，
+        // 引擎行棋方下次 genmove 时自己会校正（setPlayerAndClearHistory），只是那一刻丢了历史。
+        if (lastMove && (lastMove.player === 'black' || lastMove.player === 'white')) {
+            try {
+                const color = slotToGtpColor(lastMove.player);
+                if (lastMove.type === 'pass') {
+                    await this.command(`play ${color} pass`);
+                } else if (lastMove.type === 'swap' && Number.isInteger(lastMove.fromRow) && Number.isInteger(lastMove.fromCol)
+                    && Number.isInteger(lastMove.row) && Number.isInteger(lastMove.col)) {
+                    // 易位围棋：`play B ts A B`（与 genmove 输出同格式，见引擎 Location::toString/tryOfString）
+                    await this.playSwap(color, lastMove.fromRow, lastMove.fromCol, lastMove.row, lastMove.col);
+                } else if (Number.isInteger(lastMove.shapeIndex) && Number.isInteger(lastMove.row) && Number.isInteger(lastMove.col)) {
+                    await this.playCompound(color, lastMove.row, lastMove.col, lastMove.shapeIndex, lastMove.orientIdx);
+                } else if (Number.isInteger(lastMove.row) && Number.isInteger(lastMove.col)) {
+                    await this.play(color, lastMove.row, lastMove.col);
+                }
+                this.lastSyncMoveNum = 1;                   // 引擎只收到 set_position + 这一手
+                this.lastSyncSiteMoveCount = siteCount;
+            } catch (err) {
+                console.warn(`[katago:${this.gameId}] 末手重放被引擎拒绝（盘面已设对，行棋方待引擎自行校正）：`
+                    + `${err && err.message ? err.message : err}`);
+                // 这一手没进引擎 → 手数基准不可用（别拿它当真，否则自检会一路误报）
+                this.lastSyncMoveNum = null;
+                this.lastSyncSiteMoveCount = null;
+            }
+        } else {
+            this.lastSyncMoveNum = 0;                       // 只发了 set_position，引擎着法史为空
+            this.lastSyncSiteMoveCount = siteCount;
+        }
+    }
+
+    /**
+     * 同步整盘位置 + 易位配额（set_position 一段）。
+     * @param {number[][]} board 要发过去的盘面
+     * @param {{ maxTranslocationMoves?: number }} opts 同一份 opts（读易位配额）
+     */
+    async syncPositionAndBudget(board, opts) {
+        const boardWidth = (this.boardWidth | 0);
+        const boardHeight = (this.boardHeight | 0) || boardWidth;
+        // 结构洞棋盘（非方形，如开罗五角）：无效格由引擎按尺寸自动识别（C_WALL），不传 -1
+        const structuralHoles = boardWidth !== boardHeight;
         const pairs = [];
         if (Array.isArray(board)) {
             for (let r = 0; r < boardHeight; r++) {
@@ -652,24 +802,41 @@ class KatagoGtpSession {
         }
 
         // 易位围棋：与网页 maxTranspositionMoves（或剩余手数）对齐；不支持该命令的引擎忽略
-        if (opts.maxTranslocationMoves != null && Number.isFinite(Number(opts.maxTranslocationMoves))) {
+        if (opts && opts.maxTranslocationMoves != null && Number.isFinite(Number(opts.maxTranslocationMoves))) {
             const n = Math.max(0, Number(opts.maxTranslocationMoves) | 0);
             try {
                 await this.command(`kata-set-max-translocation-moves ${n}`);
+                this.lastTranslocationBudget = n;   // 自检据此回读核对（probeTranslocationMax）
             } catch (_) { /* 非易位引擎 */ }
         }
+    }
 
-        // 重放最后一手：set_position 后引擎行棋方恒为黑，只有轮到白时才需要
-        if (lastMove && (lastMove.player === 'black' || lastMove.player === 'white')) {
-            const color = slotToGtpColor(lastMove.player);
-            if (lastMove.type === 'pass') {
-                await this.command(`play ${color} pass`);
-            } else if (Number.isInteger(lastMove.shapeIndex) && Number.isInteger(lastMove.row) && Number.isInteger(lastMove.col)) {
-                await this.playCompound(color, lastMove.row, lastMove.col, lastMove.shapeIndex, lastMove.orientIdx);
-            } else if (Number.isInteger(lastMove.row) && Number.isInteger(lastMove.col)) {
-                await this.play(color, lastMove.row, lastMove.col);
-            }
+    /**
+     * 重放着法历史里的一手（`{ type:'move'|'swap'|'compound'|'pass', color, … }`）。
+     * 未知类型直接抛错 → 上层退回整盘快照同步（宁可丢历史也不能同步错局面）。
+     */
+    async playReplayEntry(mv) {
+        // 注意 play/playSwap/playCompound 收的是**座位色**（'black'/'white'），只有 pass 这里直接拼 GTP 字母；
+        // 早先版本把转好的 'W'/'B' 又喂回 play()（内部再转一次）→ 白棋被写成黑棋。
+        const slotColor = mv && (mv.color === 'white' || mv.color === 'black') ? mv.color : null;
+        if (!slotColor) throw new Error('着法缺颜色');
+        if (mv.type === 'pass') {
+            await this.command(`play ${slotToGtpColor(slotColor)} pass`);
+            return;
         }
+        if (mv.type === 'swap') {
+            await this.playSwap(slotColor, mv.fromRow, mv.fromCol, mv.row, mv.col);
+            return;
+        }
+        if (mv.type === 'compound') {
+            await this.playCompound(slotColor, mv.row, mv.col, mv.shapeIndex, mv.orientIdx);
+            return;
+        }
+        if (mv.type === 'move') {
+            await this.play(slotColor, mv.row, mv.col);
+            return;
+        }
+        throw new Error(`不支持的着法类型 ${mv.type}`);
     }
 
     /**

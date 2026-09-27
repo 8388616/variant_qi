@@ -887,25 +887,13 @@ class NogridWeiqiRoom extends QiTwoPlayerRoomBase {
                 break;
             }
 
-            case 'requestNewGame': {
-                if (!slot) return;
-                const opp = this.room.getPlayerBySlot(slot === 'player1' ? 'player2' : 'player1');
-                if (!opp) this.resetGame();
-                else {
-                    this.pendingNewGame = ws;
-                    opp.send(JSON.stringify({ type: 'newGameRequest' }));
-                }
+            case 'requestNewGame':
+                qiProtocol.requestNewGame(this, ws, slot);
                 break;
-            }
 
-            case 'newGameResponse': {
-                if (this.pendingNewGame && msg.accept) this.resetGame();
-                else if (this.pendingNewGame && !msg.accept) {
-                    this.pendingNewGame.send(JSON.stringify({ type: 'error', message: '对方拒绝开始新局' }));
-                }
-                this.pendingNewGame = null;
+            case 'newGameResponse':
+                qiProtocol.newGameResponse(this, ws, msg, { newGameDeniedMsg: '对方拒绝开始新局' });
                 break;
-            }
 
             case 'requestDraw': {
                 if (!slot || this.gameOver) return;

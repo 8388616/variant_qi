@@ -12,6 +12,7 @@ window.RoomPlugins['neutral-stone-weiqi'] = {
         "useBenson": true,
         "standardWeiqiMatchTime": true,
         "features": {
+            "showEstimate": true,
             "woodTexture": true,
             "editBoard": true,
             "compoundPalette": false,

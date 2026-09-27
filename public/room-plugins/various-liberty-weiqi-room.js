@@ -12,6 +12,7 @@ window.RoomPlugins['various-liberty-weiqi'] = {
         "useBenson": false,
         "standardWeiqiMatchTime": true,
         "features": {
+            "showEstimate": true,
             "woodTexture": true,
             "editBoard": true,
             "compoundPalette": false,

@@ -2,8 +2,8 @@ window.RoomPlugins = window.RoomPlugins || {};
 window.RoomPlugins['noweiqi'] = {
     shell: {
         "title": "不围棋",
-        "rulesHtml": "不允许虚着，不允许自尽。<br /><br />先提子的一方落败。",
-        "defaultKomiText": "无贴点",
+        "rulesHtml": "不允许提子，不允许虚着，不允许自尽，欠行落败。<br /><br />",
+        "defaultKomiText": "",
         "boardSizeMin": 5,
         "boardSizeMax": 21,
         "defaultBoardSize": 9,
@@ -76,7 +76,6 @@ const ps = {
             tryPlayCurrentPlayer: 1,
             tryPlayStep: 0,
             tryPlayTotalSteps: 0,
-            tryPlayCaptureStep: 0,
             liveReplayBoards: [],
             liveReplayMarkers: [],
             liveReplayStepPlayers: [],
@@ -132,30 +131,28 @@ const scoreTitle = document.getElementById('scoreTitle');
         const isMouseDevice = window.matchMedia('(hover: hover) and (pointer: fine)').matches;
 
         const dc = (b) => QiSquareWeiqiCanvas.deepCopyBoard(b);
-        /** 不围棋：先提子的一方负（仅浏览器端，与 noweiqi.js 房间逻辑一致） */
+        /**
+         * 不围棋：**不允许提子**（这一手若会提掉对方某块 → 不入法）+ 不允许自尽；
+         * 与服务端 noweiqi.js 的 tryPlaceStoneResult 同口径。
+         */
         function noWeiqiTryPlaceStone(boardBefore, row, col, playerVal, boardSize, deepCopy) {
             if (boardBefore[row][col] !== 0) return null;
             const newBoard = deepCopy(boardBefore);
             newBoard[row][col] = playerVal;
-            let capturedOpponent = false;
             const enemy = 3 - playerVal;
             for (let i = 0; i < boardSize; i++) {
                 for (let j = 0; j < boardSize; j++) {
-                    if (newBoard[i][j] === enemy && !QiWeiqiSquarePageRuntime.hasLiberty(newBoard, i, j, boardSize)) {
-                        capturedOpponent = true;
-                        QiWeiqiSquarePageRuntime.removeGroup(newBoard, i, j, enemy, boardSize);
-                    }
+                    if (newBoard[i][j] === enemy && !QiWeiqiSquarePageRuntime.hasLiberty(newBoard, i, j, boardSize))
+                        return null;                       // 会提子 → 不允许
                 }
             }
-            if (capturedOpponent)
-                return { newBoard, capturedOpponent: true };
             for (let i = 0; i < boardSize; i++) {
                 for (let j = 0; j < boardSize; j++) {
                     if (newBoard[i][j] === playerVal && !QiWeiqiSquarePageRuntime.hasLiberty(newBoard, i, j, boardSize))
-                        return null;
+                        return null;                       // 自尽 → 不允许
                 }
             }
-            return { newBoard, capturedOpponent: false };
+            return { newBoard };
         }
         function noWeiqiTryPlaceStoneBoardOnly(boardBefore, row, col, playerVal, boardSize, deepCopy) {
             const r = noWeiqiTryPlaceStone(boardBefore, row, col, playerVal, boardSize, deepCopy);
@@ -191,25 +188,20 @@ const scoreTitle = document.getElementById('scoreTitle');
             komiInfoText: '无贴点',
             replayGameButtonIds: ['undoBtn', 'resignBtn', 'drawBtn'],
             tryPlayMove(row, col) {
-                if (ps.tryPlayCaptureStep > 0 && ps.tryPlayStep >= ps.tryPlayCaptureStep) return false;
                 if (ps.board[row][col] !== 0) return false;
                 const playerVal = ps.tryPlayCurrentPlayer;
                 const result = noWeiqiTryPlaceStone(ps.board, row, col, playerVal, ps.BOARD_SIZE, dc);
                 if (!result) return false;
-                const { newBoard, capturedOpponent } = result;
+                const { newBoard } = result;
                 if (ps.tryPlayStep < ps.tryPlayTotalSteps) {
                     ps.tryPlayBoards.length = ps.tryPlayStep + 1;
                     ps.tryPlayMarkers.length = ps.tryPlayStep + 1;
-                    ps.tryPlayCaptureStep = 0;
                 }
                 ps.tryPlayBoards.push(dc(newBoard));
                 ps.tryPlayMarkers.push([{ row, col, color: playerVal }]);
                 ps.tryPlayTotalSteps = ps.tryPlayBoards.length - 1;
                 ps.tryPlayStep = ps.tryPlayTotalSteps;
-                if (capturedOpponent)
-                    ps.tryPlayCaptureStep = ps.tryPlayTotalSteps;
-                else
-                    ps.tryPlayCurrentPlayer = 3 - ps.tryPlayCurrentPlayer;
+                ps.tryPlayCurrentPlayer = 3 - ps.tryPlayCurrentPlayer;
                 ps.board = dc(newBoard);
                 ps.lastMoveMarkers = [{ row, col, color: playerVal }];
                 const slider = document.getElementById('replaySlider');
@@ -223,9 +215,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                 const stepDisplay = document.getElementById('replayStepDisplay');
                 if (ps.tryPlayMode) {
                     stepDisplay.innerText = `试下 ${ps.tryPlayStep} / ${ps.tryPlayTotalSteps}`;
-                    if (ps.tryPlayCaptureStep > 0 && ps.tryPlayStep >= ps.tryPlayCaptureStep) {
-                        turnDisplay.innerText = '试下结束（提子判负）';
-                    } else {
+                    {
                         const emoji = ps.tryPlayCurrentPlayer === 1 ? '⚫' : '⚪';
                         turnDisplay.innerText = `${emoji} 试下`;
                     }

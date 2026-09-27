@@ -11,6 +11,7 @@ window.RoomPlugins["front-back-weiqi"] = {
         "recordDownloadPrefix": "正反面围棋",
         "standardWeiqiMatchTime": true,
         "features": {
+            "showEstimate": true,
             "woodTexture": true,
             "editBoard": true,
             "dualBoards": true

@@ -12,6 +12,7 @@ window.RoomPlugins["fog-weiqi"] = {
         "useBenson": false,
         "standardWeiqiMatchTime": true,
         "features": {
+            "showEstimate": true,
             "woodTexture": true,
             "editBoard": true,
             "replayPerspective": true
@@ -512,6 +513,27 @@ const scoreTitle = document.getElementById('scoreTitle');
             return nums;
         }
 
+        /**
+         * 「显示手数」开关：逐手手数网格是整盘级数组（19 路每手 761 B），默认关着不下发。
+         * 勾选时通知服务端（服务端随后每手只带当前这一步，进房时给全量）；
+         * 重连后服务端的按连接标记会丢，收到全量状态却没有手数历史时补报一次。
+         */
+        function reportFogNumbersWanted(enabled) {
+            const ws = ps.ws;
+            if (!ws || ws.readyState !== 1) return;
+            ws.__fogNumbersOn = !!enabled;
+            ws.send(JSON.stringify({ type: 'fogWantNumbers', enabled: !!enabled }));
+        }
+
+        function maybeReportNumbersWanted(state) {
+            const box = document.getElementById('showNumbersCheck');
+            if (!box || !box.checked || !ps.mySlot) return;
+            if (state.ownStoneMoveNumbersHistory && state.ownStoneMoveNumbersHistory.length) return;
+            const ws = ps.ws;
+            if (!ws || ws.readyState !== 1 || ws.__fogNumbersOn) return;
+            reportFogNumbersWanted(true);
+        }
+
         function isUserBoardMarkVisibleAtFog(r, c) {
             if (ps.showEstimateActive) return false;
             if (r < 0 || r >= ps.BOARD_SIZE || c < 0 || c >= ps.BOARD_SIZE) return false;
@@ -585,6 +607,56 @@ const scoreTitle = document.getElementById('scoreTitle');
                     ? state.replayStepPlayers.slice()
                     : replayStepPlayersFromMoveCoords(moveCoords);
                 ps.liveReplayMarkers = buildMarkersFromMaskedHistory(ps.liveReplayFullBoards, ps.BOARD_SIZE);
+                ps.fogStepPlayers = ps.liveReplayStepPlayers.slice();
+                return;
+            }
+            // 每手广播：服务端只带「当前这一步」的视图（state.board 即 maskedBoardHistory 的最后一格），
+            // 这里追加进历史；座位状态/手数网格同理（逐手历史只在入房或切换手数显示时全量下发）
+            if (state.maskedBoardAppend && state.board) {
+                const stepNo = Math.max(0, (state.numberOfHands || 1) - 1);   // 手数 → 步序
+                const moverVal = state.currentPlayer === 1 ? 2 : 1;           // 手数已切换，落子方是另一方
+                // 悔棋：手数变少 → 先截断多于的步（截断后保留的各步视图本身不受影响）
+                while (ps.liveReplayFullBoards.length - 1 > stepNo) {
+                    ps.liveReplayFullBoards.pop();
+                    ps.liveReplayBoards.pop();
+                    ps.liveReplayMarkers.pop();
+                    ps.liveReplayStepPlayers.pop();
+                }
+                if (ps.liveReplayFullBoards.length - 1 >= stepNo) {            // 这一步已经追加过（重复同步）
+                    if (ps.liveReplayStepPlayers.length < ps.liveReplayFullBoards.length)
+                        ps.liveReplayStepPlayers.push(moverVal);
+                    if (ps.fogStepPlayers && ps.fogStepPlayers.length < ps.liveReplayFullBoards.length)
+                        ps.fogStepPlayers.push(moverVal);
+                    return;
+                }
+                const cur = deepCopyBoard(state.board);
+                if (!ps.liveReplayFullBoards.length) {
+                    // 还没同步过历史（重连/刚进房）：用当前这一格起头，后续每手继续追加
+                    ps.liveReplayFullBoards = [deepCopyBoard(cur)];
+                    ps.liveReplayBoards = [deepCopyBoard(cur)];
+                    ps.liveReplayMarkers = [[]];
+                    ps.liveReplayStepPlayers = [0];
+                    ps.fogStepPlayers = [0];
+                } else {
+                    const prev = ps.liveReplayFullBoards[ps.liveReplayFullBoards.length - 1];
+                    ps.liveReplayFullBoards.push(cur);
+                    ps.liveReplayBoards.push(deepCopyBoard(cur));
+                    // 与全量路径用同一套推断（只看「唯一新增的子」），否则揭开迷雾露出的旧子会被误标成最后一手
+                    const mk = inferLastMoveFromMaskedDiff(prev, cur, ps.BOARD_SIZE);
+                    ps.liveReplayMarkers.push(mk ? [mk] : []);
+                    ps.liveReplayStepPlayers.push(moverVal);
+                    if (!ps.fogStepPlayers) ps.fogStepPlayers = [];
+                    ps.fogStepPlayers.push(moverVal);
+                }
+                if (state.ownStoneMoveNumbersHistory && state.ownStoneMoveNumbersHistory.length) {
+                    if (!ps.ownStoneMoveNumbersHistory || !ps.ownStoneMoveNumbersHistory.length)
+                        ps.ownStoneMoveNumbersHistory = [];
+                    ps.ownStoneMoveNumbersHistory.push(deepCopyBoard(state.ownStoneMoveNumbersHistory[state.ownStoneMoveNumbersHistory.length - 1]));
+                }
+                if (state.unknownFogCounts != null) {
+                    if (!ps.unknownFogCountsHistory) ps.unknownFogCountsHistory = [];
+                    ps.unknownFogCountsHistory.push(state.unknownFogCounts);
+                }
                 return;
             }
             const size = ps.BOARD_SIZE;
@@ -639,14 +711,41 @@ const scoreTitle = document.getElementById('scoreTitle');
             return true;
         }
 
+        /**
+         * 直播回放面板：步数以 liveReplayFullBoards（服务端逐手遮罩视图，权威）为准。
+         * 公共层另有按 moveCoords 维护的 liveReplayBoards —— 迷雾里 moveCoords 按座位过滤过、
+         * 步数与真实手数对不上（对手在无视野里的着手不下发），拿它当步数会少几步。
+         */
+        function fogLiveTotal() {
+            return Math.max(0, ps.liveReplayFullBoards.length - 1);
+        }
+
         function updateLiveReplayPanelUIFog() {
             if (ps.replayMode) return;
-            const total = Math.max(0, ps.liveReplayBoards.length - 1);
+            const total = fogLiveTotal();
             const slider = document.getElementById('replaySlider');
             slider.min = 0;
             slider.max = total;
             slider.value = ps.liveViewStep;
             document.getElementById('replayStepDisplay').innerText = `${ps.liveViewStep} / ${total}`;
+        }
+
+        /**
+         * 公共层有几处「按 moveCoords 重建直播回放」的旧路径：迷雾里按座位过滤后的着法表
+         * 可能是空的（对手着手全在无视野里），会把已累积的逐手视图重置成「开局盘」。
+         * 处理完消息后把三份数组按 liveReplayFullBoards（权威）纠正回来。
+         */
+        function restoreFogLiveReplay() {
+            const n = ps.liveReplayFullBoards.length;
+            if (!n) return;
+            const inSync = ps.liveReplayBoards.length === n && ps.liveReplayMarkers.length === n;
+            if (inSync) return;
+            const wasAtEnd = ps.liveFollowLatest || ps.liveViewStep >= n - 1;
+            ps.liveReplayBoards = ps.liveReplayFullBoards.map(b => deepCopyBoard(b));
+            ps.liveReplayMarkers = buildMarkersFromMaskedHistory(ps.liveReplayFullBoards, ps.BOARD_SIZE);
+            if (ps.fogStepPlayers && ps.fogStepPlayers.length === n) ps.liveReplayStepPlayers = ps.fogStepPlayers.slice();
+            ps.liveViewStep = wasAtEnd ? n - 1 : Math.min(ps.liveViewStep, n - 1);
+            ps.liveFollowLatest = wasAtEnd;
         }
 
         function applyLiveViewBoardFog() {
@@ -725,7 +824,14 @@ const scoreTitle = document.getElementById('scoreTitle');
                 }
             },
             applyLiveViewBoard: applyLiveViewBoardFog,
-            rebuildLiveReplayFromMoveCoords: (coords) => rebuildLiveReplayFog(coords),
+            updateLiveReplayPanelUI: updateLiveReplayPanelUIFog,
+            rebuildLiveReplayFromMoveCoords: (coords) => {
+                // 逐手遮罩视图由 maskedBoardAppend 逐手累积（liveReplayFullBoards 才是权威）。
+                // 公共层这一步是拿 moveCoords 重放，而迷雾里 moveCoords 是按座位过滤过的
+                // （步数与真实手数对不上，且重放出来的是未遮罩的盘面），会把已累积的视图冲掉 —— 有数据就不重放。
+                if (ps.liveReplayFullBoards.length) return;
+                rebuildLiveReplayFog(coords);
+            },
             syncState(state) {
                 ps.hoverRow = -1;
                 ps.hoverCol = -1;
@@ -766,10 +872,16 @@ const scoreTitle = document.getElementById('scoreTitle');
                 if (state.slots)
                     ps.slots = state.slots;
 
-                ps.stoneMoveNumbersHistory = state.stoneMoveNumbersHistory || null;
-                ps.ownStoneMoveNumbersHistory = state.ownStoneMoveNumbersHistory || null;
+                // 只有全量状态才整份替换逐手历史；每手广播（stateFull=false）保留本地已累积的，
+                // 由 rebuildLiveReplayFog 追加当前这一步（缺 stateFull 的老服务端按全量处理）
+                const fullState = state.stateFull !== false;
+                if (fullState) {
+                    ps.stoneMoveNumbersHistory = state.stoneMoveNumbersHistory || null;
+                    ps.ownStoneMoveNumbersHistory = state.ownStoneMoveNumbersHistory || null;
+                    ps.unknownFogCountsHistory = state.unknownFogCountsHistory || null;
+                    maybeReportNumbersWanted(state);
+                }
                 ps.unknownFogCounts = state.unknownFogCounts != null ? state.unknownFogCounts : null;
-                ps.unknownFogCountsHistory = state.unknownFogCountsHistory || null;
 
                 if (!ps.replayMode) {
                     const prevTotal = Math.max(0, ps.liveReplayBoards.length - 1);
@@ -778,7 +890,8 @@ const scoreTitle = document.getElementById('scoreTitle');
                     ps.board = deepCopyBoard(state.board);
                     ps.lastMoveMarkers = state.lastMoveMarkers || [];
                     ps.fogCleared = !!state.fogCleared;
-                    if (!state.maskedBoardHistory || !state.maskedBoardHistory.length)
+                    // 逐手追加路径（maskedBoardAppend）已把每一步的遮罩盘拼好，不再走「按着法表补格子」的兜底
+                    if (!state.maskedBoardAppend && (!state.maskedBoardHistory || !state.maskedBoardHistory.length))
                         syncLiveReplayFromServerState(state);
                     const newTotal = Math.max(0, ps.liveReplayBoards.length - 1);
                     if (newTotal === 0) {
@@ -1313,6 +1426,8 @@ syncState,
                 return;
             }
             _weiqiBindings.handleMessage(msg);
+            // 公共层可能按（迷雾里被过滤的）moveCoords 把逐手视图重置掉，这里纠正回权威盘
+            restoreFogLiveReplay();
         }
 
         let suppressCanvasClickAfterLongMark = false;
@@ -1494,6 +1609,12 @@ syncState,
                 }
             });
         });
+
+        (function bindFogNumbersToggle() {
+            const box = document.getElementById('showNumbersCheck');
+            if (!box) return;
+            box.addEventListener('change', () => reportFogNumbersWanted(box.checked));
+        })();
 
         connectWebSocket(handleMessage);
         })();

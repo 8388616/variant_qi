@@ -277,7 +277,7 @@ class SquareDiagonalFourRoom extends QiTwoPlayerRoomBase {
     }
 
     setBoardSize(newSize, requesterWs) {
-        if (!Number.isInteger(newSize) || newSize < 7 || newSize > 27) {
+        if (!Number.isInteger(newSize) || newSize < 7 || newSize > 21) {
             requesterWs.send(JSON.stringify({ type: 'error', message: '棋盘大小无效。' }));
             return false;
         }
@@ -301,7 +301,7 @@ class SquareDiagonalFourRoom extends QiTwoPlayerRoomBase {
             return;
         }
         const newSize = data.boardSize || 13;
-        if (!Number.isInteger(newSize) || newSize < 7 || newSize > 27) {
+        if (!Number.isInteger(newSize) || newSize < 7 || newSize > 21) {
             requesterWs.send(JSON.stringify({ type: 'error', message: '棋谱中棋盘大小无效。' }));
             return;
         }

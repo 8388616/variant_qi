@@ -487,17 +487,35 @@ class FogWeiqiRoom extends QiTwoPlayerRoomBase {
         }).map(m => ({ row: m.row, col: m.col, color: m.color }));
     }
 
-    getStateForSlot(slot) {
+    /**
+     * 按座位构造状态。
+     * @param {string|null} slot
+     * @param {{full?:boolean, wantNumbers?:boolean}} [opts]
+     *   full=true（入房 / 主动要全量）：连「逐手视图历史」一起下发（打谱翻看要用）。
+     *   full=false（每手广播）：只带当前这一步的视图 + 追加标记 —— 逐手视图历史是整盘级数组，
+     *   全量重发会让每手广播随对局线性膨胀（19 路约 1.6 KB/手，1Mbps 下 150 手就 2 秒/手）。
+     *   wantNumbers：该客户端当前是否开着「显示手数」（关闭时不下发手数网格，省 761 B/手）。
+     */
+    getStateForSlot(slot, opts = {}) {
+        const full = !!opts.full;
+        const wantNumbers = full || !!opts.wantNumbers;
         const cleared = this.fogCleared();
         const board = cleared ? this.board : this.buildMaskedBoard(slot);
         const fogMask = cleared ? this.emptyFogMask() : this.buildFogMask(slot);
         const moveCoords = cleared ? this.moveCoords.map(m => ({ ...m })) : this.filterMoveCoordsForSlot(slot);
         const replayStepPlayers = this.getReplayStepPlayers();
-        const maskedBoardHistory = cleared ? null : this.getMaskedBoardHistoryForSlot(slot);
+        const maskedBoardHistory = cleared ? null : (full ? this.getMaskedBoardHistoryForSlot(slot) : null);
         const stoneMoveNumbersHistory = cleared ? this.getFullStoneMoveNumbersHistory() : null;
-        const ownStoneMoveNumbersHistory = !cleared && slot ? this.getOwnStoneMoveNumbersHistoryForSlot(slot) : null;
+        let ownStoneMoveNumbersHistory = null;
+        if (!cleared && slot) {
+            if (full) ownStoneMoveNumbersHistory = this.getOwnStoneMoveNumbersHistoryForSlot(slot);
+            else if (wantNumbers) {
+                const h = this.getOwnStoneMoveNumbersHistoryForSlot(slot);
+                ownStoneMoveNumbersHistory = (h && h.length) ? [h[h.length - 1]] : null;   // 只带当前这一步，客户端追加
+            }
+        }
         const unknownFogCounts = cleared ? null : this.countUnknownFogStonesOnBoard(this.board);
-        const unknownFogCountsHistory = cleared ? null : this.getUnknownFogCountsHistory();
+        const unknownFogCountsHistory = cleared ? null : (full ? this.getUnknownFogCountsHistory() : null);
         return {
             boardSize: this.boardSize,
             komi: this.boardSize <= 8 ? 4.25 : 3.25,
@@ -511,12 +529,17 @@ class FogWeiqiRoom extends QiTwoPlayerRoomBase {
             gameOver: this.gameOver,
             winner: this.winner,
             moveCoords,
-            replayStepPlayers,
+            replayStepPlayers: full ? replayStepPlayers : undefined,
             maskedBoardHistory,
             stoneMoveNumbersHistory,
             ownStoneMoveNumbersHistory,
             unknownFogCounts,
             unknownFogCountsHistory,
+            // 每手广播的追加标记：客户端把 state.board / state.unknownFogCounts 追加进对应历史
+            maskedBoardAppend: (!full && !cleared) ? true : undefined,
+            countsAppend: (!full && !cleared) ? true : undefined,
+            // 全量标记：true=逐手历史都在这一份里（客户端整份替换）；false=只带当前这一步（客户端追加）
+            stateFull: full,
             slots: {
                 player1: !!this.room.getPlayerBySlot('player1'),
                 player2: !!this.room.getPlayerBySlot('player2')
@@ -535,23 +558,29 @@ class FogWeiqiRoom extends QiTwoPlayerRoomBase {
     }
 
     getState() {
-        return this.getStateForSlot(undefined);
+        return this.getStateForSlot(undefined, { full: true });
     }
 
     getStateForClient(ws) {
         const slot = this.room.getSlotByWs(ws);
-        return this.getStateForSlot(slot);
+        return this.getStateForSlot(slot, { full: true, wantNumbers: this.wantsMoveNumbers(ws) });
     }
 
     sendState(ws) {
         ws.send(JSON.stringify({ type: 'gameState', ...this.getStateForClient(ws) }));
     }
 
+    /** 该客户端是否开着「显示手数」（关着就不下发逐手手数网格：19 路每手 761 B） */
+    wantsMoveNumbers(ws) {
+        return !!(ws && ws.__fogWantNumbers);
+    }
+
     broadcastState(action, extra = {}) {
         const allClients = [...this.room.players.keys(), ...this.room.observers];
         for (const client of allClients) {
             if (client.readyState !== 1) continue;
-            const state = this.getStateForClient(client);
+            const slot = this.room.getSlotByWs(client);
+            const state = this.getStateForSlot(slot, { full: false, wantNumbers: this.wantsMoveNumbers(client) });
             client.send(JSON.stringify({ type: 'broadcast', action, ...state, ...extra }));
         }
     }
@@ -586,6 +615,12 @@ class FogWeiqiRoom extends QiTwoPlayerRoomBase {
 
             case 'timeControlAccept':
                 this._handleTimeControlAccept(ws);
+                break;
+
+            // 客户端切换「显示手数」：打开时补一份全量（逐手手数历史一次性给齐），之后每手只带当前一步
+            case 'fogWantNumbers':
+                ws.__fogWantNumbers = !!msg.enabled;
+                this.sendState(ws);
                 break;
 
             case 'move':

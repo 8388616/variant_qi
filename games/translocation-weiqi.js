@@ -304,6 +304,7 @@ class TranspositionWeiqiRoom extends QiTwoPlayerRoomBase
             gameOver: this.gameOver,
             winner: this.winner,
             moveCount: this.moveCount,
+            maxTranspositionMoves: this.maxTranspositionMoves,
             canTransposition: this.moveCount < this.maxTranspositionMoves,
             moveCoords: this.moveCoords,
             slots: {

@@ -12,6 +12,7 @@ window.RoomPlugins["radar-weiqi"] = {
         "useBenson": false,
         "standardWeiqiMatchTime": true,
         "features": {
+            "showEstimate": true,
             "woodTexture": true,
             "editBoard": false,
             "replayPerspective": true
@@ -580,6 +581,8 @@ const scoreTitle = document.getElementById('scoreTitle');
 
             const rvb = state.replayViewBoards;
             if (Array.isArray(rvb) && rvb.length === nh) {
+                ps.liveViewHistoryLoaded = true;      // 逐手视图历史已拿到（翻看时不用再要）
+                ps.liveViewHistoryRequested = false;
                 ps.liveReplayBoards = rvb.map(b => page.deepCopyBoard(b));
                 ps.liveReplayTruthBoards = ps.liveReplayBoards.map(b => page.deepCopyBoard(b));
                 ps.liveReplayStepPlayers = [0];
@@ -662,6 +665,9 @@ const scoreTitle = document.getElementById('scoreTitle');
                 ps.liveReplayMarkers[li] = (state.lastMoveMarkers || []).map(m => ({ ...m }));
             }
             ps.liveReplayInvisibleTints = new Array(ps.liveReplayBoards.length).fill(null);
+            // 逐手视图历史（含距离网格、隐身染色）不在每手广播里：最新一手的隐身染色直接用
+            // state.invisibleTint（每条状态的赋值处已设好 ps.invisibleTintKeys），距离网格同旧版留空，
+            // 翻看历史时再向服务端要一份全量（requestLiveViewHistory）
             if (Array.isArray(state.replayOpponentDistanceGrids) && state.replayOpponentDistanceGrids.length === nh)
                 ps.liveReplayOpponentDistanceGrids = cloneOpponentDistanceGrids(state.replayOpponentDistanceGrids);
             else
@@ -1006,6 +1012,35 @@ const scoreTitle = document.getElementById('scoreTitle');
         };
 
         page = QiWeiqiSquarePageRuntime.create(ps, domPage, variantOpts);
+
+
+        /**
+         * 逐手视图历史（replayViewBoards / 距离网格 / 隐身染色）不在每手广播里 ——
+         * 它们是整盘级数组，每手重发会让广播随对局线性膨胀（实测 +770 B/手）。
+         * 用户翻看历史时按需向服务端要一份全量；只看最新一手时用当前视图即可。
+         */
+        function requestLiveViewHistoryIfNeeded(step) {
+            const total = Math.max(0, ps.liveReplayBoards && ps.liveReplayBoards.length ? ps.liveReplayBoards.length - 1 : 0);
+            if (step >= total) return;                  // 看最新一手：当前视图就是对的
+            if (ps.liveViewHistoryLoaded || ps.liveViewHistoryRequested) return;
+            const ws = ps.ws;
+            if (!ws || ws.readyState !== 1) return;
+            ps.liveViewHistoryRequested = true;
+            ws.send(JSON.stringify({ type: 'requestLiveViewHistory' }));
+        }
+
+        const origSetLiveViewStepRadar = page.setLiveViewStep;
+        page.setLiveViewStep = function (step, ...rest) {
+            requestLiveViewHistoryIfNeeded(step);
+            return origSetLiveViewStepRadar.apply(this, [step, ...rest]);
+        };
+        // 公共运行时里进度条是直接调它自己那份 setLiveViewStep 的，这里自己再挂一次
+        (function bindLiveSliderHistoryFetch() {
+            const slider = document.getElementById('replaySlider');
+            if (!slider) return;
+            slider.addEventListener('input', () => requestLiveViewHistoryIfNeeded(Number(slider.value)));
+            slider.addEventListener('change', () => requestLiveViewHistoryIfNeeded(Number(slider.value)));
+        })();
 
         const origApplyLiveViewBoard = page.applyLiveViewBoard;
         page.applyLiveViewBoard = function () {
