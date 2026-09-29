@@ -12,6 +12,7 @@ window.RoomPlugins['weiqi'] = {
         "useBenson": true,
         "standardWeiqiMatchTime": true,
         "features": {
+            "handicap": true,
             "showEstimate": true,
             "woodTexture": true,
             "zoomScroll": true,

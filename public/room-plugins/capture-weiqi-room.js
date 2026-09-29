@@ -12,6 +12,7 @@ window.RoomPlugins['capture-weiqi'] = {
         "useBenson": false,
         "standardWeiqiMatchTime": true,
         "features": {
+            "handicap": true,
             "showEstimate": true,
             "zoomScroll": true,
             "editBoard": true,
@@ -230,7 +231,7 @@ const BOARD_MARK_CHAR_LIST = (() => {
         };
 
         // 变体：形势判断/数点只用最近归属档（公共钩子；档位见 shell.useBenson）
-        const scoringHooks = QiWeiqiSquarePageRuntime.weiqiScoringHooks(config.useBenson === false, {
+        const scoringHooks = QiWeiqiSquarePageRuntime.weiqiScoringHooks(config.useBenson !== false, {
             boardSize: () => ps.BOARD_SIZE,
             maxWeakLiberties: 2
         });

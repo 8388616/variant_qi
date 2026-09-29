@@ -353,8 +353,19 @@
     <label class="qi-time-control-radio"><input type="radio" name="qiColorChoice" value="player1" checked> 执黑</label>
     <label class="qi-time-control-radio"><input type="radio" name="qiColorChoice" value="player2"> 执白</label>
     <label class="qi-time-control-radio"><input type="radio" name="qiColorChoice" value="random"> 猜先</label>
+    <label class="qi-time-control-radio" id="qiTcHandicapLabel" style="display:none;">
+      <select class="qi-time-control-select" id="qiTcHandicapSel" aria-label="让子"></select>
+    </label>
   </div>
-  <p class="qi-time-control-hint" id="qiTcHint"></p>
+  <div class="qi-time-control-row qi-time-control-ai-row" id="qiTcAiLevelRow" style="display:none;">
+    <label class="qi-time-control-radio">电脑棋力
+      <select class="qi-time-control-select" id="qiTcAiLevelSel">
+        <option value="basic">初级</option>
+        <option value="intermediate">中级</option>
+      </select>
+    </label>
+  </div>
+  <p class="qi-time-control-hint"><span id="qiTcHint"></span><span class="qi-handicap-hint" id="qiTcHandicapHint" style="display:none;">被让子的一方执白。</span></p>
   <div class="qi-time-control-footer" id="qiTcFooterPropose">
     <button type="button" class="qi-time-control-primary" id="qiTcBtnProposeOk">确认</button>
   </div>
@@ -379,7 +390,16 @@
             const colorRow = wrap.querySelector('#qiTcColorRow');
             const radios = Array.from(wrap.querySelectorAll('input[name="qiTimedMode"]'));
             const colorRadios = Array.from(wrap.querySelectorAll('input[name="qiColorChoice"]'));
+            const handicapLabel = wrap.querySelector('#qiTcHandicapLabel');
+            const handicapSel = wrap.querySelector('#qiTcHandicapSel');
+            const handicapHint = wrap.querySelector('#qiTcHandicapHint');
+            const aiLevelRow = wrap.querySelector('#qiTcAiLevelRow');
+            const aiLevelSel = wrap.querySelector('#qiTcAiLevelSel');
             const lowerControls = [mainIn, byoIn, maxTIn];
+            if (handicapSel) handicapSel.onchange = () => {
+                updateHandicapHint();
+                if (typeof refreshRespondHint === 'function') refreshRespondHint();
+            };
 
             function leaveSeatAndClose() {
                 const w = ctx.getWs && ctx.getWs();
@@ -421,6 +441,8 @@
                     if (v !== 'player1' && v !== 'player2' && v !== 'random') v = 'player1';
                     payload.colorChoice = v;
                 }
+                // 让子：控件可见时总是发（0 = 不让子，用来取消原来的设置）
+                if (handicapLabel && handicapLabel.style.display !== 'none') payload.handicap = currentHandicap();
                 return payload;
             }
 
@@ -441,10 +463,112 @@
                 wrap.classList.toggle('qi-time-control-readonly', !!dis);
             }
 
-            function setColorRowVisible(vis, readonly) {
+            function setColorRowVisible(vis, readonly, preferHandicap) {
                 if (!colorRow) return;
                 colorRow.style.display = vis ? 'flex' : 'none';
                 colorRadios.forEach((r) => { r.disabled = !!readonly; });
+                buildHandicapOptions(preferHandicap);
+                if (handicapSel) handicapSel.disabled = !!readonly;
+            }
+
+            /* ---------- 让子 ---------- */
+
+            /** 本棋种声明的功能（插件 shell.features）；让子在 shell.features.handicap 里开 */
+            function qiGameFeatures() {
+                const route = (typeof window !== 'undefined' && window.__qiRoomRoute) || null;
+                const gameId = String((ctx && ctx.gameType) || (route && route.gameType) || '');
+                const plugins = (typeof window !== 'undefined' && window.RoomPlugins) || null;
+                const plugin = gameId ? (plugins && plugins[gameId]) : null;
+                return (plugin && plugin.shell && plugin.shell.features) || {};
+            }
+
+            /**
+             * 这个路数能选的最大让子数（与 common.js 的 qiMaxHandicap 同口径：四角 → 天元 → 边星，
+             * 摆法放不下就不给）。服务端会随状态下发 maxHandicap；没下发时用本地这份兜底
+             * （少传一个服务端文件也不至于整行消失）。
+             */
+            function localMaxHandicapOf(size) {
+                const n = Number(size);
+                if (!Number.isInteger(n) || n < 5) return 0;
+                const o = n <= 11 ? 2 : 3;
+                const S = n - 1;
+                const uniq = (pts) => pts.filter((p, i) => pts.findIndex((q) => q[0] === p[0] && q[1] === p[1]) === i);
+                const ok = (pts) => uniq(pts.filter(([r, c]) => r >= 0 && c >= 0 && r < n && c < n));
+                const RB = [o, S - o], LT = [S - o, o], LB = [o, o], RT = [S - o, S - o];
+                const corners = ok([RB, LT, LB, RT]);
+                const odd = n % 2 === 1;
+                const c0 = odd ? (n - 1) / 2 : 0;
+                const CEN = [c0, c0];
+                const LM = [c0, o], RM = [c0, S - o], BM = [o, c0], TM = [S - o, c0];
+                const hasCenter = odd && n >= 9 && ok([CEN]).length === 1;
+                const hasSides = odd && n >= 15 && ok([LM, RM]).length === 2;
+                const hasAllSides = hasSides && ok([LM, RM, BM, TM]).length === 4;
+                let max = 0;
+                if (ok([RB]).length === 1) max = Math.max(max, 1);
+                if (ok([RB, LT]).length === 2) max = Math.max(max, 2);
+                if (ok([RB, LT, LB]).length === 3) max = Math.max(max, 3);
+                if (corners.length === 4) {
+                    max = 4;
+                    if (hasCenter) max = 5;
+                    if (hasSides) max = 6;
+                    if (hasSides && hasCenter) max = 7;
+                    if (hasAllSides) max = 8;
+                    if (hasAllSides && hasCenter) max = 9;
+                }
+                return max;
+            }
+
+            /** 这个棋盘能选的最大让子数：优先服务端下发的 maxHandicap，没有就用本地那份算 */
+            function handicapMax() {
+                if (!qiGameFeatures().handicap) return 0;
+                const max = Number(S._maxHandicap);
+                if (Number.isFinite(max) && max > 0) return Math.min(9, Math.floor(max));
+                const size = Number(ctx.getBoardSize && ctx.getBoardSize());
+                return Math.min(9, localMaxHandicapOf(size));
+            }
+
+            function buildHandicapOptions(prefer) {
+                if (!handicapLabel || !handicapSel) return;
+                const max = handicapMax();
+                if (max <= 0) {
+                    handicapLabel.style.display = 'none';
+                    updateHandicapHint();
+                    return;
+                }
+                // 优先用调用方给的值（回应/调整时按对方的提案）→ 再看当前选择 → 再看上次的设置
+                const cur = (prefer != null ? Number(prefer) : (Number(handicapSel.value) || Number(S._handicap))) || 0;
+                handicapLabel.style.display = '';
+                handicapSel.innerHTML = '';
+                const mk = (v, text) => {
+                    const o = document.createElement('option');
+                    o.value = String(v);
+                    o.textContent = text;
+                    handicapSel.appendChild(o);
+                    return o;
+                };
+                mk(0, '不让子');
+                for (let i = 1; i <= max; i++) mk(i, `让${i}子`);
+                handicapSel.value = String(Math.max(0, Math.min(cur, max)));
+                updateHandicapHint();
+            }
+
+            /** 当前选择的让子数（控件不可见时按 0） */
+            function currentHandicap() {
+                if (!handicapSel || !handicapLabel || handicapLabel.style.display === 'none') return 0;
+                const v = parseInt(handicapSel.value, 10);
+                return Number.isFinite(v) && v > 0 ? v : 0;
+            }
+
+            /** 选了让子才显示那行红字提示 */
+            function updateHandicapHint() {
+                if (!handicapHint) return;
+                handicapHint.style.display = currentHandicap() > 0 ? '' : 'none';
+            }
+
+            /** 提议文案后缀：「；让3子」 */
+            function handicapSuffix(n) {
+                const h = Number(n) || 0;
+                return h > 0 ? `；让${h}子` : '';
             }
 
             function normalizeColorChoice(val) {
@@ -515,7 +639,9 @@
                 const showColor = !!(ctx.boardSeatOverlay || (colorRow && colorRow.style.display !== 'none'));
                 const pr = proposal !== undefined ? proposal : lastRespondProposal;
                 if (!pr) {
-                    hint.textContent = showColor ? colorChoiceLabel(currentColorChoice()) : '';
+                    hint.textContent = showColor
+                        ? colorChoiceLabel(currentColorChoice()) + handicapSuffix(currentHandicap())
+                        : '';
                     return;
                 }
                 const base = pr.timed
@@ -526,7 +652,8 @@
                     return;
                 }
                 const cc = adjustMode ? currentColorChoice() : selfColorFromProposal(pr);
-                hint.textContent = `${base}；${colorChoiceLabel(cc)}`;
+                const hc = adjustMode ? currentHandicap() : (Number(pr.handicap) || 0);
+                hint.textContent = `${base}；${colorChoiceLabel(cc)}${handicapSuffix(hc)}`;
             }
 
             let lastRespondProposal = null;
@@ -556,7 +683,10 @@
                     ui._vsComputerStarting = true;
                     w.send(JSON.stringify({
                         type: 'startVsComputer',
-                        colorChoice: p.colorChoice || 'black'
+                        colorChoice: p.colorChoice || 'black',
+                        handicap: p.handicap || 0,
+                        aiLevel: (aiLevelRow && aiLevelRow.style.display !== 'none' && aiLevelSel)
+                            ? aiLevelSel.value : 'basic'
                     }));
                     setDialogReadonly(true);
                     btnProposeOk.disabled = true;
@@ -602,8 +732,10 @@
                 adjustMode = true;
                 setLimitedDisabled(false);
                 radios.forEach((r) => { r.disabled = false; });
-                if (colorRow && colorRow.style.display !== 'none')
+                if (colorRow && colorRow.style.display !== 'none') {
                     colorRadios.forEach((r) => { r.disabled = false; });
+                    if (handicapSel) handicapSel.disabled = false;   // 让子也允许调整
+                }
                 const un = wrap.querySelector('input[name="qiTimedMode"][value="unlimited"]').checked;
                 setLowerDisabled(un);
                 btnAdjust.style.display = 'none';
@@ -618,6 +750,8 @@
                 leaveSeatAndClose,
                 setLimitedDisabled, readPayloadFromInputs, setColorRowVisible, setColorChoice, colorChoiceLabel,
                 selfColorFromProposal, refreshRespondHint, clearProposalHintState,
+                currentHandicap, handicapSuffix,   // 让子（下拉框在执子那一行）
+                aiLevelRow, aiLevelSel,            // 人机棋力一行
                 getLastRespondProposal: () => lastRespondProposal,
                 setLastRespondProposal: (p) => { lastRespondProposal = p; },
                 restoreAfterError() {
@@ -647,7 +781,10 @@
                         ui.footResp.style.display = 'flex';
                         ui.btnAdjust.style.display = '';
                         adjustMode = false;
-                        ui.setColorRowVisible(!!ctx.boardSeatOverlay, true);
+                        if (lastRespondProposal && Number(lastRespondProposal.handicap) > 0)
+                            S._handicap = Number(lastRespondProposal.handicap);
+                        ui.setColorRowVisible(!!ctx.boardSeatOverlay, true,
+                            lastRespondProposal ? lastRespondProposal.handicap : null);   // 按对方提案预选
                         ui.setColorChoice(selfColorFromProposal(lastRespondProposal));
                         ui.wrap.querySelector('input[name="qiTimedMode"][value="unlimited"]').disabled = true;
                         ui.wrap.querySelector('input[name="qiTimedMode"][value="limited"]').disabled = true;
@@ -697,6 +834,28 @@
             }
         }
 
+        /**
+         * 人机「棋力」一行的显隐：只在人机设置窗口、且服务端下发的配置 maxVisits > 1 时显示。
+         * 服务端的状态可能晚于第一次打开（`S._katagoMaxVisits` 还没到），所以值到了要能就地刷新。
+         */
+        function refreshAiLevelRow() {
+            if (!ui || !ui.aiLevelRow) return;
+            if (!ui.vsComputerMode) {
+                ui.aiLevelRow.style.display = 'none';
+                return;
+            }
+            const cfgVisits = Number(S._katagoMaxVisits);
+            const show = Number.isFinite(cfgVisits) && cfgVisits > 1;
+            ui.aiLevelRow.style.display = show ? '' : 'none';
+            // 一行诊断：值变化时打一次，方便确认服务端到底下发了什么
+            if (S._qiAiLevelLogged !== cfgVisits) {
+                S._qiAiLevelLogged = cfgVisits;
+                if (typeof console !== 'undefined' && console.info)
+                    console.info('[棋力] 服务端下发 maxVisits =', S._katagoMaxVisits, '→', show ? '显示初级/中级' : '不显示');
+            }
+            if (show && ui.aiLevelSel) ui.aiLevelSel.value = 'intermediate';   // 有中级就默认中级
+        }
+
         function openVsComputerSetup() {
             ensureModal();
             ui.vsComputerMode = true;
@@ -719,6 +878,7 @@
             ui.btnProposeOk.disabled = false;
             ui.setColorRowVisible(true, false);
             ui.setColorChoice('black');
+            refreshAiLevelRow();   // 棋力：只有配置文件 maxVisits > 1 时才给「初级/中级」二选一
             // 与设置并行：预热/复用 KataGo 进程
             {
                 const w = ctx.getWs && ctx.getWs();
@@ -726,13 +886,13 @@
                     w.send(JSON.stringify({ type: 'prepareVsComputer' }));
                 }
             }
-            if (ui.hint) ui.hint.textContent = ui.colorChoiceLabel('black');
+            if (ui.hint) ui.hint.textContent = ui.colorChoiceLabel('black') + ui.handicapSuffix(ui.currentHandicap());
             ui.colorRadios.forEach((r) => {
                 r.disabled = false;
                 r.onchange = () => {
                     if (ui.hint) ui.hint.textContent = ui.colorChoiceLabel(
                         (ui.wrap.querySelector('input[name="qiColorChoice"]:checked') || {}).value || 'player1'
-                    );
+                    ) + ui.handicapSuffix(ui.currentHandicap());
                 };
             });
         }
@@ -740,6 +900,7 @@
         function openNegotiation(msg) {
             ensureModal();
             ui.vsComputerMode = false;
+            if (ui.aiLevelRow) ui.aiLevelRow.style.display = 'none';   // 棋力只给人机对战
             ui.wrap.style.display = 'flex';
             ui.waitEl.style.display = 'none';
             // 每次打开先清空上一局/上一轮的「对方提议」，再按本次 mode 写入
@@ -788,7 +949,8 @@
                 ui.wrap.querySelector('input[name="qiTimedMode"][value="limited"]').disabled = true;
                 ui.btnAccept.disabled = false;
                 ui.btnAdjust.disabled = false;
-                ui.setColorRowVisible(showColor, true);
+                if (showColor && pr.handicap != null) S._handicap = Number(pr.handicap) || 0;
+                ui.setColorRowVisible(showColor, true, showColor ? pr.handicap : null);   // 下拉框按对方提议预选
                 // 只读展示换算成「您」的执子
                 if (showColor) {
                     const mine = ui.selfColorFromProposal ? ui.selfColorFromProposal(pr) : (pr.colorChoice || 'black');
@@ -796,7 +958,9 @@
                 }
                 if (ui.refreshRespondHint) ui.refreshRespondHint(pr);
                 else {
-                    const colorHint = showColor ? `；${ui.colorChoiceLabel(pr.colorChoice || 'black')}` : '';
+                    const colorHint = showColor
+                        ? `；${ui.colorChoiceLabel(pr.colorChoice || 'black')}${ui.handicapSuffix(pr.handicap)}`
+                        : '';
                     ui.hint.textContent = (pr.timed ? `对方提议：${fmtRuleLine(pr.mainMinutes, pr.byoyomiSeconds, pr.maxTimeouts)}` : '对方提议：不限时') + colorHint;
                 }
             }
@@ -1073,6 +1237,7 @@
 
         return {
             openVsComputerSetup,
+            refreshAiLevelRow,
             handleMessage(msg) {
                 switch (msg.type) {
                     case 'timeControlNegotiation':
@@ -1310,7 +1475,7 @@
                 return;
             }
             const prefix = qiRecordPrefix();
-            qiConfirm('SGF格式可能会损失信息。',
+            qiConfirm('请选择格式。SGF格式可能会损失信息。',
                 { title: '导出棋谱', okText: 'JSON 棋谱', extraText: 'SGF 棋谱', cancelText: '取消' })
                 .then((choice) => {
                     if (choice === 'extra') {
@@ -1959,6 +2124,20 @@
             updateVsComputerBtn();
         }
         function handleMessage(msg) {
+            if (msg && typeof msg === 'object') {
+                // 让子：服务端在当前路数上算出的上限，与当前设置（对话框据此建下拉框/预选）
+                if (Number.isFinite(Number(msg.maxHandicap))) S._maxHandicap = Number(msg.maxHandicap);
+                if (msg.katagoMaxVisits !== undefined && msg.katagoMaxVisits !== null
+                    && Number.isFinite(Number(msg.katagoMaxVisits))) {
+                    const v = Number(msg.katagoMaxVisits);
+                    if (S._katagoMaxVisits !== v) {
+                        S._katagoMaxVisits = v;
+                        // 值晚于「与电脑对战」窗口打开时，就地刷新那一行（否则要关掉重开才出现）
+                        if (mtCtl && typeof mtCtl.refreshAiLevelRow === 'function') mtCtl.refreshAiLevelRow();
+                    }
+                }
+                if (Number.isFinite(Number(msg.handicap))) S._handicap = Number(msg.handicap);
+            }
             if (global.RoomChat && typeof global.RoomChat.consumeIncoming === 'function'
                 && global.RoomChat.consumeIncoming(msg)) {
                 return;

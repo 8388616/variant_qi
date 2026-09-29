@@ -11,6 +11,7 @@ window.RoomPlugins['custom-weiqi'] = {
         "recordDownloadPrefix": "自定义围棋",
         "standardWeiqiMatchTime": true,
         "features": {
+            "handicap": true,
             "showEstimate": true,
             "zoomScroll": true,
             "editBoard": true,

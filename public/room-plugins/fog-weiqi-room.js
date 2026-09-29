@@ -12,6 +12,7 @@ window.RoomPlugins["fog-weiqi"] = {
         "useBenson": false,
         "standardWeiqiMatchTime": true,
         "features": {
+            "handicap": true,
             "showEstimate": true,
             "woodTexture": true,
             "editBoard": true,
@@ -767,7 +768,7 @@ const scoreTitle = document.getElementById('scoreTitle');
         let page;
 
         // 变体：形势判断/数点只用最近归属档（公共钩子；档位见 shell.useBenson）
-        const scoringHooks = QiWeiqiSquarePageRuntime.weiqiScoringHooks(config.useBenson === false, {
+        const scoringHooks = QiWeiqiSquarePageRuntime.weiqiScoringHooks(config.useBenson !== false, {
             boardSize: () => ps.BOARD_SIZE,
             maxWeakLiberties: 2
         });

@@ -177,7 +177,9 @@ class WeiqiRoom extends QiTwoPlayerRoomBase
     /**
     /** 形势判断 / 数点：只用最近归属档（公共口径）；不判死子、不叠 Benson */
     computeLead() {
-        const { lead } = computeNearestWeiqiLead(this.board, this.boardSize <= 8 ? 3.5 : 2.5, squareWeiqiScoringOps(this.boardSize, {
+        // 贴目用本棋种自己的 komiForSize（与 getState 下发、房间显示的贴目同一份；
+        // 原来这里写死 3.5/2.5，跟本棋种的贴目表对不上 → 形势判断/数点会与显示的贴目差 0.5~2 点）
+        const { lead } = computeNearestWeiqiLead(this.board, komiForSize(this.boardSize), squareWeiqiScoringOps(this.boardSize, {
             copyBoard: (b) => this.copyBoard(b)
         }));
         return lead;

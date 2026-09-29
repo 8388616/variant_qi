@@ -12,6 +12,7 @@ window.RoomPlugins['short-liberty-weiqi'] = {
         "useBenson": true,
         "standardWeiqiMatchTime": true,
         "features": {
+            "handicap": true,
             "showEstimate": true,
             "woodTexture": true,
             "zoomScroll": false,

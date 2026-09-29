@@ -12,6 +12,7 @@ window.RoomPlugins['rus-weiqi'] = {
         "useBenson": false,
         "standardWeiqiMatchTime": true,
         "features": {
+            "handicap": true,
             "showEstimate": true,
             "woodTexture": true,
             "zoomScroll": false,
@@ -38,6 +39,7 @@ window.RoomPlugins['rus-weiqi'] = {
         var gameType = ctx.gameType;
         var roomId = ctx.roomId;
         var roomPassword = ctx.roomPassword || null;
+        var config = ctx.config || {};
 
         (function () {
 const SHAPE_LIST = [
@@ -116,10 +118,8 @@ const SHAPE_LIST = [
             ps.board = Array(ps.BOARD_SIZE).fill().map(() => Array(ps.BOARD_SIZE).fill(0));
         })();
 
-        const pathMatch = window.location.pathname.match(/^\/qi\/([^/]+)\/(\d+)$/);
-        if (!pathMatch) { qiAlert('无效的房间链接'); throw new Error('Invalid room URL'); }
-        const gameType = pathMatch[1];
-        const roomId = pathMatch[2];
+        // 棋种/房间号统一由房间页（短链 /rooms/<号> + 服务端注入的 __qiRoomRoute）经 ctx 传进来；
+        // 旧的 /qi/<棋种>/<房间号> 地址已不再支持，别在这里自己解析（否则整间房挂不起来）
         let roomPassword = sessionStorage.getItem(`roomPassword_${roomId}`) || null;
 
         const BOARD_MARK_CHAR_LIST = (() => {
@@ -897,7 +897,7 @@ const scoreTitle = document.getElementById('scoreTitle');
         let _page = null;
 
         // 形势判断/数点只用最近归属档（公共钩子；档位见 shell.useBenson）
-        const scoringHooks = QiWeiqiSquarePageRuntime.weiqiScoringHooks(config.useBenson === false, {
+        const scoringHooks = QiWeiqiSquarePageRuntime.weiqiScoringHooks(config.useBenson !== false, {
             boardSize: () => ps.BOARD_SIZE,
             maxWeakLiberties: 2
         });

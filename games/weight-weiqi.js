@@ -305,9 +305,8 @@ class WeightWeiqiRoom extends QiTwoPlayerRoomBase {
 				p = 7.5;
 			if (this.boardSize === 7 || this.boardSize === 8)
 				p = 9.5;
-			if (this.boardSize >= 9 || this.boardSize < 15)
-				p = 7.75;
-				
+			if (this.boardSize >= 9 && this.boardSize < 15)
+				p = 7.75;	
 		}
 		return Math.floor(0.25 * p * (1 + this.boardSize * this.boardSize));
     }

@@ -11,6 +11,7 @@ window.RoomPlugins['reverse-noweiqi'] = {
         "recordDownloadPrefix": "反不围棋",
         "standardWeiqiMatchTime": true,
         "features": {
+            "handicap": true,
             "woodTexture": true,
             "editBoard": true,
             "compoundPalette": false,

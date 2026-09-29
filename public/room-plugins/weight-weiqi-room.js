@@ -11,6 +11,7 @@ window.RoomPlugins["weight-weiqi"] = {
         "recordDownloadPrefix": "权重围棋",
         "standardWeiqiMatchTime": true,
         "features": {
+            "handicap": true,
             "showEstimate": true,
             "woodTexture": true,
             "editBoard": true
@@ -560,7 +561,7 @@ const scoreTitle = document.getElementById('scoreTitle');
 					p = 7.5;
 				if (n === 7 || n === 8)
 					p = 9.5;
-				if (n >= 9 || n < 15)
+				if (n >= 9 && n < 15)
 					p = 7.75;				
 			}
 			return Math.floor(0.25 * p * (1 + n * n));

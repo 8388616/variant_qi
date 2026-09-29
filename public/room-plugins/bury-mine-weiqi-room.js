@@ -390,7 +390,7 @@ window.RoomPlugins['bury-mine-weiqi'] = {
             var page;
 
             // 变体：形势判断/数点只用最近归属档（公共钩子；档位见 shell.useBenson）
-            const scoringHooks = QiWeiqiSquarePageRuntime.weiqiScoringHooks(config.useBenson === false, {
+            const scoringHooks = QiWeiqiSquarePageRuntime.weiqiScoringHooks(config.useBenson !== false, {
                 boardSize: () => ps.BOARD_SIZE,
                 maxWeakLiberties: 2
             });

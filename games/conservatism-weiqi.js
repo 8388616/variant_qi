@@ -1,13 +1,13 @@
 ﻿const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, applyInitialPositionCompact, encodeInitialPositionCompact, qiBoardSeatOverlay, encodeOpeningPositionCompact, computeBensonWeiqiLead, squareWeiqiScoringOps } = require('../common');
 
 /**
- * 不邻前手围棋（no-adjacent-prev-weiqi）：一个棋种，四个子棋类。
+ * 保守围棋（conservatism-weiqi，原名不邻前手围棋）：一个棋种，四个子棋类。
  *   no-adjacent-prev-weiqi       不邻前手    ：不能落在「前一手」的上下左右四格
  *   no-adjacent-own-prev-weiqi   不邻己方前手：不能落在「己方前一手」的上下左右四格
  *   no-near-prev-weiqi           不近前手    ：不能落在「前一手」的上下左右 + 四个斜角（八格）
  *   no-near-own-prev-weiqi       不近己方前手：不能落在「己方前一手」的上下左右 + 四个斜角
  *
- * 判定口径（客户端插件里有一份必须逐字一致的实现，见 public/room-plugins/no-adjacent-prev-weiqi-room.js）：
+ * 判定口径（客户端插件里有一份必须逐字一致的实现，见 public/room-plugins/conservatism-weiqi-room.js）：
  *   - 「前一手」= **全局的最后一手**（双方轮走，实际上就是对方的上一手）：第 N 手只与第 N−1 手比较，
  *     不往前找更早的棋（第 N−2 手无关）；「己方前一手」= 该方最近一次自己走的那一手；
  *   - 参考的是那一手的**落子点**（该子后来是否被提掉不影响禁点）；
@@ -36,7 +36,7 @@ function komiForSize(boardSize) {
     return boardSize <= 8 ? 4.25 : 3.25;
 }
 
-class NoAdjacentPrevWeiqiRoom extends QiTwoPlayerRoomBase
+class ConservatismWeiqiRoom extends QiTwoPlayerRoomBase
 {
     constructor(room, initialSize = 19, subGameId = DEFAULT_SUB_GAME) {
         super(room);
@@ -631,7 +631,7 @@ class NoAdjacentPrevWeiqiRoom extends QiTwoPlayerRoomBase
             format: 'muzei',
             version: 2,
             gameType: this._meta().name,
-            gameId: 'no-adjacent-prev-weiqi',
+            gameId: 'conservatism-weiqi',
             subGameId: this.subGameId,
             boardSize: this.boardSize,
             komi: this._komi(),
@@ -687,9 +687,9 @@ class NoAdjacentPrevWeiqiRoom extends QiTwoPlayerRoomBase
     }
 
     importRecord(data, requesterWs) {
-        // 棋谱统一用 gameId=no-adjacent-prev-weiqi，用 subGameId 区分四种子棋类
-        if (!data || data.gameId !== 'no-adjacent-prev-weiqi') {
-            requesterWs.send(JSON.stringify({ type: 'error', message: '棋谱格式不匹配（需要不邻前手围棋棋谱）。' }));
+        // 棋谱统一用 gameId=conservatism-weiqi，用 subGameId 区分四种子棋类
+        if (!data || data.gameId !== 'conservatism-weiqi') {
+            requesterWs.send(JSON.stringify({ type: 'error', message: '棋谱格式不匹配（需要保守围棋棋谱）。' }));
             return;
         }
         this.subGameId = SUB_GAMES.includes(data.subGameId) ? data.subGameId : DEFAULT_SUB_GAME;
@@ -706,7 +706,7 @@ class NoAdjacentPrevWeiqiRoom extends QiTwoPlayerRoomBase
         this.openingBoard = this.copyBoard(this.board);
 
         const rawMoves = data.moves || [];
-        const moves = rawMoves.map(NoAdjacentPrevWeiqiRoom.parseMove);
+        const moves = rawMoves.map(ConservatismWeiqiRoom.parseMove);
         for (let i = 0; i < moves.length; i++) {
             const move = moves[i];
             const slot = move.player;
@@ -810,9 +810,9 @@ module.exports = {
     SUB_GAMES,
     SUB_META,
     DEFAULT_SUB_GAME,
-    NoAdjacentPrevWeiqiRoom,
+    ConservatismWeiqiRoom,
     initRoom(room) {
-        room.gameLogic = new NoAdjacentPrevWeiqiRoom(room);
+        room.gameLogic = new ConservatismWeiqiRoom(room);
         qiBoardSeatOverlay.install(room.gameLogic);
         if (typeof qiProtocol.installStandardEditBoard === 'function') qiProtocol.installStandardEditBoard(room.gameLogic);
         room.maxPlayers = 2;

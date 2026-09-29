@@ -15,6 +15,7 @@ window.RoomPlugins['global-liberty-weiqi'] = {
         "useBenson": false,
         "standardWeiqiMatchTime": true,
         "features": {
+            "handicap": true,
             "showEstimate": true,
             "woodTexture": true,
             "zoomScroll": true,
@@ -367,7 +368,7 @@ const BOARD_MARK_CHAR_LIST = (() => {
         // 全气围棋：形势判断/数点不用 Benson 等残子算法——所有棋子都当活棋，空点严格按
         //「曼哈顿距离最近的棋子」归属（同距离平分、超过围棋阈值算共有），与服务器保持同一套实现。
         // 变体：形势判断/数点只用最近归属档（公共钩子；档位见 shell.useBenson）
-        const scoringHooks = QiWeiqiSquarePageRuntime.weiqiScoringHooks(config.useBenson === false, {
+        const scoringHooks = QiWeiqiSquarePageRuntime.weiqiScoringHooks(config.useBenson !== false, {
             boardSize: () => ps.BOARD_SIZE,
             maxWeakLiberties: 2
         });

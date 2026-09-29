@@ -2,7 +2,7 @@ window.RoomPlugins = window.RoomPlugins || {};
 window.RoomPlugins['greedy-weiqi'] = {
     shell: {
         "title": "贪吃围棋",
-        "rulesHtml": "基本规则同围棋。<br /><br />有提子时必须提子；若有多个可提子点，则必须走提子数量最多的点；若有多个最多的点，可任选其一。<br /><br />",
+        "rulesHtml": "基本规则同围棋。<br /><br />有提子时必须提子（禁全同除外）；若有多个可提子点，则必须走提子数量最多的点；若有多个最多的点，可任选其一。<br /><br />",
         "defaultKomiText": "黑贴白1点",
         "boardSizeMin": 7,
         "boardSizeMax": 21,
@@ -12,6 +12,7 @@ window.RoomPlugins['greedy-weiqi'] = {
         "useBenson": true,
         "standardWeiqiMatchTime": true,
         "features": {
+            "handicap": true,
             "showEstimate": true,
             "woodTexture": true,
             "zoomScroll": false,
@@ -221,13 +222,91 @@ const scoreTitle = document.getElementById('scoreTitle');
             return !ps.replayMode && ps.liveReplayBoards.length > 0 && ps.liveViewStep < tip;
         }
 
+        // 试下的禁全同判据：从开局到「当前试下节点」的所有盘面（含试下已经走过的那些手）
+        let tryPlayBaseKey = null;
+        let tryPlayBaseSet = null;
+        function tryPlayBaseSig() {
+            return ps.tryPlayFromLive
+                ? 'L' + (ps.tryPlayFromLiveStep != null ? ps.tryPlayFromLiveStep : (ps.liveViewStep || 0))
+                : 'R' + (ps.tryPlayBaseStep || 0);
+        }
+        function tryPlayBaseHistorySet() {
+            const key = tryPlayBaseSig();
+            if (key === tryPlayBaseKey && tryPlayBaseSet) return tryPlayBaseSet;
+            const set = new Set();
+            const add = (b) => { if (b) set.add(boardToString(b)); };
+            if (ps.tryPlayFromLive) {
+                const arr = ps.liveReplayBoards || [];
+                const step = ps.tryPlayFromLiveStep != null ? ps.tryPlayFromLiveStep : (ps.liveViewStep || 0);
+                if (arr.length > 0) {
+                    for (let i = 0; i <= Math.min(step, arr.length - 1); i++) add(arr[i]);
+                } else if (ps.liveOpeningBoard) {
+                    add(ps.liveOpeningBoard);
+                }
+            } else {
+                const arr = ps.replayBoards || [];
+                const step = ps.tryPlayBaseStep || 0;
+                for (let i = 0; i <= Math.min(step, arr.length - 1); i++) add(arr[i]);
+            }
+            tryPlayBaseKey = key;
+            tryPlayBaseSet = set;
+            return set;
+        }
+
+        // 试下的候选点：按「试下这一手该谁走 + 试下盘面 + 走过的路」现算，先滤掉会禁全同的点；
+        // 记忆键带上走过的路（同一盘面不同走法历史不同），鼠标移动时不重算
+        let tryPlayCandKey = null;
+        let tryPlayCandList = [];
+        function tryPlayCandSignature(playerVal) {
+            const marks = ps.tryPlayMarkers || [];
+            const upto = Math.min(ps.tryPlayStep || 0, marks.length - 1);
+            let h = 2166136261;
+            for (let i = 0; i <= upto; i++) {
+                const m = marks[i] && marks[i][0];
+                const v = m ? (m.row * 64 + m.col + 1) : 0;
+                h = ((h ^ v) * 16777619) >>> 0;
+            }
+            return playerVal + '|' + tryPlayBaseSig() + '|' + h + '|' + (ps.tryPlayTotalSteps || 0)
+                + '|' + boardToString(ps.board);
+        }
+        function tryPlayCandidates() {
+            const playerVal = ps.tryPlayCurrentPlayer === 1 ? 1 : 2;
+            const key = tryPlayCandSignature(playerVal);
+            if (key !== tryPlayCandKey) {
+                const histSet = new Set(tryPlayBaseHistorySet());
+                for (const b of (ps.tryPlayBoards || [])) { if (b) histSet.add(boardToString(b)); }
+                tryPlayCandKey = key;
+                tryPlayCandList = computeMaxCaptureCandidates(ps.board, playerVal, histSet);
+            }
+            return tryPlayCandList;
+        }
+
+        /** 该画成小方块的候选点（试下时算试下那一手，正式对局用 ps.candidates） */
+        function displayedCandidates() {
+            return ps.tryPlayMode ? tryPlayCandidates() : ps.candidates;
+        }
+
+        // 正式对局里「有提必提」是强制的（试下不强制：任意位置都能下，只是照样画出候选点）
         function mustCaptureActive() {
             return !ps.tryPlayMode && !ps.gameOver && !ps.showEstimateActive
                 && !browsingLiveHistory() && ps.candidates.length > 0;
         }
 
+        // 是否画出候选点小方块（含试下）
+        function candidateMarkerActive() {
+            if (ps.showEstimateActive || browsingLiveHistory()) return false;
+            if (!ps.tryPlayMode && ps.gameOver) return false;
+            return displayedCandidates().length > 0;
+        }
+
         function isCandidatePoint(row, col) {
-            return ps.candidates.some(p => p.row === row && p.col === col);
+            return displayedCandidates().some(p => p.row === row && p.col === col);
+        }
+
+        // 正式对局的禁全同集合：只在「直播最新一步」用（回放/浏览旧局面时历史不在同一条线上，不用它排除）
+        function liveCandidateHistorySet() {
+            if (ps.replayMode || browsingLiveHistory()) return null;
+            return ps.liveReplayHistSet || null;
         }
 
         function refreshCandidatesFromBoard() {
@@ -236,7 +315,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                 return;
             }
             const playerVal = ps.currentPlayer === 1 ? 1 : 2;
-            ps.candidates = computeMaxCaptureCandidates(ps.board, playerVal, null);
+            ps.candidates = computeMaxCaptureCandidates(ps.board, playerVal, liveCandidateHistorySet());
         }
 
         function drawBoardGreedy() {
@@ -262,7 +341,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                 if (ps.showEstimateActive) return false;
                 if (r < 0 || r >= ps.BOARD_SIZE || c < 0 || c >= ps.BOARD_SIZE) return false;
                 if (ps.board[r][c] !== 0) return false;
-                if (mustCaptureActive() && isCandidatePoint(r, c)) return false;
+                if (candidateMarkerActive() && isCandidatePoint(r, c)) return false;
                 return true;
             });
             if (ps.showMoveNumbers) {
@@ -289,11 +368,12 @@ const scoreTitle = document.getElementById('scoreTitle');
                 }
                 d.moveNumbersOnStones(ctx, nums, ps.board, ps.BOARD_SIZE, ps.PADDING, cellSize);
             }
-            if (mustCaptureActive()) {
+            if (candidateMarkerActive()) {
                 ctx.globalAlpha = 0.7;
-                const playerColor = ps.currentPlayer === 1 ? '#222' : '#fff';
+                const mover = ps.tryPlayMode ? ps.tryPlayCurrentPlayer : ps.currentPlayer;
+                const playerColor = mover === 1 ? '#222' : '#fff';
                 const sh = cellSize * 0.18;
-                for (const { row, col } of ps.candidates) {
+                for (const { row, col } of displayedCandidates()) {
                     const x = ps.PADDING + col * cellSize;
                     const y = ps.PADDING + (ps.BOARD_SIZE - 1 - row) * cellSize;
                     ctx.fillStyle = playerColor;
@@ -360,6 +440,9 @@ const page = QiWeiqiSquarePageRuntime.create(ps, domPage, {
             roomId,
             roomPassword,
             isMouseDevice,
+            // 进出试下都要重画：试下时也画候选点小方块（进出本身不改盘面，运行时不重画）
+            onEnterTryPlay() { tryPlayBaseKey = null; tryPlayBaseSet = null; drawBoard(); },
+            onExitTryPlay() { drawBoard(); },
             rebuildLiveReplayFromMoveCoords(moveCoords) {
                 const syncedLen = ps.liveReplayBoards.length - 1;
                 const mcs = moveCoords || [];

@@ -7,6 +7,7 @@
 
 const {
     isKatagoAvailable,
+    readConfigMaxVisits,
     canAcquireKatagoNow,
     acquireKatagoSession,
     releaseKatagoSession,
@@ -285,6 +286,8 @@ function enrichState(self, state) {
         }
     }
     state.katagoAvailable = !!self.katagoAvailable;
+    // 人机棋力档位：配置文件 maxVisits > 1 时客户端才显示「棋力」下拉框
+    state.katagoMaxVisits = self.katagoAvailable ? readConfigMaxVisits(engineDirId(self)) : null;
     state.computerSlot = self.computerSlot || null;
     if (!state.slots) state.slots = { player1: false, player2: false };
     if (self.computerSlot === 'player1') state.slots.player1 = true;
@@ -404,6 +407,13 @@ function prepareKatagoEngine(self, ws) {
             return null;
         }
         self._qiKatagoPrepared = session;
+        // 预热成功后回推一次状态：「与电脑对战」窗口靠它拿到 katagoMaxVisits（棋力档位）。
+        // 客户端收到的是带完整状态的消息，不会额外触发别的 UI。
+        if (ws && ws.readyState === 1) {
+            try {
+                ws.send(JSON.stringify({ type: 'gameState', ...self.getState() }));
+            } catch (_) { /* ignore */ }
+        }
         return session;
     }).catch((err) => {
         if (gen === self._qiKatagoPrepareGen) {
@@ -1007,6 +1017,8 @@ async function ensureKatagoEngine(self, opts) {
             releaseSessionToPool(session);
             return null;
         }
+        // 棋力（初级 1 / 中级 = 配置值）：只影响 genmove 的搜索量，kata-raw-nn 取候选不受影响
+        await session.setMaxVisits(Number(self.aiVisits) || 1);
 
         // 可能与人类落子并行：setup 后若盘面已变则重同步
         for (let attempt = 0; attempt < 4; attempt++) {
@@ -1136,6 +1148,15 @@ function handleStartVsComputer(self, ws, msg) {
     self.tcNego = null;
     self.tcSettings = { timed: false };
     self.tcClock = null;
+    // 让子：人机开局不走 _finalizeTimeControl，这里按对话框传来的让子数摆白子（被让子方执白、黑先）
+    require('./common').qiApplyHandicapFromRequest(self, msg && msg.handicap);
+    // 棋力：初级 = 配置文件 maxVisits 1；中级 = 配置文件里的值（配置本身为 1 或没这项时不提供中级）
+    {
+        const cfgVisits = readConfigMaxVisits(engineDirId(self));
+        const useIntermediate = msg && msg.aiLevel === 'intermediate'
+            && Number.isFinite(cfgVisits) && cfgVisits > 1;
+        self.aiVisits = useIntermediate ? cfgVisits : 1;
+    }
     self.matchStarted = true;
     room.broadcast({ type: 'slotOccupied', slot: computerSlot });
 

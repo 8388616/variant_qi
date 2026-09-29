@@ -1,17 +1,18 @@
 window.RoomPlugins = window.RoomPlugins || {};
-window.RoomPlugins['no-adjacent-prev-weiqi'] = {
+window.RoomPlugins['conservatism-weiqi'] = {
     shell: {
-        "title": "不邻前手围棋",
+        "title": "保守围棋",
         "rulesHtml": "基本规则同围棋，但每手棋不能下在前一手的相邻位置。：<br /><br /><strong>不邻前手</strong>：不能下在前一手的上下左右四格。<br /><br /><strong>不邻己方前手</strong>：不能下在己方前一手的上下左右四格。<br /><br /><strong>不近前手</strong>：不能下在前一手的上下左右及四个斜角。<br /><br /><strong>不近己方前手</strong>：不能下在己方前一手的上下左右及四个斜角。<br /><br />",
         "defaultKomiText": "黑贴白3.25点",
         "boardSizeMin": 7,
         "boardSizeMax": 21,
         "defaultBoardSize": 19,
         "minLib": 1,
-        "recordDownloadPrefix": "不邻前手围棋",
+        "recordDownloadPrefix": "保守围棋",
         "useBenson": true,
         "standardWeiqiMatchTime": true,
         "features": {
+            "handicap": true,
             "showEstimate": true,
             "woodTexture": true,
             "zoomScroll": false,
@@ -43,7 +44,7 @@ window.RoomPlugins['no-adjacent-prev-weiqi'] = {
 
         (function () {
 // ======================== 配置 ========================
-        // 子棋类（顺序即下拉框顺序；与 games/no-adjacent-prev-weiqi.js 的 SUB_GAMES 一致）
+        // 子棋类（顺序即下拉框顺序；与 games/conservatism-weiqi.js 的 SUB_GAMES 一致）
         const SUB_GAMES = ['no-adjacent-prev-weiqi', 'no-adjacent-own-prev-weiqi', 'no-near-prev-weiqi', 'no-near-own-prev-weiqi'];
         const DEFAULT_SUB_GAME = 'no-adjacent-prev-weiqi';
         let SUB = DEFAULT_SUB_GAME;
@@ -154,7 +155,7 @@ const scoreTitle = document.getElementById('scoreTitle');
         const R = () => QiWeiqiSquarePageRuntime;
 
         /* ==================== 禁点（与前一手 / 己方前一手 相邻或相近） ====================
-         * 判定口径与 games/no-adjacent-prev-weiqi.js 的 isBannedPoint 逐字一致：
+         * 判定口径与 games/conservatism-weiqi.js 的 isBannedPoint 逐字一致：
          *   参考手 = 己方前一手（meta.own）/ 全局最后一手（只看它，不往前找）；参考的是那一手的落点；
          *   参考手是虚着 / 不存在 → 无禁点；near = 含四个斜角（八格），否则只算上下左右。
          */

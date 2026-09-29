@@ -12,6 +12,7 @@ window.RoomPlugins['duo-quadricolour-weiqi'] = {
         "useBenson": false,
         "standardWeiqiMatchTime": true,
         "features": {
+            "handicap": true,
             "showEstimate": true,
             "woodTexture": true,
             "zoomScroll": true,

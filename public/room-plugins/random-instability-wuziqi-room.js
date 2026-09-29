@@ -741,7 +741,7 @@ syncState,
             standardWeiqiMatchTime,
             boardSeatOverlay: true
         });
-        bindingsUpdateRecordButtons = _seatOverlay.updateRecordButtons;
+        bindingsUpdateRecordButtons = _weiqiBindings.updateRecordButtons;
         const baseRoomHandleMessage = _weiqiBindings.handleMessage;
 
         // WebSocket

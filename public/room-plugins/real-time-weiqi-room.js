@@ -12,6 +12,7 @@ window.RoomPlugins['real-time-weiqi'] = {
         "useBenson": true,
         "standardWeiqiMatchTime": true,
         "features": {
+            "handicap": true,
             "showEstimate": true,
             "woodTexture": true,
             "editBoard": true,

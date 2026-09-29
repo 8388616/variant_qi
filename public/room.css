@@ -2497,6 +2497,13 @@ body.qi-room .qi-time-control-color-row {
     gap: 12px 18px;
     margin: 10px 0 4px;
     justify-content: center;
+    align-items: center;   /* 单选与让子下拉框竖直居中对齐 */
+}
+
+body.qi-room .qi-time-control-color-row .qi-time-control-radio {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
 }
 
 body.qi-room .qi-time-control-modal {
@@ -2547,9 +2554,47 @@ body.qi-room .qi-time-control-field input {
 }
 
 body.qi-room .qi-time-control-hint {
-    margin: 10px 0 6px;
+    margin: 24px 0 6px;
     font-size: 0.85rem;
     min-height: 1.2em;
+    text-align: center;   /* 横向置中 */
+}
+
+/* 人机「棋力」一行（只有配置 maxVisits > 1 时显示） */
+body.qi-room .qi-time-control-ai-row {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    margin: 16px 0 2px;
+}
+
+/* 让子提示：接在决策提示后面，红字连读（同一行，不换行不占额外高度） */
+body.qi-room .qi-handicap-hint {
+    margin-left: 6px;
+    color: #c62828;
+}
+
+/* 对话框里的下拉框（让子 / 电脑棋力）：观感与路数下拉框一致，只保持现成高度 */
+body.qi-room .qi-time-control-select {
+    margin-left: 4px;
+    vertical-align: middle;
+    padding: 2px 12px;
+    border: 1px solid var(--qi-room-line);
+    border-radius: 999px;
+    background: rgba(255, 249, 240, 0.96);
+    color: var(--qi-room-ink);
+    font-family: var(--qi-room-font);
+    font-size: 0.95rem;
+    font-weight: 500;
+    cursor: pointer;
+}
+
+/* 两行里的控件与文字标签一律竖直居中 */
+body.qi-room .qi-time-control-ai-row .qi-time-control-radio,
+body.qi-room .qi-time-control-color-row .qi-time-control-radio {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
 }
 
 body.qi-room .qi-time-control-wait {

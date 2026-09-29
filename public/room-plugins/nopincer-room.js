@@ -11,6 +11,7 @@ window.RoomPlugins['nopincer'] = {
         "recordDownloadPrefix": "不夹棋",
         "standardWeiqiMatchTime": true,
         "features": {
+            "handicap": true,
             "woodTexture": true,
             "editBoard": true,
             "compoundPalette": false,

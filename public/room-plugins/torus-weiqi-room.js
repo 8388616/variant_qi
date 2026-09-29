@@ -11,6 +11,7 @@ window.RoomPlugins['torus-weiqi'] = {
         "recordDownloadPrefix": "环面围棋",
         "standardWeiqiMatchTime": true,
         "features": {
+            "handicap": true,
             "showEstimate": true,
             "woodTexture": true,
             "zoomScroll": true,

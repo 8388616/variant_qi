@@ -130,6 +130,12 @@ const qiMatchTimeControl = {
                 return { ok: false, error: '执子选项无效。' };
             }
         }
+        if (msg.handicap != null && msg.handicap !== '') {
+            // 让子数：0 = 不让子；上限按棋盘星位再夹一次（validateProposal 拿不到 self，实际夹在提交处）
+            const h = parseInt(String(msg.handicap), 10);
+            if (!Number.isFinite(h) || h < 0 || h > 9) return { ok: false, error: '让子数须在 0~9 之间。' };
+            result.handicap = h;
+        }
         return result;
     },
 
@@ -479,6 +485,146 @@ function qiResultTextOfSeat(self, seat) {
  *   3. 只有「判负」时取另一方（两方棋种）；
  *   4. 颜色再按本棋种声明的执方名定位座位（四色围棋「黑蓝胜」→player1）。
  */
+/* ---------- 让子（围棋类） ---------- */
+
+/**
+ * 星位（与客户端 room.js 的 getStarPoints 同口径）：角上偏移 2（≤11 路）或 3，天元（≥9 且奇数路），
+ * 边星（≥15 且奇数路）。返回 [row, col] 列表，row 0 = 棋盘最下（站内约定），顺序＝让子取用顺序。
+ */
+function qiStarPoints(boardSize) {
+    const n = Number(boardSize);
+    if (!Number.isInteger(n) || n < 5) return [];
+    const o = n <= 11 ? 2 : 3;
+    const S = n - 1;
+    const out = [];
+    const push = (r, c) => {
+        if (r < 0 || c < 0 || r >= n || c >= n) return;
+        if (out.some(([rr, cc]) => rr === r && cc === c)) return;
+        out.push([r, c]);
+    };
+    push(o, S - o);          // 右下
+    push(S - o, o);          // 左上
+    push(o, o);              // 左下
+    push(S - o, S - o);      // 右上
+    if (n >= 9 && n % 2 === 1) { const c0 = (n - 1) / 2; push(c0, c0); }              // 天元
+    if (n >= 15 && n % 2 === 1) {
+        const c0 = (n - 1) / 2;
+        push(c0, o); push(c0, S - o); push(o, c0); push(S - o, c0);                   // 边星
+    }
+    return out;
+}
+
+/**
+ * 让 n 子的摆法（用户定；被让子方执白、摆的是白子）：
+ *   1 右下星位 / 2 右下+左上 / 3 右下+左上+左下 / 4 四角 / 5 四角+天元 /
+ *   6 四角+左右边星（＝左右各三个星位）/ 7 6+天元 / 8 除天元外的星位 / 9 全部星位
+ * 该路数摆不下（没有天元/边星）返回 null。
+ */
+function qiHandicapStones(boardSize, n) {
+    const count = Number(n);
+    const size = Number(boardSize);
+    if (!Number.isInteger(count) || count <= 0 || count > 9) return null;
+    const stars = qiStarPoints(size);
+    if (stars.length === 0) return null;
+    const S = size - 1;
+    const o = size <= 11 ? 2 : 3;
+    const has = (r, c) => stars.some(([rr, cc]) => rr === r && cc === c);
+    /** 摆法里可能重名（小路数上几个星位是同一格）：去重后不足 n 颗就算这个路数摆不下 */
+    const uniq = (pts) => {
+        const out = [];
+        for (const [r, c] of pts) if (!out.some(([rr, cc]) => rr === r && cc === c)) out.push([r, c]);
+        return out;
+    };
+    const done = (pts) => {
+        const u = uniq(pts);
+        return u.length === count ? u : null;
+    };
+    const RB = [o, S - o], LT = [S - o, o], LB = [o, o], RT = [S - o, S - o];
+    const corners = [RB, LT, LB, RT];
+    if (!corners.every(([r, c]) => has(r, c))) return null;
+    const odd = size % 2 === 1;
+    const c0 = odd ? (size - 1) / 2 : 0;
+    const CEN = [c0, c0];
+    const LEFTMID = [c0, o], RIGHTMID = [c0, S - o], BOTMID = [o, c0], TOPMID = [S - o, c0];
+    const hasCenter = odd && has(CEN[0], CEN[1]);
+    const hasLeftRight = odd && has(LEFTMID[0], LEFTMID[1]) && has(RIGHTMID[0], RIGHTMID[1]);
+    const hasAllSides = hasLeftRight && has(BOTMID[0], BOTMID[1]) && has(TOPMID[0], TOPMID[1]);
+    switch (count) {
+        case 1: return done([RB]);
+        case 2: return done([RB, LT]);
+        case 3: return done([RB, LT, LB]);
+        case 4: return done(corners);
+        case 5: return hasCenter ? done(corners.concat([CEN])) : null;
+        case 6: return hasLeftRight ? done(corners.concat([LEFTMID, RIGHTMID])) : null;
+        case 7: return (hasLeftRight && hasCenter) ? done(corners.concat([LEFTMID, RIGHTMID, CEN])) : null;
+        case 8: return hasAllSides ? done(corners.concat([LEFTMID, RIGHTMID, BOTMID, TOPMID])) : null;
+        case 9: return (hasAllSides && hasCenter)
+            ? done(corners.concat([LEFTMID, RIGHTMID, BOTMID, TOPMID, CEN])) : null;
+        default: return null;
+    }
+}
+
+/** 该路数能选的最大让子数（0 = 这个棋盘给不了让子选项） */
+function qiMaxHandicap(boardSize) {
+    let max = 0;
+    for (let n = 1; n <= 9; n++) if (qiHandicapStones(boardSize, n)) max = n;
+    return max;
+}
+
+/** 棋种当前路数（各棋种字段不一：boardSize / BOARD_SIZE / boardLength…） */
+function qiBoardSizeOf(self) {
+    if (!self) return 0;
+    const cand = [self.boardSize, self.BOARD_SIZE, self.boardLength, self.roadCount, self.gridW];
+    for (const v of cand) if (Number.isInteger(v) && v > 0) return v;
+    return 0;
+}
+
+/**
+ * 让子后的开局盘：在棋种当前的开局盘（重置后多为空盘；先一各二等有标准开局的就在其基础上加）上
+ * 摆 n 颗白子（星位已有子的跳过）。摆不出来（非二维盘/星位不够）返回 null。
+ */
+function qiHandicapBoard(self, n) {
+    const size = qiBoardSizeOf(self);
+    if (!size) return null;
+    const base = (self && Array.isArray(self.openingBoard) && Array.isArray(self.openingBoard[0]))
+        ? self.openingBoard
+        : (self && Array.isArray(self.board) && Array.isArray(self.board[0]) ? self.board : null);
+    if (!base || base.length !== size) return null;
+    const stones = qiHandicapStones(size, n);
+    if (!stones) return null;
+    const out = base.map((row) => row.slice());
+    let placed = 0;
+    for (const [r, c] of stones) {
+        if (out[r] && out[r][c] === 0) { out[r][c] = 2; placed++; }   // 2 = 白子
+    }
+    return placed > 0 ? out : null;
+}
+
+/**
+ * 对局开始时的让子处理：按请求数记到棋种上（按路数星位夹一次）并摆子。
+ * 限时协商与人机开局都走这里。返回实际生效的让子数。
+ */
+function qiApplyHandicapFromRequest(self, want) {
+    const maxH = qiMaxHandicap(qiBoardSizeOf(self));
+    const n = Math.floor(Number(want) || 0);
+    self.handicap = maxH > 0 ? Math.max(0, Math.min(n, maxH)) : 0;
+    if (self.handicap > 0) qiApplyHandicap(self);
+    return self.handicap;
+}
+
+/** 把让子摆上去（对局开始时、每次重置后都要调）：成功返回 true */
+function qiApplyHandicap(self) {
+    const n = Number(self && self.handicap) || 0;
+    if (n <= 0) return false;
+    const board = qiHandicapBoard(self, n);
+    if (!board) return false;
+    try {
+        return qiProtocol.applyOpeningBoard(self, board);
+    } catch (_) {
+        return false;
+    }
+}
+
 function qiSeatOfResultText(self, resultText) {
     if (typeof resultText !== 'string') return null;
     const text = resultText.trim();
@@ -1025,6 +1171,51 @@ const qiProtocol = {
      * - 自定义：self.applyEditBoard(ws, msg) 优先
      * 成功后写入 openingBoard 并广播 editBoardAccepted。
      */
+    /**
+     * 把「开局盘」应用成当前局面（编辑盘面、让子共用）：写入 board 与 openingBoard、
+     * 清空着手历史、重置胜负，并广播 editBoardAccepted（客户端据此重建开局与盘面）。
+     */
+    applyOpeningBoard(self, board, mode) {
+        if (!self || !Array.isArray(board) || !Array.isArray(board[0])) return false;
+        self.board = typeof self.copyBoard === 'function' ? self.copyBoard(board) : copyBoard(board);
+        // 先按「player1 先手」的默认约定摆好行棋方，再让棋种自己覆盖
+        // （白先棋种如结子棋/五道棋的 afterEditBoard 会把 currentPlayer 设成白方，不能被这里再改回去）
+        self.currentPlayer = 1;
+        if (typeof self.afterEditBoard === 'function') self.afterEditBoard();
+
+        self.openingBoard = typeof self.copyBoard === 'function'
+            ? self.copyBoard(self.board)
+            : (mode === 'flat' ? self.board.slice() : (
+                Array.isArray(self.board[0]) ? self.board.map((row) => row.slice()) : self.board.slice()
+            ));
+        if (Array.isArray(self.historyBoards)) self.historyBoards = [];
+        if (self.historyBoardSet && typeof self.historyBoardSet.clear === 'function') {
+            self.historyBoardSet.clear();
+            // 棋种把「局面」定义得比盘面宽（含雷/隐身分布/棋子年龄/手数等）时，用它的 key 种这一手。
+            // 取 key 失败（有的棋种 boardToString 还要第二参数）不该影响摆子本身，吞掉即可。
+            try {
+                if (typeof self.superKoSeedKey === 'function') {
+                    self.historyBoardSet.add(self.superKoSeedKey());
+                } else if (typeof self.boardToString === 'function') {
+                    self.historyBoardSet.add(self.boardToString(self.board));
+                }
+            } catch (_) { /* ignore */ }
+        }
+        if (Array.isArray(self.moveHistory)) self.moveHistory = [];
+        if (Array.isArray(self.moveCoords)) self.moveCoords = [];
+        if (Array.isArray(self.historyMarkers)) self.historyMarkers = [];
+        self.lastMoveMarkers = [];
+        if ('passCounter' in self) self.passCounter = 0;
+        self.gameOver = false;
+        self.winner = null;
+
+        const state = typeof self.getInitialState === 'function'
+            ? self.getInitialState()
+            : (typeof self.getState === 'function' ? self.getState() : {});
+        self.broadcast({ type: 'editBoardAccepted', ...state });
+        return true;
+    },
+
     editSquareBoard(self, ws, msg) {
         if (qiProtocol.isBoardEditLocked(self)) {
             ws.send(JSON.stringify({ type: 'error', message: '对局已开始，不能编辑棋盘' }));
@@ -1156,39 +1347,7 @@ const qiProtocol = {
                 : copyBoard(editedBoard);
         }
 
-        // 先按「player1 先手」的默认约定摆好行棋方，再让棋种自己覆盖
-        // （白先棋种如结子棋/五道棋的 afterEditBoard 会把 currentPlayer 设成白方，不能被这里再改回去）
-        self.currentPlayer = 1;
-        if (typeof self.afterEditBoard === 'function') self.afterEditBoard();
-
-        self.openingBoard = typeof self.copyBoard === 'function'
-            ? self.copyBoard(self.board)
-            : (mode === 'flat' ? self.board.slice() : (
-                Array.isArray(self.board[0]) ? self.board.map((row) => row.slice()) : self.board.slice()
-            ));
-        if (Array.isArray(self.historyBoards)) self.historyBoards = [];
-        if (self.historyBoardSet && typeof self.historyBoardSet.clear === 'function') {
-            self.historyBoardSet.clear();
-            if (typeof self.superKoSeedKey === 'function') {
-                // 棋种把「局面」定义得比盘面宽（含雷/隐身分布/棋子年龄/手数等）时，用它的 key 种这一手
-                self.historyBoardSet.add(self.superKoSeedKey());
-            } else if (typeof self.boardToString === 'function') {
-                self.historyBoardSet.add(self.boardToString(self.board));
-            }
-        }
-        if (Array.isArray(self.moveHistory)) self.moveHistory = [];
-        if (Array.isArray(self.moveCoords)) self.moveCoords = [];
-        if (Array.isArray(self.historyMarkers)) self.historyMarkers = [];
-        self.lastMoveMarkers = [];
-        if ('passCounter' in self) self.passCounter = 0;
-        self.gameOver = false;
-        self.winner = null;
-
-        const state = typeof self.getInitialState === 'function'
-            ? self.getInitialState()
-            : (typeof self.getState === 'function' ? self.getState() : {});
-        self.broadcast({ type: 'editBoardAccepted', ...state });
-        return true;
+        return qiProtocol.applyOpeningBoard(self, self.board, mode);
     },
 
     /** 为 Room 安装标准 editBoard（openingBoard + getState.initialBoard + 消息处理） */
@@ -2642,7 +2801,8 @@ const qiBoardSeatOverlay = {
                     byoyomiSeconds: proposal.byoyomiSeconds,
                     maxTimeouts: proposal.maxTimeouts,
                     colorChoice: proposal.colorChoice || null,
-                    colorChooserSlot: proposal.colorChooserSlot || null
+                    colorChooserSlot: proposal.colorChooserSlot || null,
+                    handicap: proposal.handicap || 0
                 }
             }));
         };
@@ -2758,6 +2918,12 @@ const qiBoardSeatOverlay = {
             const parsed = this._qiParseColorChoice(msg, slot);
             v.colorChoice = parsed.colorChoice;
             v.colorChooserSlot = parsed.colorChooserSlot;
+            // 让子数按本棋种当前路数的星位夹一次（摆不下的直接当不让子）
+            {
+                const maxH = qiMaxHandicap(qiBoardSizeOf(this));
+                const want = Number.isFinite(v.handicap) ? v.handicap : 0;
+                v.handicap = maxH > 0 ? Math.max(0, Math.min(want, maxH)) : 0;
+            }
             const room = this.room;
             if (slot !== this.tcNego.waitingSlot) {
                 this._qiResendNegotiationUi(ws);
@@ -2788,6 +2954,11 @@ const qiBoardSeatOverlay = {
                 || this._firstPickerSlot();
             this._qiApplyChooserColorChoice((valid && valid.colorChoice) || 'black', chooserSlot);
             this._qiNotifyColorsFinalized();
+
+            // 让子：设置记在棋种上（新局沿用），开局前把白子摆到星位（被让子的一方执白、黑先）。
+            // 必须放在棋种自带 finalize 的转调**之前**——自带 finalize 的棋种（选点/一色/易位围棋等）会直接 return。
+            this.handicap = valid && valid.handicap ? valid.handicap : 0;
+            if (this.handicap > 0) qiApplyHandicap(this);
 
             // 有棋种自带 finalize（如选点围棋/五子：generateCandidates + gameState）时必须转调，
             // 否则选点/局面永远不会生成与下发。
@@ -2871,6 +3042,14 @@ const qiBoardSeatOverlay = {
             state.hostSlot = self.hostWs ? self.room.getSlotByWs(self.hostWs) : null;
             state.boardSeatOverlay = true;
             if (self.matchStarted !== undefined) state.matchStarted = !!self.matchStarted;
+            // 让子：当前设置 + 这个路数能选的上限（客户端据此显示下拉框与选项）
+            state.handicap = Number(self.handicap) || 0;
+            state.maxHandicap = qiMaxHandicap(qiBoardSizeOf(self));
+            // 开局盘也随状态下发（没装 installStandardEditBoard 的棋种——如易位围棋——就靠这里带上让子）
+            if (state.initialBoard == null && self.openingBoard && Array.isArray(self.openingBoard) && Array.isArray(self.openingBoard[0])) {
+                const ob = typeof self.copyBoard === 'function' ? self.copyBoard(self.openingBoard) : copyBoard(self.openingBoard);
+                if (ob != null) state.initialBoard = ob;
+            }
             if (!state.sideLabels) {
                 state.sideLabels = {
                     player1: qiSideLabelOfSlot(self, 'player1'),
@@ -3022,5 +3201,12 @@ module.exports = {
     qiSideLabelOfSlot,
     qiWinnerResultText,
     qiResultTextOfSeat,
-    qiSeatOfResultText
+    qiSeatOfResultText,
+    qiStarPoints,
+    qiHandicapStones,
+    qiMaxHandicap,
+    qiHandicapBoard,
+    qiApplyHandicap,
+    qiApplyHandicapFromRequest,
+    qiBoardSizeOf
 };

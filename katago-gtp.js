@@ -90,6 +90,39 @@ function isKatagoAvailable(gameId) {
     }
 }
 
+/**
+ * gtp.cfg 里的 maxVisits（人机「棋力」档位用：初级 = 1、中级 = 这里读到的值）。
+ * 读不到（文件缺失/没写这项）返回 null。
+ * **按 mtime+大小缓存**：改了配置文件后新开的对局就能读到新值，**不用重启服务端**
+ * （每局开始都会 `kata-set-param maxVisits N` 覆盖引擎进程启动时读的旧值；引擎自身仍按启动时的 cfg）。
+ */
+const _cfgMaxVisitsCache = new Map();
+function readConfigMaxVisits(gameId) {
+    const id = safeGameId(gameId);
+    const dir = resolveKatagoDir(id);
+    let cfgPath = null;
+    let stat = null;
+    if (dir) {
+        cfgPath = path.join(dir, 'gtp.cfg');
+        try { stat = fs.statSync(cfgPath); } catch (_) { stat = null; }
+    }
+    const stamp = stat ? `${stat.mtimeMs}:${stat.size}` : 'none';
+    const hit = _cfgMaxVisitsCache.get(id);
+    if (hit && hit.stamp === stamp) return hit.value;
+    let value = null;
+    if (stat) {
+        try {
+            // 宽松一点：允许行尾注释与空格（`maxVisits = 500  # 注释`）
+            const m = String(fs.readFileSync(cfgPath, 'utf8')).match(/^[ \t]*maxVisits[ \t]*=[ \t]*([0-9]+)\b/m);
+            if (m) value = parseInt(m[1], 10);
+        } catch (_) {
+            value = null;
+        }
+    }
+    _cfgMaxVisitsCache.set(id, { stamp, value });
+    return value;
+}
+
 /** 非方形棋盘（如开罗五角围棋）时 boardHeight 为行数；缺省与 boardSize（宽）相同。
  *  坐标约定：row=0 为棋盘最低行（界面自下而上编号 1..N）。
  *  映射到 GTP 行号 = 路数 − row，即 row 0 → A19：站点行号与 GTP 行号方向相反，
@@ -905,6 +938,21 @@ class KatagoGtpSession {
         return fromGtpMove(raw, bs, bh);
     }
 
+    /**
+     * 设置本会话的搜索量（人机棋力：初级 1、中级 = 配置值）。
+     * 用 kata-set-param（KataGo 扩展命令）；失败不抛，继续用配置文件里的值。
+     */
+    async setMaxVisits(n) {
+        const v = Math.max(1, Math.floor(Number(n) || 1));
+        this.maxVisits = v;
+        try {
+            await this.command(`kata-set-param maxVisits ${v}`);
+        } catch (err) {
+            console.warn('[katago] kata-set-param maxVisits 失败，按配置文件的值继续：', err && err.message);
+        }
+        return v;
+    }
+
     destroy() {
         this.generation += 1;
         this.dead = true;
@@ -1255,6 +1303,7 @@ module.exports = {
     KatagoBusyError,
     isKatagoBusyError,
     isKatagoAvailable,
+    readConfigMaxVisits,
     canAcquireKatagoNow,
     KatagoGtpSession,
     acquireKatagoSession,
