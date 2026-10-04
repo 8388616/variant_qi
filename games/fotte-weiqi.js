@@ -20,8 +20,17 @@ const { qiBoardSeatOverlay, QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl,
  *   - 先落了一子再点虚着 → 只剩的那一手记虚着；
  *   - **双方连续两个回合都整回合虚着** → 终局数点（与围棋「连续两次虚着」同精神）。
  */
-/** 贴目：黑贴白 0.5 点 */
-const KOMI = 0.5;
+// ======================== 配置 ========================
+/**
+ * 贴目（单位「点」=「子」；黑贴白为正、白贴黑为负）。
+ * **要改贴目只改这一个函数** —— getState（界面显示）、棋谱导出、computeLead（形势判断/数点）
+ * 全部走它；发给 KataGo 引擎时会自动 ×2 折成「目」（见 qi-katago-opponent.js 的 engineKomi）。
+ */
+function komiForSize(boardSize) {
+    if (boardSize === 7) return -0.5;
+    return -2;
+}
+
 const RECORD_GAME_ID = 'fotte-weiqi';
 const RECORD_GAME_TYPE = '先一各二围棋';
 
@@ -215,9 +224,9 @@ class FotteWeiqiRoom extends QiTwoPlayerRoomBase
         return squareWeiqiRules.computeScore(liveBoard, territory, this.boardSize);
     }
 
-    /** 形势判断 / 数点：与围棋同一档（Benson），贴目固定黑贴白 0.5 点 */
+    /** 形势判断 / 数点：与围棋同一档（Benson），贴目见 komiForSize */
     computeLead() {
-        const { lead } = computeBensonWeiqiLead(this.board, KOMI, squareWeiqiScoringOps(this.boardSize, {
+        const { lead } = computeBensonWeiqiLead(this.board, komiForSize(this.boardSize), squareWeiqiScoringOps(this.boardSize, {
             copyBoard: (b) => this.copyBoard(b)
         }));
         return lead;
@@ -252,7 +261,7 @@ class FotteWeiqiRoom extends QiTwoPlayerRoomBase
             : this.copyBoard(this.board);
         return {
             boardSize: this.boardSize,
-            komi: KOMI,
+            komi: komiForSize(this.boardSize),
             board: this.board,
             initialBoard,
             numberOfHands: 1 + this.historyBoards.length,
@@ -574,7 +583,7 @@ class FotteWeiqiRoom extends QiTwoPlayerRoomBase
             gameType: RECORD_GAME_TYPE,
             gameId: RECORD_GAME_ID,
             boardSize: this.boardSize,
-            komi: KOMI,
+            komi: komiForSize(this.boardSize),
             players: { player1: null, player2: null },
             initialPosition: encodeOpeningPositionCompact(this),
             moves: this.moveCoords.map(m => {

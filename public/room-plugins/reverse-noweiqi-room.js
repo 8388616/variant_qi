@@ -42,7 +42,7 @@ window.RoomPlugins['reverse-noweiqi'] = {
         var standardWeiqiMatchTime = config.standardWeiqiMatchTime != null ? config.standardWeiqiMatchTime : true;
 
         (function () {
-const ps = {
+		const ps = {
             BOARD_SIZE: 9,
             KOMI: 0,
             PADDING: 0,

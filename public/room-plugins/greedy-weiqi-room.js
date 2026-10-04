@@ -2,7 +2,7 @@ window.RoomPlugins = window.RoomPlugins || {};
 window.RoomPlugins['greedy-weiqi'] = {
     shell: {
         "title": "贪吃围棋",
-        "rulesHtml": "基本规则同围棋。<br /><br />有提子时必须提子（禁全同除外）；若有多个可提子点，则必须走提子数量最多的点；若有多个最多的点，可任选其一。<br /><br />",
+        "rulesHtml": "基本规则同围棋。<br /><br />可以提子时必须提子；若有多个可提子点，则必须走提子数量最多的点；若有多个最多的点，可任选其一。<br /><br />在考虑提子点时，会触发禁全同限制的点不算在内。<br /><br />",
         "defaultKomiText": "黑贴白1点",
         "boardSizeMin": 7,
         "boardSizeMax": 21,
@@ -48,7 +48,7 @@ window.RoomPlugins['greedy-weiqi'] = {
         function komiForSize(boardSize) {
 			if (boardSize === 3) return 4.5;
 			if (boardSize === 5) return 12.5;
-			if (boardSize === 7) return 3.0;
+			if (boardSize === 7) return 2.5;
 			if (boardSize === 8) return 2.0;
 			if (boardSize === 9) return 1.5;
 			return 1.0;
@@ -111,7 +111,7 @@ window.RoomPlugins['greedy-weiqi'] = {
             ps.board = Array(ps.BOARD_SIZE).fill().map(() => Array(ps.BOARD_SIZE).fill(0));
         })();
 
-const BOARD_MARK_CHAR_LIST = (() => {
+		const BOARD_MARK_CHAR_LIST = (() => {
             const a = [];
             a.push('?', '!');
             for (let i = 0; i < 26; i++) a.push(String.fromCharCode(65 + i));
@@ -551,6 +551,16 @@ const page = QiWeiqiSquarePageRuntime.create(ps, domPage, {
                 refreshCandidatesFromBoard();
             }
             updateEditModeUI();
+            // 候选点小方块随状态立刻刷新：syncStateBase 里那一次重画发生在候选点写入**之前**，
+            // 不在这里补一次重画的话，方块会停留在上一手的状态（表现为「落子后不消失、还换了颜色，
+            // 要等鼠标一动才刷新」）
+            drawBoard();
+        }
+
+        /** 自己落子后本地候选点即失效（新一手的候选点等下一次状态下发）→ 立刻清掉并重画 */
+        function clearCandidatesAfterLocalMove() {
+            ps.candidates = [];
+            drawBoard();
         }
 
         function setLiveViewStepGreedy(step) {
@@ -740,7 +750,7 @@ syncState,
                 if (ps.hoverRow === row && ps.hoverCol === col && ps.isHoverValid) {
                     clearMobileMovePreview();
                     commitMove(row, col);
-                    drawBoard();
+                    clearCandidatesAfterLocalMove();   // 落子后候选点方块立刻消失
                 } else {
                     ps.hoverRow = row;
                     ps.hoverCol = col;
@@ -750,6 +760,7 @@ syncState,
                 return;
             }
             commitMove(row, col);
+            clearCandidatesAfterLocalMove();   // 落子后候选点方块立刻消失
         });
 
         if (isMouseDevice)

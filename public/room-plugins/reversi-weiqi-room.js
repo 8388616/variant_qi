@@ -48,7 +48,7 @@ window.RoomPlugins['reversi-weiqi'] = {
 // ======================== 配置 ========================
         const ps = {
             BOARD_SIZE: 19,
-            KOMI: 3.25,
+            KOMI: 9.75,
             PADDING: 0,
             CELL_SIZE: 0,
             numberOfHands: 1,

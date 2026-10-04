@@ -52,6 +52,13 @@ function otherSlot(slot) { return slot === 'player1' ? 'player2' : 'player1'; }
 /** 当前行棋方座位 */
 function seatToMove(self) { return self.currentPlayer === 1 ? 'player1' : 'player2'; }
 
+/** 电脑落子/虚着之后的「轮到谁」：棋种自带排程（先一各二围棋：一手可能不换人，本回合走满才换）
+ *  就交给它自己重算；没有排程的棋种还是老规矩——一手一换人。 */
+function syncTurnAfterComputerAction(self) {
+    if (typeof self._syncTurnState === 'function') { self._syncTurnState(); return; }
+    self.currentPlayer = 3 - self.currentPlayer;
+}
+
 function supportsSquareWeiqiGtp(self) {
     // 普通方格围棋：tryPlaceStone；复合棋子棋种（rus-weiqi）：tryPlaceShape/tryPlaceStonesAt
     const common = !!(self
@@ -75,6 +82,21 @@ function readKomi(self) {
         if (Number.isFinite(k)) return k;
     }
     return 7.5;
+}
+
+/**
+ * 站点的贴目数值发给引擎时要 **×2**：
+ * 站点里 1 点 = 1 子，而 1 子 = 2 目（站点计分本身就是 `黑点数 − 白点数 − 2×komi`，
+ * 见 common.js 的 computeNearestWeiqiLead / computeBensonWeiqiLead），KataGo 的 komi 单位是**目**
+ * —— 站点 2.75 点（= 2.75 子）= 5.5 目，不 ×2 的话引擎只按一半贴目判断形势。
+ * **不 ×2 还会让引擎直接崩**：引擎（KataGo 核心 invariants，nninputs.cpp 的
+ * whiteScoreMeanSqOfScoreGridded）要求终局分数是 0.5 的整数倍，站点贴目都是 0.25 的倍数，
+ * 原样下发会得到 .25/.75 的分数 → 触发 `testAssert` → Global::fatalError → quick_exit(1)
+ * （2026-10-01 吃子围棋 9 路 komi 2.75 的「KataGo 已退出 code=1」就是这条）。×2 后都是半整数。
+ */
+function engineKomi(self) {
+    const k = readKomi(self);
+    return Number.isFinite(k) ? Math.round(k * 2 * 1000) / 1000 : k;
 }
 
 /** 易位围棋：网页剩余可易位手数（set_position 后引擎着法史为空，故传剩余值） */
@@ -133,7 +155,7 @@ function weightsForEngine(weights) {
 function buildKatagoSetupOpts(self, board) {
     const opts = {
         boardSize: self.boardSize,
-        komi: readKomi(self),
+        komi: engineKomi(self),
         board,
         gameId: engineGameId(self),
         // 与 board 同一时刻的着法表长度：自检用它推算引擎着法史应有的手数（见 verifyEngineState）
@@ -143,6 +165,12 @@ function buildKatagoSetupOpts(self, board) {
     if (self.katagoBoardWidth && self.katagoBoardHeight) {
         opts.boardWidth = self.katagoBoardWidth;
         opts.boardHeight = self.katagoBoardHeight;
+    }
+    // 坐标系不同的棋盘（六角围棋：引擎是 4n−5×4n−4 的蜂窝细格，站点是显示网格）：
+    // 由棋种给出双向换算，会话在 set_position/play/genmove 时套用
+    if (typeof self.katagoCoordOf === 'function' && typeof self.katagoIndexAt === 'function') {
+        opts.coordOf = (r, c) => self.katagoCoordOf(r, c);
+        opts.coordInverse = (row, col) => self.katagoIndexAt(row, col);
     }
     const remain = readRemainingTranslocationMoves(self);
     if (remain != null) opts.maxTranslocationMoves = remain;
@@ -499,6 +527,30 @@ function compoundOrientToEngine(shapeIdx, rot, flip) {
     return (rot & 3) * 2 + (flip ? 1 : 0);
 }
 
+/**
+ * 引擎中途死掉（崩溃/被杀）时把**能复现的现场**打进日志：路数、贴目（站点值→引擎值）、
+ * 着法表与盘面。引擎是定制版、崩溃通常是「某个局面 + 某个贴目」触发（2026-10-01 capture-weiqi
+ * 的 2.75 贴目就是），没有这一份现场就只能猜。
+ */
+function logEngineCrashPosition(self, err) {
+    try {
+        const size = Number(self.boardSize) || 0;
+        const mm = (Array.isArray(self.moveCoords) ? self.moveCoords : [])
+            .map((m) => (m && m.type === 'pass' ? (m.player === 'player1' ? 'Bp' : 'Wp')
+                : (m && (m.player === 'player1' ? 'B' : 'W') + m.row + ',' + m.col))).join(' ');
+        let pic = '';
+        if (Array.isArray(self.board)) {
+            for (let r = size - 1; r >= 0; r--) {
+                pic += '\n    ' + (Array.isArray(self.board[r]) ? self.board[r]
+                    .map((v) => (v === 1 ? 'X' : v === 2 ? 'O' : v === 0 ? '.' : '?')).join(' ') : '');
+            }
+        }
+        console.error(`[katago:${engineGameId(self)}] 引擎死亡现场（原因：${err && err.message ? err.message : err}）`
+            + `\n  路数 ${size}、站点贴目 ${readKomi(self)} → 引擎贴目 ${engineKomi(self)}`
+            + `\n  着法表 ${mm || '(空)'}\n  盘面（row0 = 最下，X 黑 / O 白）：${pic}`);
+    } catch (_) { /* 日志失败不影响对局收尾 */ }
+}
+
 function boardToString(self, board) {
     if (typeof self.boardToString === 'function') return self.boardToString(board);
     return board.map((row) => row.join(',')).join(';');
@@ -551,7 +603,7 @@ function applyComputerMove(self, row, col) {
         if (typeof self._syncClockAfterTurnChange === 'function') self._syncClockAfterTurnChange();
         return true;
     }
-    self.currentPlayer = 3 - self.currentPlayer;
+    syncTurnAfterComputerAction(self);
     // 棋盘走满即终局的棋种（不围棋）：电脑落满最后一子 → 和棋（与房间人类着法一致）
     if (typeof self.isBoardFull === 'function' && self.isBoardFull()) {
         self.gameOver = true;
@@ -608,7 +660,7 @@ function applyComputerCompound(self, mv) {
     if ('movePlayerColor' in self) self.movePlayerColor = playerVal;
     if ('passCounter' in self) self.passCounter = 0;
     bumpMoveCount(self);
-    self.currentPlayer = 3 - self.currentPlayer;
+    syncTurnAfterComputerAction(self);
     self.broadcast({ type: 'broadcast', action: 'move', ...self.getState() });
     if (typeof self._syncClockAfterTurnChange === 'function') self._syncClockAfterTurnChange();
     return true;
@@ -671,7 +723,7 @@ function applyComputerSwap(self, aRow, aCol, bRow, bCol) {
     if ('movePlayerColor' in self) self.movePlayerColor = playerVal;
     if ('passCounter' in self) self.passCounter = 0;
     bumpMoveCount(self);
-    self.currentPlayer = 3 - self.currentPlayer;
+    syncTurnAfterComputerAction(self);
     self.broadcast({ type: 'broadcast', action: 'move', ...self.getState() });
     if (typeof self._syncClockAfterTurnChange === 'function') self._syncClockAfterTurnChange();
     return true;
@@ -730,6 +782,12 @@ function applyComputerPass(self) {
         if (typeof self._syncClockAfterTurnChange === 'function') self._syncClockAfterTurnChange();
         return;
     }
+    // 棋种自带虚着实现（先一各二围棋：虚着＝本回合剩下的一并虚掉、连两个「整回合虚着」才数点）：
+    // 交给棋种自己走一遍——写历史/换手/判终局/广播都在它里面，别在这里另写一份规则。
+    if (typeof self._resolvePass === 'function') {
+        self._resolvePass(moveSlot);
+        return;
+    }
     if (Array.isArray(self.historyBoards)) self.historyBoards.push(copyBoard(self, self.board));
     if (Array.isArray(self.historyMarkers)) self.historyMarkers.push(copyMarkers(self, self.lastMoveMarkers));
     if (Array.isArray(self.moveHistory)) self.moveHistory.push(moveSlot);
@@ -737,7 +795,7 @@ function applyComputerPass(self) {
     if ('moveHighlightMarkers' in self) self.moveHighlightMarkers = [];
     if ('movePlayerColor' in self) self.movePlayerColor = self.currentPlayer;
     bumpMoveCount(self);
-    self.currentPlayer = 3 - self.currentPlayer;
+    syncTurnAfterComputerAction(self);
     if ('passCounter' in self) self.passCounter = (self.passCounter || 0) + 1;
     self.lastMoveMarkers = [];
     self.broadcast({ type: 'broadcast', action: 'pass', ...self.getState() });
@@ -809,12 +867,24 @@ async function verifyEngineState(self, session, gen, trigger) {
     if (!probed) return;   // 不支持的引擎/特殊格棋盘：无法比对
     if (gen !== self._qiKatagoGen || session !== self._qiKatago || self.gameOver) return;
 
+    // 站点盘面 = probed.stones 的比对：坐标系不同的棋盘（六角）要先把站点格换算成引擎格
+    const coordOf = (typeof self.katagoCoordOf === 'function') ? self.katagoCoordOf.bind(self) : null;
     let stoneDiff = 0;
-    for (let r = 0; r < height && stoneDiff === 0; r++) {
+    for (let r = 0; r < (self.board ? self.board.length : 0) && stoneDiff === 0; r++) {
         const row = Array.isArray(self.board[r]) ? self.board[r] : [];
-        for (let c = 0; c < width; c++) {
+        for (let c = 0; c < row.length; c++) {
             const mine = row[c] === 1 || row[c] === 2 ? row[c] : 0;
-            if (probed.stones[r] && probed.stones[r][c] !== mine) { stoneDiff += 1; break; }
+            let er = r; let ec = c;
+            if (coordOf) {
+                const e = coordOf(r, c);
+                if (!e) continue;                 // 不属于引擎盘面的格（掩码外）：跳过
+                er = e.row; ec = e.col;
+            } else if (r >= height || c >= width) {
+                continue;
+            }
+            const line = probed.stones[er];
+            if (!line || ec >= line.length) continue;
+            if (line[ec] !== mine) { stoneDiff += 1; break; }
         }
     }
     const expectPla = colorOfSlot(seatToMove(self));
@@ -942,6 +1012,7 @@ function maybeScheduleKatago(self) {
             if (gen !== self._qiKatagoGen || self.gameOver) return;
             // 超时杀进程 / 引擎崩溃：结束人机，禁止落子后再拉起
             if (!self._qiKatago || self._qiKatago.dead) {
+                logEngineCrashPosition(self, err);
                 abortVsComputerOnEngineFailure(self, null, err);
                 return;
             }
@@ -955,6 +1026,9 @@ function maybeScheduleKatago(self) {
             verifyEngineState(self, self._qiKatago, gen, '电脑思考失败').catch(() => { /* ignore */ });
         }).finally(() => {
             if (gen === self._qiKatagoGen) self._qiKatagoBusy = false;
+            // 一「回合」能连走多手的棋种（先一各二围棋：黑第 1 手之后双方各连走两手）：
+            // 电脑走完一手后可能**还是**它走，这里再排一次；普通棋种走完就换人，等于空跑。
+            if (gen === self._qiKatagoGen) maybeScheduleKatago(self);
         });
     };
     run();
@@ -1187,28 +1261,42 @@ function handleHumanPassVsComputer(self, ws, slot) {
     if (!slot || slot !== seatToMove(self)) return;
 
     // 先立刻虚着，不因引擎启动阻塞
-    if (Array.isArray(self.historyBoards)) self.historyBoards.push(copyBoard(self, self.board));
-    if (Array.isArray(self.historyMarkers)) self.historyMarkers.push(copyMarkers(self, self.lastMoveMarkers));
-    if (Array.isArray(self.moveHistory)) self.moveHistory.push(slot);
-    if (Array.isArray(self.moveCoords)) self.moveCoords.push({ type: 'pass', player: slot });
-    if ('moveHighlightMarkers' in self) self.moveHighlightMarkers = [];
-    if ('movePlayerColor' in self) self.movePlayerColor = self.currentPlayer;
-    bumpMoveCount(self);
-    self.currentPlayer = 3 - self.currentPlayer;
-    if ('passCounter' in self) self.passCounter = (self.passCounter || 0) + 1;
-    self.lastMoveMarkers = [];
-    self.broadcast({ type: 'broadcast', action: 'pass', ...self.getState() });
-    if ((self.passCounter || 0) >= 2) {
-        self.passCounter = 0;   // 数点后重新计数（无论同意与否）
-        startScoreVsComputer(self);
-        return;
+    const coordsBefore = Array.isArray(self.moveCoords) ? self.moveCoords.length : 0;
+    let scoring = false;
+    // 棋种自带虚着实现（先一各二围棋：虚着＝本回合剩下的一并虚掉、连两个「整回合虚着」才数点）：
+    // 交给棋种自己走一遍——写历史/换手/判终局/数点/广播都在它里面，别在这里另写一份规则。
+    if (typeof self._resolvePass === 'function') {
+        self._resolvePass(slot);
+    } else {
+        if (Array.isArray(self.historyBoards)) self.historyBoards.push(copyBoard(self, self.board));
+        if (Array.isArray(self.historyMarkers)) self.historyMarkers.push(copyMarkers(self, self.lastMoveMarkers));
+        if (Array.isArray(self.moveHistory)) self.moveHistory.push(slot);
+        if (Array.isArray(self.moveCoords)) self.moveCoords.push({ type: 'pass', player: slot });
+        if ('moveHighlightMarkers' in self) self.moveHighlightMarkers = [];
+        if ('movePlayerColor' in self) self.movePlayerColor = self.currentPlayer;
+        bumpMoveCount(self);
+        self.currentPlayer = 3 - self.currentPlayer;
+        if ('passCounter' in self) self.passCounter = (self.passCounter || 0) + 1;
+        self.lastMoveMarkers = [];
+        self.broadcast({ type: 'broadcast', action: 'pass', ...self.getState() });
+        if ((self.passCounter || 0) >= 2) {
+            self.passCounter = 0;   // 数点后重新计数（无论同意与否）
+            scoring = true;
+        }
+        if (typeof self._syncClockAfterTurnChange === 'function') self._syncClockAfterTurnChange();
     }
-    if (typeof self._syncClockAfterTurnChange === 'function') self._syncClockAfterTurnChange();
+    // 站点一次虚着可能补满整个回合的好几手（先一各二围棋＝1~2 手），**逐笔**喂给引擎：
+    // 少喂会让引擎的手数排程（轮次）与站点错开 → 引擎按错误轮次出招、着法全被站点驳回
+    const added = (Array.isArray(self.moveCoords) ? self.moveCoords.length : 0) - coordsBefore;
+    if (scoring && added <= 0) { startScoreVsComputer(self); return; }
     touchKatagoActivity(self);
 
-    if (self._qiKatago && !self._qiKatago.dead) {
+    if (self._qiKatago && !self._qiKatago.dead && added > 0) {
         const gen = self._qiKatagoGen;
-        self._qiKatago.play(colorOfSlot(slot), null, null).then(() => verifyEngineState(self, self._qiKatago, gen, '人类虚着')
+        const color = colorOfSlot(slot);
+        let chain = Promise.resolve();
+        for (let i = 0; i < added; i++) chain = chain.then(() => self._qiKatago.play(color, null, null));
+        chain.then(() => verifyEngineState(self, self._qiKatago, gen, `人类虚着 ×${added}`)
             .catch(() => { /* ignore */ })
             .then(() => { if (gen === self._qiKatagoGen) maybeScheduleKatago(self); })
         ).catch((err) => {
@@ -1223,6 +1311,7 @@ function handleHumanPassVsComputer(self, ws, slot) {
         });
         return;
     }
+    if (scoring) { startScoreVsComputer(self); return; }
     // 引擎未就绪：后台拉起；失败则结束人机
     startKatagoEngineInBackground(self, ws, { preferPrepared: true, abortMatchOnFail: true });
 }
@@ -1403,9 +1492,14 @@ function install(self, gameId) {
             if (msg.type === 'requestUndo') {
                 if (!slot || this.gameOver) return;
                 let steps = 0;
-                for (let i = (this.moveHistory || []).length - 1; i >= 0; i--) {
-                    steps++;
-                    if (this.moveHistory[i] === slot) break;
+                // 一「回合」能连走多手的棋种（先一各二围棋）：退到「该方回合开始之前」，由棋种自己算
+                if (typeof this._undoStepsToTurnStart === 'function') {
+                    steps = this._undoStepsToTurnStart(slot) || 0;
+                } else {
+                    for (let i = (this.moveHistory || []).length - 1; i >= 0; i--) {
+                        steps++;
+                        if (this.moveHistory[i] === slot) break;
+                    }
                 }
                 if (steps === 0 || steps > (this.historyBoards || []).length) {
                     ws.send(JSON.stringify({ type: 'error', message: '无法悔棋。' }));

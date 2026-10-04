@@ -5,7 +5,7 @@ const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, a
 function komiForSize(boardSize) {
     if (boardSize === 3) return 4.5;
     if (boardSize === 5) return 12.5;
-    if (boardSize === 7) return 3.0;
+    if (boardSize === 7) return 2.5;
     if (boardSize === 8) return 2.0;
     if (boardSize === 9) return 1.5;
     return 1.0;

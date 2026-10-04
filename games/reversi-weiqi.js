@@ -236,7 +236,7 @@ class ReversiWeiqiRoom extends QiTwoPlayerRoomBase
             : this.copyBoard(this.board);
         return {
             boardSize: this.boardSize,
-            komi: this.boardSize <= 8 ? 4.25 : 3.25,
+            komi: this.boardSize <= 8 ? 9.75 : 9.75,
             board: this.board,
             initialBoard,
             numberOfHands: 1 + this.historyBoards.length,

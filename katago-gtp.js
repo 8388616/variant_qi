@@ -238,6 +238,14 @@ class KatagoGtpSession {
         this.lastTranslocationBudget = null;
         /** 本次同步是否走了整段着法重放（= 网站着法表就是纯引擎着手序列，手数才可逐手比对） */
         this.lastSyncReplayed = false;
+        /** 最近一次下发的 kata-set-move-number 值（先一各二围棋的轮次排程基准） */
+        this.lastMoveNumberSent = null;
+        /** 引擎不支持 kata-set-move-number（老引擎）：探测一次后不再尝试 */
+        this.noMoveNumberCommand = false;
+        /** 站点坐标 → 引擎网格坐标（只有坐标系不同的棋盘需要，如六角围棋；默认 null = 1:1） */
+        this.coordOf = null;
+        /** 引擎网格坐标 → 站点坐标（上者的逆） */
+        this.coordInverse = null;
     }
 
     start() {
@@ -391,8 +399,14 @@ class KatagoGtpSession {
         const first = (lines[0] || '').trim();
         // 分析命令（kata-search_analyze 等）持续输出 info 行：处于收集模式时先记录下来
         // （须在 pending 检查之前：analyzeMoves 直接写 stdin 时无 pending）
-        // 非响应行（旧版分析命令的 info 行等）：忽略
-        if (!first.startsWith('=') && !first.startsWith('?')) return;
+        // 非响应行：不是 GTP 应答就当「引擎自己的输出」打出来 —— KataGo 的致命错误走的是
+        // **stdout**（core/global.cpp 的 fatalError 打到 cout 后 quick_exit(1)），不记下来就只剩
+        // 一句「KataGo 已退出 code=1」什么都查不到（2026-10-01 吃子围棋那次就是）。
+        if (!first.startsWith('=') && !first.startsWith('?')) {
+            const t = block.trim();
+            if (t) console.error(`[katago:${this.gameId}] 引擎输出(非 GTP 应答)：${t.slice(0, 600)}`);
+            return;
+        }
         this._finishPending(first, lines);
     }
 
@@ -661,6 +675,9 @@ class KatagoGtpSession {
      * @param {{ boardSize: number, komi: number, board: number[][], gameId?: string, maxTranslocationMoves?: number, weights?: number[][] }} opts
      */
     async setupGame(opts) {
+        // 坐标映射（六角围棋这类「引擎网格 ≠ 站点网格」的棋盘）：由棋种提供，见 games/non-rectangular-weiqi.js
+        this.coordOf = (opts && typeof opts.coordOf === 'function') ? opts.coordOf : null;
+        this.coordInverse = (opts && typeof opts.coordInverse === 'function') ? opts.coordInverse : null;
         const boardWidth = (opts.boardWidth | 0) || (opts.boardSize | 0);
         const boardHeight = (opts.boardHeight | 0) || boardWidth;
         const komi = Number(opts.komi);
@@ -765,6 +782,9 @@ class KatagoGtpSession {
                 this.lastSyncMoveNum = replayHistory.length;
                 this.lastSyncSiteMoveCount = siteCount;
                 this.lastSyncReplayed = true;            // 着法表 = 纯引擎着手序列（自检才敢按手数比对）
+                // 先一各二围棋：重放后引擎自己数得对（这条等于空跑），但轮到「同一个人连走两手」的
+                // 中间那一手时，重放推不出站点的手数基准，还是显式对齐一次最稳。
+                if (siteCount != null) await this.setMoveNumberAlreadyPlayed(siteCount);
                 return;
             }
             await this.syncPositionAndBudget(board, opts);   // 退回：用最终盘面重设，再按老办法补最后一手
@@ -800,6 +820,31 @@ class KatagoGtpSession {
             this.lastSyncMoveNum = 0;                       // 只发了 set_position，引擎着法史为空
             this.lastSyncSiteMoveCount = siteCount;
         }
+
+        // 先一各二围棋（fotte-weiqi）：这一盘到目前已经下过几手要告诉引擎，它的「第一位连走两手」
+        // 轮次排程才和站点一致（第 1 手黑、之后同一人连走两手；摆在盘上的开局子不算手数）。
+        // 整段重放时引擎自己数得对（这条等于空跑），快照同步/中途导入时才是必需的。
+        // 老引擎没有这条命令 → 探测一次就记下，之后不再发（其他棋种完全不受影响）。
+        if (siteCount != null) await this.setMoveNumberAlreadyPlayed(siteCount);
+    }
+
+    /**
+     * 「这一盘到目前已经下过几手」（GTP 扩展 `kata-set-move-number`，先一各二围棋的轮次排程用）。
+     * 引擎侧只改手数偏移（initialTurnNumber）与行棋方，不动盘面/历史；不支持该命令的引擎返回 false。
+     * @param {number} n 已经下过的**着手数**（含虚着，不含开局摆在盘上的子、不含接下来这一手）
+     * @returns {Promise<boolean>} 引擎是否接受
+     */
+    async setMoveNumberAlreadyPlayed(n) {
+        if (this.noMoveNumberCommand) return false;
+        const v = Math.max(0, Math.floor(Number(n) || 0));
+        try {
+            await this.command(`kata-set-move-number ${v}`);
+            this.lastMoveNumberSent = v;
+            return true;
+        } catch (err) {
+            this.noMoveNumberCommand = true;   // 老引擎没有这条命令：本次会话不再尝试
+            return false;
+        }
     }
 
     /**
@@ -819,7 +864,7 @@ class KatagoGtpSession {
                 if (!row) continue;
                 for (let c = 0; c < boardWidth; c++) {
                     const v = row[c];
-                    const vertex = toGtpVertex(r, c, boardWidth, boardHeight);
+                    const vertex = this.vertexOfSite(r, c, boardWidth, boardHeight);
                     if (!vertex) continue;
                     if (v === BOARD_CELL.BLACK) pairs.push('B', vertex);
                     else if (v === BOARD_CELL.WHITE) pairs.push('W', vertex);
@@ -900,6 +945,13 @@ class KatagoGtpSession {
         }
     }
 
+    /** 站点坐标 → GTP 顶点：有坐标映射（六角等）时先换算成引擎网格坐标；非法点返回 null */
+    vertexOfSite(row, col, boardWidth, boardHeight) {
+        const e = this.coordOf ? this.coordOf(row, col) : { row, col };
+        if (!e) return null;
+        return toGtpVertex(e.row, e.col, boardWidth, boardHeight);
+    }
+
     async play(slot, row, col) {
         const color = slotToGtpColor(slot);
         if (row == null && col == null) {
@@ -908,7 +960,7 @@ class KatagoGtpSession {
         }
         const bs = this.boardWidth || (this.boardSize | 0);
         const bh = this.boardHeight || bs;
-        const vertex = toGtpVertex(row, col, bs, bh);
+        const vertex = this.vertexOfSite(row, col, bs, bh);
         if (!vertex) throw new Error('无效坐标');
         await this.command(`play ${color} ${vertex}`);
     }
@@ -924,8 +976,8 @@ class KatagoGtpSession {
         const color = slotToGtpColor(slot);
         const bs = this.boardWidth || (this.boardSize | 0);
         const bh = this.boardHeight || bs;
-        const from = toGtpVertex(fromRow, fromCol, bs, bh);
-        const to = toGtpVertex(toRow, toCol, bs, bh);
+        const from = this.vertexOfSite(fromRow, fromCol, bs, bh);
+        const to = this.vertexOfSite(toRow, toCol, bs, bh);
         if (!from || !to) throw new Error('无效易位坐标');
         await this.command(`play ${color} ts ${from} ${to}`);
     }
@@ -935,7 +987,14 @@ class KatagoGtpSession {
         const raw = await this.command(`genmove ${color}`, { timeoutMs: GENMOVE_TIMEOUT_MS });
         const bs = this.boardWidth || (this.boardSize | 0);
         const bh = this.boardHeight || bs;
-        return fromGtpMove(raw, bs, bh);
+        const mv = fromGtpMove(raw, bs, bh);
+        if (mv && !mv.pass && !mv.swap && !mv.compound && this.coordInverse) {
+            const site = this.coordInverse(mv.row, mv.col);
+            if (!site) return { pass: true };   // 引擎报了个不在本站盘面上的点（不该发生）：当虚着
+            mv.row = site.row;
+            mv.col = site.col;
+        }
+        return mv;
     }
 
     /**

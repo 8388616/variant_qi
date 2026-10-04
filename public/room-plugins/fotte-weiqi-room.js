@@ -3,7 +3,7 @@ window.RoomPlugins['fotte-weiqi'] = {
     shell: {
         "title": "先一各二围棋",
         "rulesHtml": "基本规则同围棋，采用先一各二规则。<br />",
-        "defaultKomiText": "黑贴白0.5点",
+        "defaultKomiText": "黑贴白-2点",
         "boardSizeMin": 7,
         "boardSizeMax": 21,
         "defaultBoardSize": 19,
@@ -45,9 +45,15 @@ window.RoomPlugins['fotte-weiqi'] = {
 
         (function () {
 // ======================== 配置 ========================
+        // 贴目（单位「点」=「子」）：口径与服务器 games/fotte-weiqi.js 的 komiForSize 一致；
+        // 服务端会随 state.komi 下发纠正，改路数时也用它重算。要改贴目，服务端与这里两份都改。
+        function komiForSize(boardSize) {
+            if (boardSize === 7) return -0.5;
+            return -2;
+        }
         const ps = {
             BOARD_SIZE: 19,
-            KOMI: 3.25,
+            KOMI: komiForSize(19),
             PADDING: 0,
             CELL_SIZE: 0,
             numberOfHands: 1,
@@ -287,7 +293,10 @@ const BOARD_MARK_CHAR_LIST = (() => {
             setLiveViewStep,
             getWs: () => ps.ws,
             getBoardSize: () => ps.BOARD_SIZE,
-            setBoardSize: (n) => { ps.BOARD_SIZE = n; },
+            setBoardSize: (n) => {
+                ps.BOARD_SIZE = n;
+                ps.KOMI = komiForSize(n);
+            },
             getKomi: () => ps.KOMI,
             setKomi: (n) => { ps.KOMI = n; },
             getBoard: () => ps.board,

@@ -230,6 +230,42 @@ function vertexRowsToKoord(vertices) {
     return koordOf;
 }
 
+/* ==================== 一之二、六角：站点坐标 ↔ 引擎网格坐标 ==================== */
+
+/** 六角引擎（katagos/hexagon-weiqi）的网格尺寸：gridW = 4n−5（列/x）、gridH = 4n−4（行/y） */
+function hexEngineGridDims(lanes) {
+    return { w: 4 * lanes - 5, h: 4 * lanes - 4 };
+}
+
+/**
+ * 六角的站点坐标 (r, c) → 引擎网格坐标 (row, col)。
+ *   站点：行 0 = 屏幕最上、行内自左往右（vertexRowsToKoord）；
+ *   引擎（hexagon.h）：row 0 = 最下一行、col 0 = 最左；每行是一段连续列区间且只取同奇偶列（蜂窝交错）。
+ * 两条公式已用浮点顶点逐点对拍 n=3..11：row = gridH−1−r、行内 col = lo(row) + 2·(列数−1−c)。
+ */
+function hexEngineCoordOf(lanes, r, c) {
+    const { w: gridW, h: gridH } = hexEngineGridDims(lanes);
+    if (!Number.isInteger(r) || !Number.isInteger(c) || r < 0 || r >= gridH || c < 0) return null;
+    const row = gridH - 1 - r;
+    const jj = Math.min(row, gridH - 1 - row);
+    const lo = (lanes - 1) - Math.floor((jj + 1) / 2);
+    const count = (gridW + 1) / 2 - lo;              // 该行有几个点
+    if (c >= count) return null;
+    return { row, col: lo + 2 * (count - 1 - c) };
+}
+
+/** 六角：引擎网格坐标 (row, col) → 站点坐标 (r, c)（hexEngineCoordOf 的逆） */
+function hexSiteCoordOf(lanes, row, col) {
+    const { w: gridW, h: gridH } = hexEngineGridDims(lanes);
+    if (!Number.isInteger(row) || !Number.isInteger(col) || row < 0 || row >= gridH) return null;
+    const jj = Math.min(row, gridH - 1 - row);
+    const lo = (lanes - 1) - Math.floor((jj + 1) / 2);
+    const count = (gridW + 1) / 2 - lo;
+    const k = Math.round((col - lo) / 2);            // 行内第几个点
+    if (k < 0 || k >= count || lo + 2 * k !== col) return null;
+    return { row: gridH - 1 - row, col: count - 1 - k };
+}
+
 /** 开罗五角：lanes 路 = (4·lanes−5) 行 × (4·lanes−3) 列（与 VariantQi / cpp cairopentagon.h 一致） */
 function cairoGridDims(lanes) {
     return { w: 4 * lanes - 5, h: 4 * lanes - 3 };
@@ -435,7 +471,13 @@ class NonRectangularWeiqiRoom extends QiTwoPlayerRoomBase {
         // 引擎看到的棋盘尺寸：路数类 = 路数、开罗 = 列数、扭棱 = 3×路数−2；
         // 非方形棋盘（开罗、以及顶点图摊出来的六角/花形）另给宽高，走 GTP 的 boardsize X:Y
         this.boardSize = this.subCfg().gtpSize(this.boardLanes);
-        if (this.gridH !== this.gridW) {
+        if (this.subGameId === 'hexagon-weiqi') {
+            // 六角：引擎的网格与站点显示网格不是同一个坐标系（引擎是 4n−5 列 × 4n−4 行的细格、蜂窝交错），
+            // 所以宽高按引擎网格给，坐标由 katagoCoordOf/katagoIndexAt 换算
+            const g = hexEngineGridDims(this.boardLanes);
+            this.katagoBoardWidth = g.w;
+            this.katagoBoardHeight = g.h;
+        } else if (this.gridH !== this.gridW) {
             this.katagoBoardWidth = this.gridH;
             this.katagoBoardHeight = this.gridW;
         } else {
@@ -447,6 +489,18 @@ class NonRectangularWeiqiRoom extends QiTwoPlayerRoomBase {
     /** 记住当前子棋类用的路数 */
     _rememberSize() {
         this.sizeBySubGame[this.subGameId] = this.boardLanes;
+    }
+
+    /** 站点坐标 (r,c) → 引擎网格坐标 (row,col)。只有坐标系不同的子棋类（六角）需要换算，其余 1:1 */
+    katagoCoordOf(r, c) {
+        if (this.subGameId === 'hexagon-weiqi') return hexEngineCoordOf(this.boardLanes, r, c);
+        return { row: r, col: c };
+    }
+
+    /** 引擎网格坐标 (row,col) → 站点坐标 (r,c)（katagoCoordOf 的逆） */
+    katagoIndexAt(row, col) {
+        if (this.subGameId === 'hexagon-weiqi') return hexSiteCoordOf(this.boardLanes, row, col);
+        return { row, col };
     }
 
     isValidVertex(r, c) {
