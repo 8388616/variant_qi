@@ -610,6 +610,18 @@ const scoreBoard = document.getElementById('scoreBoard');
                 pageState: ps,
                 boardSeatOverlay: true,
                 seatOverlayOnly: true,
+                getGameOver: () => ps.gameOver,
+                getReplayMode: () => ps.replayMode,
+                getBoard: () => ps.board,
+                enterReplayMode: (data) => { syncFromState(data.recordState); enterReplayMode(); },
+                setReplayStep: (step) => { setReplayStep(step); ps.replayMode = true; },
+                exitTryPlay,
+                recordPointToCanvas: (row, col) => ({ ...{ x: cellOrigin(col) + CELL / 2, y: cellOriginY(row) + CELL / 2 }, cell: CELL, size: 600 }),
+                recordPointFromClient: (clientX, clientY) => {
+                    const p = clientToBoard(clientX, clientY), cell = hitCell(p.x, p.y);
+                    return cell ? { row: cell.r, col: cell.c } : null;
+                },
+                recordMoveFromPoint: (point) => ({ type: 'quoridorPawn', ...point }),
                 slotUi: SLOT_UI,          // 座位 → 执方名（player1 执白，与国际跳棋一致）
                 standardWeiqiMatchTime,
                 getWs: () => ps.ws,

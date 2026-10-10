@@ -513,28 +513,6 @@ window.RoomPlugins['triangle-weiqi'] = {
             }
         };
 
-        function updateBoardMarkOuterPosition() {
-            const el = document.getElementById('boardMarkOuter');
-            if (!el) return;
-            /* 窄屏与标准围棋相同：由 CSS 贴视口右缘、向左展开；勿保留桌面用的 left/bottom 内联 */
-            if (window.matchMedia('(max-width: 700px)').matches) {
-                el.style.left = '';
-                el.style.right = '';
-                el.style.bottom = '';
-                el.style.top = '';
-                return;
-            }
-            const bounds = SHAPE === 'rhombus'
-                ? RhomBoardGeom.outerFrameBounds
-                : (SHAPE === 'hexagon' ? HEX_OUTER_BOUNDS : TRI_OUTER_BOUNDS);
-            const { maxX, maxY } = bounds;
-            const gap = 6;
-            el.style.left = 'calc(' + ((maxX / 600) * 100) + '% + ' + gap + 'px)';
-            el.style.bottom = ((600 - maxY) / 600) * 100 + '%';
-            el.style.right = 'auto';
-            el.style.top = 'auto';
-        }
-
         let PADDING;
         let CELL_SIZE;
         let DX, DY, TOP_Y, CENTER_X;
@@ -660,7 +638,8 @@ window.RoomPlugins['triangle-weiqi'] = {
 
         /** 本地棋盘标记（仅本机）键 "r,c" → 字符 */
         let userBoardMarks = Object.create(null);
-        if (typeof QiWeiqiSquarePageRuntime !== 'undefined' && QiWeiqiSquarePageRuntime.bindActiveUserBoardMarks) QiWeiqiSquarePageRuntime.bindActiveUserBoardMarks(userBoardMarks);
+        let userStoneMarks = Object.create(null);   // 子层：棋子上的标记
+        if (typeof QiWeiqiSquarePageRuntime !== 'undefined' && QiWeiqiSquarePageRuntime.bindActiveUserBoardMarks) QiWeiqiSquarePageRuntime.bindActiveUserBoardMarks(userBoardMarks, userStoneMarks);
         const BOARD_MARK_CHAR_LIST = (() => {
             const a = [];
             a.push('?', '!');
@@ -693,9 +672,6 @@ const scoreTitle = document.getElementById('scoreTitle');
             document.getElementById('boardMarkFoldBtn'),
             document.getElementById('boardMarkExpandBtn')
         );
-
-        updateBoardMarkOuterPosition();
-        window.addEventListener('resize', updateBoardMarkOuterPosition);
 
         let hoverR = -1, hoverC = -1, isHoverValid = false;
         const isTouchDevice = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
@@ -1188,20 +1164,28 @@ const scoreTitle = document.getElementById('scoreTitle');
 
             for (const key of Object.keys(userBoardMarks)) {
                 const [r, c] = key.split(',').map(Number);
+                if (!isValidCoord(r, c)) continue;
+                if (QiSquareWeiqiCanvas.isStoneCellValue(board[r][c])) continue;   // 被棋子盖住：保留不画
                 if (!isUserBoardMarkVisibleAt(r, c)) continue;
                 const ch = userBoardMarks[key];
                 let { x, y } = coordToPixel(r, c);
-                const markBgR = DX * 0.3;
-                ctx.beginPath();
-                ctx.arc(x, y, markBgR, 0, 2 * Math.PI);
-                ctx.fillStyle = '#fdcc90';
-                ctx.fill();
+                QiSquareWeiqiCanvas.draw.boardMarkGap(ctx, x, y, DX);   // 留白：擦出圆洞/重铺木纹（替代实心圆底）
                 const fontPx = DX * (ch === '🚩' ? 0.47 : 0.52);
                 ctx.font = `bold ${fontPx}px "Segoe UI", "Apple Color Emoji", "Segoe UI Emoji", sans-serif`;
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
                 ctx.fillStyle = '#3a281c';
                 ctx.fillText(ch, x, y + 1);
+            }
+            if (userStoneMarks && !replayMode && !tryPlayMode && !showEstimateActive) {
+                for (const key of Object.keys(userStoneMarks)) {
+                    const [r, c] = key.split(',').map(Number);
+                    if (!isValidCoord(r, c)) continue;
+                    const v = board[r][c];
+                    if (!QiSquareWeiqiCanvas.isStoneCellValue(v)) continue;
+                    const p = coordToPixel(r, c);
+                    QiSquareWeiqiCanvas.draw.boardMarkGlyph(ctx, p.x, p.y, DX, userStoneMarks[key], v === 2 ? 'dark' : 'light');
+                }
             }
 
             // 悬停预览
@@ -1870,12 +1854,11 @@ const scoreTitle = document.getElementById('scoreTitle');
             const seated = !!(slots && (slots.player1 || slots.player2));
             const canChange = !hasAnyStone && !gameOver && !startedNow && !seated;
             const sizeSelect = document.getElementById('boardSizeSelect');
-            if (sizeSelect) sizeSelect.style.display = canChange ? 'inline-block' : 'none';
+            if (sizeSelect) window.QiRoomGameSwitcher.syncSettingsSelect(sizeSelect);
             // 子棋类选择器（形状）：始终显示；开局后锁定不可改，新局时恢复可用
             const shapeSelect = document.getElementById('subGameSelect');
             if (shapeSelect) {
-                shapeSelect.style.display = 'inline-block';
-                shapeSelect.disabled = !canChange;
+                window.QiRoomGameSwitcher.syncSettingsSelect(shapeSelect);
             }
 
             if (showEstimateActive)
@@ -1928,6 +1911,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             roomId,
             gameType,
             pageState,
+            recordPointToCanvas: (row, col) => ({ ...coordToPixel(row, col), cell: DX, size: 600 }),
             drawBoard: drawBoardWithOverlay,
             exitTryPlay,
             enterTryPlay,
@@ -1971,6 +1955,7 @@ syncState,
             downloadRecord,
             enterReplayMode,
             updateTurn,
+            updateReplayUI,   // 传给公共 bindings：座位/限时变化时回调它同步按钮显隐
             showScoreConfirm,
             // 限时协商/计时逻辑由 message bindings 托管（不要放到 page runtime 参数）
             standardWeiqiMatchTime,
@@ -2008,7 +1993,7 @@ syncState,
             if (msg && msg.type === 'shapeChanged') {
                 // 形状变更广播（带完整 state）：全量同步，覆盖本地乐观切换与其他观察者
                 syncState(msg);
-                // 切换形状（三角形/菱形/六角形）后「与电脑对弈」可用性立即更新
+                // 切换形状（三角形/菱形/六角形）后「对电脑对战」可用性立即更新
                 if (Object.prototype.hasOwnProperty.call(msg, 'katagoAvailable'))
                     pageState.katagoAvailable = !!msg.katagoAvailable;
                 if (Object.prototype.hasOwnProperty.call(msg, 'computerSlot'))
@@ -2051,25 +2036,11 @@ syncState,
 
         function applyUserBoardMark(row, col) {
             if (!isValidCoord(row, col)) return;
-            if (board[row][col] !== 0) return;
+            const layer = QiSquareWeiqiCanvas.boardMarkCellKind(board[row][col]) === 'stone' ? 'stone' : 'point';
             const { clear, ch } = getSelectedBoardMark();
             const key = row + ',' + col;
-            const existing = userBoardMarks[key];
-            if (clear) {
-                if (existing !== undefined) {
-                    delete userBoardMarks[key];
-                    drawBoardWithOverlay();
-                }
-                return;
-            }
-            if (existing === undefined) {
-                userBoardMarks[key] = ch;
-            } else if (existing !== ch) {
-                userBoardMarks[key] = ch;
-            } else {
-                delete userBoardMarks[key];
-            }
-            drawBoardWithOverlay();
+            if (QiSquareWeiqiCanvas.toggleUserBoardMark(userBoardMarks, userStoneMarks, key, layer, ch, clear, false))
+                drawBoardWithOverlay();
         }
 
         let suppressCanvasClickAfterLongMark = false;

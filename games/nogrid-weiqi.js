@@ -746,15 +746,13 @@ class NogridWeiqiRoom extends QiTwoPlayerRoomBase {
                 break;
 
             case 'setRoadCount': {
-                if (!slot && !this.room.players.size) {
+                if (qiProtocol.canChangeRoomSettings(this)) {
                     const n = parseInt(msg.size, 10);
                     if (!Number.isInteger(n) || n < 6 || n > 20) {
                         ws.send(JSON.stringify({ type: 'error', message: '路数须在 6～20 之间' }));
                         return;
                     }
-                    const hasStone = this.stones.length > 0;
-                    const hasPlayer = this.room.getPlayerBySlot('player1') || this.room.getPlayerBySlot('player2');
-                    if (hasStone || hasPlayer) return;
+                    qiProtocol.prepareRoomSettingsChange(this);
                     this.roadCount = n;
                     this.broadcast({ type: 'roadCountChanged', roadCount: this.roadCount });
                 }

@@ -252,10 +252,11 @@ const scoreTitle = document.getElementById('scoreTitle');
             function isUserBoardMarkVisibleAt(br, bc) {
                 if (ps.showEstimateActive) return false;
                 if (br < 0 || br >= ps.BOARD_SIZE || bc < 0 || bc >= ps.BOARD_SIZE) return false;
-                if (ps.board[br][bc] !== 0) return false;
-                return true;
+                // 点层：棋子盖住时不画；中立子等附加物可见
+                return !QiSquareWeiqiCanvas.isStoneCellValue(ps.board[br][bc]);
             }
-            d.userBoardMarks(ctx, ps.userBoardMarks, ps.BOARD_SIZE, ps.PADDING, cellSize, isUserBoardMarkVisibleAt);
+            d.userBoardMarks(ctx, ps.userBoardMarks, ps.BOARD_SIZE, ps.PADDING, cellSize, isUserBoardMarkVisibleAt,
+                { board: ps.board, stoneMarks: ps.userStoneMarks, live: QiSquareWeiqiCanvas.boardMarksLiveLatest(ps) });
             if (ps.showMoveNumbers) {
                 const nums = neutralComputeStoneNumbers();
                 d.moveNumbersOnStones(ctx, nums, ps.board, ps.BOARD_SIZE, ps.PADDING, cellSize);

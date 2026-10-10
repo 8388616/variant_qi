@@ -61,7 +61,7 @@ window.RoomPlugins['schulte-grid'] = {
                 [
                     'estimateBtn', 'tryPlayBtn', 'passBtn', 'undoBtn', 'resignBtn', 'drawBtn', 'endReqBtn',
                     'buryFinishBtn', 'importBtn', 'exportBtn', 'vsComputerBtn', 'replayMinesRow',
-                    'replayPerspectiveRow', 'boardMarkOuter', 'editControls', 'styleSelect', 'subGameSelect',
+                    'replayPerspectiveRow', 'boardMarkOuter', 'boardMarkExpandBtn', 'editControls', 'styleSelect', 'subGameSelect',
                     'goTimerPanel', 'roomChat', 'replayPanel', 'scoreConfirmPanel', 'boardScrollX', 'boardScrollY'
                 ].forEach((id) => {
                     const el = document.getElementById(id);
@@ -302,7 +302,7 @@ window.RoomPlugins['schulte-grid'] = {
 
             function setSizeSelectEnabled() {
                 // 倒计时/对局中锁定路数，防止中途换盘
-                if (sizeSelect) sizeSelect.disabled = S.phase !== 'awaiting';
+                if (sizeSelect) window.QiRoomGameSwitcher.syncSettingsSelect(sizeSelect);
             }
 
             function resetToAwaiting(randomize) {
@@ -397,9 +397,9 @@ window.RoomPlugins['schulte-grid'] = {
                         sizeSelect.appendChild(opt);
                     }
                 }
-                sizeSelect.style.display = 'inline-block';
+                window.QiRoomGameSwitcher.syncSettingsSelect(sizeSelect);
                 sizeSelect.value = String(S.N);
-                sizeSelect.disabled = false;
+                window.QiRoomGameSwitcher.syncSettingsSelect(sizeSelect);
                 sizeSelect.addEventListener('change', () => {
                     const n = parseInt(sizeSelect.value, 10);
                     if (!Number.isFinite(n) || n < 2 || n > 21) return;

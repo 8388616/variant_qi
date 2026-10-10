@@ -439,7 +439,7 @@
                     if (v === 'hostBlack') v = 'player1';
                     if (v === 'hostWhite') v = 'player2';
                     if (v !== 'player1' && v !== 'player2' && v !== 'random') v = 'player1';
-                    payload.colorChoice = v;
+                    payload.colorChoice = S.localPlay ? 'player1' : v;
                 }
                 // 让子：控件可见时总是发（0 = 不让子，用来取消原来的设置）
                 if (handicapLabel && handicapLabel.style.display !== 'none') payload.handicap = currentHandicap();
@@ -459,14 +459,14 @@
             function setDialogReadonly(dis) {
                 radios.forEach((r) => { r.disabled = dis; });
                 setLowerDisabled(dis);
-                colorRadios.forEach((r) => { r.disabled = dis; });
+                colorRadios.forEach((r) => { r.disabled = dis || !!S.localPlay; });
                 wrap.classList.toggle('qi-time-control-readonly', !!dis);
             }
 
             function setColorRowVisible(vis, readonly, preferHandicap) {
                 if (!colorRow) return;
                 colorRow.style.display = vis ? 'flex' : 'none';
-                colorRadios.forEach((r) => { r.disabled = !!readonly; });
+                colorRadios.forEach((r) => { r.disabled = !!readonly || !!S.localPlay; });
                 buildHandicapOptions(preferHandicap);
                 if (handicapSel) handicapSel.disabled = !!readonly;
             }
@@ -733,7 +733,7 @@
                 setLimitedDisabled(false);
                 radios.forEach((r) => { r.disabled = false; });
                 if (colorRow && colorRow.style.display !== 'none') {
-                    colorRadios.forEach((r) => { r.disabled = false; });
+                    colorRadios.forEach((r) => { r.disabled = !!S.localPlay; });
                     if (handicapSel) handicapSel.disabled = false;   // 让子也允许调整
                 }
                 const un = wrap.querySelector('input[name="qiTimedMode"][value="unlimited"]').checked;
@@ -773,7 +773,7 @@
                         ui.wrap.querySelector('input[name="qiTimedMode"][value="limited"]').disabled = true;
                         ui.setColorRowVisible(true, false);
                         ui.btnProposeOk.disabled = false;
-                        ui.colorRadios.forEach((r) => { r.disabled = false; });
+                        ui.colorRadios.forEach((r) => { r.disabled = !!S.localPlay; });
                         return;
                     }
                     if (lastRespondProposal) {
@@ -888,7 +888,7 @@
             }
             if (ui.hint) ui.hint.textContent = ui.colorChoiceLabel('black') + ui.handicapSuffix(ui.currentHandicap());
             ui.colorRadios.forEach((r) => {
-                r.disabled = false;
+                r.disabled = !!S.localPlay;
                 r.onchange = () => {
                     if (ui.hint) ui.hint.textContent = ui.colorChoiceLabel(
                         (ui.wrap.querySelector('input[name="qiColorChoice"]:checked') || {}).value || 'player1'
@@ -1380,6 +1380,9 @@
     function createWeiqiMessageBindings(ctx) {
         const S = ctx.pageState;
         if (!S) throw new Error('createWeiqiMessageBindings requires ctx.pageState (page state object, e.g. ps)');
+        if (global.__qiTsumego) global.QiTsumego.attachReplay(ctx);
+        const recordTreeController = window.QiRoomRecordTree ? window.QiRoomRecordTree.create(ctx) : null;
+        const vsComputerBtn = document.getElementById('vsComputerBtn');
         let lastBusyAlertAt = 0;
         let mtCtl = ctx.standardWeiqiMatchTime ? qiCreateStandardWeiqiMatchTimeController(ctx) : null;
         function runTryPlayPass() {
@@ -1406,6 +1409,13 @@
         if (S._prevSeatVacant === undefined) S._prevSeatVacant = null;
         if (S.katagoAvailable === undefined) S.katagoAvailable = false;
         if (S.computerSlot === undefined) S.computerSlot = null;
+        function syncSoloRoomState(msg) {
+            const data = msg.type === 'joined' ? msg.state : msg;
+            if (!data) return;
+            if (data.soloMode !== undefined) S.soloMode = data.soloMode;
+            if (data.soloOccupied !== undefined) S.soloOccupied = !!data.soloOccupied;
+            global.__qiSoloSeatState = { soloMode: S.soloMode, soloOccupied: S.soloOccupied };
+        }
 
         /** 座位 → 执方名（服务端下发的 sideLabels 优先，其次插件 slotUi，兜底黑/白） */
         function qiSideNameOfSlot(slot) {
@@ -1501,21 +1511,21 @@
             S.ws.send(JSON.stringify({ type: 'importRecord', data: res.record }));
         }
 
-        const vsComputerBtn = document.getElementById('vsComputerBtn');
-        function updateVsComputerBtn() {
-            if (!vsComputerBtn) return;
+        function canStartVsComputer() {
             const slots = (ctx.getSlots && ctx.getSlots()) || S.slots || {};
             const mySlot = ctx.getMySlot ? ctx.getMySlot() : S.mySlot;
             const seatedCount = (slots.player1 ? 1 : 0) + (slots.player2 ? 1 : 0);
             const matchStarted = !!(S.matchStarted || (S.matchTime && S.matchTime.settings));
-            const canShow = !!S.katagoAvailable
+            return !!S.katagoAvailable
                 && !matchStarted
                 && !S.computerSlot
                 && !S.gameOver
                 && !S.replayMode
                 && !S.waitingScoreConfirm
                 && (seatedCount === 0 || (seatedCount === 1 && mySlot));
-            vsComputerBtn.style.display = canShow ? '' : 'none';
+        }
+        function updateVsComputerBtn() {
+            if (vsComputerBtn) vsComputerBtn.style.display = canStartVsComputer() ? '' : 'none';
         }
         if (vsComputerBtn) {
             vsComputerBtn.onclick = () => {
@@ -1593,11 +1603,13 @@
                 ctx.colorStatus.innerText = '观战';
                 return;
             }
-            if (ctx.boardSeatOverlay && !matchStarted)
+            const ui = (ctx.slotUi && ctx.slotUi[mySlot]) || null;
+            const name = (ui && (ui.statusText || ui.name)) || (mySlot === 'player1' ? '黑方' : '白方');
+            if (S.localPlay)
+                ctx.colorStatus.innerText = `本地对战 · ${name}`;
+            else if (ctx.boardSeatOverlay && !matchStarted)
                 ctx.colorStatus.innerText = '已落座';
             else {
-                const ui = (ctx.slotUi && ctx.slotUi[mySlot]) || null;
-                const name = (ui && (ui.statusText || ui.name)) || (mySlot === 'player1' ? '黑方' : '白方');
                 ctx.colorStatus.innerText = `已选择: ${name}`;
             }
         }
@@ -1799,6 +1811,9 @@
                         overlay.innerHTML =
                             '<div class="qi-seat-overlay-inner">' +
                             '<button type="button" class="qi-seat-overlay-btn" data-seat-action="sit">落座</button>' +
+                            '<button type="button" class="qi-seat-overlay-btn" data-seat-action="computer" hidden>与电脑对战</button>' +
+                            '<button type="button" class="qi-seat-overlay-btn" data-seat-action="local" hidden>本地对战</button>' +
+                            '<button type="button" class="qi-seat-overlay-btn" data-seat-action="continue-solo" hidden>继续</button>' +
                             `<button type="button" class="qi-seat-overlay-btn" data-seat-action="continue-player1">${contB}</button>` +
                             `<button type="button" class="qi-seat-overlay-btn" data-seat-action="continue-player2">${contW}</button>` +
                             '<button type="button" class="qi-seat-overlay-btn qi-seat-overlay-btn--secondary" data-seat-action="cancel">取消</button>' +
@@ -1815,7 +1830,19 @@
                             }
                             if (!w || w.readyState !== WebSocket.OPEN) return;
                             const slots = ctx.getSlots();
-                            if (action === 'sit') {
+                            if (action === 'continue-solo') {
+                                if (!S.soloMode || S.soloOccupied || S._soloResumePending) return;
+                                S._soloResumePending = true;
+                                btn.disabled = true;
+                                w.send(JSON.stringify({ type: 'continueSoloGame' }));
+                            } else if (action === 'computer' || action === 'local') {
+                                if (slots.player1 || slots.player2 || S.matchStarted || S.gameOver) return;
+                                if (action === 'computer') {
+                                    if (vsComputerBtn) vsComputerBtn.click();
+                                } else {
+                                    w.send(JSON.stringify({ type: 'startLocalGame' }));
+                                }
+                            } else if (action === 'sit') {
                                 if (slots.player1 && slots.player2) return;
                                 const color = !slots.player1 ? 'player1' : (!slots.player2 ? 'player2' : null);
                                 if (!color) return;
@@ -1899,6 +1926,26 @@
             const btnCB = overlay.querySelector('[data-seat-action="continue-player1"]');
             const btnCW = overlay.querySelector('[data-seat-action="continue-player2"]');
             const btnCancel = overlay.querySelector('[data-seat-action="cancel"]');
+            const btnComputer = overlay.querySelector('[data-seat-action="computer"]');
+            const btnLocal = overlay.querySelector('[data-seat-action="local"]');
+            const btnContinueSolo = overlay.querySelector('[data-seat-action="continue-solo"]');
+            if (btnContinueSolo) btnContinueSolo.hidden = true;
+            if (S.soloMode) {
+                [btnSit, btnCB, btnCW, btnCancel, btnComputer, btnLocal].forEach((button) => { if (button) button.hidden = true; });
+                const vacant = !mySlot && !S.soloOccupied && !S.tryPlayMode;
+                if (btnContinueSolo) {
+                    btnContinueSolo.hidden = !vacant;
+                    btnContinueSolo.disabled = !!S._soloResumePending;
+                }
+                setAllSeatOverlaysHidden(!vacant);
+                refreshColorStatus();
+                updatePlayerLeftIndicators();
+                notifySeatOverlayVisibility();
+                return;
+            }
+            const canStartSolo = !matchStarted && !mySlot && !slots.player1 && !slots.player2 && !S.gameOver;
+            if (btnComputer) btnComputer.hidden = !(canStartSolo && vsComputerBtn && canStartVsComputer());
+            if (btnLocal) btnLocal.hidden = !canStartSolo;
 
             const gameOver = typeof ctx.getGameOver === 'function' && !!ctx.getGameOver();
             const forceHide = !!(S.seatOverlayForceHide || S.tryPlayMode || (S.replayMode && !matchStarted));
@@ -1973,7 +2020,19 @@
 
         function handleSeatOverlayMessage(msg) {
             if (!ctx.boardSeatOverlay || !msg) return false;
+            syncSoloRoomState(msg);
+            if (ctx.seatOverlayOnly && recordTreeController) recordTreeController.handle(msg);
+            const state = msg.type === 'joined' ? msg.state : msg;
+            if (state) {
+                if (state.localPlay !== undefined) S.localPlay = !!state.localPlay;
+                if (state.katagoAvailable !== undefined) S.katagoAvailable = !!state.katagoAvailable;
+                if (state.computerSlot !== undefined) S.computerSlot = state.computerSlot;
+            }
             switch (msg.type) {
+                case 'soloSeatState':
+                    S._soloResumePending = false;
+                    updateSeatOverlay();
+                    return true;
                 case 'joined':
                     S.seatOverlayLocalHide = false;
                     S.seatOverlayForceHide = false;
@@ -1990,6 +2049,7 @@
                     updateSeatOverlay();
                     return true;
                 case 'colorAssigned':
+                    S._soloResumePending = false;
                     S._optimisticSeat = null;
                     S._seatRetryOther = false;
                     if (msg.isHost != null) S.isHost = !!msg.isHost;
@@ -2110,6 +2170,14 @@
             if (msg && msg.sideLabels) S.sideLabels = msg.sideLabels;
             if (typeof applySeatRadioText === 'function') applySeatRadioText();
             if (typeof S._refreshTcColorLabels === 'function') { try { S._refreshTcColorLabels(); } catch (_) {} }
+            // 子层标记跟随/剪枝：在写盘之前按原始 msg 处理（拿得到 board 与 moveCoords）
+            if (msg && Array.isArray(msg.board) && global.QiWeiqiSquarePageRuntime
+                && typeof global.QiWeiqiSquarePageRuntime.syncStoneMarksWithState === 'function')
+                global.QiWeiqiSquarePageRuntime.syncStoneMarksWithState(S, msg);
+            // 编辑盘面提交 / 导入棋谱：整盘替换，棋子没有身份连续性 → 子层先清
+            if (msg && (msg.type === 'editBoardAccepted' || msg.type === 'importSuccess') && global.QiWeiqiSquarePageRuntime
+                && typeof global.QiWeiqiSquarePageRuntime.resetStoneMarks === 'function')
+                global.QiWeiqiSquarePageRuntime.resetStoneMarks(S);
             ctx.syncState(msg);
             if (Object.prototype.hasOwnProperty.call(msg, 'katagoAvailable'))
                 S.katagoAvailable = !!msg.katagoAvailable;
@@ -2123,8 +2191,11 @@
             if (msg.boardSeatOverlay) ctx.boardSeatOverlay = true;
             updateVsComputerBtn();
         }
-        function handleMessage(msg) {
+        function handleMessageCore(msg) {
             if (msg && typeof msg === 'object') {
+                syncSoloRoomState(msg);
+                const localState = msg.type === 'joined' ? msg.state : msg;
+                if (localState && localState.localPlay !== undefined) S.localPlay = !!localState.localPlay;
                 // 让子：服务端在当前路数上算出的上限，与当前设置（对话框据此建下拉框/预选）
                 if (Number.isFinite(Number(msg.maxHandicap))) S._maxHandicap = Number(msg.maxHandicap);
                 if (msg.katagoMaxVisits !== undefined && msg.katagoMaxVisits !== null
@@ -2171,6 +2242,10 @@
                 return;
             }
             switch (msg.type) {
+                case 'soloSeatState':
+                    S._soloResumePending = false;
+                    updateSeatOverlay();
+                    break;
                 case 'joined':
                     sessionStorage.removeItem(`roomPassword_${ctx.roomId}`);
                     S.seatOverlayLocalHide = false;
@@ -2256,6 +2331,7 @@
                     ctx.updateTurn();
                     break;
                 case 'colorAssigned':
+                    S._soloResumePending = false;
                     S._optimisticSeat = null;
                     S._seatRetryOther = false;
                     ctx.setMySlot(msg.color);
@@ -2437,13 +2513,24 @@
                     }
                     if (ctx.onImportSuccessBeforeSync) ctx.onImportSuccessBeforeSync(msg, importPrevBoardSize);
                     syncStateWithMatch(msg);
+                    // 「是否已开局」以服务端状态为准（导入前可能已经是 true）：
+                    // 空棋谱（没有着法也没有胜负）导入后服务端是 matchStarted=false = 开局前，
+                    // 客户端若沿用旧值就会一直按「对局已开始但双方已退出」显示
+                    S.matchStarted = !!msg.matchStarted;
                     ctx.clearEstimate();
                     ctx.hideScoreConfirm();
                     ctx.setWaitingScoreConfirm(false);
-                    if (msg.replayData) ctx.enterReplayMode(msg.replayData);
+                    // 没有着法的棋谱（空盘/只是导入了开局盘面）不进回放：回放面板会写「初始局面」，
+                    // 而这时房间应该停在「开局前」（等待入座 + 可继续编辑）
+                    if (msg.replayData && Array.isArray(msg.replayData.moves) && msg.replayData.moves.length > 0) {
+                        ctx.enterReplayMode(msg.replayData);
+                    }
                     S.seatOverlayForceHide = true;
                     S.seatOverlayLocalHide = true;
                     updateRadioStyles();
+                    // 回合框/按钮区立刻按新状态刷新（导入把房间从「已开局」拉回「开局前」时，
+                    // 面板上的「等待双方入座」要马上回来，不能停在旧文案上）
+                    if (typeof ctx.updateTurn === 'function') ctx.updateTurn();
                     break;
                 }
                 case 'roomReset':
@@ -2641,6 +2728,11 @@
         if (newGameBtn !== null) 
         {
             newGameBtn.onclick = () => {
+                if (S.soloMode) {
+                    if (!ctx.getMySlot() && S.soloOccupied) { qiAlert('只有对局者可以开始新局。'); return; }
+                    qiConfirm('确定开始新局吗？').then(ok => { if (ok) S.ws.send(JSON.stringify({ type: 'requestNewGame' })); });
+                    return;
+                }
                 if (!S.mySlot) {
                     if ((S.slots.player1 || S.slots.player2) && !S.computerSlot) {
                         qiAlert('只有对局者可以开始新局。');
@@ -2707,6 +2799,7 @@
                 // 试下中：直接退回上一手（不用对方确认，也不发消息）
                 if (S.tryPlayMode) { runTryPlayUndo(); return; }
                 if (!S.mySlot) { qiAlert('只有对局者可以悔棋'); return; }
+                if (S.localPlay) { S.ws.send(JSON.stringify({ type: 'requestUndo' })); return; }
                 const opponentSlot = S.mySlot === 'player1' ? 'player2' : 'player1';
                 const hasOpponent = S.slots[opponentSlot];
                 if (hasOpponent) {
@@ -2900,6 +2993,10 @@
                 closeRulesBtn.onclick = () => rulesModal.style.display = 'none';
             rulesModal.onclick = (e) => { if (e.target === rulesModal) rulesModal.style.display = 'none'; };
         }
+        function handleMessage(msg) {
+            if (!['recordTree', 'recordVariation', 'recordTreeUpdated', 'recordVariationIgnored'].includes(msg.type)) handleMessageCore(msg);
+            if (recordTreeController) recordTreeController.handle(msg);
+        }
         return {
             handleMessage, updateRecordButtons, updateRadioStyles, updateSeatOverlay, updateVsComputerBtn,
             // 自己接管 gameRecord 的插件（黑白棋/WxD棋）也走同一套：能导 SGF 时先问格式
@@ -2933,6 +3030,12 @@
             if (el) el.onclick = fn;
         };
         bind('newGameBtn', () => {
+            const solo = global.__qiSoloSeatState;
+            if (solo && solo.soloMode) {
+                if (!getMySlot() && solo.soloOccupied) { qiAlert('只有对局者可以开始新局。'); return; }
+                qiConfirm('确定开始新局吗？').then((ok) => { if (ok) send({ type: 'requestNewGame' }); });
+                return;
+            }
             if (!getMySlot()) {
                 const slots = getSlots() || {};
                 if ((slots.player1 || slots.player2) && !getComputerSlot()) {
@@ -2944,6 +3047,10 @@
         });
         bind('undoBtn', () => {
             if (!getMySlot()) { qiAlert('只有对局者可以悔棋'); return; }
+            if (global.__qiSoloSeatState && global.__qiSoloSeatState.soloMode === 'local') {
+                send({ type: 'requestUndo' });
+                return;
+            }
             qiConfirm(opponentPresent() ? '确定向对方申请悔棋吗？' : '确定悔棋吗？')
                 .then((ok) => { if (ok) send({ type: 'requestUndo' }); });
         });
@@ -3096,6 +3203,223 @@
         leadInfo.innerText = '　';
     }
 
+    /* ===== 棋盘标记分层（点层 / 子层）公共逻辑 =====
+     * 点层：空点/附加物（洞 -1、桥 -2、雷 -3、中立子 10000…）上的标记，绑在「点」上，
+     *       空点被落子后保留但被盖住，点重新为空时重新显现。
+     * 子层：棋子上的标记，绑在「棋子」上，棋子移动时跟随、被提时消失。
+     * 颜色：白子(2)上用深色字，黑/红/蓝/中立子/洞/桥/雷上用白色字（棋子与附加物只画字、不加圆底）。
+     */
+    const BOARD_MARK_BADGE_FILL = '#fdcc90';   /* 与 room.css 的 --qi-room-board 一致 */
+    const BOARD_MARK_DARK_TEXT = '#3a281c';
+    const BOARD_MARK_LIGHT_TEXT = '#ffffff';
+
+    /** 盘面格值 → 标记层：正数 1..4（黑/白/红/蓝）是棋子；其余（含 0 与附加物）是点层 */
+    function isStoneCellValue(v) {
+        return v === 1 || v === 2 || v === 3 || v === 4;
+    }
+    function boardMarkCellKind(v) {
+        if (v === 0 || v == null) return 'empty';
+        return isStoneCellValue(v) ? 'stone' : 'attachment';
+    }
+
+    /** 「正在看直播最新盘面」判据（子层标记只在此时显示）：回放/试下/编辑/形势判断/浏览旧手数都不算 */
+    function boardMarksLiveLatest(ps) {
+        if (!ps) return true;
+        if (ps.replayMode || ps.tryPlayMode || ps.editModeEnabled || ps.showEstimateActive) return false;
+        if (Array.isArray(ps.liveReplayBoards) && ps.liveReplayBoards.length
+            && ps.liveViewStep < ps.liveReplayBoards.length - 1) return false;
+        return true;
+    }
+
+    /**
+     * 空点标记的「留白」：把格线从标记旁挪开（老版是画一块与棋盘同色的实心圆底）。
+     * 木纹上线后实心圆会截断纹路，改为按盘面自身的背景就地处理：
+     *   1) 画布透明（木纹/底色铺在 canvas 的 CSS 背景上）→ destination-out 擦出圆洞，背景（连木纹）原样透出；
+     *   2) 盘底画在画布里的木纹（异形棋盘用 getWoodFill 自绘）→ 用同一张木纹图案就地重铺，纹路无缝；
+     *   3) 画布里有平色/渐变底色 → 取邻近背景像素近似填圆（比固定色贴合）；
+     *   4) 探测失败 → 退回原来的实心圆底。
+     * 画布的处理方式只探测一次并缓存在 canvasEl.__qiMarkGapKind。
+     * 留白半径 = 0.3×格距（就是标记与格线的间距，想调间距就改这个系数）。
+     */
+    function applyEmptyPointMarkGap(ctx, x, y, cellSize) {
+        const r = cellSize * 0.3;
+        const canvasEl = ctx.canvas;
+        const sampleAt = (dx, dy) => {   // 逻辑坐标 → 设备像素（当前变换含 dpr 与缩放）
+            const m = ctx.getTransform();
+            const sx = Math.round(m.a * (x + dx) + m.c * (y + dy) + m.e);
+            const sy = Math.round(m.b * (x + dx) + m.d * (y + dy) + m.f);
+            const d = ctx.getImageData(sx, sy, 1, 1).data;
+            return [d[0], d[1], d[2], d[3]];
+        };
+        let kind = canvasEl && canvasEl.__qiMarkGapKind;
+        if (!kind) {
+            try {
+                // 圆内对角取样（避开穿过圆心的十字格线）；两个点都透明才算「画布透明」，
+                // 避免异形棋盘边缘的标记把木框判成透明而擦出洞。
+                const s1 = sampleAt(r * 0.72, -r * 0.72);
+                const s2 = sampleAt(-r * 0.72, r * 0.72);
+                const t1 = s1[3] === 0, t2 = s2[3] === 0;
+                if (t1 && t2) kind = 'erase';                               // 画布透明：背景在 CSS 层
+                else if (!t1 && !t2) kind = (canvasEl && canvasEl.__qiWoodFill) ? 'wood' : 'sample';   // 画布里有底
+                else kind = 'badge';                                        // 一透一不透（形状边缘）：稳妥起见用老实心圆底
+            } catch (_) {
+                kind = 'badge';
+            }
+            // 只有判定明确时才缓存；'badge' 的边界点逐次重判，不污染整块画布
+            if (canvasEl && kind !== 'badge') canvasEl.__qiMarkGapKind = kind;
+        }
+        ctx.save();
+        ctx.globalAlpha = 1;
+        if (kind === 'erase') {
+            ctx.globalCompositeOperation = 'destination-out';
+            ctx.beginPath();
+            ctx.arc(x, y, r, 0, 2 * Math.PI);
+            ctx.fillStyle = '#000';
+            ctx.fill();
+        } else if (kind === 'wood') {
+            const pat = typeof getWoodFill === 'function' ? getWoodFill(ctx, canvasEl, DEFAULT_CANVAS_SIZE) : null;
+            ctx.beginPath();
+            ctx.arc(x, y, r, 0, 2 * Math.PI);
+            ctx.clip();
+            ctx.fillStyle = pat || BOARD_MARK_BADGE_FILL;
+            ctx.fillRect(x - r, y - r, r * 2, r * 2);
+        } else if (kind === 'sample') {
+            let col = BOARD_MARK_BADGE_FILL;
+            try {
+                // 两个对角取样取较亮的一个：底色一般比格线亮，避免把圆填成格线色
+                const lumOf = (s) => 0.299 * s[0] + 0.587 * s[1] + 0.114 * s[2];
+                const s1 = sampleAt(r * 0.72, -r * 0.72);
+                const s2 = sampleAt(-r * 0.72, r * 0.72);
+                const s = lumOf(s1) >= lumOf(s2) ? s1 : s2;
+                col = 'rgb(' + s[0] + ',' + s[1] + ',' + s[2] + ')';
+            } catch (_) { /* 保持兜底色 */ }
+            ctx.beginPath();
+            ctx.arc(x, y, r, 0, 2 * Math.PI);
+            ctx.fillStyle = col;
+            ctx.fill();
+        } else {
+            ctx.beginPath();
+            ctx.arc(x, y, r, 0, 2 * Math.PI);
+            ctx.fillStyle = BOARD_MARK_BADGE_FILL;
+            ctx.fill();
+        }
+        ctx.restore();
+    }
+
+    /**
+     * 标记切换（纯逻辑）：
+     *   pointMap/stoneMap 两张表；layer='point'|'stone'；clear=清除当前层；
+     *   minesweeper 模式的 🚩 循环只在点层保持原样。
+     * @returns {boolean} 是否有变化（调用方决定是否重绘）
+     */
+    function toggleUserBoardMark(pointMap, stoneMap, key, layer, ch, clear, minesweeper) {
+        const map = layer === 'stone' ? stoneMap : pointMap;
+        if (!map) return false;
+        const existing = map[key];
+        if (clear) {
+            if (existing === undefined) return false;
+            delete map[key];
+            return true;
+        }
+        if (minesweeper && layer === 'point' && ch === '🚩') {
+            if (existing === undefined) map[key] = '🚩';
+            else if (existing === '🚩') map[key] = '×';
+            else if (existing === '×') delete map[key];
+            else map[key] = '🚩';
+            return true;
+        }
+        if (existing === undefined || existing !== ch) map[key] = ch;
+        else delete map[key];
+        return true;
+    }
+
+    /**
+     * 子层标记跟随/剪枝（纯函数，原地修改 stoneMarks）。
+     *   1) 精确走子：moveCoords 末项里带 fromRow/fromCol 的记录（含 swap 的两条）先把标记搬过去；
+     *   2) 存活剪枝：标记所在格在 next 上不是棋子 → 删除（被提/被编辑掉/出盘）；
+     *   3) 就近配对（仅 allowPairing 的棋种）：把「消失的同色子」上的标记按距离最小一对一挪到
+     *      「新出现的同色子」上，配不上的删除（磁力/旋转/漂移这类服务端不记录移动明细的棋种）。
+     * prev/next 尺寸不同/缺失时退化为只删不配。
+     */
+    function syncStoneMarks(prevBoard, nextBoard, stoneMarks, boardSize, moveCoords, allowPairing) {
+        if (!stoneMarks) return;
+        const keys = Object.keys(stoneMarks);
+        if (!keys.length) return;
+        if (!nextBoard) {
+            for (const k of keys) delete stoneMarks[k];
+            return;
+        }
+        const n = boardSize || nextBoard.length;
+        const valAt = (b, r, c) => (b && b[r] != null ? b[r][c] : undefined);
+        const nextIsStone = (r, c) => isStoneCellValue(valAt(nextBoard, r, c));
+
+        // 1) 精确走子（整批先摘后放，防 swap 时互相覆盖）
+        const last = Array.isArray(moveCoords) && moveCoords.length ? moveCoords[moveCoords.length - 1] : null;
+        if (last) {
+            const recs = Array.isArray(last) ? last : [last];
+            const pending = [];
+            for (const m of recs) {
+                if (!m || !Number.isFinite(m.fromRow) || !Number.isFinite(m.fromCol)
+                    || !Number.isFinite(m.row) || !Number.isFinite(m.col)) continue;
+                const fk = m.fromRow + ',' + m.fromCol;
+                if (stoneMarks[fk] !== undefined) pending.push([fk, m.row + ',' + m.col, stoneMarks[fk]]);
+            }
+            for (const [fk] of pending) delete stoneMarks[fk];
+            for (const [, tk, ch] of pending) stoneMarks[tk] = ch;
+        }
+
+        // 2) 新增子列表（只在允许配对且两盘同尺寸时算）
+        const sameDims = prevBoard && prevBoard.length === nextBoard.length;
+        const appeared = [];
+        if (allowPairing && sameDims) {
+            for (let r = 0; r < n; r++) {
+                for (let c = 0; c < n; c++) {
+                    if (isStoneCellValue(valAt(nextBoard, r, c)) && !isStoneCellValue(valAt(prevBoard, r, c)))
+                        appeared.push({ r, c });
+                }
+            }
+        }
+
+        // 3) 剪枝 / 配对
+        let candidates = null;
+        for (const k of Object.keys(stoneMarks)) {
+            const parts = k.split(',');
+            const r = Number(parts[0]);
+            const c = Number(parts[1]);
+            if (!Number.isFinite(r) || !Number.isFinite(c)) { delete stoneMarks[k]; continue; }
+            if (nextIsStone(r, c)) continue;   // 原地存活（变色也保留，字色绘制时现算）
+            const pv = valAt(prevBoard, r, c);
+            if (allowPairing && sameDims && isStoneCellValue(pv)) {
+                (candidates || (candidates = [])).push({ k, pv, r, c, ch: stoneMarks[k] });
+            } else {
+                delete stoneMarks[k];
+            }
+        }
+        if (candidates && candidates.length) {
+            const pairs = [];
+            for (const cand of candidates) {
+                for (const a of appeared) {
+                    if (a.r === cand.r && a.c === cand.c) continue;
+                    pairs.push({ cand, a, d: Math.abs(a.r - cand.r) + Math.abs(a.c - cand.c) });
+                }
+            }
+            pairs.sort((x, y) => x.d - y.d);
+            const usedCand = new Set();
+            const usedApp = new Set();
+            for (const p of pairs) {
+                if (usedCand.has(p.cand) || usedApp.has(p.a)) continue;
+                if (p.cand.pv !== valAt(nextBoard, p.a.r, p.a.c)) continue;   // 同色才算同一颗子
+                usedCand.add(p.cand);
+                usedApp.add(p.a);
+                delete stoneMarks[p.cand.k];
+                stoneMarks[p.a.r + ',' + p.a.c] = p.cand.ch;
+            }
+            for (const cand of candidates) {
+                if (!usedCand.has(cand)) delete stoneMarks[cand.k];
+            }
+        }
+    }
+
     const draw = {
         clear(ctx, canvasSize) {
             const s = canvasSize != null ? canvasSize : DEFAULT_CANVAS_SIZE;
@@ -3224,26 +3548,71 @@
             }
         },
 
-        userBoardMarks(ctx, userBoardMarksMap, boardSize, padding, cellSize, isVisibleAt) {
-            for (const key of Object.keys(userBoardMarksMap)) {
+        userBoardMarks(ctx, userBoardMarksMap, boardSize, padding, cellSize, isVisibleAt, opts) {
+            const o = opts || null;
+            const board = o && Array.isArray(o.board) ? o.board : null;
+            const kindAt = (r, c) => {
+                if (!board || !board[r]) return 'empty';
+                if (typeof o.cellKind === 'function') return o.cellKind(r, c, board[r][c]) || 'empty';
+                return boardMarkCellKind(board[r][c]);
+            };
+            for (const key of Object.keys(userBoardMarksMap || {})) {
                 const [r, c] = key.split(',').map(Number);
                 if (r < 0 || r >= boardSize || c < 0 || c >= boardSize) continue;
+                const kind = board ? kindAt(r, c) : 'empty';
+                if (kind === 'stone') continue;   // 点被棋子盖住：标记保留但不画
                 if (isVisibleAt && !isVisibleAt(r, c)) continue;
                 const ch = userBoardMarksMap[key];
                 const x = padding + c * cellSize;
                 const y = padding + (boardSize - 1 - r) * cellSize;
-                const markBgR = cellSize * 0.3;
-                ctx.beginPath();
-                ctx.arc(x, y, markBgR, 0, 2 * Math.PI);
-                ctx.fillStyle = '#fdcc90';
-                ctx.fill();
-                const fontPx = cellSize * (ch === '🚩' ? 0.6 : 0.66);
-                ctx.font = `bold ${fontPx}px "Segoe UI", "Apple Color Emoji", "Segoe UI Emoji", sans-serif`;
-                ctx.textAlign = 'center';
-                ctx.textBaseline = 'middle';
-                ctx.fillStyle = '#3a281c';
-                ctx.fillText(ch, x, y + 1);
+                draw.boardMarkGlyph(ctx, x, y, cellSize, ch,
+                    kind === 'attachment' ? 'light' : 'point');
             }
+            const stoneMap = o && o.stoneMarks ? o.stoneMarks : null;
+            if (!stoneMap || !board || !o.live) return;
+            // 隐藏情报棋种（雾/雷达/声呐/隐身）：盘面是观者视图，子层会泄漏隐藏子 → 整体关闭
+            if (global.QiBoardMarks && global.QiBoardMarks.stoneLayerEnabled === false) return;
+            for (const key of Object.keys(stoneMap)) {
+                const [r, c] = key.split(',').map(Number);
+                if (r < 0 || r >= boardSize || c < 0 || c >= boardSize) continue;
+                if (kindAt(r, c) !== 'stone') continue;   // 子不在（被提/被盖）就不画；记录由消息层跟随逻辑维护
+                const ch = stoneMap[key];
+                const v = board[r][c];
+                const x = padding + c * cellSize;
+                const y = padding + (boardSize - 1 - r) * cellSize;
+                draw.boardMarkGlyph(ctx, x, y, cellSize, ch, v === 2 ? 'dark' : 'light');
+            }
+        },
+
+        /**
+         * 画单个标记符号。
+         *   style='point' —— 空点：擦出/重铺一块留白（把格线从标记旁挪开），深色字；
+         *                    原来用浅木色实心圆底，木纹上线后会截断纹路，改为按盘面自身背景处理（见 applyEmptyPointMarkGap）。
+         *   style='light' —— 黑/红/蓝/中立子/洞/桥/雷等深底：白色字、无圆底；
+         *   style='dark'  —— 白子（浅底）：深色字、无圆底。
+         */
+        boardMarkGlyph(ctx, x, y, cellSize, ch, style) {
+            if (ch == null || ch === '') return;
+            const fontPx = cellSize * (ch === '🚩' ? 0.5 : 0.55);
+            ctx.font = `bold ${fontPx}px "Segoe UI", "Apple Color Emoji", "Segoe UI Emoji", sans-serif`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            if (style !== 'light' && style !== 'dark') {
+                applyEmptyPointMarkGap(ctx, x, y, cellSize);
+                ctx.fillStyle = BOARD_MARK_DARK_TEXT;
+                ctx.fillText(ch, x, y + 1);
+                return;
+            }
+            const light = style === 'light';
+            ctx.lineJoin = 'round';
+            ctx.lineWidth = Math.max(1.5, cellSize * 0.07);
+            ctx.fillStyle = light ? BOARD_MARK_LIGHT_TEXT : '#1a1a1a';
+            ctx.fillText(ch, x, y + 1);
+        },
+
+        /** 空点标记的留白（共用）：自绘插件的点层标记也调它，不要再用实心圆底 */
+        boardMarkGap(ctx, x, y, cellSize) {
+            applyEmptyPointMarkGap(ctx, x, y, cellSize);
         },
 
         moveNumbersOnStones(ctx, nums, board, boardSize, padding, cellSize) {
@@ -3445,6 +3814,36 @@
     }
 
     /**
+     * 由隐藏的 #boardMarkSelect 生成符号网格（面板里的按钮；点选 = 改 select.value 并高亮）。
+     * select 仍是唯一值源（各棋种直读 .value），网格只是它的可视化。
+     */
+    function refreshBoardMarkGrid(boardMarkSelect) {
+        const grid = document.getElementById('boardMarkGrid');
+        if (!grid || !boardMarkSelect) return;
+        grid.textContent = '';
+        const tiles = [];
+        const syncHighlight = () => {
+            const v = boardMarkSelect.value;
+            for (const btn of tiles) btn.classList.toggle('is-selected', (btn.dataset.value || '') === v);
+        };
+        for (const opt of Array.from(boardMarkSelect.options)) {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'board-mark-tile' + (opt.value === '' ? ' board-mark-tile--clear' : '');
+            btn.dataset.value = opt.value;
+            btn.textContent = opt.value === '' ? '清除' : opt.value;
+            btn.title = opt.value === '' ? '清除该点当前层的标记' : `标记 ${opt.value}`;
+            btn.addEventListener('click', () => {
+                boardMarkSelect.value = opt.value;
+                syncHighlight();
+            });
+            tiles.push(btn);
+            grid.appendChild(btn);
+        }
+        syncHighlight();
+    }
+
+    /**
      * @param {HTMLSelectElement|null} boardMarkSelect
      * @param {string[]} charList
      * @param {string} [defaultSelectedChar='?']
@@ -3452,6 +3851,7 @@
     function initBoardMarkSelectDom(boardMarkSelect, charList, defaultSelectedChar) {
         if (!boardMarkSelect) return;
         const def = defaultSelectedChar != null ? defaultSelectedChar : '?';
+        boardMarkSelect.textContent = '';
         const frag = document.createDocumentFragment();
         const optEmpty = document.createElement('option');
         optEmpty.value = '';
@@ -3465,6 +3865,7 @@
             frag.appendChild(o);
         }
         boardMarkSelect.appendChild(frag);
+        refreshBoardMarkGrid(boardMarkSelect);
     }
 
     function initBoardMarkFoldDom(panel, foldBtn, expandBtn) {
@@ -3472,6 +3873,9 @@
         function setCollapsed(collapsed) {
             panel.hidden = collapsed;
             expandBtn.hidden = !collapsed;
+            // 收起时整个占位也收掉：窄屏右栏横排时不给空面板留一行
+            const outer = document.getElementById('boardMarkOuter');
+            if (outer && outer.contains(panel)) outer.hidden = collapsed;
             foldBtn.setAttribute('aria-expanded', String(!collapsed));
             expandBtn.setAttribute('aria-expanded', String(!collapsed));
         }
@@ -3577,7 +3981,61 @@
             targetStd: 3.9, chRatio: [0.85, 1.06, 1.28],
         },
     };
-    const woodTextureCache = Object.create(null);
+    const woodTextureCache = new Map();
+    const staticCanvasCache = new Map();
+    let staticCanvasPixels = 0;
+    function sharedBoardCache() {
+        try {
+            return global.__qiTsumego && global.parent !== global ? global.parent.QiTsumegoBoardCache : null;
+        } catch (_) { return null; }
+    }
+    function cachedBoardCanvas(key, create) {
+        const shared = sharedBoardCache();
+        if (shared) return shared.getCanvas(key, create);
+        let canvas = staticCanvasCache.get(key);
+        if (canvas) {
+            staticCanvasCache.delete(key); staticCanvasCache.set(key, canvas);
+            return canvas;
+        }
+        canvas = create(document);
+        staticCanvasCache.set(key, canvas);
+        staticCanvasPixels += canvas.width * canvas.height;
+        while (staticCanvasCache.size > 16 || (staticCanvasPixels > 6 * 1024 * 1024 && staticCanvasCache.size > 1)) {
+            const oldest = staticCanvasCache.keys().next().value;
+            const previous = staticCanvasCache.get(oldest);
+            staticCanvasPixels -= previous.width * previous.height;
+            staticCanvasCache.delete(oldest);
+        }
+        return canvas;
+    }
+
+    /** 标准方格盘的透明底层：只有几何、视角或物理分辨率改变时才重新画格线和坐标。 */
+    function drawSquareBoardBase(ctx, boardSize, padding, cellSize, canvasSize, z, vcx, vcy) {
+        const cs = canvasSize || DEFAULT_CANVAS_SIZE;
+        const transform = ctx.getTransform();
+        const key = 'square-grid|' + [boardSize, padding, cellSize, cs, ctx.canvas.width, ctx.canvas.height,
+            transform.a, transform.b, transform.c, transform.d, transform.e, transform.f, z, vcx, vcy].join('|');
+        const layer = cachedBoardCanvas(key, (ownerDocument) => {
+            const canvas = ownerDocument.createElement('canvas');
+            canvas.width = ctx.canvas.width; canvas.height = ctx.canvas.height;
+            const base = canvas.getContext('2d');
+            base.setTransform(transform);
+            if (z > 1) {
+                base.translate(cs / 2, cs / 2); base.scale(z, z); base.translate(-vcx, -vcy);
+            }
+            draw.grid(base, boardSize, padding, cellSize, cs, z > 1 ? 1 / z : undefined);
+            draw.starPoints(base, boardSize, padding, cellSize);
+            draw.coordLabels(base, boardSize, padding, cellSize);
+            return canvas;
+        });
+        // 位图已按 backing store 分辨率绘制，避免再缩放而让线条变糊。
+        ctx.save(); ctx.resetTransform(); ctx.drawImage(layer, 0, 0); ctx.restore();
+        // 保留原先连续调用 grid/starPoints/coordLabels 后的上下文状态。
+        ctx.strokeStyle = ctx.fillStyle = '#3a281c';
+        ctx.lineWidth = z > 1 ? Math.max(0.5, 28 / boardSize / z) : 1.5;
+        ctx.font = `bold ${250 / boardSize}px Arial`;
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    }
 
     function parseCssRgb(str) {
         const t = (str || '').trim();
@@ -3598,12 +4056,12 @@
             || [253, 204, 144];
     }
 
-    /** 画布级随机种子：同一块画布复用，换房间/刷新重掷 */
+    /** 普通房间按画布随机；死活题整页共用，避免切题时重新生成木纹。 */
     function woodSeedFor(canvasEl) {
         if (!canvasEl) return (Math.random() * 0x7fffffff) | 0;
         let seed = canvasEl.__qiWoodSeed;
         if (seed == null) {
-            seed = (Math.random() * 0x7fffffff) | 0;
+            seed = sharedBoardCache()?.woodSeed ?? ((Math.random() * 0x7fffffff) | 0);
             canvasEl.__qiWoodSeed = seed;
         }
         return seed;
@@ -3746,7 +4204,7 @@
     }
 
     /** 生成 size×size 木纹画布：底色 base 均值不变，只叠木纹偏离 */
-    function makeWoodTextureCanvas(size, base, presetName, opt) {
+    function makeWoodTextureCanvas(size, base, presetName, opt, ownerDocument = document) {
         const P = Object.assign({}, WOOD_PRESETS[presetName] || WOOD_PRESETS.liuguan, opt || {});
         const S = size / WOOD_CELL_REF;          // 尺度无关：生成尺寸变化时观感一致
         const rnd = woodRng(P.seed);
@@ -3806,7 +4264,7 @@
         const mean = sum / field.length;
         let sq = 0; for (let i = 0; i < field.length; i++) { const d = field[i] - mean; sq += d * d; }
         const k = (P.targetStd * (P.strength != null ? P.strength : 1)) / (Math.sqrt(sq / field.length) || 1);
-        const cv = document.createElement('canvas');
+        const cv = ownerDocument.createElement('canvas');
         cv.width = size; cv.height = size;
         const cctx = cv.getContext('2d');
         const img = cctx.createImageData(size, size);
@@ -3834,14 +4292,22 @@
     function getWoodFill(ctx, canvasEl, logicalSize) {
         const ls = logicalSize > 0 ? logicalSize : DEFAULT_CANVAS_SIZE;
         const base = boardBaseColor();
+        if (canvasEl) canvasEl.__qiWoodFill = true;   // 供标记圆底判断「盘底是画布自绘木纹」
         const key = 'fill|' + base.join(',') + '|' + ls + '|' + WOOD_TEXTURE_PRESET + '|' + woodSeedFor(canvasEl);
-        let pat = woodTextureCache[key];
+        let pat = woodTextureCache.get(key);
         if (!pat) {
-            const src = makeWoodTextureCanvas(ls, base, WOOD_TEXTURE_PRESET, { seed: woodSeedFor(canvasEl) });
+            const src = woodTextureCanvas(ls, base, WOOD_TEXTURE_PRESET, { seed: woodSeedFor(canvasEl) });
             pat = ctx.createPattern(src, 'no-repeat');
-            woodTextureCache[key] = pat;
+            woodTextureCache.set(key, pat);
+            if (woodTextureCache.size > 16) woodTextureCache.delete(woodTextureCache.keys().next().value);
         }
         return pat;
+    }
+
+    function woodTextureCanvas(size, base, preset, options) {
+        const key = 'wood|' + base.join(',') + '|' + size + '|' + preset + '|'
+            + JSON.stringify(Object.keys(options).sort().reduce((acc, k) => (acc[k] = options[k], acc), {}));
+        return cachedBoardCanvas(key, (ownerDocument) => makeWoodTextureCanvas(size, base, preset, options, ownerDocument));
     }
 
     /**
@@ -3856,24 +4322,22 @@
         const preset = o.preset || WOOD_TEXTURE_PRESET;
         const base = o.base || parseCssRgb(getComputedStyle(canvasEl).backgroundColor) || boardBaseColor();
         if (!base) return false;
-        const seed = o.seed != null ? o.seed : woodSeedFor(canvasEl);   // 每块画布一个随机种子
+        const seed = o.seed != null ? o.seed : woodSeedFor(canvasEl);
         const dpr = (typeof window !== 'undefined' && window.devicePixelRatio) || 1;
         const rect = canvasEl.getBoundingClientRect();
         const cssSize = Math.max(rect && rect.width ? rect.width : 0, rect && rect.height ? rect.height : 0, 256);
         // 生成尺寸：够清晰即可，过大只是徒增耗时(纹理尺度与生成尺寸无关)
         const size = Math.min(o.longSide || 768, Math.max(512, Math.round(cssSize * Math.min(dpr, 2))));
-        // 缓存键必须包含全部参数覆盖，否则不同参数会命中同一张纹理
-        const key = base.map((v) => Math.round(v)).join(',') + '|' + size + '|' + preset
-            + '|' + JSON.stringify(Object.keys(o).sort().reduce((acc, k) => (acc[k] = o[k], acc), {}));
-        let url = woodTextureCache[key];
-        if (!url) {
-            url = makeWoodTextureCanvas(size, base, preset, Object.assign({}, o, { seed })).toDataURL('image/png');
-            woodTextureCache[key] = url;
+        const texture = woodTextureCanvas(size, base, preset, Object.assign({}, o, { seed }));
+        const url = texture.__qiWoodUrl || (texture.__qiWoodUrl = texture.toDataURL('image/png'));
+        if (canvasEl.__qiWoodUrl !== url) {
+            canvasEl.__qiWoodUrl = url;
+            canvasEl.style.backgroundImage = 'url("' + url + '")';
+            canvasEl.style.backgroundSize = '100% 100%';
+            canvasEl.style.backgroundRepeat = 'no-repeat';
+            canvasEl.style.backgroundPosition = 'center';
+            canvasEl.__qiWoodView = null;
         }
-        canvasEl.style.backgroundImage = 'url("' + url + '")';
-        canvasEl.style.backgroundSize = '100% 100%';
-        canvasEl.style.backgroundRepeat = 'no-repeat';
-        canvasEl.style.backgroundPosition = 'center';
         return true;
     }
 
@@ -3922,9 +4386,16 @@
         fillWeiqiEstimatePanel,
         clearWeiqiEstimatePanel,
         draw,
+        drawSquareBoardBase,
         standardRoomSocketOnClose,
         connectWeiqiRoomWebSocket,
+        boardMarkCellKind,
+        boardMarksLiveLatest,
+        isStoneCellValue,
+        toggleUserBoardMark,
+        syncStoneMarks,
         initBoardMarkSelectDom,
+        refreshBoardMarkGrid,
         initBoardMarkFoldDom,
         downloadWeiqiJsonRecord,
         fillScoreConfirmText,
@@ -4136,14 +4607,67 @@
         for (const k of Object.keys(map)) delete map[k];
     }
 
-    /** 独立棋类本地 userBoardMarks：注册后新局/重置可一并清空 */
-    function bindActiveUserBoardMarks(map) {
+    /** 独立棋类本地 userBoardMarks：注册后新局/重置可一并清空（点层 + 子层两张表） */
+    function bindActiveUserBoardMarks(map, stoneMap) {
         if (!map || typeof map !== 'object') return;
         global.QiBoardMarks = global.QiBoardMarks || {};
         global.QiBoardMarks._active = map;
+        if (stoneMap && typeof stoneMap === 'object') global.QiBoardMarks._activeStone = stoneMap;
         global.QiBoardMarks.clear = function () {
             clearUserBoardMarksMap(global.QiBoardMarks._active);
+            clearUserBoardMarksMap(global.QiBoardMarks._activeStone);
         };
+    }
+
+    /* 子层标记的「上一盘」快照（按标记表对象存；表被整体替换时自然失效 → 退化为只剪不配） */
+    const stoneMarkSnapshots = new WeakMap();
+
+    /** 清空子层标记（编辑盘面提交 / 导入棋谱：棋子没有身份连续性，整盘替换前先清） */
+    function resetStoneMarks(pageState) {
+        const g = global.QiBoardMarks;
+        const psStone = pageState && pageState.userStoneMarks;
+        const maps = [];
+        if (psStone) maps.push(psStone);
+        if (g && g._activeStone && g._activeStone !== psStone) maps.push(g._activeStone);
+        for (const m of maps) {
+            clearUserBoardMarksMap(m);
+            stoneMarkSnapshots.delete(m);
+        }
+    }
+
+    /**
+     * 收到局面状态后维护子层标记：精确跟随（moveCoords 的 from→to）、存活剪枝、回退只剪不配。
+     * 由 createWeiqiMessageBindings.syncStateWithMatch 与运行时 syncState 两处调用；幂等（同一盘面重复调用无变化）。
+     * 就近配对只在棋种声明 QiBoardMarks._stoneFollow 时启用（磁力/旋转/漂移这类服务端不记录移动明细的棋种）。
+     */
+    function syncStoneMarksWithState(pageState, state) {
+        if (!state || !Array.isArray(state.board) || !Array.isArray(state.board[0])) return;
+        const C = global.QiSquareWeiqiCanvas;
+        if (!C || typeof C.syncStoneMarks !== 'function') return;
+        const g = global.QiBoardMarks;
+        // 漂移类棋种由插件自己按盘面变换精确搬移子层标记（公共配对会重复搬）
+        if (g && g._stoneSyncSkip) return;
+        const psStone = pageState && pageState.userStoneMarks && typeof pageState.userStoneMarks === 'object'
+            ? pageState.userStoneMarks : null;
+        const maps = [];
+        if (psStone) maps.push(psStone);
+        if (g && g._activeStone && typeof g._activeStone === 'object' && g._activeStone !== psStone)
+            maps.push(g._activeStone);
+        if (!maps.length) return;
+        const size = state.board.length;
+        const mc = Array.isArray(state.moveCoords) ? state.moveCoords.length : null;
+        for (const map of maps) {
+            const snap = stoneMarkSnapshots.get(map);
+            let allowPairing = !!(g && g._stoneFollow);
+            let prev = snap ? snap.board : null;
+            if (snap && mc != null && snap.moveCount != null && mc < snap.moveCount) {
+                // 回退（悔棋/新局/导入/换路数）：盘面不与上一盘配对，只剪
+                allowPairing = false;
+                prev = null;
+            }
+            C.syncStoneMarks(prev, state.board, map, size, state.moveCoords || null, allowPairing);
+            stoneMarkSnapshots.set(map, { board: C.deepCopyBoard(state.board), moveCount: mc });
+        }
     }
 
     /**
@@ -4179,7 +4703,8 @@
         let editApi = null;
         if (ps.hoverCapture === undefined) ps.hoverCapture = false;
         if (!ps.userBoardMarks) ps.userBoardMarks = Object.create(null);
-        bindActiveUserBoardMarks(ps.userBoardMarks);
+        if (!ps.userStoneMarks) ps.userStoneMarks = Object.create(null);
+        bindActiveUserBoardMarks(ps.userBoardMarks, ps.userStoneMarks);
         if (enableEditBoard) {
             if (ps.editModeEnabled === undefined) ps.editModeEnabled = false;
             if (ps.editTool === undefined) ps.editTool = 'empty';
@@ -4265,7 +4790,8 @@
         function isUserBoardMarkVisibleAt(r, c) {
             if (ps.showEstimateActive) return false;
             if (r < 0 || r >= ps.BOARD_SIZE || c < 0 || c >= ps.BOARD_SIZE) return false;
-            if (ps.board[r][c] !== 0) return false;
+            // 点层标记：棋子盖住时不画（保留），空点与附加物（洞/桥/雷/中立子）都可见
+            if (C().isStoneCellValue(ps.board[r][c])) return false;
             return true;
         }
 
@@ -4322,6 +4848,13 @@
             const vcy = typeof ps.viewCenterY === 'number' ? ps.viewCenterY : cs / 2;
             return { z, vcx, vcy, cs };
         }
+        ps.recordPointToCanvas = (row, col) => {
+            const { z, vcx, vcy, cs } = getBoardViewTransform();
+            const x = ps.PADDING + col * ps.CELL_SIZE;
+            const y = ps.PADDING + (ps.BOARD_SIZE - 1 - row) * ps.CELL_SIZE;
+            return { x: z > 1 ? (x - vcx) * z + cs / 2 : x,
+                y: z > 1 ? (y - vcy) * z + cs / 2 : y, cell: ps.CELL_SIZE * z, size: cs };
+        };
 
         function boardScreenToWorld(sx, sy) {
             const { z, vcx, vcy, cs } = getBoardViewTransform();
@@ -4349,6 +4882,7 @@
             const cellSize = ps.CELL_SIZE;
             const { z, vcx, vcy } = getBoardViewTransform();
             d.clear(dom.ctx, cs);
+            C().drawSquareBoardBase(dom.ctx, ps.BOARD_SIZE, ps.PADDING, cellSize, cs, z, vcx, vcy);
             const useView = z > 1;
             const invZ = useView ? 1 / z : 1;
             if (useView) {
@@ -4357,9 +4891,6 @@
                 dom.ctx.scale(z, z);
                 dom.ctx.translate(-vcx, -vcy);
             }
-            d.grid(dom.ctx, ps.BOARD_SIZE, ps.PADDING, cellSize, cs, useView ? invZ : undefined);
-            d.starPoints(dom.ctx, ps.BOARD_SIZE, ps.PADDING, cellSize);
-            d.coordLabels(dom.ctx, ps.BOARD_SIZE, ps.PADDING, cellSize);
             const stoneRadius = cellSize * 0.44;
             const markLenDefault = cellSize * 0.352;
             const lowerLastMoveMarker = ps.showMoveNumbers || ps.showEstimateActive;
@@ -4370,7 +4901,9 @@
             if (!lowerLastMoveMarker) {
                 d.lastMoveMarkersUpper(dom.ctx, ps.lastMoveMarkers, ps.PADDING, cellSize, markLenDefault, ps.BOARD_SIZE);
             }
-            d.userBoardMarks(dom.ctx, ps.userBoardMarks, ps.BOARD_SIZE, ps.PADDING, cellSize, isUserBoardMarkVisibleAt);
+            // 子层标记只在「直播最新盘面且非形势判断」时画（回放/试下/编辑看到的是过去或临时局面）
+            d.userBoardMarks(dom.ctx, ps.userBoardMarks, ps.BOARD_SIZE, ps.PADDING, cellSize, isUserBoardMarkVisibleAt,
+                { board: ps.board, stoneMarks: ps.userStoneMarks, live: C().boardMarksLiveLatest(ps) });
             if (ps.showMoveNumbers) {
                 const nums = computeStoneNumbers();
                 d.moveNumbersOnStones(dom.ctx, nums, ps.board, ps.BOARD_SIZE, ps.PADDING, cellSize);
@@ -4560,6 +5093,7 @@
             ps.replayStep = step;
             ps.board = deepCopyBoard(ps.replayBoards[step]);
             ps.lastMoveMarkers = ps.replayMarkers[step].map(m => ({ ...m }));
+            if (typeof opts.onReplayStep === 'function') opts.onReplayStep(step);
 
             document.getElementById('replaySlider').value = step;
             document.getElementById('replayStepDisplay').innerText = `${step} / ${ps.replayTotalSteps}`;
@@ -4578,26 +5112,10 @@
 
         function updateReplayUI() {
             syncTryPlayActionButtons(ps);
-            if (opts.updateReplayUI) {
-                opts.updateReplayUI();
-                return;
-            }
-            const gameButtonIds = opts.replayGameButtonIds || ['passBtn', 'undoBtn', 'resignBtn', 'drawBtn', 'endReqBtn'];
-            const replayPanel = document.getElementById('replayPanel');
-            const tryPlayBtn = document.getElementById('tryPlayBtn');
-            const isPlayer = !!ps.mySlot;
-            const matchStarted = !!(ps.matchStarted || (ps.matchTime && ps.matchTime.settings));
-            const showMatchControlButtons = isPlayer && matchStarted && !ps.replayMode;
-            const showTryPlayButton = !showMatchControlButtons;
-            for (const id of gameButtonIds) {
-                const el = document.getElementById(id);
-                if (el) el.style.display = showMatchControlButtons ? '' : 'none';
-            }
-            if (replayPanel) replayPanel.style.display = '';
-            if (tryPlayBtn) {
-                tryPlayBtn.style.display = showTryPlayButton ? '' : 'none';
-                tryPlayBtn.innerText = ps.tryPlayMode ? '试下结束' : '试下';
-            }
+            // 对局按钮/试下按钮的可见性走公共函数（插件不要自己再写一份，见 syncGameActionButtons）
+            syncGameActionButtons(ps, { gameButtonIds: opts.replayGameButtonIds });
+            // 插件若还传了 updateReplayUI，那是它自己的**额外** UI（如回放视角开关），跑在后面
+            if (opts.updateReplayUI) opts.updateReplayUI();
         }
 
         function enterTryPlay() {
@@ -4977,6 +5495,8 @@
         }
 
         function syncState(state) {
+            // 子层标记跟随/剪枝的兜底（绕过 createWeiqiMessageBindings 直调 syncState 的路径也会走到；同一消息重复调用是幂等的）
+            syncStoneMarksWithState(ps, state);
             if (enableEditBoard && state && !ps.editModeEnabled) {
                 // 尺寸变化时旧尺寸开局盘（initialBoard/liveOpeningBoard）不能用作 opening：
                 // 以其为起点重放会产生维度不匹配的棋盘，drawBoard 越界。按新尺寸过滤
@@ -5046,6 +5566,9 @@
                 ps.BOARD_SIZE = state.boardSize;
                 if (state.komi != null && Number.isFinite(state.komi)) ps.KOMI = state.komi;
                 ps.board = initBoardArray(ps.BOARD_SIZE);
+                // 换路数：旧标记（点层/子层）都按旧坐标，清掉
+                clearUserBoardMarksMap(ps.userBoardMarks);
+                clearUserBoardMarksMap(ps.userStoneMarks);
                 // 尺寸变化后旧尺寸直播重放序列不可再用（增量扩展会越界），强制全量重建
                 ps.liveReplayBoards = [];
                 ps.liveReplayMarkers = [];
@@ -5132,13 +5655,8 @@
                 ps.lastMoveMarkers = state.lastMoveMarkers || [];
             }
 
-            const hasAnyStone = ps.board.some(row => row.some(v => v !== 0));
-            const hasPlayer = ps.slots.player1 || ps.slots.player2;
             const boardSizeSelect = document.getElementById('boardSizeSelect');
-            if (boardSizeSelect && ps.liveViewStep === 0 && !hasPlayer && !ps.gameOver && ps.mySlot === null)
-                boardSizeSelect.style.display = 'inline-block';
-            else
-                boardSizeSelect.style.display = 'none';
+            window.QiRoomGameSwitcher.syncSettingsSelect(boardSizeSelect);
 
             if (ps.showEstimateActive) {
                 showEstimate();
@@ -5202,6 +5720,11 @@
             const p = C().canvasCoordsFromClient(clientX, clientY, dom.canvas, C().DEFAULT_CANVAS_SIZE);
             return boardScreenToWorld(p.x, p.y);
         }
+        ps.recordPointFromClient = (clientX, clientY) => {
+            const p = canvasCoordsFromClient(clientX, clientY);
+            const point = getClosestIntersection(p.x, p.y);
+            return point && point.row >= 0 && point.col >= 0 ? point : null;
+        };
 
         function getSelectedBoardMark() {
             if (!dom.boardMarkSelect) return { clear: false, ch: '?' };
@@ -5212,35 +5735,17 @@
 
         function applyUserBoardMark(row, col) {
             if (row < 0 || col < 0 || row >= ps.BOARD_SIZE || col >= ps.BOARD_SIZE) return;
-            if (ps.board[row][col] !== 0) return;
+            const layer = C().boardMarkCellKind(ps.board[row][col]) === 'stone' ? 'stone' : 'point';
+            // 隐藏情报棋种（雾/雷达/声呐/隐身）：盘面是观者视图，子层会泄漏隐藏子 → 保持旧行为（棋子不可标）
+            if (layer === 'stone' && global.QiBoardMarks && global.QiBoardMarks.stoneLayerEnabled === false) return;
             if (!ps.userBoardMarks) ps.userBoardMarks = Object.create(null);
+            if (!ps.userStoneMarks) ps.userStoneMarks = Object.create(null);
             const { clear, ch } = getSelectedBoardMark();
             const key = row + ',' + col;
-            const existing = ps.userBoardMarks[key];
-            if (clear) {
-                if (existing !== undefined) {
-                    delete ps.userBoardMarks[key];
-                    drawBoard();
-                }
-                return;
-            }
-            // 扫雷围棋：选中 🚩 时右键循环 空→旗→×→清除；其它标记仍为放置/替换/同号取消
-            if (opts.boardMarkMode === 'minesweeper' && ch === '🚩') {
-                if (existing === undefined) ps.userBoardMarks[key] = '🚩';
-                else if (existing === '🚩') ps.userBoardMarks[key] = '×';
-                else if (existing === '×') delete ps.userBoardMarks[key];
-                else ps.userBoardMarks[key] = '🚩';
+            // 扫雷围棋：选中 🚩 时右键循环 空→旗→×→清除（只在点层）；其它标记仍为放置/替换/同号取消
+            if (C().toggleUserBoardMark(ps.userBoardMarks, ps.userStoneMarks, key, layer, ch, clear,
+                opts.boardMarkMode === 'minesweeper'))
                 drawBoard();
-                return;
-            }
-            if (existing === undefined) {
-                ps.userBoardMarks[key] = ch;
-            } else if (existing !== ch) {
-                ps.userBoardMarks[key] = ch;
-            } else {
-                delete ps.userBoardMarks[key];
-            }
-            drawBoard();
         }
 
         // 挂载即写贴点条：入房时尺寸/贴目与默认一致的话几何路径可能永不触发，
@@ -7117,6 +7622,34 @@ function bensonCoreGraph(opts) {
         document.body.classList.toggle('qi-tryplay', !!(pageState && pageState.tryPlayMode));
     }
 
+    /**
+     * 对局控制按钮（虚着/悔棋/认输/和棋/申请数点）与「试下」按钮的可见性：
+     * 只有**本人在座 + 对局已开始 + 不在回放**才显示对局按钮，其余情况只留「试下」。
+     * 自绘/自写插件要动这段就调这个函数，**别自己再抄一份**——雷达/声呐/隐身围棋抄了旧版，
+     * 非回放分支无条件把按钮全显示出来，于是开局前满屏按钮（与人机/普通围棋不一致）。
+     * @param {object} pageState 至少用到 mySlot / replayMode / tryPlayMode 与 matchStarted（或 matchTime.settings）
+     * @param {{ gameButtonIds?: string[] }} [options] 少数棋种没有「申请数点」等按钮时可覆盖
+     */
+    function syncGameActionButtons(pageState, options = {}) {
+        if (typeof document === 'undefined' || !document.body) return;
+        const ps = pageState || {};
+        const gameButtonIds = options.gameButtonIds || ['passBtn', 'undoBtn', 'resignBtn', 'drawBtn', 'endReqBtn'];
+        const replayPanel = document.getElementById('replayPanel');
+        const tryPlayBtn = document.getElementById('tryPlayBtn');
+        const isPlayer = !!ps.mySlot;
+        const matchStarted = !!(ps.matchStarted || (ps.matchTime && ps.matchTime.settings));
+        const showMatchControlButtons = isPlayer && matchStarted && !ps.replayMode;
+        for (const id of gameButtonIds) {
+            const el = document.getElementById(id);
+            if (el) el.style.display = showMatchControlButtons ? '' : 'none';
+        }
+        if (replayPanel) replayPanel.style.display = '';
+        if (tryPlayBtn) {
+            tryPlayBtn.style.display = showMatchControlButtons ? 'none' : '';
+            tryPlayBtn.innerText = ps.tryPlayMode ? '试下结束' : '试下';
+        }
+    }
+
     /** 深拷贝一步状态：只处理按步数据里会出现的普通对象/数组/Set/Map */
     function copyTryPlayStepValue(v) {
         if (Array.isArray(v)) return v.map((x) => copyTryPlayStepValue(x));
@@ -7488,6 +8021,8 @@ function bensonCoreGraph(opts) {
     global.QiWeiqiSquarePageRuntime = {
         create,
         syncTryPlayActionButtons,
+        /** 对局按钮（虚着/悔棋/认输/和棋/申请数点）与「试下」按钮的可见性：自写插件统一调它 */
+        syncGameActionButtons,
         tryPlayPassDefault,
         tryPlayUndoDefault,
         setupHiDpiCanvas: global.QiSquareWeiqiCanvas.setupHiDpiCanvas,
@@ -7495,6 +8030,8 @@ function bensonCoreGraph(opts) {
         getWoodFill: global.QiSquareWeiqiCanvas.getWoodFill,
         clearUserBoardMarksMap,
         bindActiveUserBoardMarks,
+        syncStoneMarksWithState,
+        resetStoneMarks,
         waitingSeatTurnText,
         roundTurnText,
         countGroupLiberties, 
@@ -7565,6 +8102,7 @@ function bensonCoreGraph(opts) {
         // 棋种不在地址里，由服务端在页面 <head> 注入（qi-server.js 的 /rooms/:roomId、/qi/rooms/:roomId）
         const m = window.location.pathname.match(/^\/(?:qi\/)?rooms\/(\d+)\/?$/);
         const route = window.__qiRoomRoute;
+        if (window.__qiTsumego && route && route.gameType) return { gameType: route.gameType, roomId: '' };
         if (m && route && route.gameType) return { gameType: route.gameType, roomId: m[1] };
         return null;
     }
@@ -7987,35 +8525,6 @@ function bensonCoreGraph(opts) {
         });
     }
 
-    /** 标记底色与房间页浅木色棋盘一致 */
-    function applyLighterBoardMarkFill() {
-        const draw = globalThis.QiSquareWeiqiCanvas && globalThis.QiSquareWeiqiCanvas.draw;
-        if (!draw || typeof draw.userBoardMarks !== 'function') return;
-        /* 与 room.css 的 --qi-room-board 保持一致 */
-        const LIGHT = '#fdcc90';
-        draw.userBoardMarks = function (ctx, userBoardMarksMap, boardSize, padding, cellSize, isVisibleAt) {
-            for (const key of Object.keys(userBoardMarksMap)) {
-                const [r, c] = key.split(',').map(Number);
-                if (r < 0 || r >= boardSize || c < 0 || c >= boardSize) continue;
-                if (isVisibleAt && !isVisibleAt(r, c)) continue;
-                const ch = userBoardMarksMap[key];
-                const x = padding + c * cellSize;
-                const y = padding + (boardSize - 1 - r) * cellSize;
-                const markBgR = cellSize * 0.3;
-                ctx.beginPath();
-                ctx.arc(x, y, markBgR, 0, 2 * Math.PI);
-                ctx.fillStyle = LIGHT;
-                ctx.fill();
-                const fontPx = cellSize * (ch === '🚩' ? 0.6 : 0.66);
-                ctx.font = `bold ${fontPx}px "Segoe UI", "Apple Color Emoji", "Segoe UI Emoji", sans-serif`;
-                ctx.textAlign = 'center';
-                ctx.textBaseline = 'middle';
-                ctx.fillStyle = '#3a281c';
-                ctx.fillText(ch, x, y + 1);
-            }
-        };
-    }
-
     async function boot() {
         const room = parseRoomFromPath();
         if (!room) {
@@ -8024,10 +8533,8 @@ function bensonCoreGraph(opts) {
             throw new Error('Invalid room URL');
         }
 
-        applyLighterBoardMarkFill();
-
         // 须在插件 mount（创建 WebSocket）之前挂钩，否则自建 WS 的棋种收不到聊天广播
-        RoomChat.installWebSocketHook();
+        if (!window.__qiTsumego) RoomChat.installWebSocketHook();
 
         await loadScript('/qi/room-plugins/' + room.gameType + '-room.js');
 
@@ -8093,7 +8600,7 @@ function bensonCoreGraph(opts) {
 
         // 聊天预设不阻塞棋盘首屏：下一帧再拉 CSV / 绑 UI
         requestAnimationFrame(() => {
-            try { RoomChat.init(); } catch (e) { console.warn('RoomChat.init failed', e); }
+            if (!window.__qiTsumego) try { RoomChat.init(); } catch (e) { console.warn('RoomChat.init failed', e); }
         });
     }
 
@@ -8128,6 +8635,8 @@ function bensonCoreGraph(opts) {
             for (let i = 0; i < 26; i++) chars.push(String.fromCharCode(65 + i));
             chars.push('△', '▽', '♡', '○', '◇', '□', '☆', '×', '🚩');
             C.initBoardMarkSelectDom(sel, chars);
+        } else if (sel && typeof C.refreshBoardMarkGrid === 'function') {
+            C.refreshBoardMarkGrid(sel);   // 插件已填过 select：确保网格与高亮已建立
         }
     }
 

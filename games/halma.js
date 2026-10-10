@@ -629,8 +629,8 @@ class HalmaRoom extends QiTwoPlayerRoomBase {
             requesterWs.send(JSON.stringify({ type: 'error', message: '棋盘大小无效（需为 8-19 路）。' }));
             return false;
         }
-        if (this.room.getPlayerBySlot('player2') || this.room.getPlayerBySlot('player1')) return false;
-        if (this.moveHistory.length > 0 || this.gameOver) return false;
+        if (!qiProtocol.canChangeRoomSettings(this)) return false;
+        qiProtocol.prepareRoomSettingsChange(this);
         this.boardSize = n;
         this.boardRows = n;
         this.boardCols = n;

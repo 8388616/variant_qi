@@ -740,6 +740,17 @@ function normalizeQiRecordForImport(self, data) {
         out.resultText = rawText;
         out.result = seatLike ? rawResult : null;         // 记录里本来就是座位：原样保留
     }
+    // 「空棋谱」= 没有着法、也没有胜负记录（相当于只是导入了开局盘面/一块空盘）：**视为开局前**，
+    // 与「刚编辑过棋盘」完全同态。棋种侧的 importRecord 都是看到 data.timeControl 才置
+    // matchStarted/tcSettings 的，所以这里把 timeControl 去掉即可 —— 否则状态里 matchStarted
+    // 与 matchTime.settings 都是「已开局」，而房间里一个人也没有，客户端会按
+    // 「对局已开始但双方已退出」显示（时间框写「黑(已退出)」、棋盘也不许再编辑）。
+    const hasMoves = Array.isArray(out.moves) && out.moves.some((m) => typeof m === 'string' && m.trim() !== '');
+    const hasResult = out.result != null
+        || (out.resultText != null && String(out.resultText).trim() !== '');
+    if (!hasMoves && !hasResult) {
+        out.timeControl = null;                           // 限时也当作没协商过：回到开局前，让双方重新确认
+    }
     return out;
 }
 
@@ -1129,18 +1140,37 @@ const qiProtocol = {
         return released;
     },
 
-    /** 仅观战者可改路数：parseInt size，调用 setBoardSize(n, ws) */
+    /** 只有多人落座时锁定棋类、子棋类和路数；单人模式只统计真人座位。 */
+    canChangeRoomSettings(self) {
+        const room = self && self.room;
+        if (!room) return false;
+        if (typeof room.getSeatedCount === 'function') return room.getSeatedCount() < 2;
+        const count = room.players.size + (self.computerSlot && !room.getPlayerBySlot(self.computerSlot) ? 1 : 0);
+        return count < 2;
+    },
+
+    /** 已通过参数和人数校验后，清理上一局；各棋种随后应用新尺寸/子棋类。 */
+    prepareRoomSettingsChange(self) {
+        self.openingBoard = undefined;
+        if (typeof self._releaseAiEngine === 'function') self._releaseAiEngine();
+        if (typeof self.resetToEmpty === 'function') self.resetToEmpty();
+        else if (typeof self.resetGame === 'function') self.resetGame();
+        // reset 的公共包装会保存旧尺寸开局盘；随后重建时必须重新生成。
+        self.openingBoard = undefined;
+    },
+
+    /** parseInt size，调用 setBoardSize(n, ws)；保留旧方法名兼容棋种。 */
     setBoardSizeObserverOnly(self, ws, msg, slot) {
-        if (slot) return;
+        if (!this.canChangeRoomSettings(self)) return;
         const n = parseInt(String(msg.size ?? ''), 10);
         self.setBoardSize(n, ws);
     },
 
     /**
-     * 围棋等：需同时满足 !slot 且房内无棋手（players.size===0）才可改路数。
+     * 围棋等与其它棋种采用同一落座人数限制。
      */
     setBoardSizeWeiqiObserver(self, ws, msg, slot) {
-        if (!slot && !self.room.players.size) {
+        if (this.canChangeRoomSettings(self)) {
             const n = parseInt(String(msg.size ?? ''), 10);
             self.setBoardSize(n, ws);
         }
@@ -3177,6 +3207,7 @@ const qiBoardSeatOverlay = {
 };
 
 module.exports = {
+    normalizeQiRecordForImport,
     copyBoard,
     boardToString,
     encodeInitialPositionCompact,

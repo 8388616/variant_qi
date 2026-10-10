@@ -1,4 +1,7 @@
 window.RoomPlugins = window.RoomPlugins || {};
+/* 易位会换子：子层标记允许「就近同色配对」跟随（能拿到 from→to 时走精确路径） */
+window.QiBoardMarks = window.QiBoardMarks || {};
+window.QiBoardMarks._stoneFollow = true;
 window.RoomPlugins["translocation-weiqi"] = {
     shell: {
         "title": "易位围棋",
@@ -326,7 +329,8 @@ const scoreTitle = document.getElementById('scoreTitle');
             if (!lowerLastMoveMarker) {
                 d.lastMoveMarkersUpper(ctx, ps.lastMoveMarkers, ps.PADDING, cellSize, markLenDefault, ps.BOARD_SIZE);
             }
-            d.userBoardMarks(ctx, ps.userBoardMarks, ps.BOARD_SIZE, ps.PADDING, cellSize, isUserBoardMarkVisibleAt);
+            d.userBoardMarks(ctx, ps.userBoardMarks, ps.BOARD_SIZE, ps.PADDING, cellSize, isUserBoardMarkVisibleAt,
+                { board: ps.board, stoneMarks: ps.userStoneMarks, live: QiSquareWeiqiCanvas.boardMarksLiveLatest(ps) });
             if (ps.showMoveNumbers) {
                 const nums = computeStoneNumbers();
                 d.moveNumbersOnStones(ctx, nums, ps.board, ps.BOARD_SIZE, ps.PADDING, cellSize);
@@ -600,10 +604,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             const hasAnyStone = ps.board.some(row => row.some(v => v !== 0));
             const hasPlayer = ps.slots.player1 || ps.slots.player2;
             const boardSizeSelect = document.getElementById('boardSizeSelect');
-            if (boardSizeSelect && ps.liveViewStep === 0 && !hasPlayer && !ps.gameOver && ps.mySlot === null)
-                boardSizeSelect.style.display = 'inline-block';
-            else if (boardSizeSelect)
-                boardSizeSelect.style.display = 'none';
+            window.QiRoomGameSwitcher.syncSettingsSelect(boardSizeSelect);
             if (ps.showEstimateActive) {
                 ps.cachedLiveBoard = page.removeDeadAndDying(ps.board);
                 ps.cachedTerritory = page.assignTerritoryWithRange(ps.cachedLiveBoard);

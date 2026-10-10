@@ -201,8 +201,9 @@ const BACKPACK_CAP = 8;
         /**
          * 与后端一致的逐步快照：用于打谱模式与局面回放。
          */
-        function buildVlReplayStepSnapshots(movesRaw, boardSize, _initialPosition) {
+        function buildVlReplayStepSnapshots(movesRaw, boardSize, initialPosition) {
             let curBoard = QiSquareWeiqiCanvas.initBoardArray(boardSize);
+            QiWeiqiSquarePageRuntime.applyInitialPositionCompact(curBoard, boardSize, initialPosition);
             let curLevel = initLevelBoard(boardSize);
             let black = initialBag();
             let white = initialBag();
@@ -368,10 +369,19 @@ const scoreTitle = document.getElementById('scoreTitle');
         function rebuildLiveReplayFromMoveCoords(moveCoords, openingBoard) {
             const syncedLen = ps.liveReplayBoards.length - 1;
             const mcs = moveCoords || [];
-            if (syncedLen >= 0 && mcs.length > syncedLen) {
+            if (syncedLen >= 0 && mcs.length > syncedLen
+                && ps.liveReplayLevelBoards.length === ps.liveReplayBoards.length
+                && ps.liveReplayBlackBags.length === ps.liveReplayBoards.length
+                && ps.liveReplayWhiteBags.length === ps.liveReplayBoards.length) {
                 if (applyLiveReplayIncremental(mcs)) return;
             }
-            const built = buildVlReplayStepSnapshots(mcs, ps.BOARD_SIZE, []);
+            const initialPosition = [];
+            if (openingBoard) for (let row = 0; row < openingBoard.length; row++) {
+                for (let col = 0; col < openingBoard[row].length; col++) {
+                    if (openingBoard[row][col]) initialPosition.push((openingBoard[row][col] === 1 ? 'B' : 'W') + row + ',' + col);
+                }
+            }
+            const built = buildVlReplayStepSnapshots(mcs, ps.BOARD_SIZE, initialPosition);
             ps.liveReplayBoards = built.boards;
             ps.liveReplayLevelBoards = built.levelBoards;
             ps.liveReplayMarkers = built.markers;
@@ -600,7 +610,8 @@ const scoreTitle = document.getElementById('scoreTitle');
                 d.lastMoveMarkersUpper(ctx, ps.lastMoveMarkers, ps.PADDING, cellSize, markLenDefault, ps.BOARD_SIZE);
             }
             d.userBoardMarks(ctx, ps.userBoardMarks, ps.BOARD_SIZE, ps.PADDING, cellSize,
-                page.isUserBoardMarkVisibleAt);
+                page.isUserBoardMarkVisibleAt,
+                { board: ps.board, stoneMarks: ps.userStoneMarks, live: QiSquareWeiqiCanvas.boardMarksLiveLatest(ps) });
             if (ps.showMoveNumbers) {
                 const nums = page.computeStoneNumbers();
                 d.moveNumbersOnStones(ctx, nums, ps.board, ps.BOARD_SIZE, ps.PADDING, cellSize);
@@ -663,6 +674,11 @@ const scoreTitle = document.getElementById('scoreTitle');
             const wasMyTurn = ps.isMyTurn;
             const incomingSize = Number.isInteger(state.boardSize) ? state.boardSize : ps.BOARD_SIZE;
             ps.levelBoard = normalizeLevelBoard(state.levelBoard || ps.levelBoard, incomingSize);
+            if (Array.isArray(state.moveCoords) && state.moveCoords.length === 0) {
+                ps.liveReplayLevelBoards = [deepCopy2d(ps.levelBoard)];
+                ps.liveReplayBlackBags = [(state.blackBag || initialBag()).slice()];
+                ps.liveReplayWhiteBags = [(state.whiteBag || initialBag()).slice()];
+            }
             origSyncState(state);
             if (ps.replayMode) {
                 ps.levelBoard = normalizeLevelBoard(state.levelBoard || ps.levelBoard, ps.BOARD_SIZE);

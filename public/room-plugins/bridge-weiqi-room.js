@@ -275,9 +275,11 @@ const scoreTitle = document.getElementById('scoreTitle');
             function isUserBoardMarkVisibleAt(br, bc) {
                 if (ps.showEstimateActive) return false;
                 if (!inBounds(br, bc)) return false;
-                return ps.board[br][bc] === 0;
+                // 点层：棋子盖住时不画；桥等附加物可见
+                return !QiSquareWeiqiCanvas.isStoneCellValue(ps.board[br][bc]);
             }
-            d.userBoardMarks(ctx, ps.userBoardMarks, ps.BOARD_SIZE, ps.PADDING, cellSize, isUserBoardMarkVisibleAt);
+            d.userBoardMarks(ctx, ps.userBoardMarks, ps.BOARD_SIZE, ps.PADDING, cellSize, isUserBoardMarkVisibleAt,
+                { board: ps.board, stoneMarks: ps.userStoneMarks, live: QiSquareWeiqiCanvas.boardMarksLiveLatest(ps) });
             if (ps.showMoveNumbers) {
                 const nums = bridgeComputeStoneNumbers();
                 d.moveNumbersOnStones(ctx, nums, ps.board, ps.BOARD_SIZE, ps.PADDING, cellSize);

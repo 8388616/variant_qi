@@ -201,7 +201,7 @@ class ReversiWeiqiRoom extends QiTwoPlayerRoomBase
      * 所有棋子都算活棋：严格按「曼哈顿距离最近的棋子」归属（同距离平分、超过阈值共有），不判死子、不叠 Benson。
      */
     computeLead() {
-        const { lead } = computeNearestWeiqiLead(this.board, this.boardSize <= 8 ? 4.25 : 3.25, squareWeiqiScoringOps(this.boardSize, {
+        const { lead } = computeNearestWeiqiLead(this.board, this.boardSize <= 8 ? 9.75 : 9.75, squareWeiqiScoringOps(this.boardSize, {
             copyBoard: (b) => this.copyBoard(b)
         }));
         return lead;
@@ -476,12 +476,11 @@ class ReversiWeiqiRoom extends QiTwoPlayerRoomBase
             requesterWs.send(JSON.stringify({ type: 'error', message: '棋盘大小无效' }));
             return false;
         }
-        const hasAnyStone = this.board.some(row => row.some(v => v !== 0));
-        const hasPlayer = this.room.getPlayerBySlot('player1') || this.room.getPlayerBySlot('player2');
-        if (hasAnyStone || hasPlayer) {
+        if (!qiProtocol.canChangeRoomSettings(this)) {
 
             return false;
         }
+        qiProtocol.prepareRoomSettingsChange(this);
         this.boardSize = newSize;
         this.resetGame();
         this.broadcast({ type: 'boardSizeChanged', boardSize: this.boardSize });
@@ -503,7 +502,7 @@ class ReversiWeiqiRoom extends QiTwoPlayerRoomBase
             gameType: '翻转围棋',
             gameId: 'reversi-weiqi',
             boardSize: this.boardSize,
-            komi: this.boardSize <= 8 ? 4.25 : 3.25,
+            komi: this.boardSize <= 8 ? 9.75 : 9.75,
             players: { player1: null, player2: null },
             initialPosition: encodeOpeningPositionCompact(this),
             moves: this.moveCoords.map(m => {

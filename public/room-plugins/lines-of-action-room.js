@@ -783,7 +783,7 @@ const boardSizeSelect = document.getElementById('boardSizeSelect');
                 const hasMoves = ps.moveLog.length > 0;
                 // 路数选择：观战者、无人入座、未开局、无着法时才显示（与其它可变路数棋种一致）；
                 // 新局会释放座位，所以新局后又能改
-                boardSizeSelect.style.display = canChangeBoardSize() ? 'inline-block' : 'none';
+                window.QiRoomGameSwitcher.syncSettingsSelect(boardSizeSelect);
                 // 按钮显隐走公共实现（导出棋谱任何时候都显示）；下面留一份兜底，万一没接上 bindings
                 if (bindingsUpdateRecordButtons) { bindingsUpdateRecordButtons(); return; }
                 if (!hasPlayers && !hasMoves) {
@@ -805,6 +805,14 @@ const boardSizeSelect = document.getElementById('boardSizeSelect');
                 pageState: ps,
                 boardSeatOverlay: true,
                 seatOverlayOnly: true,
+                getGameOver: () => ps.gameOver,
+                getReplayMode: () => ps.replayMode,
+                getBoard: () => ps.board,
+                enterReplayMode: (data) => { syncState(data.recordState); ps.replayMode = true; },
+                setReplayStep: (step) => { setReplayStep(step); ps.replayMode = true; },
+                exitTryPlay,
+                recordPointToCanvas: (row, col) => ({ ...boardCenterOfCell(row, col), cell: ps.CELL_SIZE, size: 600 }),
+                recordMoveKind: 'travel',
                 slotUi: SLOT_UI,          // 座位 → 执方名（player1 执白，与国际跳棋一致）
                 standardWeiqiMatchTime,
                 getWs: () => ps.ws,

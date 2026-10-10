@@ -7,6 +7,8 @@ const {
     KATAGO_BUSY_MESSAGE,
     fromGtpVertex
 } = require('../katago-gtp');
+// 站点贴目(点) → 引擎贴目(目) 的换算（唯一一处）：AI 选点的引擎会话自建 setup 参数，也走它
+const { engineKomi } = require('../qi-katago-opponent');
 
 function normalizeLegacyInitialToCompact(initialPosition) {
     if (!initialPosition) return [];
@@ -45,7 +47,7 @@ class ChoiceWeiqiRoom extends QiTwoPlayerRoomBase {
         this.moveCoords = [];
         this.candidates = [];
         this.aiCandidatesEnabled = false;   // AI 生成选点模式
-        this._aiSession = null;             // weiqi 引擎会话（复用与电脑对弈的引擎池）
+        this._aiSession = null;             // weiqi 引擎会话（复用对电脑对战的引擎池）
         this._aiGen = 0;                    // 会话代次：防止旧异步结果覆盖新状态
         this._aiAcquiring = false;          // 引擎会话获取中（启动进程/加载模型，耗时数秒）
         this._engineSyncedMoves = 0;        // 引擎已同步的 moveCoords 步数（增量 play 依据）
@@ -291,7 +293,7 @@ class ChoiceWeiqiRoom extends QiTwoPlayerRoomBase {
         this.candidates = this.shufflePick(pool, pick);
     }
 
-    /** AI 生成候选点：同步局面后取模型策略网络的前 need 个点（与电脑对弈的落子一致） */
+    /** AI 生成候选点：同步局面后取模型策略网络的前 need 个点（对电脑对战的落子一致） */
     async _aiGenerateCandidates() {
         const session = this._aiSession;
         const gen = this._aiGen;
@@ -349,11 +351,14 @@ class ChoiceWeiqiRoom extends QiTwoPlayerRoomBase {
         this._engineSyncedMoves = mcs.length;
     }
 
-    /** 构造引擎局面同步参数（与「与电脑对弈」的 buildKatagoSetupOpts 一致） */
+    /** 构造引擎局面同步参数（与「对电脑对战」的 buildKatagoSetupOpts 一致） */
     _buildSetupOpts() {
         const opts = {
             boardSize: this.boardSize,
-            komi: 2.25,
+            // 引擎单位是「目」：站点贴目 2.25 点（getState/棋谱/数点都用它）= 4.5 目。
+            // 换算只此一处，与「对电脑对战」共用（qi-katago-opponent.engineKomi）；
+            // 直接把 2.25 发给引擎 = 白棋只拿到一半贴目，且四分之一整数会踩引擎的 0.5 倍数断言。
+            komi: engineKomi(this),
             board: this.board,
             gameId: 'weiqi'
         };
@@ -491,7 +496,7 @@ class ChoiceWeiqiRoom extends QiTwoPlayerRoomBase {
                 break;
 
             case 'setBoardSize':
-                if (!slot && !this.room.players.size)
+                if (qiProtocol.canChangeRoomSettings(this))
                     this.setBoardSize(msg.size, ws);
                 break;
 
@@ -794,12 +799,11 @@ class ChoiceWeiqiRoom extends QiTwoPlayerRoomBase {
             requesterWs.send(JSON.stringify({ type: 'error', message: '棋盘大小无效' }));
             return false;
         }
-        const hasAnyStone = this.board.some(row => row.some(v => v !== 0));
-        const hasPlayer = this.room.getPlayerBySlot('player1') || this.room.getPlayerBySlot('player2');
-        if (hasAnyStone || hasPlayer) {
+        if (!qiProtocol.canChangeRoomSettings(this)) {
 
             return false;
         }
+        qiProtocol.prepareRoomSettingsChange(this);
         this.boardSize = newSize;
         this.openingBoard = undefined;
         this.resetGame();
@@ -807,7 +811,7 @@ class ChoiceWeiqiRoom extends QiTwoPlayerRoomBase {
         return true;
     }
 
-    /** 启用/停用 AI 生成选点：启用时从引擎池获取 weiqi 会话（与「与电脑对弈」同池，
+    /** 启用/停用 AI 生成选点：启用时从引擎池获取 weiqi 会话（与「对电脑对战」同池，
      *  受总进程数限制），繁忙时给出与其它棋类一致的提示；停用时归还引擎 */
     setAiCandidates(enabled, ws) {
         const want = !!enabled;

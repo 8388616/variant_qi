@@ -204,7 +204,17 @@ window.RoomPlugins['bury-mine-weiqi'] = {
                 if (lowerLastMoveMarker) d.lastMoveMarkersLower(ctx, ps.lastMoveMarkers, ps.PADDING, ps.CELL_SIZE, stoneRadius, ps.BOARD_SIZE);
                 d.stonesBlackWhite(ctx, ps.board, ps.BOARD_SIZE, ps.PADDING, ps.CELL_SIZE, stoneRadius, ps.showMoveNumbers);
                 if (!lowerLastMoveMarker) d.lastMoveMarkersUpper(ctx, ps.lastMoveMarkers, ps.PADDING, ps.CELL_SIZE, markLenDefault, ps.BOARD_SIZE);
-                d.userBoardMarks(ctx, ps.userBoardMarks, ps.BOARD_SIZE, ps.PADDING, ps.CELL_SIZE, isUserBoardMarkVisibleAt);
+                // 观者可见的雷点：标记按附加物画（白字无底）；隐藏的雷点盘面是 0，标记按空点画（不泄漏）
+                const mineMarkKeys = new Set();
+                for (const m of minesToDraw()) {
+                    const mr = m.row != null ? m.row : m.r;
+                    const mc = m.col != null ? m.col : m.c;
+                    if (!(ps.board[mr] && (ps.board[mr][mc] === 1 || ps.board[mr][mc] === 2))) mineMarkKeys.add(mr + ',' + mc);
+                }
+                d.userBoardMarks(ctx, ps.userBoardMarks, ps.BOARD_SIZE, ps.PADDING, ps.CELL_SIZE, isUserBoardMarkVisibleAt,
+                    { board: ps.board, stoneMarks: ps.userStoneMarks, live: QiSquareWeiqiCanvas.boardMarksLiveLatest(ps),
+                      cellKind: (r, c, v) => (v === 0 && mineMarkKeys.has(r + ',' + c)
+                          ? 'attachment' : QiSquareWeiqiCanvas.boardMarkCellKind(v)) });
                 if (ps.showMoveNumbers) {
                     d.moveNumbersOnStones(ctx, numsOnBoard(), ps.board, ps.BOARD_SIZE, ps.PADDING, ps.CELL_SIZE);
                 }

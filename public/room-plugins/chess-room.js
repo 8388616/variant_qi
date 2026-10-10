@@ -1341,6 +1341,11 @@ return {
             roomId,
             gameType,
             pageState: ps,
+            recordMoveKind: 'travel',
+            recordPointToCanvas: (row, col) => {
+                const p = toDisplayCoord(row, col), xy = squareCenter(p.row, p.col);
+                return { ...xy, cell: cellSize, size: LOGICAL_SIZE };
+            },
             // 试下虚着：快照型棋种要由棋种自己给出「另一方」的取值，才能生成跳过一手的快照
             tryPlayOppositeSide: (side) => R.oppositeSide(side),
             drawBoard,

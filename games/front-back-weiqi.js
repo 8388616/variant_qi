@@ -442,13 +442,11 @@ class FrontBackWeiqiRoom extends QiTwoPlayerRoomBase {
             requesterWs.send(JSON.stringify({ type: 'error', message: '棋盘大小无效。' }));
             return false;
         }
-        const hasStone = this.boardA.some(row => row.some(v => v !== 0)) || this.boardB.some(row => row.some(v => v !== 0));
-        const hasMine = this.minesA.length > 0 || this.minesB.length > 0;
-        const hasPlayer = this.room.getPlayerBySlot('player1') || this.room.getPlayerBySlot('player2');
-        if (hasStone || hasMine || hasPlayer) {
-            requesterWs.send(JSON.stringify({ type: 'error', message: '已有棋子、雷或玩家，不能改变棋盘大小' }));
+        if (!qiProtocol.canChangeRoomSettings(this)) {
+            requesterWs.send(JSON.stringify({ type: 'error', message: '已有多人落座，不能修改棋盘大小' }));
             return false;
         }
+        qiProtocol.prepareRoomSettingsChange(this);
         this.boardSize = newSize;
         this.resetToEmpty();
         this.broadcast({ type: 'boardSizeChanged', boardSize: this.boardSize });
@@ -656,7 +654,7 @@ class FrontBackWeiqiRoom extends QiTwoPlayerRoomBase {
 
         switch (msg.type) {
             case 'setBoardSize': {
-                if (slot) break;
+                if (!qiProtocol.canChangeRoomSettings(this)) break;
                 const n = parseInt(String(msg.size ?? ''), 10);
                 this.setBoardSize(n, ws);
                 break;

@@ -780,9 +780,8 @@ class RusWeiqiRoom extends QiTwoPlayerRoomBase {
             requesterWs.send(JSON.stringify({ type: 'error', message: '棋盘大小无效。' }));
             return false;
         }
-        const hasAnyStone = this.board.some(row => row.some(v => v !== 0));
-        const hasPlayer = this.room.getPlayerBySlot('player1') || this.room.getPlayerBySlot('player2');
-        if (hasAnyStone || hasPlayer) return false;
+        if (!qiProtocol.canChangeRoomSettings(this)) return false;
+        qiProtocol.prepareRoomSettingsChange(this);
         this.boardSize = newSize;
         this.openingBoard = undefined;
         this.board = Array(this.boardSize).fill().map(() => Array(this.boardSize).fill(0));

@@ -30,7 +30,7 @@ const SUB_META = {
     'hexagon-weiqi': {
         name: '六角围棋', gameType: '六角围棋', prefix: '六角围棋',
         min: 4, max: 11, def: 9,
-        komi: () => 3.25, gtpSize: (lanes) => lanes
+		komi: () => (lanes) => (lanes >= 9 ? 7.5 : [0, 0, 12, 7, 4.5, 5.5, 6.5, 7.5][lanes]), gtpSize: (lanes) => lanes
     },
     'floret-pentagon-weiqi': {
         name: '花形五角围棋', gameType: '花形五角围棋', prefix: '花形五角围棋',
@@ -801,10 +801,9 @@ class NonRectangularWeiqiRoom extends QiTwoPlayerRoomBase {
             requesterWs.send(JSON.stringify({ type: 'error', message: '子棋类无效' }));
             return false;
         }
-        const hasAnyStone = this.board.some((row, r) => row.some((v, c) => this.isValidVertex(r, c) && v !== 0));
-        const hasPlayer = this.room.getPlayerBySlot('player1') || this.room.getPlayerBySlot('player2');
-        if (hasAnyStone || hasPlayer || subGameId === this.subGameId) return false;
+        if (!qiProtocol.canChangeRoomSettings(this) || subGameId === this.subGameId) return false;
         this._rememberSize();
+        qiProtocol.prepareRoomSettingsChange(this);
         this.subGameId = subGameId;
         const remembered = this.sizeBySubGame[subGameId];
         this.boardLanes = Number.isInteger(remembered) ? remembered : this.subCfg().def;
@@ -821,12 +820,11 @@ class NonRectangularWeiqiRoom extends QiTwoPlayerRoomBase {
             requesterWs.send(JSON.stringify({ type: 'error', message: `棋盘路数无效（${cfg.min}-${cfg.max}）` }));
             return false;
         }
-        const hasAnyStone = this.board.some((row, r) => row.some((v, c) => this.isValidVertex(r, c) && v !== 0));
-        const hasPlayer = this.room.getPlayerBySlot('player1') || this.room.getPlayerBySlot('player2');
-        if (hasAnyStone || hasPlayer) {
-            requesterWs.send(JSON.stringify({ type: 'error', message: '已有棋子或玩家，不能改变路数' }));
+        if (!qiProtocol.canChangeRoomSettings(this)) {
+            requesterWs.send(JSON.stringify({ type: 'error', message: '已有多人落座，不能修改棋盘大小' }));
             return false;
         }
+        qiProtocol.prepareRoomSettingsChange(this);
         this.boardLanes = lanes;
         this._rememberSize();
         this._buildBoard();
@@ -1107,11 +1105,11 @@ class NonRectangularWeiqiRoom extends QiTwoPlayerRoomBase {
                 break;
 
             case 'setBoardSize':
-                if (!slot && !room.players.size) this.setBoardSize(msg.size, ws);
+                if (qiProtocol.canChangeRoomSettings(this)) this.setBoardSize(msg.size, ws);
                 break;
 
             case 'setSubGame':
-                if (!slot && !room.players.size) {
+                if (qiProtocol.canChangeRoomSettings(this)) {
                     this.setSubGame(msg.subGameId, ws);
                 } else {
                     // 被拒绝：回推当前状态，纠正客户端本地乐观切换（子棋类/几何/路数以服务端为准）

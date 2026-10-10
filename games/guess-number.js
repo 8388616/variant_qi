@@ -227,12 +227,12 @@ class GuessNumberRoom {
                     this._deny(ws, `方格大小只能是 ${N_MIN}~${N_MAX}`);
                     return;
                 }
-                if (!slot) return;
-                if (this.phase !== 'filling' || this.confirmed.player1 || this.confirmed.player2) {
-                    this._deny(ws, '已经开始，不能改方格大小');
+                if (this.room.getSeatedCount() >= 2) {
+                    this._deny(ws, '已有多人落座，不能改方格大小');
                     return;
                 }
                 this.boardSize = n;
+                this._reset(false);
                 this._broadcastState();
                 return;
             }

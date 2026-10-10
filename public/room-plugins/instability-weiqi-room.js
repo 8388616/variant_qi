@@ -370,7 +370,8 @@ function unstableLifetimeForSize(size) {
             if (!lowerLastMoveMarker) {
                 d.lastMoveMarkersUpper(ctx, ps.lastMoveMarkers, ps.PADDING, cellSize, markLenDefault, ps.BOARD_SIZE);
             }
-            d.userBoardMarks(ctx, ps.userBoardMarks, ps.BOARD_SIZE, ps.PADDING, cellSize, isUserBoardMarkVisibleAt);
+            d.userBoardMarks(ctx, ps.userBoardMarks, ps.BOARD_SIZE, ps.PADDING, cellSize, isUserBoardMarkVisibleAt,
+                { board: ps.board, stoneMarks: ps.userStoneMarks, live: QiSquareWeiqiCanvas.boardMarksLiveLatest(ps) });
             if (showStepNumbersOnStones) {
                 const nums = computeStoneNumbers();
                 d.moveNumbersOnStones(ctx, nums, ps.board, ps.BOARD_SIZE, ps.PADDING, cellSize);
@@ -579,10 +580,7 @@ function unstableLifetimeForSize(size) {
             const hasAnyStone = ps.board.some(row => row.some(v => v !== 0));
             const hasPlayer = ps.slots.player1 || ps.slots.player2;
             const boardSizeSelect = document.getElementById('boardSizeSelect');
-            if (boardSizeSelect && ps.liveViewStep === 0 && !hasPlayer && !ps.gameOver && ps.mySlot === null)
-                boardSizeSelect.style.display = 'inline-block';
-            else if (boardSizeSelect)
-                boardSizeSelect.style.display = 'none';
+            window.QiRoomGameSwitcher.syncSettingsSelect(boardSizeSelect);
 
             if (ps.showEstimateActive) {
                 page.showEstimate();

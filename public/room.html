@@ -27,7 +27,7 @@
 <body class="qi-room" id="gameWrapper">
     <div class="top-panel">
         <div class="left-group">
-            <div class="komi-info" id="gameTitleInfo">围棋</div>
+            <button type="button" class="komi-info game-switch-trigger" id="gameTitleInfo" aria-expanded="false" aria-controls="roomGameMenu" aria-haspopup="dialog" title="切换棋类">围棋</button>
             <select id="subGameSelect" class="board-size-select" style="display: none;">
                 <option value="triangle">三角形</option>
                 <option value="rhombus">菱形</option>
@@ -140,14 +140,7 @@
                 <div class="ms-board-wrap" id="msBoardWrap" hidden>
                     <div class="ms-grid" id="msGrid"></div>
                 </div>
-                <div class="board-mark-outer" id="boardMarkOuter">
-                    <div class="board-mark-panel" id="boardMarkPanel" hidden title="右键或长按空点放置标记；再次放置可清除">
-                        <label for="boardMarkSelect">标记</label>
-                        <select id="boardMarkSelect" class="board-mark-select" aria-label="棋盘标记符号"></select>
-                        <button type="button" class="board-mark-fold-btn" id="boardMarkFoldBtn" title="收起">‹</button>
-                    </div>
-                    <button type="button" class="board-mark-expand-btn" id="boardMarkExpandBtn" title="展开标记">›</button>
-                </div>
+                <button type="button" class="board-mark-expand-btn" id="boardMarkExpandBtn" title="展开标记">›</button>
             </div>
             <div class="bottom-palette vl-bags-wrap" id="vlBagsPalette" hidden>
                 <div class="vl-bags-row">
@@ -254,6 +247,16 @@
                         </div>
                     </div>
                 </div>
+                <div id="boardMarkOuter">
+                    <div class="board-mark-panel" id="boardMarkPanel" hidden title="右键或长按空点或棋子放置标记；再次放置可清除">
+                        <div class="board-mark-head">
+                            <span class="board-mark-title">标记</span>
+                            <button type="button" class="board-mark-fold-btn" id="boardMarkFoldBtn" title="收起">收起 ‹</button>
+                        </div>
+                        <div class="board-mark-grid" id="boardMarkGrid" role="listbox" aria-label="棋盘标记符号"></div>
+                        <select id="boardMarkSelect" class="board-mark-select" aria-label="棋盘标记符号" hidden></select>
+                    </div>
+                </div>
                 <div class="bottom-palette" id="bottomPalette" hidden>
                     <div class="piece-row" id="shapeSelector"></div>
                     <div class="transform-buttons">
@@ -293,7 +296,11 @@
     </div>
     <input type="file" id="importFileInput" accept=".json,.sgf" style="display:none;">
 
+    <script src="/qi/record-tree.js"></script>
+    <script src="/qi/room-record-tree.js"></script>
     <script src="/qi/sgf.js"></script>
+    <script src="/qi/game-catalog.js"></script>
+    <script src="/qi/room-game-switcher.js"></script>
     <script src="/qi/room.js"></script>
 </body>
 </html>

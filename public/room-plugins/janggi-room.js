@@ -830,7 +830,7 @@ return {
                     ctx2d.fill();
                     ctx2d.shadowBlur = 0; ctx2d.shadowOffsetY = 0;
                     pathOctagon(x, y, radius);
-                    ctx2d.fillStyle = '#f4dcac';
+                    ctx2d.fillStyle = '#fbdea5';
                     ctx2d.fill();
                     ctx2d.strokeStyle = 'rgba(200,160,104,1)';
                     ctx2d.lineWidth = 1.5;
@@ -1339,6 +1339,12 @@ return {
             roomId,
             gameType,
             pageState: ps,
+            recordMoveKind: 'travel',
+            recordPointToCanvas: (row, col) => {
+                const p = toDisplayCoord(row, col);
+                const xy = { x: offsetX + p.col * cellSize, y: offsetY + p.row * cellSize };
+                return { ...xy, cell: cellSize, size: canvas.width };
+            },
             // 试下虚着：快照型棋种要由棋种自己给出「另一方」的取值，才能生成跳过一手的快照
             tryPlayOppositeSide: (side) => R.oppositeSide(side),
             drawBoard,

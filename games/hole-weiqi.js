@@ -722,11 +722,10 @@ class HoleWeiqiRoom extends QiTwoPlayerRoomBase
             requesterWs.send(JSON.stringify({ type: 'error', message: '棋盘大小无效' }));
             return false;
         }
-        const hasAnyStone = this.board.some(row => row.some(v => v === 1 || v === 2));
-        const hasPlayer = this.room.getPlayerBySlot('player1') || this.room.getPlayerBySlot('player2');
-        if (hasAnyStone || hasPlayer) {
+        if (!qiProtocol.canChangeRoomSettings(this)) {
             return false;
         }
+        qiProtocol.prepareRoomSettingsChange(this);
         this.boardSize = newSize;
         this.HOLE_COUNT = Math.floor(0.083 * this.boardSize * this.boardSize);
         const { board, holes } = this.generateHolesAndBoard();

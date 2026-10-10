@@ -599,12 +599,11 @@ class LargeSmallCircleWeiqiRoom extends QiTwoPlayerRoomBase {
             requesterWs.send(JSON.stringify({ type: 'error', message: `棋盘路数无效（${SIZE_MIN}-${SIZE_MAX}）` }));
             return false;
         }
-        const hasAnyStone = this.board.some((row, r) => row.some((v, c) => this.isValidVertex(r, c) && v !== 0));
-        const hasPlayer = this.room.getPlayerBySlot('player1') || this.room.getPlayerBySlot('player2');
-        if (hasAnyStone || hasPlayer) {
-            requesterWs.send(JSON.stringify({ type: 'error', message: '已有棋子或玩家，不能改变路数' }));
+        if (!qiProtocol.canChangeRoomSettings(this)) {
+            requesterWs.send(JSON.stringify({ type: 'error', message: '已有多人落座，不能修改棋盘大小' }));
             return false;
         }
+        qiProtocol.prepareRoomSettingsChange(this);
         this.boardLanes = lanes;
         this._buildBoard();
         this._initState();
@@ -879,7 +878,7 @@ class LargeSmallCircleWeiqiRoom extends QiTwoPlayerRoomBase {
                 break;
 
             case 'setBoardSize':
-                if (!slot && !room.players.size) this.setBoardSize(msg.size, ws);
+                if (qiProtocol.canChangeRoomSettings(this)) this.setBoardSize(msg.size, ws);
                 break;
 
             case 'move': {

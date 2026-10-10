@@ -59,7 +59,7 @@ window.RoomPlugins['versus-schulte-grid'] = {
                 [
                     'estimateBtn', 'tryPlayBtn', 'passBtn', 'undoBtn', 'resignBtn', 'drawBtn', 'endReqBtn',
                     'buryFinishBtn', 'importBtn', 'exportBtn', 'vsComputerBtn', 'replayMinesRow',
-                    'replayPerspectiveRow', 'boardMarkOuter', 'editControls', 'styleSelect', 'subGameSelect',
+                    'replayPerspectiveRow', 'boardMarkOuter', 'boardMarkExpandBtn', 'editControls', 'styleSelect', 'subGameSelect',
                     'goTimerPanel', 'roomChat', 'replayPanel', 'scoreConfirmPanel', 'boardScrollX', 'boardScrollY'
                 ].forEach((id) => {
                     const el = document.getElementById(id);
@@ -333,7 +333,7 @@ window.RoomPlugins['versus-schulte-grid'] = {
                 // 有人入座时仅房主可见可改；对局中隐藏
                 const editable = S.phase === 'lobby' || S.phase === 'finished';
                 const show = editable && (S.players.length === 0 || isHost());
-                sizeSelect.style.display = show ? 'inline-block' : 'none';
+                window.QiRoomGameSwitcher.syncSettingsSelect(sizeSelect);
             }
 
             // ======================== 倒计时（与服务器同步） ========================

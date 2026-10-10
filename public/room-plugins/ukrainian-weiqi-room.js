@@ -33,7 +33,7 @@ window.RoomPlugins['ukrainian-weiqi'] = {
                 "label": "白子"
             }
         ],
-        "boardMarkTitle": "Ctrl+右键或长按空点放置标记（避免与旋转/翻折冲突）；再次放置可清除"
+        "boardMarkTitle": "Ctrl+右键或长按空点或棋子放置标记（避免与旋转/翻折冲突）；再次放置可清除"
     },
     mount: function (ctx) {
         var gameType = ctx.gameType;
@@ -440,7 +440,8 @@ const BOARD_MARK_CHAR_LIST = (() => {
             if (!lowerLastMoveMarker) {
                 d.lastMoveMarkersUpper(ctx, ps.lastMoveMarkers, ps.PADDING, cellSize, markLenDefault, ps.BOARD_SIZE);
             }
-            d.userBoardMarks(ctx, ps.userBoardMarks, ps.BOARD_SIZE, ps.PADDING, cellSize, isUserBoardMarkVisibleAt);
+            d.userBoardMarks(ctx, ps.userBoardMarks, ps.BOARD_SIZE, ps.PADDING, cellSize, isUserBoardMarkVisibleAt,
+                { board: ps.board, stoneMarks: ps.userStoneMarks, live: QiSquareWeiqiCanvas.boardMarksLiveLatest(ps) });
             if (ps.showMoveNumbers) {
                 const nums = computeCompoundStoneNumbers();
                 d.moveNumbersOnStones(ctx, nums, ps.board, ps.BOARD_SIZE, ps.PADDING, cellSize);
@@ -1030,10 +1031,7 @@ const BOARD_MARK_CHAR_LIST = (() => {
                 const hasAnyStone = ps.board.some(row => row.some(v => v !== 0));
                 const hasPlayer = ps.slots.player1 || ps.slots.player2;
                 const sizeSelect = document.getElementById('boardSizeSelect');
-                if (!hasAnyStone && !hasPlayer && !ps.gameOver && ps.mySlot === null)
-                    sizeSelect.style.display = 'inline-block';
-                else
-                    sizeSelect.style.display = 'none';
+                window.QiRoomGameSwitcher.syncSettingsSelect(sizeSelect);
 
                 if (ps.showEstimateActive) {
                     ps.cachedLiveBoard = _page.removeDeadAndDying(ps.board);

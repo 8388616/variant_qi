@@ -1,4 +1,7 @@
 window.RoomPlugins = window.RoomPlugins || {};
+/* 隐藏情报棋种：盘面是观者视图，标记不做子层（会泄漏隐藏子） */
+window.QiBoardMarks = window.QiBoardMarks || {};
+window.QiBoardMarks.stoneLayerEnabled = false;
 window.RoomPlugins["sonar-weiqi"] = {
     shell: {
         "title": "声呐围棋",
@@ -701,7 +704,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                     ps.BOARD_SIZE = state.boardSize;
                     if (state.komi != null) ps.KOMI = state.komi;
                     ps.board = page.initBoardArray(ps.BOARD_SIZE);
-                    ps.userBoardMarks = Object.create(null);
+                    ps.userBoardMarks = Object.create(null); ps.userStoneMarks = Object.create(null);
                     ps.liveReplayBoards = [];
                     ps.liveReplayTruthBoards = [];
                     ps.liveReplayMarkers = [];
@@ -783,10 +786,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                 const hasAnyStone = ps.board.some(row => row.some(v => v !== 0));
                 const hasPlayer = ps.slots.player1 || ps.slots.player2;
                 const sizeSelect = document.getElementById('boardSizeSelect');
-                if (!hasAnyStone && !hasPlayer && !ps.gameOver && ps.mySlot === null)
-                    sizeSelect.style.display = 'inline-block';
-                else
-                    sizeSelect.style.display = 'none';
+                window.QiRoomGameSwitcher.syncSettingsSelect(sizeSelect);
 
                 if (ps.showEstimateActive) {
                     ps.cachedLiveBoard = page.removeDeadAndDying(ps.board);
@@ -928,29 +928,11 @@ const scoreTitle = document.getElementById('scoreTitle');
                 refreshInvisibleStoneScoreLine();
             },
             updateReplayUI() {
-                const gameButtonIds = ['passBtn', 'undoBtn', 'resignBtn', 'drawBtn', 'endReqBtn'];
-                const replayPanel = document.getElementById('replayPanel');
-                const tryPlayBtn = document.getElementById('tryPlayBtn');
+                // 对局按钮/试下按钮走公共函数（开局前只显示「试下」，与其它围棋类一致）；
+                // 这里只补本棋种自己的「回放视角」开关
+                QiWeiqiSquarePageRuntime.syncGameActionButtons(ps);
                 const perspRow = document.getElementById('replayPerspectiveRow');
-                if (ps.replayMode) {
-                    for (const id of gameButtonIds) {
-                        const el = document.getElementById(id);
-                        if (el) el.style.display = 'none';
-                    }
-                    replayPanel.style.display = '';
-                    tryPlayBtn.style.display = '';
-                    tryPlayBtn.innerText = ps.tryPlayMode ? '试下结束' : '试下';
-                    if (perspRow) perspRow.style.display = '';
-                } else {
-                    for (const id of gameButtonIds) {
-                        const el = document.getElementById(id);
-                        if (el) el.style.display = '';
-                    }
-                    replayPanel.style.display = '';
-                    tryPlayBtn.style.display = 'none';
-                    tryPlayBtn.innerText = '试下';
-                    if (perspRow) perspRow.style.display = 'none';
-                }
+                if (perspRow) perspRow.style.display = ps.replayMode ? '' : 'none';
             }
         };
 
@@ -1068,16 +1050,16 @@ syncState,
             boardSeatOverlay: true,
             timeControlMainByoScale: 2,
             onNewGameStarted: () => {
-                ps.userBoardMarks = Object.create(null);
+                ps.userBoardMarks = Object.create(null); ps.userStoneMarks = Object.create(null);
                 ps.plainWeiqiStartHand = null;
             },
             onRoomReset: () => {
                 ps.plainWeiqiStartHand = null;
-                ps.userBoardMarks = Object.create(null);
+                ps.userBoardMarks = Object.create(null); ps.userStoneMarks = Object.create(null);
             },
             onImportSuccessBeforeSync: (msg, prevBoardSize) => {
                 if (msg.boardSize && msg.boardSize !== prevBoardSize)
-                    ps.userBoardMarks = Object.create(null);
+                    ps.userBoardMarks = Object.create(null); ps.userStoneMarks = Object.create(null);
             },
             isMouseDevice
         });

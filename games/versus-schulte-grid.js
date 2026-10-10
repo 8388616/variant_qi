@@ -305,17 +305,13 @@ class VersusSchulteGridRoom {
                 break;
             }
             case 'setBoardSize': {
-                // 规则：开局前/对局结束后可改路数；无人入座时任何人都可改，
-                // 有人入座时仅房主可改（对局中不可改）
-                const slot = this.room.getSlotByWs(ws);
-                if (this.phase !== 'lobby' && this.phase !== 'finished') return;
-                if (slot) {
-                    if (slot !== this.hostId) return;      // 有人入座时仅房主可改
-                } else if (this.players.size > 0) {
-                    return;                                // 有人入座时观战者不可改
-                }
+                if (this.room.getSeatedCount() >= 2) return;
                 const n = parseInt(String(msg.size ?? ''), 10);
                 if (!Number.isFinite(n)) return;
+                this._clearCountdownTimer();
+                this.phase = 'lobby';
+                this.layout = null;
+                this.nextVal = 1;
                 this.boardSize = Math.min(BOARD_SIZE_MAX, Math.max(BOARD_SIZE_MIN, n));
                 this._fullStatePush();
                 break;

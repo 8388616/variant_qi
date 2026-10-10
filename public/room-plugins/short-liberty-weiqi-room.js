@@ -286,18 +286,14 @@ const scoreTitle = document.getElementById('scoreTitle');
             // 切勿在此先改 ps.BOARD_SIZE——会跳过 syncStateBase 的几何更新导致换路数后棋格不变化
             syncStateBase(state);
             updateEditModeUI();
-            // 子棋类选择器显示时机与路数选择器一致（开局前可改）
+            // 子棋类与路数选择器统一按落座人数启用。
             updateSubGameSelectVisibility();
         }
 
         function updateSubGameSelectVisibility() {
             const sel = document.getElementById('subGameSelect');
             if (!sel) return;
-            const hasAnyStone = ps.board.some(row => row.some(v => v !== 0));
-            const hasPlayer = ps.slots.player1 || ps.slots.player2;
-            // 有子棋类：始终显示；开局（有子/有人入座/对局结束）后锁定不可改，新局时恢复可用
-            sel.style.display = 'inline-block';
-            sel.disabled = hasAnyStone || hasPlayer || ps.gameOver;
+            window.QiRoomGameSwitcher.syncSettingsSelect(sel);
         }
 
         function refreshKomiInfo() {
@@ -369,7 +365,7 @@ syncState,
             if (msg && msg.type === 'libertyChanged') {
                 // 子棋类变更广播（带完整 state）：全量同步
                 syncState(msg);
-                // 切换二/三/四气后「与电脑对弈」可用性立即更新（服务端已按新子棋类重查引擎）
+                // 切换二/三/四气后「对电脑对战」可用性立即更新（服务端已按新子棋类重查引擎）
                 if (Object.prototype.hasOwnProperty.call(msg, 'katagoAvailable'))
                     ps.katagoAvailable = !!msg.katagoAvailable;
                 if (Object.prototype.hasOwnProperty.call(msg, 'computerSlot'))
@@ -535,7 +531,7 @@ syncState,
                 ps.waitingScoreConfirm = false;
             };
         }
-        // 子棋类选择器：二气/三气/四气（开局前与路数选择器同显）
+        // 子棋类选择器：二气/三气/四气，与路数选择器使用相同的人数限制。
         const subGameSelect = document.getElementById('subGameSelect');
         if (subGameSelect) {
             subGameSelect.innerHTML = '';

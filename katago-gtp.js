@@ -73,6 +73,26 @@ function findKatagoExecutable(dir) {
 }
 
 /**
+ * 引擎文件的指纹（gtp.cfg 与二进制的路径+大小+改动时间）：进程启动时记一份，取用池中空闲进程时
+ * 再算一次，不一致就把老进程作废——「改了 cfg / 换了二进制却没生效」几乎都是老进程还在跑。
+ * 取不到时返回 null（不比较，不误杀）。
+ */
+function engineFilesStamp(id) {
+    const dir = resolveKatagoDir(id);
+    if (!dir) return null;
+    const parts = [];
+    try {
+        const cfg = path.join(dir, 'gtp.cfg');
+        if (fs.existsSync(cfg)) { const st = fs.statSync(cfg); parts.push(`cfg:${st.size}:${st.mtimeMs}`); }
+        const exe = findKatagoExecutable(dir);
+        if (exe) { const st = fs.statSync(exe); parts.push(`exe:${st.size}:${st.mtimeMs}`); }
+    } catch (_) {
+        return null;
+    }
+    return parts.length ? parts.join('|') : null;
+}
+
+/**
  * 是否具备人机对战条件：katagos/{gameId}/ 下存在 katago、model.bin.gz、gtp.cfg
  * （不向客户端暴露任何路径）
  */
@@ -244,6 +264,8 @@ class KatagoGtpSession {
         this.noMoveNumberCommand = false;
         /** 站点坐标 → 引擎网格坐标（只有坐标系不同的棋盘需要，如六角围棋；默认 null = 1:1） */
         this.coordOf = null;
+        /** 本进程启动时的 gtp.cfg/二进制指纹（见 engineFilesStamp）：变了就作废重开 */
+        this.filesStamp = null;
         /** 引擎网格坐标 → 站点坐标（上者的逆） */
         this.coordInverse = null;
     }
@@ -488,7 +510,7 @@ class KatagoGtpSession {
      * 用 kata-raw-nn all（gtp.cpp rawNN）：同步命令、标准 `=` 响应（与 genmove 一样
      * 简单可靠），输出当前局面下策略网络的全部先验概率，按棋盘扫描序排列
      * （第 i 个概率 = 第 i 个交点；y 从顶向下、x 从左向右，与服务器 board[row][col] 对应）。
-     * genmove（cfg maxVisits=1）会选先验最高的点 = 本方法返回的第 1 个点，与电脑对弈一致。
+     * genmove（cfg maxVisits=1）会选先验最高的点 = 本方法返回的第 1 个点，对电脑对战一致。
      * @param {number} boardSize 棋盘路数
      * @param {{ minMoves?: number }} [opts] 需要的候选数
      * @returns {Promise<Array<{row:number, col:number}>>} 按先验概率降序的前 N 个点
@@ -557,8 +579,10 @@ class KatagoGtpSession {
 
     /**
      * 回读引擎当前局面（showboard）：棋子分布、行棋方、引擎着法史手数，供上层与服务端盘面比对。
-     * 行序与站点 row 一致（引擎内部 y=0 即站点 row 0）；只认 X/O/.，遇到特殊格（洞/桥等）或
-     * 行数/行长不符则返回 null（不误报）。任何异常都返回 null：自检不能影响对局。
+     * 行序与站点 row 一致（引擎内部 y=0 即站点 row 0）；X/O 为棋子，./@ 为空点，'#' 为墙（记 -9）。
+     * 墙包括蜂窝盘的盘外格、桥围棋的桥格；上层按棋种及站点格类型比对。行数/行长不符则返回 null
+     * （不误报）。任何异常都返回 null：自检不能影响对局。
+     * 六角盘也走这里：`boardsize 31:32` 下每行恰好 31 格（含墙），行宽能对上，自检照常生效。
      * moveNum = `BoardHistory::printBasicInfo` 打印的 `MoveNum:`（= `moveHistory.size()`，即
      * set_position 之后引擎实际收到的着手数）：整段重放正常时应当等于网站着法表长度，
      * 对不上就是「盘面/行棋方看着都对、引擎着法史其实丢了」——那正是引擎乱提议（被网站驳回成虚着）
@@ -601,6 +625,9 @@ class KatagoGtpSession {
             const cells = [];
             for (let i = 0; i < rest.length; i += 2) {
                 const ch = rest[i];
+                // C_WALL 印成 '#'：六角盘的盘外格、桥围棋的桥等，占一格但不可落子。
+                // 单列出来当哨兵，由上层核对结构格；站点实点若映到墙上也要能发现。
+                if (ch === '#') { cells.push(-9); continue; }
                 if (ch !== 'X' && ch !== 'O' && ch !== '.' && ch !== '@') continue;
                 cells.push(ch === 'X' ? 1 : (ch === 'O' ? 2 : 0));
             }
@@ -1227,11 +1254,19 @@ async function warmupSession(session, opts) {
  */
 async function takeIdleSession(id) {
     const idle = idlePool.get(id) || [];
+    const nowStamp = engineFilesStamp(id);
     while (idle.length) {
         const entry = idle.pop();
         if (!entry) continue;
         clearIdleTimer(entry);
         const session = entry.session;
+        // cfg / 二进制在进程活着的时候被改过（换引擎、调 cfg）：老进程仍按旧配置跑，
+        // 症状是「配置明明改了却没生效」——直接作废重开，并留一行日志
+        if (session && nowStamp != null && session.filesStamp != null && session.filesStamp !== nowStamp) {
+            console.warn(`[katago:${id}] gtp.cfg 或引擎二进制已改动，作废池中的旧引擎进程（按新配置重开）`);
+            try { session.destroy(); } catch (_) { /* ignore */ }
+            continue;
+        }
         if (session && !session.dead && session.proc) {
             session._fromPool = false;
             try {
@@ -1264,6 +1299,7 @@ async function spawnNewSession(id, opts) {
     spawnReservations += 1;
     const session = new KatagoGtpSession(id);
     try {
+        session.filesStamp = engineFilesStamp(id);   // 记下本进程是按哪份 cfg/二进制起来的
         await session.start();
         await warmupSession(session, opts);
         session._fromPool = false;

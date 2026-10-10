@@ -358,20 +358,6 @@ window.RoomPlugins['large-small-circle-weiqi'] = {
             drawSkeleton: circleDrawSkeleton,
             pick: circlePick
         };
-        /** 桌面端：左缘固定，展开向右；距画布右缘 56px（原 6px 再向左 50px）、距底 6px */
-        function updateBoardMarkOuterPosition() {
-            const el = document.getElementById('boardMarkOuter');
-            if (!el) return;
-            // 圆盘按壳默认位置放标记面板
-            if (window.matchMedia('(max-width: 700px)').matches) {
-                el.style.left = '';
-                el.style.top = '';
-                el.style.bottom = '';
-                el.style.right = '';
-                el.style.marginLeft = '';
-                return;
-            }
-        }
 
         /* ---------------------- 视图构建与坐标换算（四种棋盘共用） ---------------------- */
         /** 生成当前子棋类的几何；改路数/切子棋类后都要调用 */
@@ -537,7 +523,8 @@ window.RoomPlugins['large-small-circle-weiqi'] = {
 
         /** 本地标记：键为顶点索引字符串 "0".."VIEW.vertexCount-1" */
         let userBoardMarks = Object.create(null);
-        if (typeof QiWeiqiSquarePageRuntime !== 'undefined' && QiWeiqiSquarePageRuntime.bindActiveUserBoardMarks) QiWeiqiSquarePageRuntime.bindActiveUserBoardMarks(userBoardMarks);
+        let userStoneMarks = Object.create(null);   // 子层：棋子上的标记
+        if (typeof QiWeiqiSquarePageRuntime !== 'undefined' && QiWeiqiSquarePageRuntime.bindActiveUserBoardMarks) QiWeiqiSquarePageRuntime.bindActiveUserBoardMarks(userBoardMarks, userStoneMarks);
         const BOARD_MARK_CHAR_LIST = (() => {
             const a = [];
             a.push('?', '!');
@@ -571,9 +558,6 @@ const scoreTitle = document.getElementById('scoreTitle');
             document.getElementById('boardMarkFoldBtn'),
             document.getElementById('boardMarkExpandBtn')
         );
-
-        updateBoardMarkOuterPosition();
-        window.addEventListener('resize', updateBoardMarkOuterPosition);
 
         let hoverVertex = -1;
         let isHoverValid = false;
@@ -1030,19 +1014,26 @@ const scoreTitle = document.getElementById('scoreTitle');
             for (const key of Object.keys(userBoardMarks)) {
                 const v = parseInt(key, 10);
                 if (Number.isNaN(v) || !isUserBoardMarkVisibleAtVertex(v)) continue;
+                if (QiSquareWeiqiCanvas.isStoneCellValue(board[v])) continue;   // 被棋子盖住：保留不画
                 const ch = userBoardMarks[key];
                 const { x, y } = VIEW.pos[v];
-                const markBgR = VIEW.markBgRadius(stoneRadius);
-                ctx.beginPath();
-                ctx.arc(x, y, markBgR, 0, 2 * Math.PI);
-                ctx.fillStyle = '#fdcc90';
-                ctx.fill();
+                QiSquareWeiqiCanvas.draw.boardMarkGap(ctx, x, y, stoneRadius * 2.27);   // 留白：半径=0.68×棋子半径（0.3×2.27）
                 const fontPx = VIEW.markFontPx(stoneRadius, ch);
                 ctx.font = `bold ${fontPx}px "Segoe UI", "Apple Color Emoji", "Segoe UI Emoji", sans-serif`;
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
                 ctx.fillStyle = '#3a281c';
                 ctx.fillText(ch, x, y + 1);
+            }
+            if (userStoneMarks && !replayMode && !tryPlayMode && !showEstimateActive) {
+                for (const key of Object.keys(userStoneMarks)) {
+                    const v = parseInt(key, 10);
+                    if (Number.isNaN(v) || v < 0 || v >= VIEW.vertexCount) continue;
+                    const sv = board[v];
+                    if (!QiSquareWeiqiCanvas.isStoneCellValue(sv)) continue;
+                    const { x, y } = VIEW.pos[v];
+                    QiSquareWeiqiCanvas.draw.boardMarkGlyph(ctx, x, y, stoneRadius * 2.27, userStoneMarks[key], sv === 2 ? 'dark' : 'light');
+                }
             }
             const editCb = document.getElementById('editModeCheckbox');
             const editSel = document.getElementById('editToolSelect');
@@ -1655,10 +1646,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             const hasAnyStone = board.some(v => v !== 0);
             const hasPlayer = slots.player1 || slots.player2;
             const sizeSelect = document.getElementById('boardSizeSelect');
-            if (!hasAnyStone && !hasPlayer && !gameOver && mySlot === null)
-                sizeSelect.style.display = 'inline-block';
-            else
-                sizeSelect.style.display = 'none';
+            window.QiRoomGameSwitcher.syncSettingsSelect(sizeSelect);
 
             if (showEstimateActive) {
                 cachedLiveBoard = removeDeadAndDying(board);
@@ -1719,6 +1707,15 @@ const scoreTitle = document.getElementById('scoreTitle');
             setLiveViewStep,
             getWs: () => ws,
             getBoardSize: () => LANES,
+            recordPointToCanvas: (row, col) => {
+                const index = VIEW.indexOf(row, col), p = VIEW.pos[index];
+                return p ? { ...p, cell: VIEW.cellSize, size: CANVAS_SIZE } : null;
+            },
+            recordPointFromClient: (clientX, clientY) => {
+                const p = canvasCoordsFromClient(clientX, clientY);
+                const index = getNearestVertex(p.x, p.y), coord = VIEW.koordOf[index];
+                return coord ? { row: coord[0], col: coord[1] } : null;
+            },
             setBoardSize: (n) => {
                 LANES = n;
                 buildView();
@@ -1758,6 +1755,7 @@ komiInfo,
             downloadRecord,
             enterReplayMode,
             updateTurn,
+            updateReplayUI,   // 传给公共 bindings：座位/限时变化时回调它同步按钮显隐
             showScoreConfirm,
             onBoardSizeChanged: (msg) => {
                 if (msg.boardSize == null) return;
@@ -1818,25 +1816,11 @@ komiInfo,
 
         function applyUserBoardMark(vertex) {
             if (vertex < 0 || vertex >= VIEW.vertexCount) return;
-            if (board[vertex] !== 0) return;
+            const layer = QiSquareWeiqiCanvas.boardMarkCellKind(board[vertex]) === 'stone' ? 'stone' : 'point';
             const { clear, ch } = getSelectedBoardMark();
             const key = String(vertex);
-            const existing = userBoardMarks[key];
-            if (clear) {
-                if (existing !== undefined) {
-                    delete userBoardMarks[key];
-                    drawBoardWithOverlay();
-                }
-                return;
-            }
-            if (existing === undefined) {
-                userBoardMarks[key] = ch;
-            } else if (existing !== ch) {
-                userBoardMarks[key] = ch;
-            } else {
-                delete userBoardMarks[key];
-            }
-            drawBoardWithOverlay();
+            if (QiSquareWeiqiCanvas.toggleUserBoardMark(userBoardMarks, userStoneMarks, key, layer, ch, clear, false))
+                drawBoardWithOverlay();
         }
 
         let suppressCanvasClickAfterLongMark = false;
@@ -2097,7 +2081,6 @@ komiInfo,
                 const canvasEl = document.getElementById('goBoard');
                 if (canvasEl) QiSquareWeiqiCanvas.applyBoardWoodTexture(canvasEl);
             }
-            updateBoardMarkOuterPosition();
             // 蒙版形状只在「创建蒙版」与窗口 resize 时解析：路数变了补发一次 resize 让壳重画
             try { window.dispatchEvent(new Event('resize')); } catch (e) { /* ignore */ }
             refreshKomiInfo();

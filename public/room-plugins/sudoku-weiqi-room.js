@@ -844,22 +844,26 @@ window.RoomPlugins['sudoku-weiqi'] = {
                 }
             }
 
-            // user marks
+            // user marks（点层：空点/附加物；子层：棋子上的标记）
             for (const key of Object.keys(ps.userBoardMarks)) {
                 const [r, c] = key.split(',').map(Number);
                 if (r < 0 || r >= ps.BOARD_SIZE || c < 0 || c >= ps.BOARD_SIZE) continue;
+                if (QiSquareWeiqiCanvas.isStoneCellValue(ps.board[r][c])) continue;   // 被棋子盖住：保留不画
                 if (page.isUserBoardMarkVisibleAt && !page.isUserBoardMarkVisibleAt(r, c)) continue;
                 const ch = ps.userBoardMarks[key];
                 const { x, y } = cellCenter(padding, cellSize, r, c, ps.BOARD_SIZE);
-                ctx.beginPath();
-                ctx.arc(x, y, cellSize * 0.28, 0, 2 * Math.PI);
-                ctx.fillStyle = '#fdcc90';
-                ctx.fill();
-                ctx.font = `bold ${cellSize * 0.55}px "Segoe UI",sans-serif`;
-                ctx.textAlign = 'center';
-                ctx.textBaseline = 'middle';
-                ctx.fillStyle = '#3a281c';
-                ctx.fillText(ch, x, y + 1);
+                const kind = QiSquareWeiqiCanvas.boardMarkCellKind(ps.board[r][c]);
+                QiSquareWeiqiCanvas.draw.boardMarkGlyph(ctx, x, y, cellSize, ch, kind === 'attachment' ? 'light' : 'point');
+            }
+            if (ps.userStoneMarks && QiSquareWeiqiCanvas.boardMarksLiveLatest(ps)) {
+                for (const key of Object.keys(ps.userStoneMarks)) {
+                    const [r, c] = key.split(',').map(Number);
+                    if (r < 0 || r >= ps.BOARD_SIZE || c < 0 || c >= ps.BOARD_SIZE) continue;
+                    const v = ps.board[r][c];
+                    if (!QiSquareWeiqiCanvas.isStoneCellValue(v)) continue;
+                    const { x, y } = cellCenter(padding, cellSize, r, c, ps.BOARD_SIZE);
+                    QiSquareWeiqiCanvas.draw.boardMarkGlyph(ctx, x, y, cellSize, ps.userStoneMarks[key], v === 2 ? 'dark' : 'light');
+                }
             }
 
             if (ps.showMoveNumbers && page.computeStoneNumbers) {

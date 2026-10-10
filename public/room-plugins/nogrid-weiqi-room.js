@@ -112,7 +112,8 @@ window.RoomPlugins["nogrid-weiqi"] = {
     let showLibertyStones = false;
 
     let userBoardMarks = Object.create(null);
-    if (typeof QiWeiqiSquarePageRuntime !== 'undefined' && QiWeiqiSquarePageRuntime.bindActiveUserBoardMarks) QiWeiqiSquarePageRuntime.bindActiveUserBoardMarks(userBoardMarks);
+    let userStoneMarks = Object.create(null);   // 子层：棋子上的标记
+    if (typeof QiWeiqiSquarePageRuntime !== 'undefined' && QiWeiqiSquarePageRuntime.bindActiveUserBoardMarks) QiWeiqiSquarePageRuntime.bindActiveUserBoardMarks(userBoardMarks, userStoneMarks);
 
     /** 与标准围棋一致：导入棋谱后的打谱模式 */
     let replayMode = false;
@@ -127,6 +128,17 @@ window.RoomPlugins["nogrid-weiqi"] = {
     let liveReplayMarkers = [];
     let liveViewStep = 0;
     let liveFollowLatest = true;
+
+    /* 试下（闭包型状态）：按钮、虚着、悔棋都由公共 bindings/运行时接管，
+     * 这里只提供状态与步进（与连续围棋同一套公共契约）。 */
+    let tryPlayMode = false;
+    let tryPlaySeq = [];
+    let tryPlayMarkersSeq = [];
+    let tryPlayStep = 0;
+    let tryPlayTotalSteps = 0;
+    let tryPlayPlayer = 1;
+    let tryPlayBasePlayer = 1;
+    let _tryPlayBackup = null;
 
     let waitingScoreConfirm = false;
     let iRejected = false;
@@ -448,10 +460,10 @@ const scoreTitle = document.getElementById('scoreTitle');
             ctx.putImageData(territoryImageData, 0, 0);
 
         let previewStone = null;
-        if (isMyTurn() && isHoverValid) {
+        if ((tryPlayMode || isMyTurn()) && isHoverValid) {
             const x = ixToX(hoverIx), y = iyToY(hoverIy);
             if (isPointInBoard(x, y) && !isOverlapWithStonesXY(x, y, stones, diameter, null))
-                previewStone = { ix: hoverIx, iy: hoverIy, color: mySlot === 'player1' ? 1 : 2 };
+                previewStone = { ix: hoverIx, iy: hoverIy, color: tryPlayMode ? tryPlayPlayer : (mySlot === 'player1' ? 1 : 2) };
         }
 
         if (showAdjacentLinesCheckbox.checked && stones.length > 0)
@@ -554,6 +566,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             const y = iyToY(iys);
             if (!isPointInBoard(x, y)) continue;
             if (showEstimateActive) continue;
+            if (stoneAtPoint(ixs, iys)) continue;   // 被棋子盖住：保留不画
             const ch = userBoardMarks[key];
             const fontPx = radius * (ch === '🚩' ? 1.2 : 1.32);
             ctx.font = `bold ${fontPx}px "Segoe UI", "Apple Color Emoji", sans-serif`;
@@ -561,6 +574,15 @@ const scoreTitle = document.getElementById('scoreTitle');
             ctx.textBaseline = 'middle';
             ctx.fillStyle = '#3a281c';
             ctx.fillText(ch, x, y + 1);
+        }
+        for (const key of Object.keys(userStoneMarks)) {
+            const [ixs, iys] = key.split(',').map(Number);
+            const st = stoneAtPoint(ixs, iys);
+            if (!st) { delete userStoneMarks[key]; continue; }   // 子没了（被提/悔棋）：标记随之消失
+            if (showEstimateActive || replayMode) continue;
+            const x = ixToX(ixs), y = iyToY(iys);
+            if (!isPointInBoard(x, y)) continue;
+            QiSquareWeiqiCanvas.draw.boardMarkGlyph(ctx, x, y, radius * 2.2, userStoneMarks[key], st.color === 2 ? 'dark' : 'light');
         }
     }
 
@@ -605,22 +627,121 @@ const scoreTitle = document.getElementById('scoreTitle');
         updateEstimate();
     }
 
+    /** 对局按钮（虚着/悔棋/认输…）与「试下」按钮的显隐：统一走公共函数（含试下中的文字/显隐） */
     function updateReplayUI() {
-        const gameButtonIds = ['passBtn', 'undoBtn', 'resignBtn', 'drawBtn', 'endReqBtn'];
+        QiWeiqiSquarePageRuntime.syncGameActionButtons({
+            mySlot, matchStarted, matchTime, replayMode, tryPlayMode
+        });
+    }
+
+    /* ---------- 试下（状态在闭包；公共 bindings 负责按钮接管，我们提供这组钩子） ---------- */
+
+    function enterTryPlay() {
+        if (tryPlayMode) return;
+        _tryPlayBackup = {
+            stones: deepCopyStones(stones),
+            lastMoveMarkers: lastMoveMarkers.map(m => ({ ...m })),
+            currentPlayer
+        };
+        tryPlayMode = true;
+        tryPlaySeq = [deepCopyStones(stones)];
+        tryPlayMarkersSeq = [[]];
+        tryPlayStep = 0;
+        tryPlayTotalSteps = 0;
+        tryPlayBasePlayer = currentPlayer === 2 ? 2 : 1;
+        tryPlayPlayer = tryPlayBasePlayer;
+        stones = deepCopyStones(tryPlaySeq[0]);
+        lastMoveMarkers = [];
         const tryPlayBtn = document.getElementById('tryPlayBtn');
-        const isPlayer = !!mySlot;
-        const started = !!(matchStarted || (matchTime && matchTime.settings));
-        const showMatchButtons = isPlayer && started && !replayMode;
-        for (const id of gameButtonIds) {
-            const el = document.getElementById(id);
-            if (el) el.style.display = showMatchButtons ? '' : 'none';
+        if (tryPlayBtn) tryPlayBtn.innerText = '试下结束';
+        updateTryPlayDisplay();
+        drawBoard();
+    }
+
+    function tryPlayMove(ix, iy) {
+        if (!tryPlayMode) return false;
+        const px = ixToX(ix), py = iyToY(iy);
+        if (!isPointInBoard(px, py)) return false;
+        if (isOverlapWithStonesXY(px, py, stones, getDiameter(), null)) return false;
+        const mvPlayer = tryPlayPlayer;
+        const newStones = applyMoveClient(stones, { ix, iy, color: mvPlayer }, getDiameter());
+        if (tryPlayStep < tryPlayTotalSteps) {
+            tryPlaySeq.length = tryPlayStep + 1;
+            tryPlayMarkersSeq.length = tryPlayStep + 1;
         }
-        if (tryPlayBtn) {
-            tryPlayBtn.style.display = showMatchButtons ? 'none' : '';
-            tryPlayBtn.innerText = '试下';
+        tryPlaySeq.push(newStones);
+        tryPlayMarkersSeq.push([{ ix, iy, color: mvPlayer }]);
+        tryPlayTotalSteps = tryPlaySeq.length - 1;
+        tryPlayStep = tryPlayTotalSteps;
+        tryPlayPlayer = 3 - mvPlayer;
+        stones = deepCopyStones(newStones);
+        lastMoveMarkers = [{ ix, iy, color: mvPlayer }];
+        const slider = document.getElementById('replaySlider');
+        if (slider) { slider.max = tryPlayTotalSteps; slider.value = tryPlayStep; }
+        updateTryPlayDisplay();
+        drawBoard();
+        return true;
+    }
+
+    /** 试下：虚着一手（棋盘不变、本步无落子标记），供公共的「虚着」按钮调用 */
+    function tryPlayPass() {
+        if (!tryPlayMode) return false;
+        if (tryPlayStep < tryPlayTotalSteps) {
+            tryPlaySeq.length = tryPlayStep + 1;
+            tryPlayMarkersSeq.length = tryPlayStep + 1;
         }
-        const rp = document.getElementById('replayPanel');
-        if (rp) rp.style.display = '';
+        tryPlaySeq.push(deepCopyStones(stones));
+        tryPlayMarkersSeq.push([]);
+        tryPlayTotalSteps = tryPlaySeq.length - 1;
+        tryPlayStep = tryPlayTotalSteps;
+        tryPlayPlayer = 3 - tryPlayPlayer;
+        lastMoveMarkers = [];
+        updateTryPlayDisplay();
+        drawBoard();
+        return true;
+    }
+
+    function setTryPlayStep(step) {
+        if (!tryPlayMode) return;
+        if (step < 0) step = 0;
+        if (step > tryPlayTotalSteps) step = tryPlayTotalSteps;
+        tryPlayStep = step;
+        stones = deepCopyStones(tryPlaySeq[step] || []);
+        lastMoveMarkers = (tryPlayMarkersSeq[step] || []).map(m => ({ ...m }));
+        tryPlayPlayer = (step % 2 === 0 ? tryPlayBasePlayer : 3 - tryPlayBasePlayer);
+        const slider = document.getElementById('replaySlider');
+        if (slider) slider.value = step;
+        updateTryPlayDisplay();
+        drawBoard();
+    }
+
+    function exitTryPlay() {
+        if (!tryPlayMode) return;
+        tryPlayMode = false;
+        if (_tryPlayBackup) {
+            stones = _tryPlayBackup.stones;
+            lastMoveMarkers = _tryPlayBackup.lastMoveMarkers;
+            currentPlayer = _tryPlayBackup.currentPlayer;
+            _tryPlayBackup = null;
+        }
+        tryPlaySeq = [];
+        tryPlayMarkersSeq = [];
+        tryPlayStep = 0;
+        tryPlayTotalSteps = 0;
+        const tryPlayBtn = document.getElementById('tryPlayBtn');
+        if (tryPlayBtn) tryPlayBtn.innerText = '试下';
+        const slider = document.getElementById('replaySlider');
+        if (slider) { slider.max = 0; slider.value = 0; }
+        updateTryPlayDisplay();
+        drawBoard();
+        updateTurn();
+    }
+
+    function updateTryPlayDisplay() {
+        const stepDisplay = document.getElementById('replayStepDisplay');
+        if (tryPlayMode && stepDisplay) stepDisplay.innerText = `试下 ${tryPlayStep} / ${tryPlayTotalSteps}`;
+        const slider = document.getElementById('replaySlider');
+        if (slider && tryPlayMode) { slider.max = tryPlayTotalSteps; slider.value = tryPlayStep; }
     }
 
     function enterReplayMode(data) {
@@ -792,6 +913,16 @@ const scoreTitle = document.getElementById('scoreTitle');
     }
 
     function syncState(state) {
+        if (tryPlayMode) {
+            // 试下期间不覆盖本地局面，仅同步必要元数据（与其它自绘棋种一致）
+            if (state.roadCount && state.roadCount !== roadCount) {
+                roadCount = state.roadCount;
+                roadCountSelect.value = String(roadCount);
+                refreshNogridKomiInfo();
+            }
+            if (state.slots) slots = state.slots;
+            return;
+        }
         if (state.roadCount && state.roadCount !== roadCount) {
             roadCount = state.roadCount;
             roadCountSelect.value = String(roadCount);
@@ -837,7 +968,7 @@ const scoreTitle = document.getElementById('scoreTitle');
         const hasMovesInRecord = moveCoords && moveCoords.some(m => m.type === 'move');
         const hasAnyStone = hasStoneOnBoard || hasMovesInRecord;
         const hasPlayer = slots.player1 || slots.player2;
-        roadCountSelect.style.display = (!replayMode && !hasAnyStone && !hasPlayer && !gameOver && mySlot === null) ? 'inline-block' : 'none';
+        window.QiRoomGameSwitcher.syncSettingsSelect(roadCountSelect);
 
         recomputeTerritory();
         if (replayMode) {
@@ -919,21 +1050,27 @@ const scoreTitle = document.getElementById('scoreTitle');
             get ws() { return ws; },
             set ws(v) { ws = v; },
             get replayMode() { return replayMode; },
-            set replayMode(v) { replayMode = !!v; }
+            set replayMode(v) { replayMode = !!v; },
+            get tryPlayMode() { return tryPlayMode; }, set tryPlayMode(v) { tryPlayMode = !!v; },
+            get tryPlayStep() { return tryPlayStep; }, set tryPlayStep(v) { tryPlayStep = v; },
+            get tryPlayTotalSteps() { return tryPlayTotalSteps; }, set tryPlayTotalSteps(v) { tryPlayTotalSteps = v; }
         },
         drawBoard,
-        exitTryPlay: () => {},
-        enterTryPlay: () => {},
-        setTryPlayStep: () => {},
+        exitTryPlay, enterTryPlay, tryPlayPass, setTryPlayStep, updateTryPlayDisplay,
         setReplayStep,
         setLiveViewStep,
         getWs: () => ws,
         getBoardSize: () => roadCount,
+        recordPointToCanvas: (ix, iy) => ({ x: ixToX(ix), y: iyToY(iy), cell: getDiameter(), size: BOARD_SIZE_PX }),
+        recordPointFromClient: (clientX, clientY) => {
+            const p = canvasCoordsFromClient(clientX, clientY);
+            return isInsideBoardXY(p.x, p.y) ? { ix: toIx(p.x), iy: toIy(p.y) } : null;
+        },
         setBoardSize: (n) => { roadCount = n; roadCountSelect.value = String(n); refreshNogridKomiInfo(); },
         getKomi: () => KOMI,
         setKomi: () => {},
-        getBoard: () => [],
-        setBoard: () => {},
+        getBoard: () => stones,
+        setBoard: (s) => { stones = Array.isArray(s) ? s : []; },
         getSlots: () => slots,
         setSlots: (s) => { slots = s; },
         getMySlot: () => mySlot,
@@ -959,6 +1096,8 @@ syncState,
         clearEstimate,
         hideScoreConfirm,
         showEstimate,
+        // 传给公共 bindings：座位/限时消息到达时回调它同步按钮显隐（对局开始要显示虚着/悔棋/认输/申请数子）
+        updateReplayUI,
         clearMobileMovePreview: () => {},
         downloadRecord,
         enterReplayMode,
@@ -1015,6 +1154,11 @@ syncState,
     }
 
     function commitMoveFromCanvas(x, y) {
+        if (tryPlayMode) {
+            // 试下：只在本机推演，不发任何消息
+            tryPlayMove(toIx(x), toIy(y));
+            return;
+        }
         if (replayMode || !isMyTurn() || gameOver) return;
         const ix = toIx(x), iy = toIy(y);
         const px = ixToX(ix), py = iyToY(iy);
@@ -1030,20 +1174,21 @@ syncState,
         return { clear: false, ch: v };
     }
 
+    function stoneAtPoint(ix, iy) {
+        for (const s of stones) {
+            if (s.ix === ix && s.iy === iy) return s;
+        }
+        return null;
+    }
+
     function applyUserBoardMarkAt(ix, iy) {
         const x = ixToX(ix), y = iyToY(iy);
         if (!isPointInBoard(x, y)) return;
+        const layer = stoneAtPoint(ix, iy) ? 'stone' : 'point';
         const { clear, ch } = getSelectedBoardMark();
         const key = `${ix},${iy}`;
-        const existing = userBoardMarks[key];
-        if (clear) {
-            if (existing !== undefined) { delete userBoardMarks[key]; drawBoard(); }
-            return;
-        }
-        if (existing === undefined) userBoardMarks[key] = ch;
-        else if (existing !== ch) userBoardMarks[key] = ch;
-        else delete userBoardMarks[key];
-        drawBoard();
+        if (QiSquareWeiqiCanvas.toggleUserBoardMark(userBoardMarks, userStoneMarks, key, layer, ch, clear, false))
+            drawBoard();
     }
 
     canvas.addEventListener('contextmenu', (e) => {
@@ -1053,7 +1198,7 @@ syncState,
     });
 
     canvas.addEventListener('mousemove', (e) => {
-        const canHover = !waitingScoreConfirm && !replayMode && !gameOver && isMyTurn();
+        const canHover = !waitingScoreConfirm && !replayMode && !gameOver && (tryPlayMode || isMyTurn());
         if (!canHover) {
             if (isHoverValid || hoverIx >= 0 || hoverIy >= 0) {
                 isHoverValid = false;
@@ -1156,6 +1301,10 @@ syncState,
     };
     document.getElementById('undoBtn').onclick = () => {
         if (!mySlot) { qiAlert('只有对局者可以悔棋'); return; }
+        if (window.__qiSoloSeatState && window.__qiSoloSeatState.soloMode === 'local') {
+            ws.send(JSON.stringify({ type: 'requestUndo' }));
+            return;
+        }
         const opp = mySlot === 'player1' ? 'player2' : 'player1';
         if (slots[opp]) {
             qiConfirm('确定向对方申请悔棋吗？').then(ok => { if (ok) ws.send(JSON.stringify({ type: 'requestUndo' })); });

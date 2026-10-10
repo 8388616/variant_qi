@@ -2198,13 +2198,12 @@ class CustomWeiqiRoom extends QiTwoPlayerRoomBase
             requesterWs.send(JSON.stringify({ type: 'error', message: `棋盘大小无效（${meta.label}支持 ${meta.min}～${meta.max} 路）` }));
             return false;
         }
-        const hasAnyStone = this.board.some(row => row.some(v => v === 1 || v === 2));
-        const hasPlayer = this.room.getPlayerBySlot('player1') || this.room.getPlayerBySlot('player2');
-        if (hasAnyStone || hasPlayer) {
+        if (!qiProtocol.canChangeRoomSettings(this)) {
 
             return false;
         }
         this.sizeByShape[this.config.boardShape] = newSize;
+        qiProtocol.prepareRoomSettingsChange(this);
         this.boardSize = newSize;
         this.rules = new CustomWeiqiRules(this.boardSize, this.config);
         this.gridW = this.rules.rows;

@@ -281,12 +281,11 @@ class SquareDiagonalFourRoom extends QiTwoPlayerRoomBase {
             requesterWs.send(JSON.stringify({ type: 'error', message: '棋盘大小无效。' }));
             return false;
         }
-        const hasAnyStone = this.board.some(row => row.some(v => v !== 0));
-        const hasPlayer = this.room.getPlayerBySlot('player1') || this.room.getPlayerBySlot('player2');
-        if (hasAnyStone || hasPlayer) {
-            requesterWs.send(JSON.stringify({ type: 'error', message: '已有棋子或玩家，不能改变路数。' }));
+        if (!qiProtocol.canChangeRoomSettings(this)) {
+            requesterWs.send(JSON.stringify({ type: 'error', message: '已有多人落座，不能修改棋盘大小' }));
             return false;
         }
+        qiProtocol.prepareRoomSettingsChange(this);
         this.BOARD_SIZE = newSize;
         this.boardSize = newSize;   // KataGo 人机同步用小写 boardSize,须同步
         this.resetToEmpty();

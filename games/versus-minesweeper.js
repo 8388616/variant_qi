@@ -794,15 +794,12 @@ class VersusMinesweeperRoom extends QiTwoPlayerRoomBase {
                 qiProtocol.selectColor(this, ws, msg);
                 break;
             case 'setBoardSize': {
-                if (this.matchStarted || this.phase === 'negotiating') {
-                    ws.send(JSON.stringify({ type: 'error', message: '对局已开始或正在确认规则，无法修改棋盘大小。' }));
-                    return;
-                }
-                if (this.room.getPlayerBySlot('player1') || this.room.getPlayerBySlot('player2')) {
-                    ws.send(JSON.stringify({ type: 'error', message: '已有玩家入座，无法修改棋盘大小。' }));
+                if (!qiProtocol.canChangeRoomSettings(this)) {
+                    ws.send(JSON.stringify({ type: 'error', message: '已有多人落座，无法修改棋盘大小。' }));
                     return;
                 }
                 const size = clampInt(msg.boardSize, 7, 27, this.boardSize);
+                qiProtocol.prepareRoomSettingsChange(this);
                 this.boardSize = size;
                 this.broadcast({ type: 'boardSizeChanged', boardSize: size, ...this.getState() });
                 this.broadcastState();

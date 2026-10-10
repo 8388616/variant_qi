@@ -603,12 +603,11 @@ class GreedyWeiqiRoom extends QiTwoPlayerRoomBase
             requesterWs.send(JSON.stringify({ type: 'error', message: '棋盘大小无效' }));
             return false;
         }
-        const hasAnyStone = this.board.some(row => row.some(v => v !== 0));
-        const hasPlayer = this.room.getPlayerBySlot('player1') || this.room.getPlayerBySlot('player2');
-        if (hasAnyStone || hasPlayer) {
+        if (!qiProtocol.canChangeRoomSettings(this)) {
 
             return false;
         }
+        qiProtocol.prepareRoomSettingsChange(this);
         this.boardSize = newSize;
         this.resetGame();
         this.broadcast({ type: 'boardSizeChanged', boardSize: this.boardSize });
@@ -697,6 +696,7 @@ class GreedyWeiqiRoom extends QiTwoPlayerRoomBase
 
         applyInitialPositionCompact(this.board, this.boardSize, data.initialPosition);
         this.openingBoard = this.copyBoard(this.board);
+        this.historyBoardSet = new Set([this.boardToString(this.board)]);
 
         const rawMoves = data.moves || [];
         const moves = rawMoves.map(GreedyWeiqiRoom.parseMove);
@@ -720,6 +720,12 @@ class GreedyWeiqiRoom extends QiTwoPlayerRoomBase
                     return;
                 }
                 const newBoardStr = this.boardToString(newBoard);
+                if (this.historyBoardSet.has(newBoardStr)) {
+                    this.resetToEmpty();
+                    requesterWs.send(JSON.stringify({ type: 'error', message: `棋谱回放失败：第${i + 1}手违反禁全同` }));
+                    this.broadcast({ type: 'roomReset', ...this.getState() });
+                    return;
+                }
                 this.historyBoards.push(this.copyBoard(newBoard));
                 this.historyBoardSet.add(newBoardStr);
                 this.historyMarkers.push(this.copyMarkers(this.lastMoveMarkers));

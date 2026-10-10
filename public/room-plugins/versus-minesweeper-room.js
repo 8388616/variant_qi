@@ -331,7 +331,7 @@ const ps = {
             else if (ps.mySlot === 'player2') colorStatus.textContent = '已选择: 白方';
             else colorStatus.textContent = '观战';
             const canSize = !ps.matchStarted && !ps.slots.player1 && !ps.slots.player2 && !ps.mySlot;
-            boardSizeSelect.style.display = canSize ? '' : 'none';
+            window.QiRoomGameSwitcher.syncSettingsSelect(boardSizeSelect);
             boardSizeSelect.value = String(ps.boardSize);
             resignBtn.style.display = ps.mySlot && ps.matchStarted && !ps.gameOver ? '' : 'none';
             const showBuryFinish = ps.phase === 'burying' && ps.mySlot && !ps.buryDone[ps.mySlot];

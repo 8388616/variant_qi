@@ -1069,6 +1069,12 @@ return {
             roomId,
             gameType,
             pageState: ps,
+            recordMoveKind: 'travel',
+            recordPointToCanvas: (row, col) => {
+                const p = toDisplayCoord(row, col);
+                const xy = squareCenter(p.row, p.col);
+                return { ...xy, cell: cellSize, size: LOGICAL_SIZE };
+            },
             tryPlayOppositeSide: (side) => R.oppositeSide(side),
             drawBoard,
             exitTryPlay,

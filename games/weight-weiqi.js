@@ -505,7 +505,7 @@ class WeightWeiqiRoom extends QiTwoPlayerRoomBase {
                 break;
 
             case 'setSubGame':
-                if (!slot && !room.players.size) {
+                if (qiProtocol.canChangeRoomSettings(this)) {
                     this.setSubGame(msg.subGameId, ws);
                 } else {
                     // 被拒绝：必须把当前（未变的）子棋类/权重回推，否则客户端本地「乐观换权重」与服务端
@@ -734,12 +734,11 @@ class WeightWeiqiRoom extends QiTwoPlayerRoomBase {
             requesterWs.send(JSON.stringify({ type: 'error', message: '棋盘大小无效。' }));
             return false;
         }
-        const hasAnyStone = this.board.some(row => row.some(v => v !== 0));
-        const hasPlayer = this.room.getPlayerBySlot('player1') || this.room.getPlayerBySlot('player2');
-        if (hasAnyStone || hasPlayer) {
+        if (!qiProtocol.canChangeRoomSettings(this)) {
 
             return false;
         }
+        qiProtocol.prepareRoomSettingsChange(this);
         this.boardSize = newSize;
         this.komi = this.komiFor();
         this.resetGame();
@@ -753,12 +752,10 @@ class WeightWeiqiRoom extends QiTwoPlayerRoomBase {
             requesterWs.send(JSON.stringify({ type: 'error', message: '子棋类无效' }));
             return false;
         }
-        const hasAnyStone = this.board.some(row => row.some(v => v !== 0));
-        const hasPlayer = this.room.getPlayerBySlot('player1') || this.room.getPlayerBySlot('player2');
-        if (hasAnyStone || hasPlayer) {
-            // 已开局(有子/有人入座):静默忽略(客户端此时已隐藏选择器)
+        if (!qiProtocol.canChangeRoomSettings(this)) {
             return false;
         }
+        qiProtocol.prepareRoomSettingsChange(this);
         this.subGameId = subGameId;
         this.komi = this.komiFor();
         this.weights = this.generateWeights();

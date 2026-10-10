@@ -85,6 +85,110 @@ body.qi-room .color-status {
     white-space: nowrap;
 }
 
+body.qi-room .game-switch-trigger {
+    font-family: var(--qi-room-font);
+    cursor: pointer;
+    min-height: 34px;
+}
+
+body.qi-room .game-switch-trigger::after {
+    content: '▾';
+    margin-left: 10px;
+    color: var(--qi-room-accent-strong);
+}
+
+body.qi-room .game-switch-trigger:hover,
+body.qi-room .game-switch-trigger[aria-expanded="true"] {
+    background: #fff6e6;
+    border-color: var(--qi-room-accent);
+}
+
+body.qi-room .room-game-menu {
+    position: fixed;
+    z-index: 1500;
+    box-sizing: border-box;
+    padding: 16px 18px 18px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    border: 1px solid var(--qi-room-line);
+    border-radius: var(--qi-room-radius-lg);
+    background: #fffaf1;
+    box-shadow: 0 18px 48px rgba(94, 68, 38, 0.22);
+}
+
+body.qi-room .room-game-menu[hidden] { display: none; }
+
+body.qi-room .room-game-menu-hint {
+    margin: 0 0 14px;
+    font-size: 0.85rem;
+    color: var(--qi-room-muted);
+}
+
+body.qi-room .room-game-menu section + section { margin-top: 16px; }
+
+body.qi-room .room-game-menu h3 {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin: 0 0 8px;
+    font-size: 1rem;
+    font-weight: 500;
+}
+
+body.qi-room .room-game-menu h3::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--qi-room-line);
+}
+
+body.qi-room .room-game-menu-buttons {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 7px;
+}
+
+body.qi-room .room-game-menu-buttons button {
+    min-width: 0;
+    min-height: 36px;
+    padding: 6px 8px;
+    border: 1px solid var(--qi-room-line);
+    border-radius: 12px;
+    background: rgba(255, 251, 244, 0.8);
+    color: var(--qi-room-ink);
+    font: 0.9rem var(--qi-room-font);
+    cursor: pointer;
+}
+
+body.qi-room .room-game-menu-buttons button:hover:not(:disabled) {
+    background: #fff0d9;
+    border-color: var(--qi-room-accent);
+}
+
+body.qi-room .room-game-menu-buttons button:disabled { opacity: 0.5; cursor: default; }
+body.qi-room .room-game-menu-buttons button.is-current {
+    opacity: 1;
+    background: rgba(62, 112, 83, 0.12);
+    border-color: rgba(62, 112, 83, 0.4);
+    color: var(--qi-room-forest);
+}
+
+body.qi-room .game-switch-trigger:focus-visible,
+body.qi-room .room-game-menu-buttons button:focus-visible {
+    outline: 2px solid var(--qi-room-accent);
+    outline-offset: 2px;
+}
+
+@media (max-width: 700px) {
+    body.qi-room .room-game-menu { padding: 12px; }
+    body.qi-room .room-game-menu-buttons { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    body.qi-room .room-game-menu-buttons button { font-size: 0.8rem; }
+}
+
+@media (max-width: 380px) {
+    body.qi-room .room-game-menu-buttons { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
 /* 自定义围棋的「自定义规则」按钮：观感与贴点条一致，但看得出是按钮（右端 ▾ + 轻阴影 + 按下反馈） */
 body.qi-room .custom-rules-btn {
     background: rgba(255, 250, 241, 0.92);
@@ -441,6 +545,7 @@ body.qi-room .board-mark-panel {
     border-radius: 12px;
     box-shadow: 0 4px 14px rgba(94, 68, 38, 0.1);
     font-weight: 500;
+	margin-top: 15px;
 }
 
 body.qi-room .board-mark-select {
@@ -461,7 +566,7 @@ body.qi-room .board-mark-fold-btn {
     border: none;
     border-radius: 8px;
     padding: 2px 2px;
-    font-size: 1.1rem;
+    font-size: 0.82rem;
     line-height: 1;
     font-weight: 700;
     cursor: pointer;
@@ -2335,7 +2440,7 @@ body.qi-room .info-panel {
     min-height: 200px;
     display: flex;
     flex-direction: column;
-    margin-bottom: 20px;
+    margin-bottom: 0px;
 }
 
 body.qi-room .turn-box {
@@ -2712,23 +2817,10 @@ body.qi-room .rules-content .close-rules {
     cursor: pointer;
 }
 
-body.qi-room .board-mark-outer {
-    position: absolute;
-    left: 100%;
-    margin-left: 12px;
-    bottom: 0;
-    right: auto;
-    top: auto;
-    display: grid;
-    grid-template-rows: 52px;
-    grid-template-columns: max-content;
-    width: max-content;
-    max-width: min(100%, 280px);
-    min-height: 52px;
-    max-height: 52px;
-    z-index: 2;
+/* 标记面板：计时框下方的符号网格（纵向滚动）；选中的符号由隐藏的 #boardMarkSelect 承载 */
+body.qi-room #boardMarkOuter {
+    width: 100%;
     box-sizing: border-box;
-    overflow: hidden;
 }
 
 body.qi-room .board-mark-panel[hidden],
@@ -2736,38 +2828,75 @@ body.qi-room .board-mark-expand-btn[hidden] {
     display: none !important;
 }
 
-body.qi-room .board-mark-outer > .board-mark-panel,
-body.qi-room .board-mark-outer > .board-mark-expand-btn {
-    grid-area: 1 / 1;
-    align-self: end;
-    justify-self: start;
-    margin: 0;
-}
-
-body.qi-room .board-mark-panel {
+body.qi-room #boardMarkOuter .board-mark-panel {
     display: flex;
-    align-items: center;
+    flex-direction: column;
     gap: 6px;
-    padding: 4px 8px;
+    padding: 8px 10px;
     font-size: 0.82rem;
-    width: max-content;
-    max-width: min(100%, 260px);
-    max-height: 52px;
+    width: 100%;
     box-sizing: border-box;
 }
 
-body.qi-room .board-mark-panel label {
-    white-space: nowrap;
-    flex-shrink: 0;
+body.qi-room #boardMarkOuter .board-mark-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
 }
 
-body.qi-room .board-mark-select {
-    flex: 0 1 auto;
-    min-width: 0;
-    width: 3em;
-    max-width: min(200px, 55vw);
-    max-height: 44px;
+body.qi-room #boardMarkOuter .board-mark-title {
+    font-weight: 600;
+}
+
+body.qi-room #boardMarkOuter .board-mark-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(34px, 1fr));
+    gap: 4px;
+    max-height: 120px;   /* 面板高度 = 标题行 + 这个高度（超过就纵向滚动）；想再高/矮改这里 */
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding-right: 2px;
+    scrollbar-width: thin;
+}
+
+body.qi-room #boardMarkOuter .board-mark-tile {
+    appearance: none;
+    border: 1px solid var(--qi-room-line);
+    background: #fff8ee;
+    color: var(--qi-room-ink);
+    border-radius: 8px;
+    font-family: inherit;
+    font-size: 1rem;
+    line-height: 1;
+    min-height: 30px;
+    padding: 2px 0;
     cursor: pointer;
+}
+
+body.qi-room #boardMarkOuter .board-mark-tile:hover {
+    background: rgba(184, 110, 52, 0.12);
+}
+
+body.qi-room #boardMarkOuter .board-mark-tile.is-selected {
+    background: var(--qi-room-accent);
+    border-color: var(--qi-room-accent);
+    color: #fff;
+    font-weight: 700;
+}
+
+body.qi-room #boardMarkOuter .board-mark-tile--clear {
+    font-size: 0.72rem;
+}
+
+/* 收起时的「展开」按钮：贴在棋盘右缘外（与老版一致）；点开后在右栏（计时框下）展开面板 */
+body.qi-room .board-container > .board-mark-expand-btn {
+    position: absolute;
+    left: calc(100% + 12px);
+    bottom: 0;
+    right: auto;
+    top: auto;
+    z-index: 2;
 }
 
 body.qi-room canvas {
@@ -2864,34 +2993,38 @@ body.qi-room .replay-perspective-label input {
 }
 
 @media (max-width: 700px) {
-    body.qi-room .board-mark-outer {
-        position: absolute;
+    /* 右栏在窄屏会变成横排（palette-stack-aside）或手机端又回竖排：让标记面板整行占满、不挤成一列 */
+    body.qi-room #boardMarkOuter {
+        flex: 1 1 100%;
+        width: 100%;
+        min-width: 0;
+    }
+
+    body.qi-room #boardMarkOuter .board-mark-grid {
+        grid-template-columns: repeat(auto-fill, minmax(40px, 1fr));
+        max-height: 100px;
+    }
+
+    /* 窄屏的展开按钮贴在棋盘右缘外（老位置），不再压到棋盘上 */
+    body.qi-room .board-container > .board-mark-expand-btn {
+        left: auto;
         right: calc(-10px - 12px);
         bottom: 0;
-        left: auto !important;
-        top: auto;
-        margin-left: 0 !important;
-        margin-right: 0;
-        width: max-content;
-        max-width: none;
         z-index: 5;
-        pointer-events: none;
-        overflow: visible;
-        max-height: none;
-        height: auto;
-        min-height: 0;
-        display: flex;
-        flex-direction: column;
-        align-items: flex-end;
-        justify-content: flex-end;
-    }
-
-    body.qi-room .board-mark-outer > .board-mark-panel,
-    body.qi-room .board-mark-outer > .board-mark-expand-btn {
-        pointer-events: auto;
-    }
-
-    body.qi-room .board-mark-fold-btn {
-        order: -1;
     }
 }
+/* 棋谱分支：圆环比候选点方块大，保留其内部候选标记。 */
+.record-variation-overlay { position: fixed; inset: 0; pointer-events: none; z-index: 12; }
+.record-variation-point { position: absolute; transform: translate(-50%, -50%); padding: 0; border: 2px solid #ba6516; border-radius: 50%; background: transparent; pointer-events: auto; cursor: pointer; box-shadow: none; }
+.record-variation-point:focus-visible { outline: none; }
+.record-variation-point::before { content: ''; position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: calc((100% + 4px) * 1.158); height: calc((100% + 4px) * 1.158); border-radius: 50%; background: var(--record-stone-color, #222); opacity: 0; pointer-events: none; }
+@media (hover: hover) { .record-variation-point:not(:disabled):hover::before { opacity: .45; } }
+.record-variation-point:focus-visible::before { opacity: .45; }
+.record-variation-point:disabled { cursor: wait; opacity: .5; }
+.record-variation-hover { position: absolute; transform: translate(-50%, -50%); border-radius: 50%; opacity: .45; pointer-events: none; }
+.record-variation-hover[hidden] { display: none; }
+.record-variation-context-menu { position: fixed; z-index: 2000; padding: 4px; border: 1px solid #cbb99e; border-radius: 6px; background: #fffaf0; box-shadow: 0 3px 12px rgba(0,0,0,.15); }
+.record-variation-context-menu[hidden] { display: none; }
+.record-variation-context-menu button { padding: 7px 18px; border: 0; border-radius: 4px; background: transparent; color: #534229; font: inherit; cursor: pointer; }
+.record-variation-context-menu button:hover, .record-variation-context-menu button:focus-visible { background: #efe3d1; }
+.record-variation-context-menu button:disabled { opacity: .5; cursor: default; }

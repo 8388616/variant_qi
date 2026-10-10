@@ -1,0 +1,47 @@
+/* 死活题沿用房间棋盘，隐藏联网对局的控件。 */
+body.qi-tsumego #roomChat, body.qi-tsumego #goTimerPanel,
+body.qi-tsumego #colorStatus, body.qi-tsumego #sideSelect,
+body.qi-tsumego #estimateBtn, body.qi-tsumego #resignBtn,
+body.qi-tsumego #endReqBtn, body.qi-tsumego #vsComputerBtn,
+body.qi-tsumego #drawBtn, body.qi-tsumego #tryPlayBtn,
+body.qi-tsumego .qi-seat-overlay, body.qi-tsumego #settingsModal,
+body.qi-tsumego #aiCandidatesLabel { display: none !important; }
+body.qi-tsumego:not(.tsumego-author) #editControls,
+body.qi-tsumego:not(.tsumego-author) #addRecordVariationBtn,
+body.qi-tsumego:not(.tsumego-author) #recordVariationPassBtn,
+body.qi-tsumego:not(.tsumego-author) #recordVariationOverlay,
+body.qi-tsumego:not(.tsumego-author) #recordVariationContextMenu,
+body.qi-tsumego:not(.tsumego-author) #replayPanel { display: none !important; }
+body.qi-tsumego:not(.tsumego-author) #gameTitleInfo { cursor: default; }
+body.qi-tsumego #importBtn, body.qi-tsumego #undoBtn { display: inline-block !important; }
+body.qi-tsumego #turnDisplay { margin-bottom: 8px; }
+.tsumego-question-nav { display: flex; gap: 8px; margin-bottom: 15px; }
+body.qi-tsumego .tsumego-question-nav .ctrl-btn {
+    flex: 1;
+    min-width: 0;
+    padding: 8px 6px;
+    font-size: 0.85rem;
+    white-space: nowrap;
+}
+.tsumego-tools { display: flex; align-items: center; justify-content: center; width: 100%; box-sizing: border-box; }
+body.qi-room .tsumego-title-input {
+    box-sizing: border-box;
+    min-height: 34px;
+    max-width: 100%;
+    width: 220px;
+    padding: 0 12px;
+    border: 1px solid var(--qi-room-line);
+    border-radius: 999px;
+    background: rgba(255, 249, 240, 0.96);
+    color: var(--qi-room-ink);
+    font-family: var(--qi-room-font);
+    font-size: 0.95rem;
+    font-weight: 500;
+}
+body.qi-room .tsumego-title-input::placeholder { color: var(--qi-room-muted); }
+body.qi-room #tsumegoFirstPlayer:focus-visible,
+body.qi-room .tsumego-title-input:focus-visible { outline: 2px solid var(--qi-room-accent); outline-offset: 2px; }
+.tsumego-status { padding: 8px 12px; min-height: 1.5em; color: var(--qi-room-ink); }
+.tsumego-status[data-result="success"] { color: #287344; }
+.tsumego-status[data-result="failure"] { color: #ad3028; }
+body.qi-tsumego .tsumego-author-only[hidden] { display: none !important; }

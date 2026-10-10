@@ -1,46 +1,80 @@
-﻿const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, applyInitialPositionCompact, encodeInitialPositionCompact, qiBoardSeatOverlay, encodeOpeningPositionCompact, computeBensonWeiqiLead, squareWeiqiScoringOps } = require('../common');
+const crypto = require('crypto');
 
-/**
- * 保守围棋（conservatism-weiqi，原名不邻前手围棋）：一个棋种，四个子棋类。
- *   no-adjacent-prev-weiqi       不邻前手    ：不能落在「前一手」的上下左右四格
- *   no-adjacent-own-prev-weiqi   不邻己方前手：不能落在「己方前一手」的上下左右四格
- *   no-near-prev-weiqi           不近前手    ：不能落在「前一手」的上下左右 + 四个斜角（八格）
- *   no-near-own-prev-weiqi       不近己方前手：不能落在「己方前一手」的上下左右 + 四个斜角
- *
- * 判定口径（客户端插件里有一份必须逐字一致的实现，见 public/room-plugins/conservatism-weiqi-room.js）：
- *   - 「前一手」= **全局的最后一手**（双方轮走，实际上就是对方的上一手）：第 N 手只与第 N−1 手比较，
- *     不往前找更早的棋（第 N−2 手无关）；「己方前一手」= 该方最近一次自己走的那一手；
- *   - 参考的是那一手的**落子点**（该子后来是否被提掉不影响禁点）；
- *   - **虚着也算一手**：若参考的那一手是虚着 → 本手不受任何限制（既不比较、也不回退到更早的棋）；
- *   - 己方从未走过（如开局第一手）→ 不受限；
- *   - 除这些禁点外，提子/劫/禁全同/贴目/数点(Benson) 与普通围棋完全相同（规则层与 games/weiqi.js 对齐）。
- *
- * 人机对战：引擎目录 = katagos/{subGameId}/（四个子棋类各用各的引擎与模型；
- * 缺 katago / model.bin.gz / gtp.cfg 时该子棋类不显示「与电脑对弈」，走的是 qi-katago-opponent.js 的公共逻辑）。
- */
+const { qiBoardSeatOverlay, QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, applyInitialPositionCompact, encodeInitialPositionCompact, encodeOpeningPositionCompact } = require('../common');
 
-/** 子棋类清单（顺序即下拉框顺序） */
-const SUB_GAMES = ['no-adjacent-prev-weiqi', 'no-adjacent-own-prev-weiqi', 'no-near-prev-weiqi', 'no-near-own-prev-weiqi'];
-const DEFAULT_SUB_GAME = 'no-adjacent-prev-weiqi';
+/** 白方初始点数 = 6.5 × 结束手数（19 路 360 手 → 2340；9 路 80 手 → 520）：
+ *  等于围棋里「贴目」的位置，本棋种没有贴点，改成白棋先拿一笔（手数变了数额跟着变）。 */
+const WHITE_INITIAL_POINTS_PER_MOVE = 6.5;
 
-/** 子棋类元数据：own = 参考「己方前一手」（否则看紧邻的前一手）；near = 含四个斜角（八格） */
-const SUB_META = {
-    'no-adjacent-prev-weiqi': { own: false, near: false, name: '不邻前手围棋' },
-    'no-adjacent-own-prev-weiqi': { own: true, near: false, name: '不邻己方前手围棋' },
-    'no-near-prev-weiqi': { own: false, near: true, name: '不近前手围棋' },
-    'no-near-own-prev-weiqi': { own: true, near: true, name: '不近己方前手围棋' }
-};
-
-/** 普通围棋贴目：路数 ≤ 8 → 4.25，其余 3.25（与 games/weiqi.js 同口径，四种子棋类相同） */
-function komiForSize(boardSize) {
-    return boardSize <= 8 ? 4.25 : 3.25;
+/** 点数文案：整数不带小数点，平分产生的 .5 保留一位（如 123.5） */
+function formatPoints(v) {
+    return String(Number(Number(v).toFixed(2)));
 }
 
-class ConservatismWeiqiRoom extends QiTwoPlayerRoomBase
+/**
+ * 本棋种口径的「最近归属」：每个空点归给**曼哈顿距离最近的棋子**一方；同距 → 3
+ * （`squareWeiqiRules.computeScore` 会把 3 给两边各记 0.5）。
+ * 与公共 assignTerritoryWithRange 的唯一区别：**没有距离上限**（那里盘心 4、边两格内 5，
+ * 超出即算公气；本棋种要全盘都归属）。
+ * 多源 BFS：黑白各一趟 O(n²)，所以每一手都算也不慢。盘上没有任何棋子 → 全 0
+ * （没有「最近的棋子」可归属，双方都是 0 点）。
+ * 客户端 `room-plugins/point-integration-weiqi-room.js` 里有同一份（站点惯例：两端各一份副本，
+ * 逐格对拍测试 `_t_pi_client.js` 保证一致）。
+ */
+function assignTerritoryNearestUnlimited(liveBoard, boardSize) {
+    const isPassable = (v) => v !== -1;
+    const distTo = (color) => {
+        const dist = Array(boardSize).fill().map(() => Array(boardSize).fill(-1));
+        const queue = [];
+        for (let r = 0; r < boardSize; r++) {
+            for (let c = 0; c < boardSize; c++) {
+                if (liveBoard[r][c] === color) { dist[r][c] = 0; queue.push([r, c]); }
+            }
+        }
+        for (let front = 0; front < queue.length; front++) {
+            const [cr, cc] = queue[front];
+            const d = dist[cr][cc];
+            for (const [dr, dc] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) {
+                const nr = cr + dr;
+                const nc = cc + dc;
+                if (nr < 0 || nr >= boardSize || nc < 0 || nc >= boardSize) continue;
+                if (dist[nr][nc] !== -1) continue;
+                if (!isPassable(liveBoard[nr][nc])) continue;
+                dist[nr][nc] = d + 1;
+                queue.push([nr, nc]);
+            }
+        }
+        return dist;
+    };
+    const distBlack = distTo(1);
+    const distWhite = distTo(2);
+    const territory = Array(boardSize).fill().map(() => Array(boardSize).fill(0));
+    for (let r = 0; r < boardSize; r++) {
+        for (let c = 0; c < boardSize; c++) {
+            if (liveBoard[r][c] !== 0) continue;
+            const b = distBlack[r][c];
+            const w = distWhite[r][c];
+            if (b < 0 && w < 0) territory[r][c] = 0;        // 盘上无子（或都不通）：无归属
+            else if (w < 0) territory[r][c] = 1;            // 只有黑有子
+            else if (b < 0) territory[r][c] = 2;            // 只有白有子
+            else if (b < w) territory[r][c] = 1;
+            else if (w < b) territory[r][c] = 2;
+            else territory[r][c] = 3;                       // 同距：平分
+        }
+    }
+    return territory;
+}
+
+/** 某局面下双方的「点数」= 自己的子 + 归属到自己的空点（同距两边各 0.5） */
+function computePositionPoints(liveBoard, boardSize) {
+    const territory = assignTerritoryNearestUnlimited(liveBoard, boardSize);
+    return squareWeiqiRules.computeScore(liveBoard, territory, boardSize);
+}
+
+class PointIntegrationWeiqiRoom extends QiTwoPlayerRoomBase
 {
-    constructor(room, initialSize = 19, subGameId = DEFAULT_SUB_GAME) {
+    constructor(room, initialSize = 19) {
         super(room);
-        this.subGameId = SUB_GAMES.includes(subGameId) ? subGameId : DEFAULT_SUB_GAME;   // 子棋类 id（引擎检查用）
         this.boardSize = initialSize;
         this.board = Array(this.boardSize).fill().map(() => Array(this.boardSize).fill(0));
         this.openingBoard = this.copyBoard(this.board);
@@ -61,6 +95,10 @@ class ConservatismWeiqiRoom extends QiTwoPlayerRoomBase
         this.scoreProposalData = null;
         this.moveCoords = [];
         this.recordResultText = null;
+        /** 累计点数（含白方初始点数）；对局中的每一手都把该局面的点数加进来 */
+        this.pointTotals = { player1: 0, player2: WHITE_INITIAL_POINTS_PER_MOVE * this.moveCap() };
+        /** 每一手（含虚着）结算后的累计点数快照，与 historyBoards 一一对应：悔棋/导入靠它回溯 */
+        this.pointTotalsHistory = [];
         /** @type {{ black: number|null, white: number|null }} */
         this.slotJoinedAt = { player1: null, player2: null };
         this.tcNego = null;
@@ -69,6 +107,10 @@ class ConservatismWeiqiRoom extends QiTwoPlayerRoomBase
         this.tcClock = null;
         this._clockInterval = null;
         this.matchStarted = false;
+        /** 先落座者为房主（WebSocket） */
+        this.hostWs = null;
+        /** 是否启用棋盘落座蒙版协议（执子由房主在限时对话框选择） */
+        this.boardSeatOverlay = true;
     }
 
     _stopClockTicker() {
@@ -113,43 +155,10 @@ class ConservatismWeiqiRoom extends QiTwoPlayerRoomBase
         }, 1000);
     }
 
-    _firstPickerSlot() {
-        const tb = this.slotJoinedAt.player1;
-        const tw = this.slotJoinedAt.player2;
-        if (tb == null || tw == null) return 'player1';
-        return tb <= tw ? 'player1' : 'player2';
-    }
-    afterColorAssigned(ws, slot) {
-        this.slotJoinedAt[slot] = Date.now();
-        this._maybeBeginTimeNegotiation();
-    }
+    /** 按「选择者己方执子」交换座位：colorChoice 为 black|white|random */
 
-    _finalizeTimeControl(valid) {
-        this.tcSettings = valid.timed
-            ? {
-                timed: true,
-                mainMinutes: valid.mainMinutes,
-                byoyomiSeconds: valid.byoyomiSeconds,
-                maxTimeouts: valid.maxTimeouts
-            }
-            : { timed: false };
-        this.tcNego = null;
-        this.matchStarted = true;
-        const now = Date.now();
-        this.tcClock = qiMatchTimeControl.createClock(this.tcSettings, now);
-        if (this.tcClock.timed) {
-            qiMatchTimeControl.setActiveSlot(this.tcClock, this.currentPlayer === 1 ? 'player1' : 'player2', now);
-            this._startClockTicker();
-            this._broadcastClock();
-        } else {
-            this.tcClock = null;
-        }
-        this.broadcast({
-            type: 'timeControlAgreed',
-            settings: this.tcSettings,
-            clock: this.tcClock ? qiMatchTimeControl.snapshotForClient(this.tcClock) : null
-        });
-    }
+    /** 把当前协商界面重新推给某客户端，避免提交被忽略后卡死 */
+
     _timeAllowsPlay(slot) {
         if (this.gameOver) return false;
         if (!this.matchStarted) return false;
@@ -196,46 +205,7 @@ class ConservatismWeiqiRoom extends QiTwoPlayerRoomBase
         squareWeiqiRules.removeGroup(board, row, col, color, this.boardSize);
     }
 
-    /** 本子棋类元数据（own/near） */
-    _meta() {
-        return SUB_META[this.subGameId] || SUB_META[DEFAULT_SUB_GAME];
-    }
-
-    /**
-     * 参考手在 moveCoords 里的下标；-1 = 没有参考（不受限）。
-     * 【己方前手】从末尾往回找最近一次由 playerVal 走的那一手（虚着也算一手）；
-     * 【前一手】 取紧邻的最后一手（双方都算）。
-     * 客户端插件里有同名同逻辑的一份。
-     */
-    _refMoveIndex(playerVal) {
-        const mcs = this.moveCoords || [];
-        if (!mcs.length) return -1;
-        if (!this._meta().own) return mcs.length - 1;
-        const slot = playerVal === 2 ? 'player2' : 'player1';
-        for (let i = mcs.length - 1; i >= 0; i--) {
-            if (mcs[i] && mcs[i].player === slot) return i;
-        }
-        return -1;
-    }
-
-    /**
-     * (row,col) 是不是禁着点：与参考手（前一手 / 己方前一手）的落子点相邻（邻=上下左右，近=含斜角）。
-     * 参考手是虚着 / 不存在 / 坐标缺失（如编辑盘面导入的开局）→ 不禁。（客户端插件里有同名同逻辑的一份）
-     */
-    isBannedPoint(row, col, playerVal) {
-        const idx = this._refMoveIndex(playerVal);
-        if (idx < 0) return false;
-        const ref = (this.moveCoords || [])[idx];
-        if (!ref || ref.type !== 'move' || !Number.isInteger(ref.row) || !Number.isInteger(ref.col)) return false;
-        const dr = Math.abs(row - ref.row);
-        const dc = Math.abs(col - ref.col);
-        if (this._meta().near) return dr <= 1 && dc <= 1 && (dr + dc) > 0;
-        return (dr === 1 && dc === 0) || (dr === 0 && dc === 1);
-    }
-
     tryPlaceStone(boardBefore, row, col, playerVal) {
-        // 禁点：与前一手（或己方前一手）相邻/相近（参考手为虚着则不受限）
-        if (this.isBannedPoint(row, col, playerVal)) return null;
         return squareWeiqiRules.tryPlaceStoneNLiberty(
             boardBefore, row, col, playerVal, this.boardSize, (b) => this.copyBoard(b), 1
         );
@@ -259,21 +229,75 @@ class ConservatismWeiqiRoom extends QiTwoPlayerRoomBase
         return squareWeiqiRules.computeScore(liveBoard, territory, this.boardSize);
     }
 
-    /** 贴目：普通围棋口径（四种子棋类相同） */
-    _komi() {
-        return komiForSize(this.boardSize);
+    /** 形势判断：当前局面的严格最近归属点数之差（无距离上限、不判死子、不计贴点） */
+    computeLead() {
+        const { blackTotal, whiteTotal } = this.currentPositionPoints();
+        return blackTotal - whiteTotal;
+    }
+
+    /** 结束手数：路数² 以内最大的偶数（19 路 → 360、9 路 → 80、21 路 → 440），保证双方手数相同 */
+    moveCap() {
+        return 2 * Math.floor(this.boardSize * this.boardSize / 2);
+    }
+
+    /** 当前局面下双方的「点数」（含棋子本身；同距平分 0.5；盘上无子时为 0:0） */
+    currentPositionPoints() {
+        return computePositionPoints(this.board, this.boardSize);
     }
 
     /**
-     * Benson 加成的盘面净活盘：先用现有启发式去死子，再恢复无条件活棋链
-     * （防止"弱气被围"启发式误杀被动活），迭代到稳定。（与 games/weiqi.js 一致）
+     * 一手（含虚着）提交后结算：把**该局面**的点数加进双方累计，并记一份快照。
+     * 首手之前不计（「从第一手开始」），所以开局盘面/让子本身不产生点数。
+     * 快照数组的长度 = 已结算的着手数（虚着也算），剩余手数、下满手数都由它推。
+     * @returns {boolean} 是否已到下满手数（调用方据此不再换手）
      */
-    /** 形势判断 / 数点：用 Benson 档（公共口径：弱气去死子 ↔ Benson 保活 → 最近归属 → 确定领地覆盖） */
-    computeLead() {
-        const { lead } = computeBensonWeiqiLead(this.board, this._komi(), squareWeiqiScoringOps(this.boardSize, {
-            copyBoard: (b) => this.copyBoard(b)
-        }));
-        return lead;
+    recordPositionPoints() {
+        const { blackTotal, whiteTotal } = this.currentPositionPoints();
+        this.pointTotals.player1 += blackTotal;
+        this.pointTotals.player2 += whiteTotal;
+        this.pointTotalsHistory.push({ ...this.pointTotals });
+        return this.pointTotalsHistory.length >= this.moveCap();
+    }
+
+    /** 初始（未落子）的累计点数：白方 = 6.5 × 结束手数 */
+    basePointTotals() {
+        return { player1: 0, player2: WHITE_INITIAL_POINTS_PER_MOVE * this.moveCap() };
+    }
+
+    /**
+     * 终局结算：按总点数比大小。
+     * @param {boolean} fillRemaining 是否把「当前局面的点数 × 剩余手数」补给双方——
+     *   连续两虚 / 双方同意数点结束时为 true（后续视为双方一直虚着，局面不变），
+     *   下满手数自然结束时为 false（最后那一手已经计过）。
+     */
+    finishByPoints(fillRemaining) {
+        if (this.gameOver) return;
+        if (fillRemaining) {
+            const remain = Math.max(0, this.moveCap() - this.pointTotalsHistory.length);
+            if (remain > 0) {
+                const { blackTotal, whiteTotal } = this.currentPositionPoints();
+                this.pointTotals.player1 += blackTotal * remain;
+                this.pointTotals.player2 += whiteTotal * remain;
+            }
+        }
+        const diff = this.pointTotals.player1 - this.pointTotals.player2;
+        this.gameOver = true;
+        this.winner = diff > 0 ? 'player1' : (diff < 0 ? 'player2' : 'draw');
+        this.recordResultText = diff === 0
+            ? '和棋'
+            : `${diff > 0 ? '黑' : '白'}胜${formatPoints(Math.abs(diff))}点`;
+        this._stopClockTicker();
+    }
+
+    /**
+     * 「数点」通道：连续两虚（qiProtocol.weiqiPass）与「双方同意结束」都走这里。
+     * 本棋种没有需要双方确认的盘面点目——等同双虚：保持当前局面，把剩余手数按当前局面点数补齐后结束。
+     */
+    startScoreCounting() {
+        if (this.gameOver) return;
+        if (this.tcClock && this.tcClock.timed) qiMatchTimeControl.setPaused(this.tcClock, true);
+        this.finishByPoints(true);
+        this.broadcast({ type: 'broadcast', action: 'endAgreed', ...this.getState() });
     }
 
     onResignResolved(resignSlot) {
@@ -282,15 +306,6 @@ class ConservatismWeiqiRoom extends QiTwoPlayerRoomBase
 
     onDrawResolved() {
         this.recordResultText = '和棋';
-    }
-
-    setScoreResultTextByLead(lead) {
-        if (!Number.isFinite(lead) || lead === 0) {
-            this.recordResultText = '和棋';
-            return;
-        }
-        const winnerSide = lead > 0 ? '黑' : '白';
-        this.recordResultText = `${winnerSide}胜${Math.abs(lead).toFixed(2)}点`;
     }
 
     setTimeLossResultText(lostSlot) {
@@ -304,22 +319,28 @@ class ConservatismWeiqiRoom extends QiTwoPlayerRoomBase
             ? this.copyBoard(this.openingBoard)
             : this.copyBoard(this.board);
         return {
-            subGameId: this.subGameId,
-            subGameName: this._meta().name,
             boardSize: this.boardSize,
+            komi: 0,                       // 本棋种没有贴点（白方的 2300 点是初始点数，随 pointTotals 下发）
             board: this.board,
             initialBoard,
-            komi: this._komi(),
             numberOfHands: 1 + this.historyBoards.length,
             currentPlayer: this.currentPlayer,
             lastMoveMarkers: this.lastMoveMarkers,
             gameOver: this.gameOver,
             winner: this.winner,
+            /** 终局文案（含分差，如「黑胜123.5点」）：随状态下发，客户端终局提示直接用它 */
+            recordResultText: this.recordResultText,
+            /** 双方此时的累计点数（客户端写在 scoreBoard 上：黑：X点　白：Y点） */
+            pointTotals: { player1: this.pointTotals.player1, player2: this.pointTotals.player2 },
+            /** 结束手数（路数² 以内最大的偶数）：客户端可用来提示进度 */
+            pointCap: this.moveCap(),
             moveCoords: this.moveCoords,
             slots: {
                 player1: !!this.room.getPlayerBySlot('player1'),
                 player2: !!this.room.getPlayerBySlot('player2')
             },
+            hostSlot: this.hostWs ? this.room.getSlotByWs(this.hostWs) : null,
+            boardSeatOverlay: !!this.boardSeatOverlay,
             matchTime: {
                 negotiation: this.tcNego,
                 settings: this.tcSettings,
@@ -334,47 +355,11 @@ class ConservatismWeiqiRoom extends QiTwoPlayerRoomBase
     }
 
     getInitialState() {
-        const initialBoard = this.openingBoard
-            ? this.copyBoard(this.openingBoard)
-            : this.copyBoard(this.board);
-        return {
-            subGameId: this.subGameId,
-            subGameName: this._meta().name,
-            board: this.board,
-            initialBoard,
-            boardSize: this.boardSize,
-            komi: this._komi(),
-            currentPlayer: this.currentPlayer,
-            numberOfHands: 1,
-            lastMoveMarkers: this.lastMoveMarkers,
-            gameOver: this.gameOver,
-            winner: this.winner,
-            moveCoords: [],
-            slots: {
-                player1: !!this.room.getPlayerBySlot('player1'),
-                player2: !!this.room.getPlayerBySlot('player2')
-            },
-            matchTime: {
-                negotiation: this.tcNego,
-                settings: this.tcSettings,
-                clock: this.tcClock && this.tcClock.timed
-                    ? qiMatchTimeControl.snapshotForClient(this.tcClock)
-                    : (this.tcSettings && this.tcSettings.timed === false
-                        ? { timed: false, ruleLine: '本局不限时' }
-                        : null)
-            },
-            matchStarted: this.matchStarted
-        };
+        return this.getState();
     }
 
-    startScoreCounting(requester, opponent) {
-        if (this.tcClock && this.tcClock.timed) qiMatchTimeControl.setPaused(this.tcClock, true);
-        const lead = this.computeLead();
-        this.scoreProposalData = { lead, requester, opponent };
-        const proposalMsg = { type: 'scoreProposal', lead };
-        requester.send(JSON.stringify(proposalMsg));
-        opponent.send(JSON.stringify(proposalMsg));
-        this.pendingScore = { requester, opponent, agreed: new Set() };
+    getStateForClient() {
+        return this.getState();
     }
 
     handleMessage(ws, msg)
@@ -384,25 +369,8 @@ class ConservatismWeiqiRoom extends QiTwoPlayerRoomBase
 
         switch (msg.type)
         {
-            case 'selectColor':
-                qiProtocol.selectColor(this, ws, msg);
-                break;
-
-            case 'timeControlSubmit':
-                this._handleTimeControlSubmit(ws, msg);
-                break;
-
-            case 'timeControlAccept':
-                this._handleTimeControlAccept(ws);
-                break;
-
             case 'setBoardSize':
                 qiProtocol.setBoardSizeWeiqiObserver(this, ws, msg, slot);
-                break;
-
-            case 'setSubGame':
-                // 被拒绝（已开局/有人入座）时回推当前状态：客户端是「本地乐观切换」，不回推会与服务端脱钩
-                if (!this.setSubGame(msg.subGameId, ws)) this.sendState(ws);
                 break;
 
             case 'move': {
@@ -412,7 +380,17 @@ class ConservatismWeiqiRoom extends QiTwoPlayerRoomBase
                     return;
                 }
                 const before = () => this._drainClockBeforeMove(moveSlot);
-                qiProtocol.weiqiMove(this, ws, msg, moveSlot, { beforeCommit: before });
+                qiProtocol.weiqiMove(this, ws, msg, moveSlot, {
+                    beforeCommit: before,
+                    // 落子已写进盘面、换手与广播之前：结算该局面的点数；到下满手数就终局（并压住换手）
+                    afterPlace: () => {
+                        if (this.recordPositionPoints()) {
+                            this.finishByPoints(false);
+                            return true;
+                        }
+                        return false;
+                    }
+                });
                 this._syncClockAfterTurnChange();
                 break;
             }
@@ -423,8 +401,20 @@ class ConservatismWeiqiRoom extends QiTwoPlayerRoomBase
                     if (passSlot) ws.send(JSON.stringify({ type: 'error', message: '请先与对手确认限时规则。' }));
                     return;
                 }
-                const beforeP = () => this._drainClockBeforeMove(passSlot);
+                // 虚着不改盘面：在提交前（时钟扣时之后）结算即可，这样紧随的广播就带着新点数
+                const beforeP = () => {
+                    if (!this._drainClockBeforeMove(passSlot)) return false;
+                    if (this.recordPositionPoints()) {
+                        this.finishByPoints(false);
+                    }
+                    return true;
+                };
                 qiProtocol.weiqiPass(this, ws, passSlot, { beforeCommit: beforeP });
+                // 单方在场时 weiqiPass 会自己结束（不经过 startScoreCounting）→ 补一次终局结算
+                if (this.gameOver && !this.winner && !this.recordResultText) {
+                    this.finishByPoints(true);
+                    this.broadcast({ type: 'broadcast', action: 'endAgreed', ...this.getState() });
+                }
                 this._syncClockAfterTurnChange();
                 break;
             }
@@ -478,27 +468,7 @@ class ConservatismWeiqiRoom extends QiTwoPlayerRoomBase
                 break;
 
             case 'scoreResponse':
-                if (this.pendingScore && (ws === this.pendingScore.requester || ws === this.pendingScore.opponent))
-                {
-                    if (msg.accept) {
-                        this.pendingScore.agreed.add(ws);
-                        if (this.pendingScore.agreed.size === 2) {
-                            const lead = this.scoreProposalData.lead;
-                            this.gameOver = true;
-                            this.winner = lead > 0 ? 'player1' : (lead < 0 ? 'player2' : 'draw');
-                            this.setScoreResultTextByLead(lead);
-                            this.broadcast({ type: 'scoreAgreed', winner: this.winner, lead });
-                            this.pendingScore = null;
-                            this.scoreProposalData = null;
-                            this._stopClockTicker();
-                        }
-                    } else {
-                        if (this.tcClock && this.tcClock.timed) qiMatchTimeControl.setPaused(this.tcClock, false);
-                        this.broadcast({ type: 'scoreRejected' });
-                        this.pendingScore = null;
-                        this.scoreProposalData = null;
-                    }
-                }
+                // 本棋种没有「双方确认盘面点目」这一步：数点即等同双虚，见 startScoreCounting。
                 break;
 
             case 'exportRecord':
@@ -541,11 +511,17 @@ class ConservatismWeiqiRoom extends QiTwoPlayerRoomBase
                 this.moveHistory.pop();
             if (this.moveCoords.length > 0)
                 this.moveCoords.pop();
+            // 点数同步回溯：丢掉被撤销手数的结算快照，回到那一手之前的累计
+            if (this.pointTotalsHistory.length > 0)
+                this.pointTotalsHistory.pop();
 
             this.currentPlayer = 3 - this.currentPlayer;
         }
+        this.pointTotals = this.pointTotalsHistory.length > 0
+            ? { ...this.pointTotalsHistory[this.pointTotalsHistory.length - 1] }
+            : this.basePointTotals();
         if (this.historyBoards.length == 0)
-            this.board = this.copyBoard(this.openingBoard);
+            this.board = Array(this.boardSize).fill().map(() => Array(this.boardSize).fill(0));
         else
             this.board = this.copyBoard(this.historyBoards.at(-1));
         this.broadcast({ type: 'broadcast', action: 'undoAccept', ...this.getState() });
@@ -561,17 +537,16 @@ class ConservatismWeiqiRoom extends QiTwoPlayerRoomBase
     {
         this._stopClockTicker();
         this.slotJoinedAt = { player1: null, player2: null };
+        this.hostWs = null;
         this.tcNego = null;
         this.tcSettings = null;
         this.tcClock = null;
         this.recordResultText = null;
         this.matchStarted = false;
         this.board = Array(this.boardSize).fill().map(() => Array(this.boardSize).fill(0));
-        this.openingBoard = this.copyBoard(this.board);
         this.currentPlayer = 1;
         this.historyBoards = [];
         this.historyBoardSet.clear();
-        this.historyBoardSet.add(this.boardToString(this.board));
         this.moveHistory = [];
         this.historyMarkers = [];
         this.lastMoveMarkers = [];
@@ -579,6 +554,8 @@ class ConservatismWeiqiRoom extends QiTwoPlayerRoomBase
         this.winner = null;
         this.passCounter = 0;
         this.moveCoords = [];
+        this.pointTotals = this.basePointTotals();
+        this.pointTotalsHistory = [];
         qiProtocol.releaseAllSeats(this);
         this.broadcast({ type: 'newGameStarted', ...this.getState(), slots: { player1: false, player2: false } });
     }
@@ -589,37 +566,19 @@ class ConservatismWeiqiRoom extends QiTwoPlayerRoomBase
             requesterWs.send(JSON.stringify({ type: 'error', message: '棋盘大小无效' }));
             return false;
         }
-        const hasAnyStone = this.board.some(row => row.some(v => v !== 0));
-        const hasPlayer = this.room.getPlayerBySlot('player1') || this.room.getPlayerBySlot('player2');
-        if (hasAnyStone || hasPlayer) {
+        if (!qiProtocol.canChangeRoomSettings(this)) {
 
             return false;
         }
+        qiProtocol.prepareRoomSettingsChange(this);
         this.boardSize = newSize;
         this.resetGame();
         this.broadcast({ type: 'boardSizeChanged', boardSize: this.boardSize });
         return true;
     }
 
-    /** 切换子棋类（不邻/不近 × 前手/己方前手）：开局前可改，开局后静默忽略（与 setBoardSize 一致） */
-    setSubGame(subGameId, requesterWs) {
-        if (!SUB_GAMES.includes(subGameId)) {
-            requesterWs.send(JSON.stringify({ type: 'error', message: '子棋类无效' }));
-            return false;
-        }
-        const hasAnyStone = this.board.some(row => row.some(v => v !== 0));
-        const hasPlayer = this.room.getPlayerBySlot('player1') || this.room.getPlayerBySlot('player2');
-        if (hasAnyStone || hasPlayer) {
-            // 开局后静默忽略（客户端此时已隐藏/禁用选择器）
-            return false;
-        }
-        this.subGameId = subGameId;
-        this.broadcast({ type: 'subGameChanged', subGameId, ...this.getState() });
-        return true;
-    }
-
-    exportRecord() {
-
+    exportRecord()
+    {
         let resultText = null;
         if (this.gameOver) {
             if (this.recordResultText) resultText = this.recordResultText;
@@ -629,14 +588,12 @@ class ConservatismWeiqiRoom extends QiTwoPlayerRoomBase
         }
         return {
             format: 'muzei',
-            version: 2,
-            gameType: this._meta().name,
-            gameId: 'conservatism-weiqi',
-            subGameId: this.subGameId,
+            version: 1,
+            gameType: '点数积分围棋',
+            gameId: 'point-integration-weiqi',
             boardSize: this.boardSize,
-            komi: this._komi(),
+            komi: 0,                       // 无贴点（白方初始点数是规则的一部分，不进棋谱）
             players: { player1: null, player2: null },
-            // 开局盘面（编辑模式的开局；默认空盘）——导出当前盘面会让导入时与 moves 重放冲突
             initialPosition: encodeOpeningPositionCompact(this),
             moves: this.moveCoords.map(m => {
                 const p = m.player === 'player1' ? 'B' : 'W';
@@ -650,17 +607,16 @@ class ConservatismWeiqiRoom extends QiTwoPlayerRoomBase
     resetToEmpty() {
         this._stopClockTicker();
         this.slotJoinedAt = { player1: null, player2: null };
+        this.hostWs = null;
         this.tcNego = null;
         this.tcSettings = null;
         this.tcClock = null;
         this.recordResultText = null;
         this.matchStarted = false;
         this.board = Array(this.boardSize).fill().map(() => Array(this.boardSize).fill(0));
-        this.openingBoard = this.copyBoard(this.board);
         this.currentPlayer = 1;
         this.historyBoards = [];
         this.historyBoardSet = new Set();
-        this.historyBoardSet.add(this.boardToString(this.board));
         this.moveHistory = [];
         this.moveCoords = [];
         this.historyMarkers = [];
@@ -668,6 +624,8 @@ class ConservatismWeiqiRoom extends QiTwoPlayerRoomBase
         this.gameOver = false;
         this.winner = null;
         this.passCounter = 0;
+        this.pointTotals = this.basePointTotals();
+        this.pointTotalsHistory = [];
         this.pendingNewGame = null;
         this.pendingUndo = null;
         this.pendingDraw = null;
@@ -687,14 +645,12 @@ class ConservatismWeiqiRoom extends QiTwoPlayerRoomBase
     }
 
     importRecord(data, requesterWs) {
-        // 棋谱统一用 gameId=conservatism-weiqi，用 subGameId 区分四种子棋类
-        if (!data || data.gameId !== 'conservatism-weiqi') {
-            requesterWs.send(JSON.stringify({ type: 'error', message: '棋谱格式不匹配（需要保守围棋棋谱）。' }));
+        if (!data || data.gameId !== 'point-integration-weiqi') {
+            requesterWs.send(JSON.stringify({ type: 'error', message: '棋谱格式不匹配（需要点数积分围棋棋谱）。' }));
             return;
         }
-        this.subGameId = SUB_GAMES.includes(data.subGameId) ? data.subGameId : DEFAULT_SUB_GAME;
         const newSize = data.boardSize || 19;
-        if (!Number.isInteger(newSize) || newSize < 7 || newSize > 21) {
+        if (!Number.isInteger(newSize) || newSize > 21) {
             requesterWs.send(JSON.stringify({ type: 'error', message: '棋谱中棋盘大小无效' }));
             return;
         }
@@ -703,10 +659,9 @@ class ConservatismWeiqiRoom extends QiTwoPlayerRoomBase
         this.resetToEmpty();
 
         applyInitialPositionCompact(this.board, this.boardSize, data.initialPosition);
-        this.openingBoard = this.copyBoard(this.board);
 
         const rawMoves = data.moves || [];
-        const moves = rawMoves.map(ConservatismWeiqiRoom.parseMove);
+        const moves = rawMoves.map(PointIntegrationWeiqiRoom.parseMove);
         for (let i = 0; i < moves.length; i++) {
             const move = moves[i];
             const slot = move.player;
@@ -736,6 +691,7 @@ class ConservatismWeiqiRoom extends QiTwoPlayerRoomBase
                 this.lastMoveMarkers = [{ row, col, color: playerVal }];
                 this.currentPlayer = 3 - this.currentPlayer;
                 this.passCounter = 0;
+                this.recordPositionPoints();      // 导入同样逐手累计点数（虚着也算）
             } else if (move.type === 'pass') {
                 this.historyBoards.push(this.copyBoard(this.board));
                 this.historyMarkers.push(this.copyMarkers(this.lastMoveMarkers));
@@ -744,6 +700,7 @@ class ConservatismWeiqiRoom extends QiTwoPlayerRoomBase
                 this.currentPlayer = 3 - this.currentPlayer;
                 this.passCounter++;
                 this.lastMoveMarkers = [];
+                this.recordPositionPoints();
             }
         }
 
@@ -787,7 +744,14 @@ class ConservatismWeiqiRoom extends QiTwoPlayerRoomBase
     onPlayerLeave(ws)
     {
         const slot = this.room.getSlotByWs(ws);
-        if (slot) this.room.broadcast({ type: 'playerLeft', slot });
+        if (slot) this.room.broadcast({ type: 'playerLeft', slot, matchStarted: !!this.matchStarted });
+
+        if (this.hostWs === ws) {
+            const other = slot === 'player1'
+                ? this.room.getPlayerBySlot('player2')
+                : this.room.getPlayerBySlot('player1');
+            this.hostWs = other || null;
+        }
 
         if (this.pendingUndo && this.pendingUndo.requester === ws) this.pendingUndo = null;
         if (this.pendingNewGame === ws) this.pendingNewGame = null;
@@ -807,14 +771,13 @@ class ConservatismWeiqiRoom extends QiTwoPlayerRoomBase
 }
 
 module.exports = {
-    SUB_GAMES,
-    SUB_META,
-    DEFAULT_SUB_GAME,
-    ConservatismWeiqiRoom,
+    PointIntegrationWeiqiRoom,
     initRoom(room) {
-        room.gameLogic = new ConservatismWeiqiRoom(room);
-        qiBoardSeatOverlay.install(room.gameLogic);
-        if (typeof qiProtocol.installStandardEditBoard === 'function') qiProtocol.installStandardEditBoard(room.gameLogic);
+        room.gameLogic = new PointIntegrationWeiqiRoom(room);
         room.maxPlayers = 2;
+        if (typeof qiBoardSeatOverlay !== 'undefined' && qiBoardSeatOverlay) qiBoardSeatOverlay.install(room.gameLogic);
+        if (typeof qiProtocol.installStandardEditBoard === 'function') {
+            qiProtocol.installStandardEditBoard(room.gameLogic);
+        }
     }
 };

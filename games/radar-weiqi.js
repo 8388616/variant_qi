@@ -641,7 +641,7 @@ class InvisibleStone2WeiqiRoom extends QiTwoPlayerRoomBase {
                 break;
 
             case 'setBoardSize':
-                if (!slot && !this.room.players.size)
+                if (qiProtocol.canChangeRoomSettings(this))
                     this.setBoardSize(msg.size, ws);
                 break;
 
@@ -986,9 +986,8 @@ class InvisibleStone2WeiqiRoom extends QiTwoPlayerRoomBase {
             requesterWs.send(JSON.stringify({ type: 'error', message: '棋盘大小无效' }));
             return false;
         }
-        const hasAnyStone = this.board.some(row => row.some(v => v !== 0));
-        const hasPlayer = this.room.getPlayerBySlot('player1') || this.room.getPlayerBySlot('player2');
-        if (hasAnyStone || hasPlayer) return false;
+        if (!qiProtocol.canChangeRoomSettings(this)) return false;
+        qiProtocol.prepareRoomSettingsChange(this);
         this.boardSize = newSize;
         this.resetGame();
         this.broadcast({ type: 'boardSizeChanged', boardSize: this.boardSize });

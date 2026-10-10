@@ -187,6 +187,7 @@ const scoreTitle = document.getElementById('scoreTitle');
         function greedyTryPlaceStone(boardBefore, row, col, playerVal, histSet) {
             const newBoard = basePlaceStone(boardBefore, row, col, playerVal);
             if (!newBoard) return null;
+            if (histSet && histSet.has(boardToString(newBoard))) return null;
             const myCap = countOpponentCaptures(boardBefore, newBoard, playerVal);
             if (hasStrictlyBetterCapture(boardBefore, playerVal, myCap, row, col, histSet || null)) return null;
             return newBoard;
@@ -195,7 +196,7 @@ const scoreTitle = document.getElementById('scoreTitle');
         // 供 create() 使用：正式对局走贪吃规则；试下同普通围棋（不强制有提必提）
         function greedyTryPlaceStoneForPage(boardBefore, row, col, playerVal) {
             if (ps.tryPlayMode) return basePlaceStone(boardBefore, row, col, playerVal);
-            return greedyTryPlaceStone(boardBefore, row, col, playerVal, null);
+            return greedyTryPlaceStone(boardBefore, row, col, playerVal, liveCandidateHistorySet());
         }
 
         function computeMaxCaptureCandidates(boardBefore, playerVal, histSet) {
@@ -288,14 +289,14 @@ const scoreTitle = document.getElementById('scoreTitle');
 
         // 正式对局里「有提必提」是强制的（试下不强制：任意位置都能下，只是照样画出候选点）
         function mustCaptureActive() {
-            return !ps.tryPlayMode && !ps.gameOver && !ps.showEstimateActive
+            return !ps.tryPlayMode && (!ps.gameOver || ps.replayMode) && !ps.showEstimateActive
                 && !browsingLiveHistory() && ps.candidates.length > 0;
         }
 
         // 是否画出候选点小方块（含试下）
         function candidateMarkerActive() {
             if (ps.showEstimateActive || browsingLiveHistory()) return false;
-            if (!ps.tryPlayMode && ps.gameOver) return false;
+            if (!ps.tryPlayMode && ps.gameOver && !ps.replayMode) return false;
             return displayedCandidates().length > 0;
         }
 
@@ -303,14 +304,15 @@ const scoreTitle = document.getElementById('scoreTitle');
             return displayedCandidates().some(p => p.row === row && p.col === col);
         }
 
-        // 正式对局的禁全同集合：只在「直播最新一步」用（回放/浏览旧局面时历史不在同一条线上，不用它排除）
+        // 分支回放只使用当前路径到当前手的盘面，后续着法和其它支线不参与禁全同。
         function liveCandidateHistorySet() {
-            if (ps.replayMode || browsingLiveHistory()) return null;
+            if (ps.replayMode) return new Set(ps.replayBoards.slice(0, ps.replayStep + 1).map(boardToString));
+            if (browsingLiveHistory()) return new Set(ps.liveReplayBoards.slice(0, ps.liveViewStep + 1).map(boardToString));
             return ps.liveReplayHistSet || null;
         }
 
         function refreshCandidatesFromBoard() {
-            if (ps.gameOver || ps.tryPlayMode || browsingLiveHistory()) {
+            if ((ps.gameOver && !ps.replayMode) || ps.tryPlayMode || browsingLiveHistory()) {
                 ps.candidates = [];
                 return;
             }
@@ -343,7 +345,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                 if (ps.board[r][c] !== 0) return false;
                 if (candidateMarkerActive() && isCandidatePoint(r, c)) return false;
                 return true;
-            });
+            }, { board: ps.board, stoneMarks: ps.userStoneMarks, live: QiSquareWeiqiCanvas.boardMarksLiveLatest(ps) });
             if (ps.showMoveNumbers) {
                 const nums = Array(ps.BOARD_SIZE).fill().map(() => Array(ps.BOARD_SIZE).fill(0));
                 if (ps.replayMode && ps.tryPlayMode) {
@@ -436,6 +438,29 @@ const page = QiWeiqiSquarePageRuntime.create(ps, domPage, {
             ...scoringHooks,
             tryPlaceStone: greedyTryPlaceStoneForPage,
             drawBoard: drawBoardGreedy,
+            enterReplayMode(data) {
+                // 逐手重建时维护这一条路径的历史，而不是使用页面此前选中的分支。
+                const histSet = new Set();
+                const built = R().buildReplayFromImportData(data, (board, row, col, playerVal) => {
+                    histSet.add(boardToString(board));
+                    const next = greedyTryPlaceStone(board, row, col, playerVal, histSet);
+                    if (next) histSet.add(boardToString(next));
+                    return next;
+                }, QiSquareWeiqiCanvas.deepCopyBoard, () => QiSquareWeiqiCanvas.initBoardArray(ps.BOARD_SIZE));
+                ps.replayBoards = built.replayBoards;
+                ps.replayMarkers = built.replayMarkers;
+                ps.replayStepPlayers = built.replayStepPlayers;
+                ps.replayTotalSteps = built.replayTotalSteps;
+                ps.replayMode = true;
+                document.getElementById('replaySlider').max = ps.replayTotalSteps;
+                page.setReplayStep(ps.replayTotalSteps);
+                page.updateReplayUI();
+            },
+            onReplayStep() {
+                const first = window.__qiTsumego && window.QiTsumego.getFirstPlayer() === 'player2' ? 2 : 1;
+                ps.currentPlayer = ps.replayStep > 0 ? 3 - (ps.replayStepPlayers[ps.replayStep] || 2) : first;
+                refreshCandidatesFromBoard();
+            },
             gameType,
             roomId,
             roomPassword,

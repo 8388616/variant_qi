@@ -729,7 +729,7 @@ const boardSizeSelect = document.getElementById('boardSizeSelect');
                 // 开局（开赛/计时协商中/已有落子）隐藏路数选择；终局开新局（盘面清空、未开赛）后恢复可选，
                 // 是否已就座不影响——否则新局后玩家仍在座会永远隐藏。
                 const engaged = !!(ps.matchStarted || (ps.matchTime && ps.matchTime.settings) || hasMoves);
-                boardSizeSelect.style.display = engaged ? 'none' : '';
+                window.QiRoomGameSwitcher.syncSettingsSelect(boardSizeSelect);
                 // 按钮显隐走公共实现（导出棋谱任何时候都显示）；下面留一份兜底，万一没接上 bindings
                 if (bindingsUpdateRecordButtons) { bindingsUpdateRecordButtons(); return; }
                 if (!hasPlayers && !hasMoves) {
@@ -745,6 +745,13 @@ const boardSizeSelect = document.getElementById('boardSizeSelect');
                 pageState: ps,
                 boardSeatOverlay: true,
                 seatOverlayOnly: true,
+                getGameOver: () => ps.gameOver,
+                getReplayMode: () => ps.replayMode,
+                getBoard: () => ps.board,
+                enterReplayMode: (data) => { syncState(data.recordState); ps.replayMode = true; },
+                setReplayStep: (step) => { setReplayStep(step); ps.replayMode = true; },
+                exitTryPlay,
+                recordPointToCanvas: (row, col) => ({ ...boardCenterOfCell(row, col), cell: ps.CELL_SIZE, size: 600 }),
                 standardWeiqiMatchTime,
                 getWs: () => ps.ws,
                 getBoardSize: () => ps.BOARD_SIZE,

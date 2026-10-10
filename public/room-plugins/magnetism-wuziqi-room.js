@@ -1,4 +1,7 @@
 window.RoomPlugins = window.RoomPlugins || {};
+/* 会推动棋子的棋种：子层标记允许「就近同色配对」跟随 */
+window.QiBoardMarks = window.QiBoardMarks || {};
+window.QiBoardMarks._stoneFollow = true;
 window.RoomPlugins["magnetism-wuziqi"] = {
     shell: {
         "title": "磁性五子棋",

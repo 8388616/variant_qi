@@ -212,12 +212,11 @@ class TriangleWeiqiRoom extends QiTwoPlayerRoomBase
             requesterWs.send(JSON.stringify({ type: 'error', message: '棋盘路数无效' }));
             return false;
         }
-        const hasAnyStone = this.board.some((row, r) => row.some((v, c) => v !== 0));
-        const hasPlayer = this.room.getPlayerBySlot('player1') || this.room.getPlayerBySlot('player2');
-        if (hasAnyStone || hasPlayer) {
-            requesterWs.send(JSON.stringify({ type: 'error', message: '已有棋子或玩家，不能改变路数' }));
+        if (!qiProtocol.canChangeRoomSettings(this)) {
+            requesterWs.send(JSON.stringify({ type: 'error', message: '已有多人落座，不能修改棋盘大小' }));
             return false;
         }
+        qiProtocol.prepareRoomSettingsChange(this);
         this.boardSize = newSize;
         this.openingBoard = undefined;
         this.board = this.createEmptyBoard();
@@ -252,12 +251,11 @@ class TriangleWeiqiRoom extends QiTwoPlayerRoomBase
             return false;
         }
         if (shape === this.shape) return true;
-        const hasAnyStone = this.board.some((row, r) => row.some((v, c) => v !== 0));
-        const hasPlayer = this.room.getPlayerBySlot('player1') || this.room.getPlayerBySlot('player2');
-        if (hasAnyStone || hasPlayer) {
-            requesterWs.send(JSON.stringify({ type: 'error', message: '已有棋子或玩家，不能改变棋盘形状' }));
+        if (!qiProtocol.canChangeRoomSettings(this)) {
+            requesterWs.send(JSON.stringify({ type: 'error', message: '已有多人落座，不能修改棋盘大小' }));
             return false;
         }
+        qiProtocol.prepareRoomSettingsChange(this);
         this.shape = shape;
         this.boardSize = this.shapeCfg().def;
         this.board = this.createEmptyBoard();
@@ -683,12 +681,12 @@ class TriangleWeiqiRoom extends QiTwoPlayerRoomBase
                 break;
 
             case 'setBoardSize':
-                if (!slot && !this.room.players.size)
+                if (qiProtocol.canChangeRoomSettings(this))
                     this.setBoardSize(msg.size, ws);
                 break;
 
             case 'setShape':
-                if (!slot && !this.room.players.size) {
+                if (qiProtocol.canChangeRoomSettings(this)) {
                     this.setShape(msg.shape, ws);
                 } else {
                     // 被拒绝：回推当前状态，纠正客户端本地乐观切换（形状/棋盘以服务端为准）

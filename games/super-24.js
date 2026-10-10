@@ -1512,10 +1512,9 @@ class Super24Room {
                     ws.send(JSON.stringify({ type: 'error', message: '子游戏无效' }));
                     return;
                 }
-                if (this._isActiveMatch()) return; // 对局中不可切换
-                const requesterId = this.room.getSlotByWs(ws);
-                if (requesterId && this.hostId && requesterId !== this.hostId) return; // 仅房主可切换
+                if (this.room.getSeatedCount() >= 2) return;
                 if (this.subGameId === sub) return;
+                this._resetToLobby();
                 this.subGameId = sub;
                 this.puzzle = null;
                 this.broadcast({ type: 'subGameChanged', subGameId: sub, ...this.getState() });

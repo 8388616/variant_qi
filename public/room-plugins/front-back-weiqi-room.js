@@ -118,6 +118,7 @@ const scoreTitle = document.getElementById('scoreTitle');
 
         /** 本地标记，键 "A|r,c" / "B|r,c"（仅本机；两面共用一套选项） */
         let userBoardMarks = Object.create(null);
+        let userStoneMarks = Object.create(null);   // 子层：棋子上的标记（键与点层同格式）
         const BOARD_MARK_CHAR_LIST = (() => {
             const a = [];
             a.push('?', '!');
@@ -263,25 +264,31 @@ const scoreTitle = document.getElementById('scoreTitle');
                 C().draw.lastMoveMarkersUpper(ctx, markersHere, PADDING, CELL_SIZE, markLenDefault, ps.BOARD_SIZE);
             }
             const markPrefix = which + '|';
-            const markBg = which === 'A' ? '#deb887' : '#cb9665';
             for (const key of Object.keys(userBoardMarks)) {
                 if (!key.startsWith(markPrefix)) continue;
                 const [r, c] = key.slice(markPrefix.length).split(',').map(Number);
                 if (!isUserBoardMarkVisibleAt(which, r, c)) continue;
+                if (C().isStoneCellValue(board[r][c])) continue;   // 被棋子盖住：保留不画
                 const ch = userBoardMarks[key];
                 const x = PADDING + c * CELL_SIZE;
                 const y = PADDING + (BOARD_SIZE - 1 - r) * CELL_SIZE;
-                const markBgR = CELL_SIZE * 0.3;
-                ctx.beginPath();
-                ctx.arc(x, y, markBgR, 0, 2 * Math.PI);
-                ctx.fillStyle = markBg;
-                ctx.fill();
+                C().draw.boardMarkGap(ctx, x, y, CELL_SIZE);   // 留白：取邻近底色填圆（替代实心圆底）
                 const fontPx = CELL_SIZE * (ch === '🚩' ? 0.6 : 0.66);
                 ctx.font = `bold ${fontPx}px "Segoe UI", "Apple Color Emoji", "Segoe UI Emoji", sans-serif`;
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
                 ctx.fillStyle = '#3a281c';
                 ctx.fillText(ch, x, y + 1);
+            }
+            for (const key of Object.keys(userStoneMarks)) {
+                if (!key.startsWith(markPrefix)) continue;
+                const [r, c] = key.slice(markPrefix.length).split(',').map(Number);
+                const sv = board[r] ? board[r][c] : 0;
+                if (!C().isStoneCellValue(sv)) { delete userStoneMarks[key]; continue; }   // 子没了：标记随之消失
+                if (C().boardMarksLiveLatest(ps) === false || ps.showEstimateActive) continue;
+                const x = PADDING + c * CELL_SIZE;
+                const y = PADDING + (BOARD_SIZE - 1 - r) * CELL_SIZE;
+                C().draw.boardMarkGlyph(ctx, x, y, CELL_SIZE, userStoneMarks[key], sv === 2 ? 'dark' : 'light');
             }
         }
 
@@ -1315,10 +1322,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             const hasPlayer = ps.slots.player1 || ps.slots.player2;
             const sizeSelect = document.getElementById('boardSizeSelect');
             const liveTotal = getLiveReplayTotal();
-            if (!hasStone && !hasMine && !hasPlayer && !ps.gameOver && ps.mySlot === null && ps.liveViewStep === 0 && liveTotal === 0)
-                sizeSelect.style.display = 'inline-block';
-            else
-                sizeSelect.style.display = 'none';
+            window.QiRoomGameSwitcher.syncSettingsSelect(sizeSelect);
 
             ps.isMyTurn = !isLiveBrowsingHistory() && !ps.tryPlayMode && isMyTurn();
             updateRecordButtonsBound();
@@ -1417,8 +1421,8 @@ syncState,
                 openScoreConfirmPanel(lead, ps._lastScoreBlack, ps._lastScoreWhite);
             },
             isMouseDevice,
-            onNewGameStarted: () => { userBoardMarks = Object.create(null); },
-            onRoomReset: () => { userBoardMarks = Object.create(null); },
+            onNewGameStarted: () => { userBoardMarks = Object.create(null); userStoneMarks = Object.create(null); },
+            onRoomReset: () => { userBoardMarks = Object.create(null); userStoneMarks = Object.create(null); },
             onBoardSizeChanged: (msg) => {
                 if (!msg.boardSize) return;
                 const sel = document.getElementById('boardSizeSelect');
@@ -1482,25 +1486,12 @@ syncState,
             if (row < 0 || col < 0) return;
             const board = which === 'A' ? boardA : boardB;
             const mines = which === 'A' ? minesA : minesB;
-            if (board[row][col] !== 0 || isMine(mines, row, col)) return;
+            if (isMine(mines, row, col)) return;
+            const layer = C().boardMarkCellKind(board[row][col]) === 'stone' ? 'stone' : 'point';
             const key = which + '|' + row + ',' + col;
             const { clear, ch } = getSelectedBoardMark();
-            const existing = userBoardMarks[key];
-            if (clear) {
-                if (existing !== undefined) {
-                    delete userBoardMarks[key];
-                    drawAllBoards();
-                }
-                return;
-            }
-            if (existing === undefined) {
-                userBoardMarks[key] = ch;
-            } else if (existing !== ch) {
-                userBoardMarks[key] = ch;
-            } else {
-                delete userBoardMarks[key];
-            }
-            drawAllBoards();
+            if (C().toggleUserBoardMark(userBoardMarks, userStoneMarks, key, layer, ch, clear, false))
+                drawAllBoards();
         }
 
         let suppressCanvasClickAfterLongMark = false;

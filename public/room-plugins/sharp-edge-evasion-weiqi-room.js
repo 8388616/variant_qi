@@ -1,14 +1,14 @@
 window.RoomPlugins = window.RoomPlugins || {};
-window.RoomPlugins['conservatism-weiqi'] = {
+window.RoomPlugins['sharp-edge-evasion-weiqi'] = {
     shell: {
-        "title": "保守围棋",
+        "title": "避锋围棋",
         "rulesHtml": "基本规则同围棋，但每手棋不能下在前一手的相邻位置。：<br /><br /><strong>不邻前手</strong>：不能下在前一手的上下左右四格。<br /><br /><strong>不邻己方前手</strong>：不能下在己方前一手的上下左右四格。<br /><br /><strong>不近前手</strong>：不能下在前一手的上下左右及四个斜角。<br /><br /><strong>不近己方前手</strong>：不能下在己方前一手的上下左右及四个斜角。<br /><br />",
         "defaultKomiText": "黑贴白3.25点",
         "boardSizeMin": 7,
         "boardSizeMax": 21,
         "defaultBoardSize": 19,
         "minLib": 1,
-        "recordDownloadPrefix": "保守围棋",
+        "recordDownloadPrefix": "避锋围棋",
         "useBenson": true,
         "standardWeiqiMatchTime": true,
         "features": {
@@ -44,7 +44,7 @@ window.RoomPlugins['conservatism-weiqi'] = {
 
         (function () {
 // ======================== 配置 ========================
-        // 子棋类（顺序即下拉框顺序；与 games/conservatism-weiqi.js 的 SUB_GAMES 一致）
+        // 子棋类（顺序即下拉框顺序；与 games/sharp-edge-evasion-weiqi.js 的 SUB_GAMES 一致）
         const SUB_GAMES = ['no-adjacent-prev-weiqi', 'no-adjacent-own-prev-weiqi', 'no-near-prev-weiqi', 'no-near-own-prev-weiqi'];
         const DEFAULT_SUB_GAME = 'no-adjacent-prev-weiqi';
         let SUB = DEFAULT_SUB_GAME;
@@ -155,7 +155,7 @@ const scoreTitle = document.getElementById('scoreTitle');
         const R = () => QiWeiqiSquarePageRuntime;
 
         /* ==================== 禁点（与前一手 / 己方前一手 相邻或相近） ====================
-         * 判定口径与 games/conservatism-weiqi.js 的 isBannedPoint 逐字一致：
+         * 判定口径与 games/sharp-edge-evasion-weiqi.js 的 isBannedPoint 逐字一致：
          *   参考手 = 己方前一手（meta.own）/ 全局最后一手（只看它，不往前找）；参考的是那一手的落点；
          *   参考手是虚着 / 不存在 → 无禁点；near = 含四个斜角（八格），否则只算上下左右。
          */
@@ -263,7 +263,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                 if (r < 0 || r >= ps.BOARD_SIZE || c < 0 || c >= ps.BOARD_SIZE) return false;
                 if (ps.board[r][c] !== 0) return false;
                 return true;
-            });
+            }, { board: ps.board, stoneMarks: ps.userStoneMarks, live: QiSquareWeiqiCanvas.boardMarksLiveLatest(ps) });
             if (ps.showMoveNumbers) {
                 const nums = Array(ps.BOARD_SIZE).fill().map(() => Array(ps.BOARD_SIZE).fill(0));
                 if (ps.replayMode && ps.tryPlayMode) {
@@ -463,11 +463,7 @@ const scoreTitle = document.getElementById('scoreTitle');
         function updateSubGameSelectVisibility() {
             const sel = document.getElementById('subGameSelect');
             if (!sel) return;
-            const hasAnyStone = ps.board.some(row => row.some(v => v !== 0));
-            const hasPlayer = ps.slots.player1 || ps.slots.player2;
-            // 有子棋类：始终显示；开局（有子/有手数/有人入座/对局结束）后锁定不可改，新局时恢复可用
-            sel.style.display = 'inline-block';
-            sel.disabled = hasAnyStone || hasPlayer || ps.gameOver || (ps.moveCoords || []).length > 0;
+            window.QiRoomGameSwitcher.syncSettingsSelect(sel);
         }
 
         function refreshKomiInfo() {
@@ -539,7 +535,7 @@ syncState,
             if (msg && msg.type === 'subGameChanged') {
                 // 子棋类变更广播（带完整 state）：全量同步
                 syncState(msg);
-                // 切换子棋类后「与电脑对弈」可用性立即更新（服务端已按新子棋类重查 katagos/{子棋类id}/）
+                // 切换子棋类后「对电脑对战」可用性立即更新（服务端已按新子棋类重查 katagos/{子棋类id}/）
                 if (Object.prototype.hasOwnProperty.call(msg, 'katagoAvailable'))
                     ps.katagoAvailable = !!msg.katagoAvailable;
                 if (Object.prototype.hasOwnProperty.call(msg, 'computerSlot'))
@@ -731,7 +727,7 @@ syncState,
                 if (ps.tryPlayMode) exitTryPlay();
                 if (ps.replayMode) exitReplayMode();
                 if (ps.showEstimateActive) { ps.showEstimateActive = false; clearEstimate(); }
-                ps.userBoardMarks = Object.create(null);
+                ps.userBoardMarks = Object.create(null); ps.userStoneMarks = Object.create(null);
                 ps.tryPlayStartPlayer = null;
                 refreshKomiInfo();
                 ps.bannedPoints = computeBannedPoints();

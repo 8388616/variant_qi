@@ -136,6 +136,8 @@ const scoreTitle = document.getElementById('scoreTitle'), scoreBoard = document.
         function buildChoiceWeiqiReplaySnapshotsFromMoves(data) {
             const moves = data.moves || [];
             let brd = page.initBoardArray(ps.BOARD_SIZE);
+            if (Array.isArray(data.initialPosition))
+                QiWeiqiSquarePageRuntime.applyInitialPositionCompact(brd, ps.BOARD_SIZE, data.initialPosition);
             if (data.initialPosition) {
                 if (Array.isArray(data.initialPosition.black)) {
                     for (const pos of data.initialPosition.black) {
@@ -190,6 +192,11 @@ const scoreTitle = document.getElementById('scoreTitle'), scoreBoard = document.
                     lastMoveMarkers: lastMoveMarkers.map(x => ({ ...x }))
                 });
             }
+            // 落子后的帧同时显示下一手已有的候选点，分支圆环可包住候选小方块。
+            for (let i = 0; i + 1 < snapshots.length; i += 2)
+                snapshots[i].candidates = snapshots[i + 1].candidates.map(c => ({ ...c }));
+            if (data.recordState && Array.isArray(data.recordState.candidates))
+                snapshots[snapshots.length - 1].candidates = data.recordState.candidates.map(c => ({ ...c }));
             return snapshots;
         }
 
@@ -232,13 +239,15 @@ const scoreTitle = document.getElementById('scoreTitle'), scoreBoard = document.
             d.stonesBlackWhite(ctx, ps.board, ps.BOARD_SIZE, ps.PADDING, z, sr, ps.showMoveNumbers);
             if (!low) d.lastMoveMarkersUpper(ctx, ps.lastMoveMarkers, ps.PADDING, z, ml, ps.BOARD_SIZE);
             d.userBoardMarks(ctx, ps.userBoardMarks, ps.BOARD_SIZE, ps.PADDING, z, (r, c) =>
-                !ps.showEstimateActive && r >= 0 && r < ps.BOARD_SIZE && c >= 0 && c < ps.BOARD_SIZE && ps.board[r][c] === 0
-                && (ps.tryPlayMode || ps.gameOver || !ps.candidates.length || !ps.candidates.some(p => p.row === r && p.col === c)));
+                !ps.showEstimateActive && r >= 0 && r < ps.BOARD_SIZE && c >= 0 && c < ps.BOARD_SIZE
+                && !QiSquareWeiqiCanvas.isStoneCellValue(ps.board[r][c])
+                && (ps.tryPlayMode || ps.gameOver || !ps.candidates.length || !ps.candidates.some(p => p.row === r && p.col === c)),
+                { board: ps.board, stoneMarks: ps.userStoneMarks, live: QiSquareWeiqiCanvas.boardMarksLiveLatest(ps) });
             if (ps.showMoveNumbers) d.moveNumbersOnStones(ctx, numsChoice(), ps.board, ps.BOARD_SIZE, ps.PADDING, z);
             {
                 const liveTotalRp = ps.liveReplayBoards.length > 0 ? ps.liveReplayBoards.length - 1 : 0;
                 const browsingLive = !ps.replayMode && ps.liveReplayBoards.length > 0 && ps.liveViewStep < liveTotalRp;
-                const showCand = !ps.tryPlayMode && !ps.gameOver && !ps.showEstimateActive && ps.candidates.length > 0 && !browsingLive;
+                const showCand = !ps.tryPlayMode && (!ps.gameOver || ps.replayMode) && !ps.showEstimateActive && ps.candidates.length > 0 && !browsingLive;
                 if (showCand) {
                     ctx.globalAlpha = 0.7;
                     const playerColor = ps.currentPlayer === 1 ? '#222' : '#fff', sh = z * 0.18;
@@ -484,6 +493,7 @@ const scoreTitle = document.getElementById('scoreTitle'), scoreBoard = document.
 
         const _weiqiBindings = QiBoardRoomClient.createWeiqiMessageBindings({
             roomId, gameType, pageState: ps, drawBoard, exitTryPlay, enterTryPlay, setTryPlayStep, setReplayStep, setLiveViewStep,
+            recordReplayStride: 2,
             getWs: () => ps.ws, getBoardSize: () => ps.BOARD_SIZE, setBoardSize: (n) => { ps.BOARD_SIZE = n; },
             getKomi: () => ps.KOMI, setKomi: (n) => { ps.KOMI = n; if (komiInfo) QiWeiqiSquarePageRuntime.writeKomiInfoText(komiInfo, ps.KOMI, ps.BOARD_SIZE * ps.BOARD_SIZE); },
             getBoard: () => ps.board, setBoard: (b) => { ps.board = b; }, getSlots: () => ps.slots, setSlots: (s) => { ps.slots = s; },
@@ -633,7 +643,7 @@ const scoreTitle = document.getElementById('scoreTitle'), scoreBoard = document.
                 ps.waitingScoreConfirm = false;
             };
         }
-        // AI 生成选点：勾选/取消 → 服务端启用/停用（引擎与「与电脑对弈」同池，
+        // AI 生成选点：勾选/取消 → 服务端启用/停用（引擎与「对电脑对战」同池，
         // 繁忙时服务端返回 error，走通用错误提示）
         const aiCandidatesLabel = document.getElementById('aiCandidatesLabel');
         const aiCandidatesCheckbox = document.getElementById('aiCandidatesCheckbox');

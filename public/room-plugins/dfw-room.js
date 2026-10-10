@@ -743,7 +743,7 @@ window.RoomPlugins["dfw"] = {
             [
                 'newGameBtn', 'estimateBtn', 'tryPlayBtn', 'passBtn', 'undoBtn', 'resignBtn', 'drawBtn', 'endReqBtn',
                 'importBtn', 'exportBtn', 'vsComputerBtn', 'buryFinishBtn', 'scoreConfirmPanel',
-                'replayPanel', 'boardMarkOuter', 'editControls', 'boardSizeSelect', 'styleSelect', 'subGameSelect',
+                'replayPanel', 'boardMarkOuter', 'boardMarkExpandBtn', 'editControls', 'boardSizeSelect', 'styleSelect', 'subGameSelect',
                 'goTimerPanel', 'roomChat', 'replayMinesRow'
             ].forEach((id) => {
                 const el = document.getElementById(id);

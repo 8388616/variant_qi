@@ -14,6 +14,7 @@ window.RoomPlugins['capture-weiqi'] = {
         "features": {
             "handicap": true,
             "showEstimate": true,
+            "woodTexture": true,
             "zoomScroll": true,
             "editBoard": true,
             "compoundPalette": false

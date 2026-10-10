@@ -497,7 +497,8 @@ const BOARD_MARK_CHAR_LIST = (() => {
             if (!lowerLastMoveMarker) {
                 d.lastMoveMarkersUpper(ctx, ps.lastMoveMarkers, ps.PADDING, cellSize, markLenDefault, ps.BOARD_SIZE);
             }
-            d.userBoardMarks(ctx, ps.userBoardMarks, ps.BOARD_SIZE, ps.PADDING, cellSize, isUserBoardMarkVisibleAt);
+            d.userBoardMarks(ctx, ps.userBoardMarks, ps.BOARD_SIZE, ps.PADDING, cellSize, isUserBoardMarkVisibleAt,
+                { board: ps.board, stoneMarks: ps.userStoneMarks, live: QiSquareWeiqiCanvas.boardMarksLiveLatest(ps) });
             if (ps.showMoveNumbers) {
                 d.moveNumbersOnStones(ctx, breakageComputeStoneNumbers(), ps.board, ps.BOARD_SIZE, ps.PADDING, cellSize);
             }

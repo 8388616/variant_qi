@@ -347,7 +347,7 @@ const canvas = document.getElementById('goBoard');
                     ctx2d.shadowBlur = radius * 0.28;
                     ctx2d.shadowColor = 'rgba(0,0,0,0.35)';
                     ctx2d.beginPath();
-                    ctx2d.fillStyle = '#f4dcac';
+                    ctx2d.fillStyle = '#fbdea5';
                     ctx2d.arc(x, y, radius, 0, Math.PI * 2);
                     ctx2d.fill();
                     ctx2d.shadowBlur = 0; ctx2d.shadowOffsetY = 0;
@@ -782,6 +782,12 @@ const canvas = document.getElementById('goBoard');
             roomId,
             gameType,
             pageState: ps,
+            recordMoveKind: 'travel',
+            recordPointToCanvas: (row, col) => {
+                const p = toDisplayCoord(row, col);
+                const xy = { x: offsetX + p.col * cellSize, y: offsetY + p.row * cellSize };
+                return { ...xy, cell: cellSize, size: canvas.width };
+            },
             // 试下虚着：快照型棋种要由棋种自己给出「另一方」的取值，才能生成跳过一手的快照
             tryPlayOppositeSide: (side) => R.oppositeSide(side),
             drawBoard,

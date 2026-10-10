@@ -829,9 +829,8 @@ class ContinuousWeiqiRoom extends QiTwoPlayerRoomBase {
             requesterWs.send(JSON.stringify({ type: 'error', message: '棋盘边长须在 4～40 之间' }));
             return false;
         }
-        const hasStone = this.board.pieces.length > 0 || this.openingStones.length > 0;
-        const hasPlayer = this.room.getPlayerBySlot('player1') || this.room.getPlayerBySlot('player2');
-        if (hasStone || hasPlayer || this.moveHistory.length > 0) return false;
+        if (!qiProtocol.canChangeRoomSettings(this)) return false;
+        qiProtocol.prepareRoomSettingsChange(this);
         this.boardLength = newLen;
         this.board = new ContinuousBoard(this.boardLength);
         this.broadcast({ type: 'boardLengthChanged', ...this.getInitialState() });
@@ -1036,7 +1035,7 @@ class ContinuousWeiqiRoom extends QiTwoPlayerRoomBase {
             }
 
             case 'setBoardLength': {
-                if (slot) return;
+                if (!qiProtocol.canChangeRoomSettings(this)) return;
                 const n = parseFloat(msg.boardLength ?? msg.size);
                 if (!this.setBoardLength(n, ws)) {
                     ws.send(JSON.stringify({ type: 'error', message: '无法更改棋盘（已有棋子或玩家入座）' }));

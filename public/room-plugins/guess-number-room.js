@@ -354,8 +354,7 @@ input.gn-cell { padding:0; line-height:42px; display:block; }
                 const sizeSel = document.getElementById('boardSizeSelect');
                 if (sizeSel) {
                     const canPick = st.phase === 'filling' && !!S.slot && !st.confirmed[S.slot];
-                    sizeSel.style.display = (st.phase === 'filling' && !!S.slot) ? 'inline-block' : 'none';
-                    sizeSel.disabled = !canPick;
+                    window.QiRoomGameSwitcher.syncSettingsSelect(sizeSel);
                     if (String(sizeSel.value) !== String(n)) sizeSel.value = String(n);
                 }
 

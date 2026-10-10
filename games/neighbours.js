@@ -247,8 +247,8 @@ class NeighboursRoom extends QiTwoPlayerRoomBase {
             if (requesterWs) requesterWs.send(JSON.stringify({ type: 'error', message: `棋盘大小无效（需为 ${SIZE_MIN}-${SIZE_MAX}）。` }));
             return false;
         }
-        if (this.room.getPlayerBySlot('player2') || this.room.getPlayerBySlot('player1')) return false;
-        if (this.moveHistory.length > 0 || this.gameOver) return false;
+        if (!qiProtocol.canChangeRoomSettings(this)) return false;
+        qiProtocol.prepareRoomSettingsChange(this);
         this.boardSize = n;
         this.resetToInitial();
         this.broadcast({ type: 'boardSizeChanged', ...this.getState() });

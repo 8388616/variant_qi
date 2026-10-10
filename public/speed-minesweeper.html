@@ -318,6 +318,7 @@
     <div class="game-wrapper">
         <div class="top-panel">
             <div class="left-group">
+                <button type="button" class="komi-info game-switch-trigger" id="gameTitleInfo" aria-expanded="false" aria-controls="roomGameMenu" aria-haspopup="dialog" title="切换棋类">竞速扫雷</button>
                 <div class="sms-player-id-box" id="playerIdBox" hidden>ID：<span id="playerIdText"></span></div>
                 <div class="color-status" id="roundInfo">等待开始</div>
             </div>
@@ -386,6 +387,8 @@
         </div>
     </div>
 
+    <script src="/qi/game-catalog.js"></script>
+    <script src="/qi/room-game-switcher.js"></script>
     <script src="/qi/qi.js"></script>
     <script>
     (function () {

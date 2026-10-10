@@ -378,7 +378,7 @@
     <div class="game-wrapper">
         <div class="top-panel">
             <div class="left-group">
-                <div class="komi-info" id="gameTitleInfo">超级24点</div>
+                <button type="button" class="komi-info game-switch-trigger" id="gameTitleInfo" aria-expanded="false" aria-controls="roomGameMenu" aria-haspopup="dialog" title="切换棋类">超级24点</button>
                 <select id="subGameSelect" class="board-size-select" style="display:none;" title="子游戏"></select>
                 <div class="s24-player-id-box" id="playerIdBox" hidden>
                     ID：<span id="playerIdText"></span>
@@ -436,6 +436,8 @@
         </div>
     </div>
 
+    <script src="/qi/game-catalog.js"></script>
+    <script src="/qi/room-game-switcher.js"></script>
     <script src="/qi/qi.js"></script>
     <script>
     (function () {
@@ -881,7 +883,7 @@
             const isPlayer = !!ps.myPlayerId;
             const inActiveGame = ps.gameStarted && !ps.finished;
             const inPreGameLobby = !ps.gameStarted && !ps.finished;
-            if (subGameSelectEl) subGameSelectEl.hidden = !(isHost && !inActiveGame);
+            if (subGameSelectEl) window.QiRoomGameSwitcher.syncSettingsSelect(subGameSelectEl);
             const showRestart = ps.finished && isHost;
             const showJoinAfterFinish = ps.finished && !isPlayer;
 
@@ -1179,12 +1181,12 @@
                 opt.textContent = g.label;
                 subGameSelectEl.appendChild(opt);
             }
-            subGameSelectEl.style.display = '';
+            window.QiRoomGameSwitcher.syncSettingsSelect(subGameSelectEl);
             subGameSelectEl.addEventListener('change', () => {
                 const v = subGameSelectEl.value;
                 if (!v || v === currentSubGame) return;
-                if (ps.gameStarted && !ps.finished) {
-                    subGameSelectEl.value = currentSubGame; // 对局中禁止切换
+                if (!window.QiRoomGameSwitcher.canChangeSettings()) {
+                    subGameSelectEl.value = currentSubGame;
                     return;
                 }
                 syncSubGameUi(v);

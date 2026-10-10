@@ -382,10 +382,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             const hasAnyStone = ps.board.some(row => row.some(v => v !== 0));
             const hasPlayer = ps.slots.player1 || ps.slots.player2;
             const sizeSelect = document.getElementById('boardSizeSelect');
-            if (!hasAnyStone && !hasPlayer && !ps.gameOver && ps.mySlot === null)
-                sizeSelect.style.display = 'inline-block';
-            else
-                sizeSelect.style.display = 'none';
+            window.QiRoomGameSwitcher.syncSettingsSelect(sizeSelect);
 
             if (ps.showEstimateActive) {
                 ps.cachedLiveBoard = page.removeDeadAndDying(ps.board);

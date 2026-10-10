@@ -205,7 +205,8 @@ let board = initBoardArray(ROWS);
         let liveViewStep = 0;
         let liveFollowLatest = true;
         let userBoardMarks = Object.create(null);
-        if (typeof QiWeiqiSquarePageRuntime !== 'undefined' && QiWeiqiSquarePageRuntime.bindActiveUserBoardMarks) QiWeiqiSquarePageRuntime.bindActiveUserBoardMarks(userBoardMarks);
+        let userStoneMarks = Object.create(null);   // 子层：棋子上的标记
+        if (typeof QiWeiqiSquarePageRuntime !== 'undefined' && QiWeiqiSquarePageRuntime.bindActiveUserBoardMarks) QiWeiqiSquarePageRuntime.bindActiveUserBoardMarks(userBoardMarks, userStoneMarks);
         let hoverR = -1, hoverC = -1, isHoverValid = false;
 
         const canvas = document.getElementById('goBoard');
@@ -374,18 +375,25 @@ const scoreTitle = document.getElementById('scoreTitle');
 
             for (const key of Object.keys(userBoardMarks)) {
                 const [r, c] = key.split(',').map(Number);
-                if (!isValidCoord(r, c) || board[r][c] !== 0) continue;
+                if (!isValidCoord(r, c)) continue;
+                if (QiSquareWeiqiCanvas.isStoneCellValue(board[r][c])) continue;   // 被棋子盖住：保留不画
                 const ch = userBoardMarks[key];
                 const p = triCoordToPixel(r, c);
-                const markBgR = DX * 0.3;
-                ctx.beginPath();
-                ctx.arc(p.x, p.y, markBgR, 0, 2 * Math.PI);
-                ctx.fillStyle = '#fdcc90';
-                ctx.fill();
+                QiSquareWeiqiCanvas.draw.boardMarkGap(ctx, p.x, p.y, DX);   // 留白：擦出圆洞/重铺木纹（替代实心圆底）
                 const fontPx = DX * (ch === '🚩' ? 0.47 : 0.52);
                 ctx.font = `bold ${fontPx}px "Segoe UI", "Apple Color Emoji", "Segoe UI Emoji", sans-serif`;
                 ctx.fillStyle = '#3a281c';
                 ctx.fillText(ch, p.x, p.y + 1);
+            }
+            if (userStoneMarks && !replayMode && !tryPlayMode) {
+                for (const key of Object.keys(userStoneMarks)) {
+                    const [r, c] = key.split(',').map(Number);
+                    if (!isValidCoord(r, c)) continue;
+                    const v = board[r][c];
+                    if (!QiSquareWeiqiCanvas.isStoneCellValue(v)) continue;
+                    const p = triCoordToPixel(r, c);
+                    QiSquareWeiqiCanvas.draw.boardMarkGlyph(ctx, p.x, p.y, DX, userStoneMarks[key], v === 2 ? 'dark' : 'light');
+                }
             }
 
             const editCb = document.getElementById('editModeCheckbox');
@@ -811,7 +819,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             const hasAnyStone = board.some(row => row.some(v => v !== 0));
             const hasPlayer = slots.player1 || slots.player2;
             const sizeSelect = document.getElementById('boardSizeSelect');
-            sizeSelect.style.display = (!hasAnyStone && !hasPlayer && !gameOver && mySlot === null) ? 'inline-block' : 'none';
+            window.QiRoomGameSwitcher.syncSettingsSelect(sizeSelect);
             updateTurn();
             updateReplayUI();
         }
@@ -844,6 +852,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             setReplayStep,
             setLiveViewStep,
             getWs: () => ws,
+            recordPointToCanvas: (row, col) => ({ ...triCoordToPixel(row, col), cell: DX, size: 600 }),
             getBoardSize: () => ROWS,
             setBoardSize: (n) => { ROWS = n; },
             getKomi: () => 0,
@@ -871,6 +880,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             downloadRecord: (data) => QiSquareWeiqiCanvas.downloadWeiqiJsonRecord(data, recordDownloadPrefix),
             enterReplayMode,
             updateTurn,
+            updateReplayUI,   // 传给公共 bindings：座位/限时变化时回调它同步按钮显隐
             showScoreConfirm: () => {},
             standardWeiqiMatchTime,
             boardSeatOverlay: true,
@@ -885,17 +895,13 @@ const scoreTitle = document.getElementById('scoreTitle');
             return { x: (clientX - rect.left) * scale, y: (clientY - rect.top) * scale };
         }
         function applyUserBoardMark(row, col) {
-            if (!isValidCoord(row, col) || board[row][col] !== 0) return;
+            if (!isValidCoord(row, col)) return;
+            const layer = QiSquareWeiqiCanvas.boardMarkCellKind(board[row][col]) === 'stone' ? 'stone' : 'point';
             const v = boardMarkSelect ? boardMarkSelect.value : '?';
+            const clear = v === '';
             const key = `${row},${col}`;
-            if (v === '') {
-                delete userBoardMarks[key];
-            } else if (userBoardMarks[key] === v) {
-                delete userBoardMarks[key];
-            } else {
-                userBoardMarks[key] = v;
-            }
-            drawBoard();
+            if (QiSquareWeiqiCanvas.toggleUserBoardMark(userBoardMarks, userStoneMarks, key, layer, clear ? '' : v, clear, false))
+                drawBoard();
         }
 
         let suppressCanvasClickAfterLongMark = false;

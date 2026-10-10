@@ -569,30 +569,27 @@ class ShortLibertyWeiqiRoom extends QiTwoPlayerRoomBase
             requesterWs.send(JSON.stringify({ type: 'error', message: '棋盘大小无效' }));
             return false;
         }
-        const hasAnyStone = this.board.some(row => row.some(v => v !== 0));
-        const hasPlayer = this.room.getPlayerBySlot('player1') || this.room.getPlayerBySlot('player2');
-        if (hasAnyStone || hasPlayer) {
+        if (!qiProtocol.canChangeRoomSettings(this)) {
 
             return false;
         }
+        qiProtocol.prepareRoomSettingsChange(this);
         this.boardSize = newSize;
         this.resetGame();
         this.broadcast({ type: 'boardSizeChanged', boardSize: this.boardSize });
         return true;
     }
 
-    /** 切换子棋类（二气/三气/四气）：开局前可改，开局后静默忽略（与 setBoardSize 一致） */
+    /** 切换子棋类（二气/三气/四气）：少于两人落座时可改，切换后重新开局。 */
     setLiberty(liberty, requesterWs) {
         if (liberty !== 'bi' && liberty !== 'tri' && liberty !== 'quad') {
             requesterWs.send(JSON.stringify({ type: 'error', message: '子棋类无效' }));
             return false;
         }
-        const hasAnyStone = this.board.some(row => row.some(v => v !== 0));
-        const hasPlayer = this.room.getPlayerBySlot('player1') || this.room.getPlayerBySlot('player2');
-        if (hasAnyStone || hasPlayer) {
-            // 开局后静默忽略（客户端此时已隐藏选择器）
+        if (!qiProtocol.canChangeRoomSettings(this)) {
             return false;
         }
+        qiProtocol.prepareRoomSettingsChange(this);
         this.liberty = liberty;
         this.subGameId = SHORT_LIBERTY_SUB_GAME_ID[liberty] || 'biliberty-weiqi';
         this.minLib = SHORT_LIBERTY_MIN_LIB[liberty] || 2;

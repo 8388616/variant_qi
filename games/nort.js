@@ -11,7 +11,7 @@ const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, applyInitialPositio
  *   - 不吃子、不判自杀、**不允许虚着**；
  *   - **谁先不能下谁输**（轮到的这一方无子可下即判负，与标准 Snort 的 normal play 一致）；
  *   - 棋盘 5~21 路、默认 9 路；其余同不围棋（认输/求和/悔棋/限时/编辑棋盘/试下/打谱/棋谱导入导出）；
- *   - 子棋类**开局前**可改（`setSubGame`：有子或有人入座即静默拒绝），进房默认 snort。
+ *   - 子棋类在少于两人落座时可改，切换后重新开局，进房默认 snort。
  *
  * 判定口径（客户端插件里有一份必须逐字一致的实现，见 public/room-plugins/nort-room.js）：
  *   isLegalPoint = 空点 && 邻里的敌子枚数**不落在**本子棋类的禁入区间 [forbidLo, forbidHi] 内。
@@ -210,15 +210,14 @@ class NortRoom extends QiTwoPlayerRoomBase
         return !(foe >= meta.forbidLo && foe <= meta.forbidHi);
     }
 
-    /** 切换子棋类（小/大放牛棋）：开局前可改，有子或有人入座时静默拒绝（与 setBoardSize 同口径） */
+    /** 切换子棋类（小/大放牛棋）：少于两人落座时可改，切换后重新开局。 */
     setSubGame(subGameId, requesterWs) {
         if (!SUB_GAMES.includes(subGameId)) {
             requesterWs.send(JSON.stringify({ type: 'error', message: '子棋类无效' }));
             return false;
         }
-        const hasAnyStone = this.board.some(row => row.some(v => v !== 0));
-        const hasPlayer = this.room.getPlayerBySlot('player1') || this.room.getPlayerBySlot('player2');
-        if (hasAnyStone || hasPlayer) return false;
+        if (!qiProtocol.canChangeRoomSettings(this)) return false;
+        qiProtocol.prepareRoomSettingsChange(this);
         this.subGameId = subGameId;
         this.broadcast({ type: 'subGameChanged', subGameId, ...this.getState() });
         return true;
@@ -300,7 +299,7 @@ class NortRoom extends QiTwoPlayerRoomBase
                 break;
 
             case 'setBoardSize':
-                if (!slot && !this.room.players.size)
+                if (qiProtocol.canChangeRoomSettings(this))
                     this.setBoardSize(msg.size, ws);
                 break;
 
@@ -497,12 +496,11 @@ class NortRoom extends QiTwoPlayerRoomBase
             requesterWs.send(JSON.stringify({ type: 'error', message: '棋盘大小无效（5-21）' }));
             return false;
         }
-        const hasAnyStone = this.board.some(row => row.some(v => v !== 0));
-        const hasPlayer = this.room.getPlayerBySlot('player1') || this.room.getPlayerBySlot('player2');
-        if (hasAnyStone || hasPlayer) {
+        if (!qiProtocol.canChangeRoomSettings(this)) {
 
             return false;
         }
+        qiProtocol.prepareRoomSettingsChange(this);
         this.boardSize = newSize;
         this.resetGame();
         this.broadcast({ type: 'boardSizeChanged', boardSize: this.boardSize });

@@ -8,6 +8,10 @@ const zlib = require('zlib');
 const ws = require('ws');
 const { isKatagoAvailable } = require('./katago-gtp');
 const { attachToRoom: attachKatagoOpponent } = require('./qi-katago-opponent');
+const { disposeRoom: disposeKatagoOpponent } = require('./qi-katago-opponent');
+const gameCatalog = require('./public/game-catalog');
+const localPlay = require('./qi-local-play');
+const recordTree = require('./qi-record-tree');
 
 const Express = express();
 Express.set("trust proxy", "127.0.0.1");
@@ -110,6 +114,10 @@ function detachClientFromRoom(ws) {
     ws._qiDetached = true;
     const room = ws.room;
     if (!room) return;
+    if (ws._qiLocalPlay) {
+        ws._qiLocalPlay.disconnect(ws);
+        return;
+    }
     try {
         if (room.gameLogic && typeof room.gameLogic.onPlayerLeave === 'function') {
             room.gameLogic.onPlayerLeave(ws);
@@ -119,6 +127,7 @@ function detachClientFromRoom(ws) {
     }
     try {
         room.removeClient(ws);
+        room.syncSoloSeatState();
     } catch (error) {
         console.error(error);
     }
@@ -222,6 +231,8 @@ class BaseGameRoom
     purgeDeadClients() {
         const WS_OPEN = 1;
         const dead = new Set();
+        if (this.localPlay && this.localPlay.client && this.localPlay.client.readyState !== WS_OPEN)
+            dead.add(this.localPlay.client);
         for (const client of this.players.keys()) {
             if (!client || client.readyState !== WS_OPEN) dead.add(client);
         }
@@ -241,15 +252,42 @@ class BaseGameRoom
     }
 
     getSlotByWs(ws) {
+        if (ws && this.localPlay && this.localPlay.client === ws) return this.localPlay.turnSlot();
         return this.players.get(ws);
     }
 
     getPlayerCount() {
         this.purgeDeadClients();
-        return this.players.size;
+        return this.getHumanCount();
+    }
+
+    getHumanCount() {
+        if (this.localPlay) return this.localPlay.client && this.localPlay.client.readyState === 1 ? 1 : 0;
+        return [...this.players.keys()].filter((client) => client && client.readyState === 1 && !client.localPlay).length;
+    }
+
+    getSoloMode() {
+        return this.localPlay ? 'local' : this.gameLogic && this.gameLogic.computerSlot ? 'computer' : null;
+    }
+
+    getSeatCapacity() {
+        return this.getSoloMode() ? 1 : this.maxPlayers;
+    }
+
+    soloSeatState() {
+        return { soloMode: this.getSoloMode(), soloOccupied: this.getHumanCount() > 0, seatCapacity: this.getSeatCapacity() };
+    }
+
+    syncSoloSeatState() {
+        const state = this.soloSeatState();
+        const signature = JSON.stringify(state);
+        if (signature === this._lastSoloSeatState) return;
+        this._lastSoloSeatState = signature;
+        this.broadcast({ type: 'soloSeatState', ...state });
     }
 
     broadcast(data, exclude = null) {
+        if (this.retired) return;
         const allClients = [...this.players.keys(), ...this.observers];
         for (const client of allClients) {
             if (client !== exclude && client.readyState === ws.OPEN) {
@@ -265,10 +303,30 @@ class BaseGameRoom
         }
     }
 
+    getSeatedCount() {
+        if (this.getSoloMode()) return this.getHumanCount();
+        const logic = this.gameLogic;
+        // DFW 的座位由棋种自己管理，其连接都登记为 observer。
+        if (logic && Array.isArray(logic.seats)) return logic.seats.filter(Boolean).length;
+        return this.getHumanCount();
+    }
+
+    switchState() {
+        return { type: 'roomSwitchState', canSwitch: this.getSeatedCount() < 2 };
+    }
+
+    syncSwitchState() {
+        const state = this.switchState();
+        if (state.canSwitch === this._lastCanSwitch) return;
+        this._lastCanSwitch = state.canSwitch;
+        this.broadcast(state);
+        this.syncSoloSeatState();
+    }
+
     scheduleDestruction() {
         this.clearDestroyTimer();
-
-        if (this.players.size === 0 && this.observers.size === 0) {
+        const empty = () => this.observers.size === 0 && this.getHumanCount() === 0;
+        if (empty()) {
             let delay = 86400000; // 默认24小时
             try {
                 let moveCount = 999;
@@ -280,7 +338,8 @@ class BaseGameRoom
             catch (error) { }
 
             this.destroyTimer = setTimeout(() => {
-                if (this.players.size === 0 && this.observers.size === 0) {
+                if (empty()) {
+                    disposeRoom(this);
                     delete rooms[this.gameType][this.roomId];
                     console.log(`房间 ${this.roomId} (${this.gameType}) 已销毁`);
                 }
@@ -303,6 +362,88 @@ function findGameIdByRoomId(roomId) {
         if (rooms[game] && rooms[game][roomId]) return game;
     }
     return null;
+}
+
+function initGameLogic(room) {
+    const gameModulePath = findGameModulePath(room.gameType);
+    if (!gameModulePath) throw new Error('游戏模块不存在');
+    const gamesDir = path.dirname(gameModulePath) + path.sep;
+    for (const key of Object.keys(require.cache)) {
+        if (key.startsWith(gamesDir)) delete require.cache[key];
+    }
+    require(gameModulePath).initRoom(room);
+    try { attachKatagoOpponent(room); } catch (e) { console.error('挂载 KataGo 人机失败', e); }
+    localPlay.install(room);
+    installRecordTree(room);
+}
+
+function installRecordTree(room) {
+    recordTree.install(room, (source) => {
+        const scratch = new BaseGameRoom('', source.gameType, false, null);
+        require(findGameModulePath(source.gameType)).initRoom(scratch);
+        return scratch;
+    }, disposeRoom);
+}
+
+function disposeRoom(room) {
+    if (room.localPlay) room.localPlay.stop();
+    room.clearDestroyTimer();
+    try { disposeKatagoOpponent(room); } catch (e) { console.error(e); }
+    const logic = room.gameLogic;
+    if (!logic) return;
+    for (const method of ['dispose', '_releaseAiEngine']) {
+        if (typeof logic[method] === 'function') {
+            try { logic[method](); } catch (e) { console.error(e); }
+        }
+    }
+    for (const name of ['_clockInterval', '_timer', 'countdownTimer', 'aiTimer']) {
+        if (logic[name]) {
+            clearTimeout(logic[name]);
+            clearInterval(logic[name]);
+            logic[name] = null;
+        }
+    }
+}
+
+function switchRoomGame(room, client, game) {
+    const reject = (message) => client.send(JSON.stringify({ type: 'switchGameError', message }));
+    if (!room.players.has(client) && !room.observers.has(client)
+        && !(room.localPlay && client._qiLocalPlay === room.localPlay)) return reject('请先加入房间。');
+    room.purgeDeadClients();
+    if (room.getSeatedCount() >= 2) return reject('已有多人落座，不能切换棋类。');
+    if (typeof game !== 'string' || !gameCatalog.games.some((g) => g.id === game && g.enabled)) {
+        return reject('该棋类未开放。');
+    }
+    if (game === room.gameType) return reject('已经是该棋类。');
+    // 先初始化新逻辑，失败时保留原房间及棋盘。
+    const next = new BaseGameRoom(room.roomId, game, room.hasPassword, room.passwordHash);
+    try { initGameLogic(next); }
+    catch (e) {
+        disposeRoom(next);
+        console.error('切换棋类失败', e);
+        return reject('棋类加载失败，请稍后重试。');
+    }
+    next.chatLog = room.chatLog;
+    next.chatJoinCounter = room.chatJoinCounter;
+    next.chatSeatCounter = room.chatSeatCounter;
+    if (!rooms[game]) rooms[game] = {};
+    rooms[game][room.roomId] = next;
+    delete rooms[room.gameType][room.roomId];
+    room.retired = true;
+    disposeRoom(room);
+    // 包括已建立连接但 join 尚未到达的页面，防止其继续使用旧棋类。
+    for (const wsClient of wss.clients) {
+        if (wsClient.room !== room) continue;
+        wsClient._qiDetached = true;
+        if (wsClient.readyState === ws.OPEN) {
+            wsClient.send(JSON.stringify({ type: 'roomGameChanged', gameType: game }));
+            wsClient.close(1000, '棋类已切换');
+        }
+    }
+    room.players.clear();
+    room.observers.clear();
+    room.slotOccupancy.clear();
+    next.scheduleDestruction();
 }
 
 Express.post('/qi/create', (request, response) => {
@@ -349,6 +490,8 @@ Express.post('/qi/create', (request, response) => {
             gameModule.initRoom(room);
             // 公共人机：有 katagos/{gameId}/{katago,model.bin.gz,gtp.cfg} 则挂载
             try { attachKatagoOpponent(room); } catch (e) { console.error('挂载 KataGo 人机失败', e); }
+            localPlay.install(room);
+            installRecordTree(room);
         }
         catch (error) {
             console.error(`加载游戏模块 ${game} 失败:`, error);
@@ -392,7 +535,7 @@ Express.get('/qi/rooms', (request, response) => {
             roomId: room.roomId,
             hasPassword: room.hasPassword,
             playerCount: room.getPlayerCount(),
-            maxPlayers: room.maxPlayers
+            maxPlayers: room.getSeatCapacity()
         }));
         response.json(list);
     }
@@ -525,6 +668,45 @@ Express.get('/qi/katago-available', (request, response) => {
 Express.get("/qi", (request, response) => sendPublicFile(response, "qi.html"));
 Express.get("/qi/qi.css", (request, response) => sendPublicFile(response, "qi.css"));
 Express.get("/qi/qi.js", (request, response) => sendPublicFile(response, "qi.js"));
+Express.get('/qi/game-catalog.js', (request, response) => sendPublicFile(response, 'game-catalog.js'));
+Express.get('/qi/tsumego', (request, response) => sendPublicFile(response, 'tsumego-host.html'));
+Express.get('/qi/tsumego-host.js', (request, response) => sendPublicFile(response, 'tsumego-host.js'));
+Express.get('/qi/tsumego-host.css', (request, response) => sendPublicFile(response, 'tsumego-host.css'));
+Express.get('/qi/tsumego-view', (request, response) => {
+    const games = gameCatalog.games.filter((g) => g.enabled && g.category !== '其它').map((g) => g.id);
+    const game = games.includes(request.query.game) ? request.query.game : 'weiqi';
+    const injection = '<script>window.__qiTsumego=true;window.__qiTsumegoGameIds=' + JSON.stringify(games) + ';window.__qiRoomRoute=' + JSON.stringify({ gameType: game, roomId: '' }) +
+        ';</script><link rel="stylesheet" href="/qi/tsumego.css"><script src="/qi/tsumego-rules/' + game +
+        '.js"></script><script src="/qi/tsumego.js"></script>';
+    return sendPublicHtmlInjected(response, 'room.html', injection);
+});
+Express.get('/qi/tsumego-files', (request, response) => {
+    const dir = resolveUnderPublic('tsumego');
+    const files = dir ? fs.readdirSync(dir, { withFileTypes: true }).filter((f) => f.isFile() && /\.json$/i.test(f.name))
+        .map((f) => f.name).sort((a, b) => a.localeCompare(b, 'zh-Hans', { numeric: true })) : [];
+    response.setHeader('Cache-Control', 'no-cache');
+    response.json(files);
+});
+Express.get('/qi/tsumego/:file', (request, response) => {
+    const name = request.params.file;
+    if (!/^[^/\\]+\.json$/i.test(name)) return response.status(404).send('Not found');
+    return sendPublicFile(response, 'tsumego/' + name);
+});
+Express.get('/qi/tsumego-rules/:file', (request, response) => {
+    const game = request.params.file.replace(/\.js$/, '');
+    try {
+        const script = require('./qi-tsumego-bundle').bundle(game);
+        response.setHeader('Cache-Control', 'no-cache');
+        response.setHeader('Content-Type', 'application/javascript; charset=utf-8');
+        response.setHeader('Content-Encoding', 'gzip');
+        response.send(zlib.gzipSync(script));
+    } catch (_) { response.status(404).send('Not found'); }
+});
+Express.get('/qi/tsumego.js', (request, response) => sendPublicFile(response, 'tsumego.js'));
+Express.get('/qi/tsumego.css', (request, response) => sendPublicFile(response, 'tsumego.css'));
+Express.get('/qi/room-game-switcher.js', (request, response) => sendPublicFile(response, 'room-game-switcher.js'));
+Express.get('/qi/record-tree.js', (request, response) => sendPublicFile(response, 'record-tree.js'));
+Express.get('/qi/room-record-tree.js', (request, response) => sendPublicFile(response, 'room-record-tree.js'));
 
 Express.get("/qi/room.css", (request, response) =>
     sendCachedPublic(response, path.join(PUBLIC_ROOT, "room.css")));
@@ -614,6 +796,8 @@ wss.on('connection', (ws, req) => {
     }
     const room = rooms[game]?.[roomId];
     if (!room) {
+        const currentGame = findGameIdByRoomId(roomId);
+        if (currentGame) ws.send(JSON.stringify({ type: 'roomGameChanged', gameType: currentGame }));
         ws.close(1008, '房间不存在');
         return;
     }
@@ -624,12 +808,70 @@ wss.on('connection', (ws, req) => {
     ws.on('error', () => {});
 
     ws.on('message', async (data) => {
+        if (room.retired || ws._qiDetached) return;
         let msg;
         try {
             msg = JSON.parse(data);
         }
         catch (e) {
             return;
+        }
+
+        if (msg.type === 'switchGame') {
+            switchRoomGame(room, ws, msg.game);
+            return;
+        }
+        if (msg.type === 'startLocalGame') {
+            localPlay.start(room, ws);
+            return;
+        }
+        if (msg.type === 'continueSoloGame') {
+            localPlay.resume(room, ws);
+            return;
+        }
+        if (room.getSoloMode() && ['takeSeat', 'selectColor'].includes(msg.type)) return;
+        if (room.getSoloMode() && msg.type === 'requestNewGame') {
+            if (!room.observers.has(ws) && !room.getSlotByWs(ws)) return;
+            room.purgeDeadClients();
+            if (!room.getSlotByWs(ws) && room.getHumanCount()) return;
+            const reset = room.gameLogic.resetGame || room.gameLogic.resetToEmpty;
+            if (typeof reset !== 'function') return;
+            reset.call(room.gameLogic);
+            if (!room.gameLogic.resetGame) room.broadcast({ type: 'roomReset', ...room.gameLogic.getState() });
+            room.syncSwitchState();
+            room.syncSoloSeatState();
+            return;
+        }
+        if (room.getSoloMode() && msg.type === 'leaveSeat' && room.getSlotByWs(ws)) {
+            if (room.localPlay) room.localPlay.disconnect(ws);
+            else {
+                if (room.gameLogic.onPlayerLeave) room.gameLogic.onPlayerLeave(ws);
+                room.removeClient(ws);
+            }
+            room.addObserver(ws);
+            ws.send(JSON.stringify({ type: 'seatLeft', ...room.gameLogic.getState(), localPlay: false }));
+            room.syncSoloSeatState();
+            room.syncSwitchState();
+            return;
+        }
+        if (['selectRecordVariation', 'beginRecordVariations', 'addRecordVariation', 'deleteRecordVariation', 'setMainRecordVariation', 'setSideRecordVariation'].includes(msg.type)) {
+            const handlers = { selectRecordVariation: 'selectRecordVariation',
+                beginRecordVariations: 'beginRecordVariations', addRecordVariation: 'addRecordVariation',
+                deleteRecordVariation: 'deleteRecordVariation', setMainRecordVariation: 'setMainRecordVariation', setSideRecordVariation: 'setSideRecordVariation' };
+            if ((room.players.has(ws) || room.observers.has(ws)
+                || room.localPlay && ws._qiLocalPlay === room.localPlay) && room[handlers[msg.type]])
+                await room[handlers[msg.type]](ws, msg);
+            return;
+        }
+        if (['setBoardSize', 'setSubGame', 'setLiberty', 'setMagnetism', 'setShape', 'setBoardLength', 'setRoadCount'].includes(msg.type)) {
+            if (!room.players.has(ws) && !room.observers.has(ws)
+                && !(room.localPlay && ws._qiLocalPlay === room.localPlay)) return;
+            room.purgeDeadClients();
+            if (room.getSeatedCount() >= 2) {
+                ws.send(JSON.stringify({ type: 'error', message: '已有多人落座，不能切换子棋类或棋盘大小。' }));
+                ws.send(JSON.stringify(room.switchState()));
+                return;
+            }
         }
 
         if (msg.type === 'join') {
@@ -644,7 +886,7 @@ wss.on('connection', (ws, req) => {
             }
             room.registerChatJoin(ws);
             let slot = null;
-            if (room.gameLogic && room.gameLogic.assignSlot)
+            if (!room.getSoloMode() && room.gameLogic && room.gameLogic.assignSlot)
                 slot = room.gameLogic.assignSlot(ws, msg.requestedSlot);
             if (slot) {
                 room.setPlayerSlot(ws, slot);
@@ -671,7 +913,9 @@ wss.on('connection', (ws, req) => {
             }
             // 房间有人了，取消销毁定时器
             room.clearDestroyTimer();
+            ws.send(JSON.stringify(room.switchState()));
 
+            if (room.sendRecordTree) room.sendRecordTree(ws);
             const playerList = Array.from(room.players.entries()).map(([_, slot]) => slot);
             room.broadcast({ type: 'playerList', players: playerList }, ws);
             if (Array.isArray(room.chatLog) && room.chatLog.length) {
@@ -720,14 +964,19 @@ wss.on('connection', (ws, req) => {
             room.broadcast({ type: 'chat', ...entry });
         }
         else {
-            if (room.gameLogic && room.gameLogic.handleMessage)
+            if (ws._qiLocalPlay && ws._qiLocalPlay === room.localPlay)
+                ws._qiLocalPlay.handleMessage(msg);
+            else if (room.gameLogic && room.gameLogic.handleMessage)
                 room.gameLogic.handleMessage(ws, msg);
         }
+        room.syncSwitchState();
+        room.syncSoloSeatState();
     });
 
     ws.on('close', () => {
         try {
             detachClientFromRoom(ws);
+            room.syncSwitchState();
         }
         catch (error) {
             console.error(error);

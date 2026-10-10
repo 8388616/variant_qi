@@ -403,7 +403,8 @@ const scoreTitle = document.getElementById('scoreTitle');
                     if (ps.board[r][c] !== 0) return false;
                     return true;
                 }
-                d.userBoardMarks(ctx, ps.userBoardMarks, ps.BOARD_SIZE, ps.PADDING, cellSize, isUserBoardMarkVisibleAt);
+                d.userBoardMarks(ctx, ps.userBoardMarks, ps.BOARD_SIZE, ps.PADDING, cellSize, isUserBoardMarkVisibleAt,
+                    { board: ps.board, stoneMarks: ps.userStoneMarks, live: QiSquareWeiqiCanvas.boardMarksLiveLatest(ps) });
                 if (ps.showMoveNumbers) {
                     const nums = page.computeStoneNumbers();
                     d.moveNumbersOnStones(ctx, nums, ps.board, ps.BOARD_SIZE, ps.PADDING, cellSize);
@@ -521,9 +522,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                 const hasAnyStone = ps.board.some(row => row.some(v => v !== 0));
                 const hasPlayer = ps.slots.player1 || ps.slots.player2;
                 const sizeSelect = document.getElementById('boardSizeSelect');
-                if (sizeSelect && !hasAnyStone && !hasPlayer && !ps.gameOver && ps.mySlot === null && !ps.replayMode)
-                    sizeSelect.style.display = 'inline-block';
-                else if (sizeSelect) sizeSelect.style.display = 'none';
+                window.QiRoomGameSwitcher.syncSettingsSelect(sizeSelect);
 
                 ps._syncMovesLen = incomingMLen;
                 page.updateTurn();

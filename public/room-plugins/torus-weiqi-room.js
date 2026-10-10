@@ -605,31 +605,55 @@ const BOARD_MARK_CHAR_LIST = (() => {
                 }
             }
 
-            // ---- 用户标记（等价位置同时画出） ----
+            // ---- 用户标记（等价位置同时画出；点层：空点/附加物，子层：棋子上的标记只在直播最新盘面） ----
             const marksVisible = !ps.showEstimateActive;
-            for (const key of Object.keys(ps.userBoardMarks || {})) {
-                const [r, c] = key.split(',').map(Number);
-                if (r < 0 || r >= n || c < 0 || c >= n) continue;
-                if (!marksVisible) continue;
-                if (ps.board[r][c] !== 0) continue;
-                const ch = ps.userBoardMarks[key];
-                for (const rr of torusImages(r, n, s, D)) {
-                    for (const cc of torusImages(c, n, s, D)) {
+            const marksLiveLatest = QiSquareWeiqiCanvas.boardMarksLiveLatest(ps);
+            const drawTorusGlyph = (mr, mc, ch, style) => {
+                for (const rr of torusImages(mr, n, s, D)) {
+                    for (const cc of torusImages(mc, n, s, D)) {
                         const x = lineX(cc, g);
                         const y = lineY(rr, g);
-                        ctx.beginPath();
-                        ctx.arc(x, y, cell * 0.3, 0, 2 * Math.PI);
-                        // 背景色随所在区域：主棋盘区域内用棋盘底色，外围用深色
-                        const inMain = x >= mainMinX && x <= mainMaxX && y >= mainMinY && y <= mainMaxY;
-                        ctx.fillStyle = inMain ? mainBoardBg() : TORUS_OUTER_BG;
-                        ctx.fill();
+                        if (style === 'point') {
+                            ctx.beginPath();
+                            ctx.arc(x, y, cell * 0.3, 0, 2 * Math.PI);
+                            // 背景色随所在区域：主棋盘区域内用棋盘底色，外围用深色
+                            const inMain = x >= mainMinX && x <= mainMaxX && y >= mainMinY && y <= mainMaxY;
+                            ctx.fillStyle = inMain ? mainBoardBg() : TORUS_OUTER_BG;
+                            ctx.fill();
+                        }
                         const fontPx = cell * (ch === '🚩' ? 0.6 : 0.66);
                         ctx.font = `bold ${fontPx}px "Segoe UI", "Apple Color Emoji", "Segoe UI Emoji", sans-serif`;
                         ctx.textAlign = 'center';
                         ctx.textBaseline = 'middle';
-                        ctx.fillStyle = '#3a281c';
+                        if (style === 'light') {
+                            ctx.lineJoin = 'round';
+                            ctx.lineWidth = Math.max(1.5, cell * 0.07);
+                            ctx.strokeStyle = 'rgba(24,16,8,0.85)';
+                            ctx.strokeText(ch, x, y + 1);
+                            ctx.fillStyle = '#fff';
+                        } else if (style === 'dark') {
+                            ctx.fillStyle = '#1a1a1a';
+                        } else {
+                            ctx.fillStyle = '#3a281c';
+                        }
                         ctx.fillText(ch, x, y + 1);
                     }
+                }
+            };
+            for (const key of Object.keys(ps.userBoardMarks || {})) {
+                const [r, c] = key.split(',').map(Number);
+                if (r < 0 || r >= n || c < 0 || c >= n) continue;
+                if (!marksVisible) continue;
+                if (QiSquareWeiqiCanvas.isStoneCellValue(ps.board[r][c])) continue;   // 被棋子盖住：保留不画
+                drawTorusGlyph(r, c, ps.userBoardMarks[key], 'point');
+            }
+            if (marksLiveLatest && ps.userStoneMarks) {
+                for (const key of Object.keys(ps.userStoneMarks)) {
+                    const [r, c] = key.split(',').map(Number);
+                    if (r < 0 || r >= n || c < 0 || c >= n) continue;
+                    const v = ps.board[r][c];
+                    if (!QiSquareWeiqiCanvas.isStoneCellValue(v)) continue;
+                    drawTorusGlyph(r, c, ps.userStoneMarks[key], v === 2 ? 'dark' : 'light');
                 }
             }
 

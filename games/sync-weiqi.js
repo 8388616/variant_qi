@@ -491,13 +491,11 @@ class SyncWeiqiRoom extends QiTwoPlayerRoomBase {
             requesterWs.send(JSON.stringify({ type: 'error', message: '棋盘大小无效' }));
             return false;
         }
-        const hasStone = this.board.some(row => row.some(v => v === 1 || v === 2));
-        const hasHole = this.board.some(row => row.some(v => v === -1));
-        const hasPlayer = this.room.getPlayerBySlot('player1') || this.room.getPlayerBySlot('player2');
-        if (hasStone || hasHole || hasPlayer) {
-            requesterWs.send(JSON.stringify({ type: 'error', message: '已有棋子、洞或玩家，不能改变棋盘大小' }));
+        if (!qiProtocol.canChangeRoomSettings(this)) {
+            requesterWs.send(JSON.stringify({ type: 'error', message: '已有多人落座，不能修改棋盘大小' }));
             return false;
         }
+        qiProtocol.prepareRoomSettingsChange(this);
         this.boardSize = newSize;
         this.resetToEmpty();
         this.broadcast({ type: 'boardSizeChanged', boardSize: this.boardSize });

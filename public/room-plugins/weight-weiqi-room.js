@@ -394,6 +394,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             for (const key of Object.keys(ps.userBoardMarks)) {
                 const [r, c] = key.split(',').map(Number);
                 if (r < 0 || r >= boardSize || c < 0 || c >= boardSize) continue;
+                if (QiSquareWeiqiCanvas.isStoneCellValue(ps.board[r][c])) continue;   // 被棋子盖住：保留不画
                 if (!isUserBoardMarkVisibleAt(r, c)) continue;
                 const ch = ps.userBoardMarks[key];
                 const x = PADDING + c * CELL_SIZE + CELL_SIZE / 2;
@@ -404,6 +405,19 @@ const scoreTitle = document.getElementById('scoreTitle');
                 ctx.textBaseline = 'middle';
                 ctx.fillStyle = '#3a281c';
                 ctx.fillText(ch, x, y + 1);
+            }
+            if (ps.userStoneMarks && QiSquareWeiqiCanvas.boardMarksLiveLatest(ps)) {
+                for (const key of Object.keys(ps.userStoneMarks)) {
+                    const [r, c] = key.split(',').map(Number);
+                    if (r < 0 || r >= boardSize || c < 0 || c >= boardSize) continue;
+                    const v = ps.board[r][c];
+                    if (!QiSquareWeiqiCanvas.isStoneCellValue(v)) continue;
+                    const x = PADDING + c * CELL_SIZE + CELL_SIZE / 2;
+                    const y = PADDING + (boardSize - 1 - r) * CELL_SIZE + CELL_SIZE / 2;
+                    QiSquareWeiqiCanvas.draw.boardMarkGlyph(ctx, x, y, CELL_SIZE, ps.userStoneMarks[key], v === 2 ? 'dark' : 'light');
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                }
             }
 
             if (ps.showMoveNumbers) {
@@ -630,10 +644,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             const sel = document.getElementById('subGameSelect');
             if (!sel) return;
             sel.value = currentSubGame;
-            // 有人入座（含电脑）时服务端会拒绝 setSubGame：此时必须禁用，否则本地「乐观换权重」会把
-            // 显示权重/贴目换成本地随机的一套，而电脑仍按服务端权重下棋（看起来像棋力暴跌）
-            const seated = !!(ps.slots && (ps.slots.player1 || ps.slots.player2));
-            sel.disabled = (ps.numberOfHands || 1) > 1 || !!ps.matchStarted || !!ps.gameOver || seated;
+            window.QiRoomGameSwitcher.syncSettingsSelect(sel);
         }
         ps.KOMI = weightKomiForSize(ps.BOARD_SIZE);
 
@@ -1045,7 +1056,7 @@ syncState,
                 opt.textContent = o.label;
                 subGameSelectEl.appendChild(opt);
             }
-            subGameSelectEl.style.display = 'inline-block';
+            window.QiRoomGameSwitcher.syncSettingsSelect(subGameSelectEl);
             subGameSelectEl.addEventListener('change', () => {
                 const v = subGameSelectEl.value;
                 if (!v || v === currentSubGame) return;

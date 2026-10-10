@@ -93,6 +93,9 @@ function readKomi(self) {
  * whiteScoreMeanSqOfScoreGridded）要求终局分数是 0.5 的整数倍，站点贴目都是 0.25 的倍数，
  * 原样下发会得到 .25/.75 的分数 → 触发 `testAssert` → Global::fatalError → quick_exit(1)
  * （2026-10-01 吃子围棋 9 路 komi 2.75 的「KataGo 已退出 code=1」就是这条）。×2 后都是半整数。
+ *
+ * **这是唯一一处换算**：自己构造 setup opts 的棋种（选点围棋的 _buildSetupOpts）也必须用它，
+ * 别在棋种里写死 ×2 后的数字。站点贴目从 getState().komi 读（选点围棋也是 2.25 点）。
  */
 function engineKomi(self) {
     const k = readKomi(self);
@@ -869,11 +872,15 @@ async function verifyEngineState(self, session, gen, trigger) {
 
     // 站点盘面 = probed.stones 的比对：坐标系不同的棋盘（六角）要先把站点格换算成引擎格
     const coordOf = (typeof self.katagoCoordOf === 'function') ? self.katagoCoordOf.bind(self) : null;
+    const bridgeEngine = engineGameId(self) === 'bridge-weiqi';
     let stoneDiff = 0;
     for (let r = 0; r < (self.board ? self.board.length : 0) && stoneDiff === 0; r++) {
         const row = Array.isArray(self.board[r]) ? self.board[r] : [];
         for (let c = 0; c < row.length; c++) {
-            const mine = row[c] === 1 || row[c] === 2 ? row[c] : 0;
+            let mine = row[c] === 1 || row[c] === 2 ? row[c] : 0;
+            // 桥引擎 placeBridges 将站点的 -2 存成 C_WALL，showboard 打印为 '#'（回读哨兵 -9）。
+            // 必须比对桥的位置，不能按空点比较或跳过，否则会每手误报或漏掉桥拓扑不同步。
+            if (bridgeEngine && row[c] === -2) mine = -9;
             let er = r; let ec = c;
             if (coordOf) {
                 const e = coordOf(r, c);
@@ -884,6 +891,7 @@ async function verifyEngineState(self, session, gen, trigger) {
             }
             const line = probed.stones[er];
             if (!line || ec >= line.length) continue;
+            // -9 = 蜂窝外的墙（六角）：站点实点映到墙上说明坐标映射错了，按不一致处理
             if (line[ec] !== mine) { stoneDiff += 1; break; }
         }
     }
@@ -956,6 +964,7 @@ async function verifyEngineState(self, session, gen, trigger) {
 
 function maybeScheduleKatago(self) {
     if (!self.computerSlot || self.gameOver || self._qiKatagoBusy || !self.matchStarted) return;
+    if (!humanWs(self) || humanWs(self).readyState !== 1) return;
     if (self.pendingScore) return;
     const turnSlot = seatToMove(self);
     if (turnSlot !== self.computerSlot) return;
@@ -971,6 +980,7 @@ function maybeScheduleKatago(self) {
             return;
         }
         if (!self.computerSlot || self.gameOver || self._qiKatagoBusy || !self.matchStarted) return;
+        if (!humanWs(self) || humanWs(self).readyState !== 1) return;
         if (self.pendingScore) return;
         if (seatToMove(self) !== self.computerSlot) return;
         if (!self._qiKatago) return;
@@ -1142,9 +1152,12 @@ async function ensureKatagoEngine(self, opts) {
 function startKatagoEngineInBackground(self, ws, opts) {
     const preferPrepared = !opts || opts.preferPrepared !== false;
     const abortMatchOnFail = !opts || opts.abortMatchOnFail !== false;
-    ensureKatagoEngine(self, { preferPrepared }).then(() => {
+    const pending = ensureKatagoEngine(self, { preferPrepared });
+    const generation = self._qiKatagoGen;
+    pending.then(() => {
         maybeScheduleKatago(self);
     }).catch((err) => {
+        if (generation !== self._qiKatagoGen || !humanWs(self) || humanWs(self).readyState !== 1) return;
         console.error('启动 KataGo 失败', err);
         if (abortMatchOnFail && self.computerSlot) {
             abortVsComputerOnEngineFailure(self, ws, err);
@@ -1374,14 +1387,16 @@ function install(self, gameId) {
             origLeave(ws);
             if (this.computerSlot && slot) {
                 stopKatago(this);
-                this.computerSlot = null;
-            }
-            if (this.room.getPlayerCount() === 0) {
+            } else if (this.room.getPlayerCount() === 0) {
                 stopKatago(this);
-                this.computerSlot = null;
             }
         };
     }
+
+    self.resumeComputerGame = function (ws) {
+        if (this.computerSlot && !this.gameOver && this.matchStarted)
+            startKatagoEngineInBackground(this, ws, { preferPrepared: false, abortMatchOnFail: false });
+    };
 
     // 人机数点：同一连接确认一次即可
     if (typeof self.startScoreCounting === 'function') {
@@ -1428,7 +1443,7 @@ function install(self, gameId) {
                 return;
             }
 
-            if (msg.type === 'selectColor' || msg.type === 'takeSeat' || msg.type === 'setBoardSize') {
+            if (msg.type === 'selectColor' || msg.type === 'takeSeat') {
                 return;
             }
 
@@ -1649,8 +1664,13 @@ function attachToRoom(room) {
 
 module.exports = {
     weightsForEngine,
+    /** 站点贴目(点) → 引擎贴目(目)：自建 setup opts 的棋种（选点围棋）共用这一处换算 */
+    engineKomi,
     install,
     attachToRoom,
+    disposeRoom(room) {
+        if (room && room.gameLogic) stopKatago(room.gameLogic);
+    },
     isKatagoAvailable,
     /** 电脑着法的落子入口（单测直接调用，平时只在本文件内部用） */
     applyComputerMove

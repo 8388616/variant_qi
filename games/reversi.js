@@ -345,8 +345,8 @@ class ReversiRoom extends QiTwoPlayerRoomBase {
             return false;
         }
         // 黑白棋开局即有子，故只以「有没有人入座 / 是否已落子」判断：空房才能改路数
-        const hasPlayer = this.room.getPlayerBySlot('player1') || this.room.getPlayerBySlot('player2');
-        if (this.moveCoords.length > 0 || hasPlayer) return false;
+        if (!qiProtocol.canChangeRoomSettings(this)) return false;
+        qiProtocol.prepareRoomSettingsChange(this);
         this.boardSize = newSize;
         this.openingBoard = undefined;
         this.resetToInitial();
@@ -445,7 +445,7 @@ class ReversiRoom extends QiTwoPlayerRoomBase {
                 this._handleTimeControlAccept(ws);
                 break;
             case 'setBoardSize':
-                if (!slot && !this.room.players.size) this.setBoardSize(msg.size, ws);
+                if (qiProtocol.canChangeRoomSettings(this)) this.setBoardSize(msg.size, ws);
                 break;
             case 'move': {
                 if (!slot || this.gameOver) return;

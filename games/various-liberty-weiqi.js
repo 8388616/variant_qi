@@ -456,9 +456,8 @@ class VariousLibertyWeiqiRoom extends QiTwoPlayerRoomBase {
             requesterWs.send(JSON.stringify({ type: 'error', message: '棋盘大小无效' }));
             return false;
         }
-        const hasAnyStone = this.board.some(row => row.some(v => v !== 0));
-        const hasPlayer = this.room.getPlayerBySlot('player1') || this.room.getPlayerBySlot('player2');
-        if (hasAnyStone || hasPlayer) return false;
+        if (!qiProtocol.canChangeRoomSettings(this)) return false;
+        qiProtocol.prepareRoomSettingsChange(this);
         this.boardSize = newSize;
         this.board = Array(this.boardSize).fill().map(() => Array(this.boardSize).fill(0));
         this.levelBoard = copyLevelBoard(this.boardSize);
@@ -733,7 +732,7 @@ class VariousLibertyWeiqiRoom extends QiTwoPlayerRoomBase {
                 break;
 
             case 'setBoardSize':
-                if (!slot && !this.room.players.size) this.setBoardSize(msg.size, ws);
+                if (qiProtocol.canChangeRoomSettings(this)) this.setBoardSize(msg.size, ws);
                 break;
 
             case 'move': {

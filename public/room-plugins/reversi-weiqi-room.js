@@ -4,7 +4,7 @@ window.RoomPlugins['reversi-weiqi'] = {
         "title": "翻转围棋",
         "rulesHtml": "基本规则同围棋。<br /><br />"
             + "提子时，被提的棋子翻转为己方棋子。不允许自杀。<br /><br />",
-        "defaultKomiText": "黑贴白3.25点",
+        "defaultKomiText": "黑贴白9.75点",
         "boardSizeMin": 7,
         "boardSizeMax": 21,
         "defaultBoardSize": 19,

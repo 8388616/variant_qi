@@ -1,4 +1,7 @@
 window.RoomPlugins = window.RoomPlugins || {};
+/* 会推动棋子的棋种：子层标记允许「就近同色配对」跟随 */
+window.QiBoardMarks = window.QiBoardMarks || {};
+window.QiBoardMarks._stoneFollow = true;
 window.RoomPlugins['magnetism-weiqi'] = {
     shell: {
         "title": "磁性围棋",
@@ -510,7 +513,8 @@ const scoreTitle = document.getElementById('scoreTitle');
                 if (ps.board[r][c] !== 0) return false;
                 return true;
             }
-            d.userBoardMarks(dom.ctx, ps.userBoardMarks, ps.BOARD_SIZE, ps.PADDING, cellSize, isUserBoardMarkVisibleAt);
+            d.userBoardMarks(dom.ctx, ps.userBoardMarks, ps.BOARD_SIZE, ps.PADDING, cellSize, isUserBoardMarkVisibleAt,
+                { board: ps.board, stoneMarks: ps.userStoneMarks, live: QiSquareWeiqiCanvas.boardMarksLiveLatest(ps) });
             if (ps.showMoveNumbers) {
                 const nums = computeMagneticStoneNumbers();
                 d.moveNumbersOnStones(dom.ctx, nums, ps.board, ps.BOARD_SIZE, ps.PADDING, cellSize);
@@ -631,11 +635,7 @@ const page = QiWeiqiSquarePageRuntime.create(ps, domPage, {
         function updateSubGameSelectVisibility() {
             const sel = document.getElementById('subGameSelect');
             if (!sel) return;
-            const hasAnyStone = ps.board.some(row => row.some(v => v !== 0));
-            const hasPlayer = ps.slots.player1 || ps.slots.player2;
-            // 有子棋类：始终显示；开局（有子/有人入座/对局结束）后锁定不可改，新局时恢复可用
-            sel.style.display = 'inline-block';
-            sel.disabled = hasAnyStone || hasPlayer || ps.gameOver;
+            window.QiRoomGameSwitcher.syncSettingsSelect(sel);
         }
 
         function refreshKomiInfo() {
@@ -710,7 +710,7 @@ syncState,
             if (msg && msg.type === 'magnetismChanged') {
                 // 子棋类变更广播（带完整 state）：全量同步
                 syncState(msg);
-                // 切换弱/中/强磁性后「与电脑对弈」可用性立即更新（服务端已按新子棋类重查引擎）
+                // 切换弱/中/强磁性后「对电脑对战」可用性立即更新（服务端已按新子棋类重查引擎）
                 if (Object.prototype.hasOwnProperty.call(msg, 'katagoAvailable'))
                     ps.katagoAvailable = !!msg.katagoAvailable;
                 if (Object.prototype.hasOwnProperty.call(msg, 'computerSlot'))

@@ -397,12 +397,11 @@ class TranspositionWeiqiRoom extends QiTwoPlayerRoomBase
             requesterWs.send(JSON.stringify({ type: 'error', message: '棋盘路数无效（7-21）' }));
             return false;
         }
-        const hasAnyStone = this.board.some(row => row.some(v => v !== 0));
-        const hasPlayer = this.room.getPlayerBySlot('player1') || this.room.getPlayerBySlot('player2');
-        if (hasAnyStone || hasPlayer) {
+        if (!qiProtocol.canChangeRoomSettings(this)) {
 
             return false;
         }
+        qiProtocol.prepareRoomSettingsChange(this);
         this.boardSize = newSize;
         this.openingBoard = undefined;
         // 设置路数后按新路数清空盘面与对局记录（不释放座位）
@@ -444,7 +443,7 @@ class TranspositionWeiqiRoom extends QiTwoPlayerRoomBase
                 break;
 
             case 'setBoardSize': {
-                if (slot) break;
+                if (!qiProtocol.canChangeRoomSettings(this)) break;
                 const n = parseInt(String(msg.size ?? ''), 10);
                 this.setBoardSize(n, ws);
                 break;

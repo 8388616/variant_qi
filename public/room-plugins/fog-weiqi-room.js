@@ -1,4 +1,7 @@
 window.RoomPlugins = window.RoomPlugins || {};
+/* 隐藏情报棋种：盘面是观者视图，标记不做子层（会泄漏隐藏子） */
+window.QiBoardMarks = window.QiBoardMarks || {};
+window.QiBoardMarks.stoneLayerEnabled = false;
 window.RoomPlugins["fog-weiqi"] = {
     shell: {
         "title": "迷雾围棋",
@@ -841,7 +844,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                     ps.BOARD_SIZE = state.boardSize;
                     ps.KOMI = state.komi;
                     ps.board = C.initBoardArray(ps.BOARD_SIZE);
-                    ps.userBoardMarks = Object.create(null);
+                    ps.userBoardMarks = Object.create(null); ps.userStoneMarks = Object.create(null);
                     ps.liveReplayBoards = [];
                     ps.liveReplayMarkers = [];
                     ps.liveReplayStepPlayers = [];
@@ -919,10 +922,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                 const hasAnyStone = ps.board.some(row => row.some(v => v !== 0));
                 const hasPlayer = ps.slots.player1 || ps.slots.player2;
                 const sizeSelect = document.getElementById('boardSizeSelect');
-                if (!hasAnyStone && !hasPlayer && !ps.gameOver && ps.mySlot === null)
-                    sizeSelect.style.display = 'inline-block';
-                else
-                    sizeSelect.style.display = 'none';
+                window.QiRoomGameSwitcher.syncSettingsSelect(sizeSelect);
 
                 if (ps.showEstimateActive)
                     showEstimateFog();
@@ -1409,8 +1409,8 @@ syncState,
             updateReplayUI: page.updateReplayUI,
             showScoreConfirm,
             isMouseDevice,
-            onNewGameStarted: () => { ps.userBoardMarks = Object.create(null); },
-            onRoomReset: () => { ps.userBoardMarks = Object.create(null); },
+            onNewGameStarted: () => { ps.userBoardMarks = Object.create(null); ps.userStoneMarks = Object.create(null); },
+            onRoomReset: () => { ps.userBoardMarks = Object.create(null); ps.userStoneMarks = Object.create(null); },
             standardWeiqiMatchTime,
             boardSeatOverlay: true,
             timeControlMainByoScale: 2

@@ -1,4 +1,7 @@
 window.RoomPlugins = window.RoomPlugins || {};
+/* 自定义围棋含「磁性」档（会推动棋子）：子层标记允许「就近同色配对」跟随（其它规则档无位移，配对本就不生效） */
+window.QiBoardMarks = window.QiBoardMarks || {};
+window.QiBoardMarks._stoneFollow = true;
 window.RoomPlugins['custom-weiqi'] = {
     shell: {
         "title": "自定义围棋",
@@ -1962,10 +1965,11 @@ const BOARD_MARK_CHAR_LIST = (() => {
             d.userBoardMarks(ctx, ps.userBoardMarks, ps.BOARD_SIZE, ps.PADDING, cellSize, (r, c) => {
                 if (ps.showEstimateActive) return false;
                 if (r < 0 || r >= ps.BOARD_SIZE || c < 0 || c >= ps.BOARD_SIZE) return false;
-                if (ps.board[r][c] !== 0) return false;
+                // 点层：棋子盖住时不画；洞/桥/雷/中立子等附加物可见
+                if (QiSquareWeiqiCanvas.isStoneCellValue(ps.board[r][c])) return false;
                 if (mustCaptureActive() && isCandidatePoint(r, c)) return false;
                 return true;
-            });
+            }, { board: ps.board, stoneMarks: ps.userStoneMarks, live: QiSquareWeiqiCanvas.boardMarksLiveLatest(ps) });
             if (ps.showMoveNumbers) {
                 d.moveNumbersOnStones(ctx, computeCustomStoneNumbers(), ps.board, ps.BOARD_SIZE, ps.PADDING, cellSize);
             }

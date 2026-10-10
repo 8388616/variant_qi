@@ -124,11 +124,16 @@ const scoreTitle = document.getElementById('scoreTitle'), scoreBoard = document.
         function msAssign(live) {
             return R().assignTerritoryWithRangeWithHoles(live, ps.BOARD_SIZE, (r, c) => live[r][c] === MINE);
         }
+        function minesVisibleForMarks() {
+            return ps.replayMode ? (ps.replayStep >= 3 && ps.replayMinesVisible) : ps.minesRevealedPublicly;
+        }
         function isUserBoardMarkVisibleAt(r, c) {
             if (ps.showEstimateActive) return false;
             if (r < 0 || r >= ps.BOARD_SIZE || c < 0 || c >= ps.BOARD_SIZE) return false;
-            if (ps.board[r][c] !== 0) return false;
-            return true;
+            const v = ps.board[r][c];
+            // 雷上可标记（只在雷对观者可见时；隐藏的敌雷不泄漏）；点被棋子盖住时不画
+            if (v === MINE) return minesVisibleForMarks();
+            return v === 0;
         }
         function numsSweep() {
             const n = ps.BOARD_SIZE, nums = Array(n).fill().map(() => Array(n).fill(0));
@@ -204,7 +209,9 @@ const scoreTitle = document.getElementById('scoreTitle'), scoreBoard = document.
             if (lowerLastMoveMarker) d.lastMoveMarkersLower(ctx, ps.lastMoveMarkers, ps.PADDING, ps.CELL_SIZE, stoneRadius, ps.BOARD_SIZE);
             d.stonesBlackWhite(ctx, ps.board, ps.BOARD_SIZE, ps.PADDING, ps.CELL_SIZE, stoneRadius, ps.showMoveNumbers);
             if (!lowerLastMoveMarker) d.lastMoveMarkersUpper(ctx, ps.lastMoveMarkers, ps.PADDING, ps.CELL_SIZE, markLenDefault, ps.BOARD_SIZE);
-            d.userBoardMarks(ctx, ps.userBoardMarks, ps.BOARD_SIZE, ps.PADDING, ps.CELL_SIZE, isUserBoardMarkVisibleAt);
+            d.userBoardMarks(ctx, ps.userBoardMarks, ps.BOARD_SIZE, ps.PADDING, ps.CELL_SIZE, isUserBoardMarkVisibleAt,
+                { board: ps.board, stoneMarks: ps.userStoneMarks, live: QiSquareWeiqiCanvas.boardMarksLiveLatest(ps),
+                  cellKind: (r, c, v) => (v === MINE ? 'attachment' : QiSquareWeiqiCanvas.boardMarkCellKind(v)) });
             if (ps.showMoveNumbers) {
                 const nums = numsSweep();
                 d.moveNumbersOnStones(ctx, nums, ps.board, ps.BOARD_SIZE, ps.PADDING, ps.CELL_SIZE);

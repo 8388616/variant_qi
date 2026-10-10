@@ -1382,6 +1382,23 @@ window.RoomPlugins["hybrid-xiangqi"] = {
                 if (stepDisp) stepDisp.textContent = `${cur} / ${total}`;
                 const btn = document.getElementById('tryPlayBtn');
                 if (btn) btn.textContent = ps.tryPlayMode ? '退出试下' : '试下';
+                updateMatchControlButtons();
+            }
+
+            /** 对局按钮显隐（照象棋）：入座 + 开局且非回放才显示悔棋/认输/和棋；「试下」按钮反之 */
+            function updateMatchControlButtons() {
+                const isPlayer = !!ps.mySlot;
+                const matchStartedEff = !!(ps.matchStarted || (ps.matchTime && ps.matchTime.settings));
+                const showMatch = isPlayer && matchStartedEff && !ps.replayMode;
+                ['undoBtn', 'resignBtn', 'drawBtn'].forEach((id) => {
+                    const el = document.getElementById(id);
+                    if (el) el.style.display = showMatch ? '' : 'none';
+                });
+                const tryPlayBtn = document.getElementById('tryPlayBtn');
+                if (tryPlayBtn) {
+                    tryPlayBtn.style.display = showMatch ? 'none' : '';
+                    tryPlayBtn.textContent = ps.tryPlayMode ? '退出试下' : '试下';
+                }
             }
 
             /** 试下：在「当前显示的局面」上试走，退出后回到原处 */
@@ -1722,6 +1739,11 @@ window.RoomPlugins["hybrid-xiangqi"] = {
                 roomId,
                 gameType,
                 pageState: ps,
+                recordMoveKind: 'travel',
+                recordPointToCanvas: (row, col) => {
+                    const p = toDisplayCoord(row, col);
+                    return { ...squareCenter(p.row, p.col), cell: cellSize, size: LOGICAL };
+                },
                 tryPlayOppositeSide: (side) => oppositeSide(side),
                 drawBoard,
                 exitTryPlay,
@@ -1765,7 +1787,7 @@ window.RoomPlugins["hybrid-xiangqi"] = {
                 downloadRecord,
                 enterReplayMode,
                 updateTurn,
-                updateReplayUI: () => { },
+                updateReplayUI,
                 showScoreConfirm: () => { },
                 isMouseDevice,
                 onSeatOverlayUpdated() { drawBoard(); }

@@ -284,11 +284,9 @@ const scoreTitle = document.getElementById('scoreTitle');
         function syncSubGameSelect() {
             const sel = document.getElementById('subGameSelect');
             if (!sel) return;
-            sel.style.display = 'inline-block';
+            window.QiRoomGameSwitcher.syncSettingsSelect(sel);
             sel.value = SUB;
-            const hasAnyStone = Array.isArray(ps.board) && ps.board.some(row => row.some(v => v !== 0));
-            const hasPlayer = ps.slots.player1 || ps.slots.player2;
-            sel.disabled = hasAnyStone || hasPlayer || ps.gameOver || (ps.numberOfHands || 1) > 1;
+            window.QiRoomGameSwitcher.syncSettingsSelect(sel);
         }
 
         /** 棋谱下载文件名前缀按当前子棋类（内容里的 gameType/subGameId 由服务端导出时写好） */
@@ -368,7 +366,7 @@ syncState,
                 // 切子棋类等于开新局：先退出试下（清掉试下棋子）与打谱、清掉用户标记
                 if (ps.tryPlayMode) exitTryPlay();
                 if (ps.replayMode) exitReplayMode();
-                ps.userBoardMarks = Object.create(null);
+                ps.userBoardMarks = Object.create(null); ps.userStoneMarks = Object.create(null);
                 ps.hoverRow = -1;
                 ps.hoverCol = -1;
                 ps.isHoverValid = false;
@@ -543,7 +541,7 @@ syncState,
                 SUB = v;
                 if (ps.tryPlayMode) exitTryPlay();
                 if (ps.replayMode) exitReplayMode();
-                ps.userBoardMarks = Object.create(null);
+                ps.userBoardMarks = Object.create(null); ps.userStoneMarks = Object.create(null);
                 applySubShellChrome();
                 syncSubGameSelect();
                 if (ps.ws && ps.ws.readyState === 1) {

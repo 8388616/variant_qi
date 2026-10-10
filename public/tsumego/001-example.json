@@ -1,0 +1,14 @@
+{
+  "format": "muzei-tsumego",
+  "version": 2,
+  "title": "提取一子",
+  "gameType": "围棋",
+  "gameId": "weiqi",
+  "boardSize": 9,
+  "firstPlayer": "black",
+  "komi": null,
+  "initialPosition": ["W1,1", "B0,1", "B1,0", "B2,1"],
+  "moves": [{"v1": ["B1,2", "success"], "v2": ["B3,3", "failure"]}],
+  "result": null,
+  "timeControl": null
+}

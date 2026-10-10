@@ -1,4 +1,8 @@
 window.RoomPlugins = window.RoomPlugins || {};
+/* 会挪动棋子的棋种：子层标记的搬移由本插件按盘面变换精确处理（不走公共配对钩子） */
+window.QiBoardMarks = window.QiBoardMarks || {};
+window.QiBoardMarks._stoneFollow = true;
+window.QiBoardMarks._stoneSyncSkip = true;
 window.RoomPlugins["drift-wuziqi"] = {
     shell: {
         "title": "漂移五子棋",
@@ -545,7 +549,8 @@ const scoreTitle = document.getElementById('scoreTitle');
             if (!lowerLastMoveMarker) {
                 d.lastMoveMarkersUpper(domPage.ctx, ps.lastMoveMarkers, ps.PADDING, cellSize, markLenDefault, ps.BOARD_SIZE);
             }
-            d.userBoardMarks(domPage.ctx, ps.userBoardMarks, ps.BOARD_SIZE, ps.PADDING, cellSize, isUserBoardMarkVisibleAt(ps));
+            d.userBoardMarks(domPage.ctx, ps.userBoardMarks, ps.BOARD_SIZE, ps.PADDING, cellSize, isUserBoardMarkVisibleAt(ps),
+                { board: ps.board, stoneMarks: ps.userStoneMarks, live: QiSquareWeiqiCanvas.boardMarksLiveLatest(ps) });
             if (ps.showMoveNumbers && ps.handNumAt && ps.handNumAt.length === ps.BOARD_SIZE && ps.handNumAt[0].length === ps.BOARD_SIZE) {
                 d.moveNumbersOnStones(domPage.ctx, ps.handNumAt, ps.board, ps.BOARD_SIZE, ps.PADDING, cellSize);
             }
@@ -866,7 +871,10 @@ const scoreTitle = document.getElementById('scoreTitle');
             const prevAnim = ps.lastDriftCountForAnim;
             const bs = state.boardSize || ps.BOARD_SIZE;
             if (prevAnim != null && nr > prevRc) {
-                for (let i = 0; i < nr - prevRc; i++) rwDriftUserBoardMarks(ps.userBoardMarks, bs);
+                for (let i = 0; i < nr - prevRc; i++) {
+                    rwDriftUserBoardMarks(ps.userBoardMarks, bs);
+                    rwDriftUserBoardMarks(ps.userStoneMarks, bs);   // 子层标记随漂移精确搬移（与点层同一变换）
+                }
             }
             const iv = state.driftInterval != null ? state.driftInterval : rwComputeInterval(bs);
             ps.driftInterval = iv;
@@ -878,6 +886,14 @@ const scoreTitle = document.getElementById('scoreTitle');
 
             origSync(state);
 
+            // 子层标记：子没了（被提/悔棋）就删除；漂移的搬移已在上面做（本棋种不走公共配对钩子）
+            if (ps.userStoneMarks) {
+                for (const k of Object.keys(ps.userStoneMarks)) {
+                    const [mkR, mkC] = k.split(',').map(Number);
+                    if (!ps.board[mkR] || !QiSquareWeiqiCanvas.isStoneCellValue(ps.board[mkR][mkC]))
+                        delete ps.userStoneMarks[k];
+                }
+            }
             if (!tryApplyHandNumAtFromState(state)) {
                 const bs2 = ps.BOARD_SIZE;
                 const iv2 = ps.driftInterval != null ? ps.driftInterval : rwComputeInterval(bs2);
