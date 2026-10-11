@@ -45,7 +45,7 @@ const PIECES = {
     M: { name: '馬', comp: { S: 1, Z: 1 }, move: 'knightMove', leg: true, kind: 'horse' },
     XI: { name: '驍', comp: { S: 1, Z: 1, BA: 1 }, move: 'cannonKnightMove', kind: 'xiao' },
     P: { name: '兵', comp: { Z: 2 }, move: 'leap2Move', dirs: ORTH, kind: 'soldier' },
-    WE: { name: '卫', comp: { S: 2, Z: 1 }, move: 'stepKnightMove', dirs: DIAG, leg: true, kind: 'guard' },
+    WE: { name: '衛', comp: { S: 2, Z: 1 }, move: 'stepKnightMove', dirs: DIAG, leg: true, kind: 'guard' },
     DZ: { name: '督', comp: { S: 4, Z: 2 }, move: 'slideKnightMove', dirs: DIAG, kind: 'viceroy' },
     ZJ: { name: '撫', comp: { S: 3 }, move: 'slideMove', dirs: DIAG, kind: 'bishop' },
     JI: { name: '驥', comp: { S: 2, Z: 2 }, move: 'knightRunMove', kind: 'steed' },
@@ -548,6 +548,7 @@ class HybridXiangqiRoom extends QiTwoPlayerRoomBase {
         this.hand = snap.hand;
         this.turnCount = snap.turnCount;
         this.sideToMove = snap.sideToMove;
+        this.currentPlayer = this.sideToMove === 'white' ? 1 : 2;
         this.lastFrom = snap.lastFrom;
         this.lastTo = snap.lastTo;
     }
@@ -632,6 +633,7 @@ class HybridXiangqiRoom extends QiTwoPlayerRoomBase {
             this.lastFrom = { row: fromRow, col: fromCol };
             this.lastTo = { row: toRow, col: toCol };
             this.sideToMove = R.oppositeSide(side);
+            this.currentPlayer = this.sideToMove === 'white' ? 1 : 2;
             const gaveCheckMerge = R.isRoyalAttacked(this.board, this.sideToMove);
             this._judgeNoLegalAction(this.sideToMove);
             return { ok: true, gaveCheck: gaveCheckMerge };
@@ -658,6 +660,7 @@ class HybridXiangqiRoom extends QiTwoPlayerRoomBase {
             return { ok: true, over: true };
         }
         this.sideToMove = R.oppositeSide(side);
+        this.currentPlayer = this.sideToMove === 'white' ? 1 : 2;
         const gaveCheck = R.isRoyalAttacked(this.board, this.sideToMove);
         this._judgeNoLegalAction(this.sideToMove);
         return { ok: true, gaveCheck };
@@ -702,6 +705,7 @@ class HybridXiangqiRoom extends QiTwoPlayerRoomBase {
         this.lastTo = { row: toRow, col: toCol };
 
         this.sideToMove = R.oppositeSide(side);
+        this.currentPlayer = this.sideToMove === 'white' ? 1 : 2;
         const gaveCheck = R.isRoyalAttacked(this.board, this.sideToMove);
         this._judgeNoLegalAction(this.sideToMove);
         return { ok: true, gaveCheck };

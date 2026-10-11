@@ -1,0 +1,56 @@
+.qi-account-control {
+    font: inherit;
+    color: var(--qi-room-muted, var(--muted, #806350));
+    background: transparent;
+    border: 0;
+    border-radius: 999px;
+    padding: 7px 14px;
+    min-height: 34px;
+    cursor: pointer;
+    white-space: nowrap;
+}
+.qi-account-control:hover { background: rgba(184, 110, 52, 0.12); }
+.qi-account-control.qi-account-name {
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+    text-decoration: underline;
+    text-decoration-color: rgba(128, 99, 80, 0.5);
+    text-underline-offset: 0.25em;
+    text-decoration-thickness: 1px;
+    color: var(--qi-room-ink, var(--ink, #4e3219));
+}
+.qi-account-control.qi-account-name:hover { color: #8e4a1a; text-decoration-color: currentColor; }
+.qi-account-control:focus-visible { outline: 2px solid #b86e34; outline-offset: 2px; }
+.qi-account-menu {
+    position: fixed;
+    z-index: 10000;
+    font-family: inherit;
+    background: #fffaf0;
+    border: 1px solid #d5c4a7;
+    border-radius: 8px;
+    padding: 6px;
+    box-shadow: 0 4px 16px #0002;
+}
+.qi-account-menu[hidden] { display: none; }
+.qi-account-menu button {
+    display: block;
+    width: 100%;
+    font: inherit;
+    border: 0;
+    border-radius: 5px;
+    background: transparent;
+    padding: 8px 24px;
+    color: #65462e;
+    cursor: pointer;
+}
+.qi-account-menu button:hover, .qi-account-menu button:focus-visible { background: #f1e6d3; }
+body.qi-room .right-buttons { flex-wrap: wrap; }
+body.qi-room .qi-player-username { white-space: nowrap; }
+body.qi-room .go-timer-title.qi-timer-has-username {
+    display: flex;
+    align-items: center;
+    white-space: nowrap;
+}
+body.qi-room .qi-timer-has-username .qi-side-dot { flex-shrink: 0; }
+body.qi-room .qi-timer-has-username .qi-player-username { min-width: 0; flex: 0 1 auto; }

@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>变体棋类研究中心</title>
+    <link rel="icon" href="/qi/assets/brand/favicon.ico" type="image/x-icon" sizes="16x16 32x32 48x48 64x64">
     <!-- 大厅字体：CDN 分包按需加载（jsdmirror 国内镜像，路径与 jsDelivr 兼容）。
          400/500/700 权重分包（game-name-pill 等用粗体）；CDN 不可达时回退页面字体栈。 -->
     <link rel="stylesheet" href="https://cdn.jsdmirror.com/npm/lxgw-wenkai-gb-web@1.522.0/lxgwwenkaigb-regular/result.css">
@@ -120,16 +121,9 @@
         .brand-emblem {
             width: 48px;
             height: 48px;
-            display: grid;
-            place-items: center;
-            border-radius: 15px;
-            border: 1px solid rgba(108, 76, 46, 0.18);
-            background: linear-gradient(145deg, rgba(255, 249, 240, 0.96), rgba(245, 229, 202, 0.9));
-            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85);
-            color: var(--accent-strong);
-            font-family: var(--body-font);
-            font-size: 22px;
-            font-weight: 500;
+            display: block;
+            flex-shrink: 0;
+            object-fit: contain;
         }
 
         .brand-copy {
@@ -1171,12 +1165,13 @@
             }
         }
     </style>
+    <link rel="stylesheet" href="/qi/auth-client.css">
 </head>
 <body class="platform-home">
     <div class="home-shell">
         <header class="site-header">
             <a class="brand-lockup" href="/qi" aria-label="变体棋类研究中心">
-                <div class="brand-emblem" aria-hidden="true">棋</div>
+                <img class="brand-emblem" src="/qi/assets/brand/logo.png" alt="" width="48" height="48" aria-hidden="true">
                 <div class="brand-copy">
                     <div class="brand-title">变体棋类研究中心</div>
                     <div class="brand-subtitle">变体棋类在线对弈入口</div>
@@ -1193,6 +1188,7 @@
                 <button type="button" class="header-action-btn" id="lobbyTsumegoBtn" onclick="location.href='/qi/tsumego'">死活题</button>
                 <button type="button" class="header-action-btn" id="lobbyQrCodeBtn" title="根据文本生成二维码局面">生成二维码</button>
                 <button type="button" class="header-action-btn" id="lobbyImportRecordBtn" title="导入棋谱">导入棋谱</button>
+                <button type="button" class="header-action-btn qi-account-control" id="lobbyLoginBtn">登入</button>
             </div>
         </header>
 
@@ -1245,6 +1241,7 @@
 
     <script src="/qi/sgf.js"></script>
     <script src="/qi/qi.js"></script>
+    <script src="/qi/auth-client.js"></script>
     <script src="/qi/game-catalog.js"></script>
     <script src="/qi/qrcode.min.js"></script>
     <script>
@@ -1252,7 +1249,7 @@
 
         let pendingGame = null;
         let activeTooltip = null;
-        const API_BASE = `${location.protocol}//${location.hostname}`;
+        const API_BASE = location.origin;
 
         /** 房间链接前缀：跟着大厅自己的路径走 ——
          *  variantqi.com/            → /rooms/<房间号>
@@ -1415,23 +1412,14 @@
         }
 
         async function fetchAllRooms() {
-            const activeGames = GAMES_DATA.filter(g => g.enabled === true);
-            const results = await Promise.all(activeGames.map(async (game) => {
-                try {
-                    const res = await fetch(`${API_BASE}/qi/rooms?game=${game.id}`);
-                    if (res.ok) {
-                        const rooms = await res.json();
-                        return rooms.map(room => ({
-                            ...room,
-                            gameId: game.id,
-                            gameName: game.name,
-                            gamePath: game.path
-                        }));
-                    }
-                } catch (e) { console.warn(`获取${game.id}房间失败`, e); }
-                return [];
-            }));
-            return results.flat();
+            const res = await fetch(`${API_BASE}/qi/rooms`, { cache: 'no-store' });
+            if (!res.ok) throw new Error(`获取房间列表失败：HTTP ${res.status}`);
+            const rooms = await res.json();
+            const activeGames = new Map(GAMES_DATA.filter(g => g.enabled === true).map(g => [g.id, g]));
+            return rooms.flatMap(room => {
+                const game = activeGames.get(room.gameId);
+                return game ? [{ ...room, gameName: game.name, gamePath: game.path }] : [];
+            });
         }
 
         function renderRooms(rooms) {
@@ -1493,7 +1481,10 @@
             });
         }
 
+        let roomListRefreshing = false;
         async function refreshRoomList() {
+            if (roomListRefreshing) return;
+            roomListRefreshing = true;
             const container = document.getElementById('roomsListContainer');
             try {
                 const rooms = await fetchAllRooms();
@@ -1501,6 +1492,8 @@
             } catch (err) {
                 console.error(err);
                 container.innerHTML = '<div class="empty-rooms">加载房间失败，请刷新页面重试</div>';
+            } finally {
+                roomListRefreshing = false;
             }
         }
 

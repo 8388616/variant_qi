@@ -184,6 +184,7 @@ const qiMatchTimeControl = {
                 if (p.mainMs > 0) {
                     const take = Math.min(elapsedLeft, p.mainMs);
                     p.mainMs -= take;
+                    p.spentMs = (p.spentMs || 0) + take;
                     elapsedLeft -= take;
                     continue;
                 }
@@ -198,6 +199,7 @@ const qiMatchTimeControl = {
             if (p.byoMs > 0) {
                 const take = Math.min(elapsedLeft, p.byoMs);
                 p.byoMs -= take;
+                p.spentMs = (p.spentMs || 0) + take;
                 elapsedLeft -= take;
             }
             if (p.byoMs <= 0) {

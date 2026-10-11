@@ -1,6 +1,9 @@
 废弃/
 node_modules/
+data/pending-matches.json*
 katagos/
+output/
+tests/
 public/room-plugins/dfw-room.js
 games/dfw.js
 dfw_event.txt

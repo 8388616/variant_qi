@@ -7,7 +7,7 @@
             { id: 'triangle-weiqi', name: '三角围棋', randomLevel: 0, path: 'triangle-weiqi', enabled: true, recommended: false, category: '围棋/占地', intro: '三角棋盘。' },
             { id: 'non-rectangular-weiqi', name: '非四角围棋', randomLevel: 0, path: 'non-rectangular-weiqi', enabled: true, recommended: true, category: '围棋/占地', intro: '各种非四角棋盘。' },
             { id: 'large-small-circle-weiqi', name: '大小圆围棋', randomLevel: 0, path: 'large-small-circle-weiqi', enabled: true, recommended: false, category: '围棋/占地', intro: '不对称连接的棋盘。' },
-            { id: 'torus-weiqi', name: '环面围棋', randomLevel: 0, path: 'torus-weiqi', enabled: true, recommended: false, category: '围棋/占地', intro: '' },
+            { id: 'torus-weiqi', name: '环面围棋', randomLevel: 0, path: 'torus-weiqi', enabled: true, recommended: true, category: '围棋/占地', intro: '' },
             { id: 'short-liberty-weiqi', name: '短气围棋', randomLevel: 0, path: 'short-liberty-weiqi', enabled: true, recommended: true, category: '围棋/占地', intro: '每组棋子少若干气。' },
             { id: 'zeroliberty-weiqi', name: '零气围棋', randomLevel: 0, path: 'zeroliberty-weiqi', enabled: true, recommended: false, category: '围棋/占地', intro: '棋子没有气后，还需要花额外的一手棋来提子。' },
             { id: 'various-liberty-weiqi', name: '异气围棋', randomLevel: 0, path: 'various-liberty-weiqi', enabled: true, recommended: false, category: '围棋/占地', intro: '每个棋子的气数不同。' },

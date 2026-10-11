@@ -764,7 +764,7 @@ return {
         }
 
         function boardFlipped() {
-            return ps.mySlot === 'player2';
+            return !ps.localPlay && ps.mySlot === 'player2';
         }
 
         function displayPos(v) {

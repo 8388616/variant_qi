@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=2.0, user-scalable=yes">
     <title>竞速扫雷</title>
+    <link rel="icon" href="/qi/assets/brand/favicon.ico" type="image/x-icon" sizes="16x16 32x32 48x48 64x64">
     <!-- 字体：CDN 分包按需加载（jsdmirror 国内镜像）；不可达时回退 --qi-room-font 字体栈 -->
     <link rel="stylesheet" href="https://cdn.jsdmirror.com/npm/lxgw-wenkai-gb-web@1.522.0/lxgwwenkaigb-regular/result.css">
     <link rel="stylesheet" href="https://cdn.jsdmirror.com/npm/lxgw-wenkai-gb-web@1.522.0/lxgwwenkaigb-medium/result.css">
@@ -313,6 +314,7 @@
             }
         }
     </style>
+    <link rel="stylesheet" href="/qi/auth-client.css">
 </head>
 <body class="qi-room sms-page">
     <div class="game-wrapper">
@@ -325,6 +327,14 @@
             <div class="right-buttons">
                 <button type="button" class="help-btn" id="helpBtn">说明</button>
                 <button type="button" class="back-to-lobby-btn" id="backToLobbyBtn">返回大厅</button>
+                <button type="button" class="color-status room-share-btn" id="roomShareBtn" hidden>
+                    <span class="room-share-number"></span>
+                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                        <circle cx="18" cy="5" r="3"></circle><circle cx="6" cy="12" r="3"></circle><circle cx="18" cy="19" r="3"></circle>
+                        <path d="M8.6 10.5l6.8-4M8.6 13.5l6.8 4"></path>
+                    </svg>
+                </button>
+                <button type="button" class="qi-account-control" id="roomLoginBtn">登入</button>
             </div>
         </div>
 
@@ -389,7 +399,9 @@
 
     <script src="/qi/game-catalog.js"></script>
     <script src="/qi/room-game-switcher.js"></script>
+    <script src="/qi/auth-client.js"></script>
     <script src="/qi/qi.js"></script>
+    <script src="/qi/room-share.js"></script>
     <script>
     (function () {
         const pathParts = location.pathname.split('/').filter(Boolean);

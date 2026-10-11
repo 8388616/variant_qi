@@ -321,7 +321,7 @@ const N = Q.N;
              * 显示用行坐标：默认（观战/未入座/执白）白方(row 8)在下方，执黑时整体上下翻转，
              * 使己方始终在下方（与国际象棋一致）。所有绘制/命中判定都走这里，故自动跟随视角。
              */
-            function viewFlipped() { return ps.mySlot === 'player2'; }
+            function viewFlipped() { return !ps.localPlay && ps.mySlot === 'player2'; }
             function cellOriginY(r) {
                 // 默认 row 8（白方）在下；执黑时镜像，使 row 0（黑方）在下
                 const row = viewFlipped() ? (N - 1 - r) : r;

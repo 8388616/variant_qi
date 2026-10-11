@@ -765,7 +765,7 @@ return {
         }
         // 黑方视角：棋盘旋转 180°（黑方坐在棋盘对面，看到的是倒置的棋盘）
         function isBlackView() {
-            return ps && ps.mySlot === 'player2';
+            return ps && !ps.localPlay && ps.mySlot === 'player2';
         }
         function displayPos(r, c) {
             if (!isBlackView()) return { row: r, col: c };

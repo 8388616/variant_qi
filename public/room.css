@@ -73,6 +73,17 @@ body.qi-room .left-group {
     gap: 10px;
 }
 
+body.qi-room .room-share-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4em;
+    font-family: var(--qi-room-font);
+    cursor: pointer;
+}
+body.qi-room .room-share-btn[hidden] { display: none; }
+body.qi-room .room-share-btn svg { flex-shrink: 0; }
+body.qi-room .room-share-btn:focus-visible { outline: 2px solid var(--qi-room-accent); outline-offset: 2px; }
+
 body.qi-room .komi-info,
 body.qi-room .color-status {
     background: rgba(255, 250, 241, 0.92);

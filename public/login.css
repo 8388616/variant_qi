@@ -1,0 +1,143 @@
+:root {
+  color-scheme: light;
+  font-family: "LXGW WenKai GB", "Kaiti SC", "STKaiti", "KaiTi", serif;
+  color: #4e3219;
+  background: #f6f0e3;
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  background: radial-gradient(ellipse at top, #fffcf3, #eadcc2);
+  padding: 28px 16px;
+}
+button,
+input {
+  font: inherit;
+}
+button,
+a {
+  touch-action: manipulation;
+}
+.account-card {
+  width: min(100%, 430px);
+  padding: 30px;
+  background: #fffaf0;
+  border: 1px solid #d5c4a7;
+  border-radius: 16px;
+  box-shadow: 0 12px 40px #5f3f1917;
+}
+.back {
+  color: #86694a;
+  text-decoration: none;
+  font-size: 14px;
+}
+.brand {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 12px;
+  margin: 22px 0;
+}
+.brand img {
+  width: 54px;
+  height: 54px;
+}
+.brand h1 {
+  font-size: 26px;
+  margin: 0;
+  font-weight: 600;
+}
+.tabs {
+  display: flex;
+  border-bottom: 1px solid #dfd1bc;
+  margin-bottom: 24px;
+  gap: 16px;
+}
+.tabs button {
+  flex: 1;
+  padding: 12px;
+  border: 0;
+  background: transparent;
+  color: #967c60;
+  cursor: pointer;
+  border-bottom: 3px solid transparent;
+}
+.tabs button[aria-selected="true"] {
+  color: #694626;
+  border-bottom-color: #9a6b3c;
+  font-weight: bold;
+}
+label {
+  display: block;
+  margin: 16px 0;
+  font-size: 15px;
+}
+input {
+  display: block;
+  width: 100%;
+  margin-top: 8px;
+  border: 1px solid #d6c5ab;
+  border-radius: 7px;
+  padding: 11px 12px;
+  background: #fffdf8;
+  color: #463224;
+  outline: none;
+}
+input:focus {
+  border-color: #a77b4c;
+  box-shadow: 0 0 0 3px #a77b4c18;
+}
+.captcha-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-top: 8px;
+}
+.captcha-row input {
+  min-width: 0;
+  margin: 0;
+  flex: 1;
+}
+.captcha-row button {
+  border: 1px solid #d6c5ab;
+  padding: 0;
+  border-radius: 6px;
+  background: #faf3e6;
+  cursor: pointer;
+  width: 150px;
+  overflow: hidden;
+}
+.captcha-row img {
+  display: block;
+  width: 150px;
+  height: 50px;
+}
+#accountError {
+  color: #a43e2c;
+  min-height: 20px;
+  font-size: 14px;
+}
+.submit {
+  width: 100%;
+  padding: 12px;
+  border: 1px solid #8e633b;
+  border-radius: 8px;
+  background: #997046;
+  color: #fff8ea;
+  cursor: pointer;
+}
+.submit:hover {
+  background: #855c35;
+}
+.submit:disabled {
+  opacity: 0.55;
+  cursor: wait;
+}
+[hidden] {
+  display: none !important;
+}

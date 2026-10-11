@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>登入 · 变体棋类研究中心</title>
+    <link rel="icon" href="/qi/assets/brand/favicon.ico" />
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdmirror.com/npm/lxgw-wenkai-gb-web@1.522.0/lxgwwenkaigb-regular/result.css"
+    />
+    <link rel="stylesheet" href="/qi/login.css" />
+  </head>
+  <body>
+    <main class="account-card">
+      <a class="back" href="/qi">← 返回首页</a>
+      <div class="brand">
+        <img src="/qi/assets/brand/logo.png" alt="" />
+        <h1>变体棋类研究中心</h1>
+      </div>
+      <div class="tabs" role="tablist">
+        <button id="loginTab" role="tab" aria-selected="true">登入</button
+        ><button id="registerTab" role="tab" aria-selected="false">注册</button>
+      </div>
+      <form id="accountForm">
+        <label
+          >用户名<input
+            id="username"
+            name="username"
+            autocomplete="username"
+            required
+            placeholder="2–16个字符"
+        /></label>
+        <label
+          >密码<input
+            id="password"
+            name="password"
+            type="password"
+            autocomplete="current-password"
+            required
+            placeholder="6–256个字符"
+        /></label>
+        <label id="qqField" hidden
+          >QQ号（选填）<input
+            id="qq"
+            name="qq"
+            maxlength="254"
+            placeholder="忘记密码时用这个QQ号联系我们找回"
+        /></label>
+        <label
+          >验证码
+          <div class="captcha-row">
+            <input
+              id="captchaAnswer"
+              autocomplete="off"
+              maxlength="5"
+              required
+              aria-label="图片中的验证码"
+            /><button id="refreshCaptcha" type="button" title="点击换一张">
+              <img id="captchaImage" alt="验证码，点击换一张" />
+            </button></div
+        ></label>
+        <p id="accountError" role="alert"></p>
+        <button class="submit" id="submitAccount" type="submit">登入</button>
+      </form>
+    </main>
+    <script src="/qi/login.js"></script>
+  </body>
+</html>

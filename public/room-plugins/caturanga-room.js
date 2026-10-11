@@ -653,7 +653,7 @@ return {
 
         function boardFlipped() {
             // 默认视角先手方(棋种执方)在下方；后手座位旋转 180°
-            return ps.mySlot === 'player2';
+            return !ps.localPlay && ps.mySlot === 'player2';
         }
 
         function toDisplayCoord(row, col) {

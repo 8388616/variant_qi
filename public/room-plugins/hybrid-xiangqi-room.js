@@ -21,7 +21,7 @@ window.RoomPlugins["hybrid-xiangqi"] = {
 
 			+ "<strong>王</strong>：旗+士+卒，直向或斜向移动一格。<br />"
 			+ "<strong>撫</strong>：3士，斜向移动任意格，路径上不能有其它棋子。<br />"
-			+ "<strong>卫</strong>：2士+卒，按士或馬的方式移动。<br />"
+			+ "<strong>衛</strong>：2士+卒，按士或馬的方式移动。<br />"
 			+ "<strong>騎</strong>：士+2卒，移动到横纵坐标分别差1和2的格内。<br />"
 			+ "<strong>車</strong>：3卒，直向移动任意格，路径上不能有其它棋子。<br />"
 			+ "<strong>驍</strong>：士+卒+包，沿馬的方向走任意步，路径上不能有其它棋子，但是吃子时需隔一子吃。<br /><br />"
@@ -32,8 +32,8 @@ window.RoomPlugins["hybrid-xiangqi"] = {
 			+ "<strong>炮</strong>：士+卒+2包，按砲或軳的方式移动。<br /><br />"
 			
 			+ "<strong>督</strong>：4士+2卒，按騎或撫的方式移动。<br />"
-			+ "<strong>后</strong>：3士+3卒，按騎或車的方式移动。<br />"
-			+ "<strong>相</strong>：士+5卒，按撫或車的方式移动。<br /><br />",
+			+ "<strong>相</strong>：3士+3卒，按騎或車的方式移动。<br />"
+			+ "<strong>后</strong>：士+5卒，按撫或車的方式移动。<br /><br />",
         "defaultKomiText": "白先",
         "boardSizeMin": 9,
         "boardSizeMax": 9,
@@ -76,7 +76,7 @@ window.RoomPlugins["hybrid-xiangqi"] = {
                 M: { name: '馬', comp: { S: 1, Z: 1 }, move: 'knightMove', leg: true, kind: 'horse' },
                 XI: { name: '驍', comp: { S: 1, Z: 1, BA: 1 }, move: 'cannonKnightMove', kind: 'xiao' },
                 P: { name: '兵', comp: { Z: 2 }, move: 'leap2Move', dirs: ORTH, kind: 'soldier' },
-                WE: { name: '卫', comp: { S: 2, Z: 1 }, move: 'stepKnightMove', dirs: DIAG, leg: true, kind: 'guard' },
+                WE: { name: '衛', comp: { S: 2, Z: 1 }, move: 'stepKnightMove', dirs: DIAG, leg: true, kind: 'guard' },
                 DZ: { name: '督', comp: { S: 4, Z: 2 }, move: 'slideKnightMove', dirs: DIAG, kind: 'archbishop' },
                 ZJ: { name: '撫', comp: { S: 3 }, move: 'slideMove', dirs: DIAG, kind: 'bishop' },
                 JI: { name: '驥', comp: { S: 2, Z: 2 }, move: 'knightRunMove', kind: 'steed' },
@@ -700,7 +700,7 @@ window.RoomPlugins["hybrid-xiangqi"] = {
                 quad(ctx, 48, 84, 40, 99, 28, 99, DETAIL);
             },
 
-            /* 卫：行囊（沿用原「包」的布包图形；驮在馬背上的行装） */
+            /* 衛：行囊（沿用原「包」的布包图形；驮在馬背上的行装） */
             guard(ctx) {
                 path(ctx, (c) => {
                     c.moveTo(24, 50);
@@ -835,7 +835,7 @@ window.RoomPlugins["hybrid-xiangqi"] = {
             chancellor: '相', trebuchet: '砲', artillery‌: '軳',
             flag: '旗', bundle: '包', loongma: '驡', loong: '龍',
             cannon: '炮', xiao: '驍', steed: '驥',
-            guard: '卫', archbishop: '督'
+            guard: '衛', archbishop: '督'
         };
 
         /** 通用底座（所有棋子共用，保证风格统一） */
@@ -970,7 +970,7 @@ window.RoomPlugins["hybrid-xiangqi"] = {
             const MARK_DOT = () => Math.max(3, cellSize * 0.24);  // 候选格小方块边长
 
             /* ================= 视角翻转 ================= */
-            function boardFlipped() { return ps.mySlot === 'player2'; }
+            function boardFlipped() { return !ps.localPlay && ps.mySlot === 'player2'; }
             function toDisplayCoord(row, col) {
                 // 先手方(白)在 row 小的一侧且显示在下：先做视角 180° 旋转，再整体 y 镜像
                 let r = row, c = col;

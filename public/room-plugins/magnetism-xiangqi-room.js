@@ -154,7 +154,7 @@ const canvas = document.getElementById('goBoard');
         function slotOfSide(side) { return R.slotFromSide(side); }
 
         function boardFlipped() {
-            return ps.mySlot === 'player2';
+            return !ps.localPlay && ps.mySlot === 'player2';
         }
 
         function toDisplayCoord(row, col) {

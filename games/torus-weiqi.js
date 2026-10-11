@@ -362,6 +362,22 @@ class WeiqiRoom extends QiTwoPlayerRoomBase
         return torusWeiqiRules.computeScore(liveBoard, territory, this.boardSize);
     }
 
+    _komi()
+    {
+        switch (this.boardSize)
+        {
+            case 8:
+            case 9:
+            case 10:
+            case 11:
+            case 12:
+            case 13:
+                return 2.5;
+            default:
+                return 3;
+        }
+    }
+
     computeLead()
     {
         // Benson 加成（环面邻接：上下/左右环绕相连）
@@ -396,7 +412,7 @@ class WeiqiRoom extends QiTwoPlayerRoomBase
             }
         }
         const { blackTotal, whiteTotal } = this.computeScore(liveBoard, territory);
-        const KOMI = 2.5;
+        const KOMI = this._komi();
         return blackTotal - whiteTotal - 2 * KOMI;
     }
 
@@ -429,7 +445,7 @@ class WeiqiRoom extends QiTwoPlayerRoomBase
             : this.copyBoard(this.board);
         return {
             boardSize: this.boardSize,
-            komi: 2.5,
+            komi: this._komi(),
             board: this.board,
             initialBoard,
             numberOfHands: 1 + this.historyBoards.length,
@@ -695,7 +711,7 @@ class WeiqiRoom extends QiTwoPlayerRoomBase
             gameType: '围棋',
             gameId: 'weiqi',
             boardSize: this.boardSize,
-            komi: 2.5,
+            komi: this._komi(),
             players: { player1: null, player2: null },
             initialPosition: encodeOpeningPositionCompact(this),
             moves: this.moveCoords.map(m => {

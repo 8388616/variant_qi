@@ -1,3 +1,10 @@
+// 在加载账号模块前读取项目目录的配置；不依赖 PM2 的当前工作目录。
+const envConfig = require('dotenv').config({
+    path: require('path').join(__dirname, '.env'),
+    quiet: true
+});
+if (envConfig.error && envConfig.error.code !== 'ENOENT') throw envConfig.error;
+
 const crypto = require('crypto');
 const express = require('express');
 const express_rate_limit = require("express-rate-limit");
@@ -12,12 +19,15 @@ const { disposeRoom: disposeKatagoOpponent } = require('./qi-katago-opponent');
 const gameCatalog = require('./public/game-catalog');
 const localPlay = require('./qi-local-play');
 const recordTree = require('./qi-record-tree');
+const accounts = require('./qi-accounts');
+const matchRecords = require('./qi-match-records');
 
 const Express = express();
 Express.set("trust proxy", "127.0.0.1");
 const PORT = 3100;
 const PUBLIC_ROOT = path.resolve(__dirname, 'public');
 
+Express.use('/qi/auth', express.json({ limit: '8kb' }));
 Express.use(express.json());
 const ExpressRateLimit = express_rate_limit({
     windowMs: 60 * 1000,
@@ -26,6 +36,7 @@ const ExpressRateLimit = express_rate_limit({
     legacyHeaders: false
 });
 Express.use(ExpressRateLimit);
+accounts.mount(Express);
 
 const rooms = {};
 
@@ -93,6 +104,7 @@ function getChatSideLabel(room, slot) {
 }
 
 function resolveChatSenderLabel(room, ws) {
+    if (ws.auth && ws.auth.user) return ws.auth.user.username;
     const gl = room && room.gameLogic;
     const matchStarted = !!(gl && (
         gl.matchStarted
@@ -375,6 +387,7 @@ function initGameLogic(room) {
     try { attachKatagoOpponent(room); } catch (e) { console.error('挂载 KataGo 人机失败', e); }
     localPlay.install(room);
     installRecordTree(room);
+    matchRecords.install(room);
 }
 
 function installRecordTree(room) {
@@ -386,6 +399,7 @@ function installRecordTree(room) {
 }
 
 function disposeRoom(room) {
+    matchRecords.close(room);
     if (room.localPlay) room.localPlay.stop();
     room.clearDestroyTimer();
     try { disposeKatagoOpponent(room); } catch (e) { console.error(e); }
@@ -492,6 +506,7 @@ Express.post('/qi/create', (request, response) => {
             try { attachKatagoOpponent(room); } catch (e) { console.error('挂载 KataGo 人机失败', e); }
             localPlay.install(room);
             installRecordTree(room);
+            matchRecords.install(room);
         }
         catch (error) {
             console.error(`加载游戏模块 ${game} 失败:`, error);
@@ -530,13 +545,21 @@ Express.post('/qi/join', (request, response) => {
 Express.get('/qi/rooms', (request, response) => {
     try {
         const { game } = request.query;
-        if (!game || !rooms[game]) return response.json([]);
-        const list = Object.values(rooms[game]).map(room => ({
+        response.setHeader('Cache-Control', 'no-store');
+        const describeRoom = room => ({
             roomId: room.roomId,
             hasPassword: room.hasPassword,
             playerCount: room.getPlayerCount(),
             maxPlayers: room.getSeatCapacity()
-        }));
+        });
+        // 大厅一次获取全部房间；保留按棋类查询的接口供其它客户端使用。
+        if (game === undefined) {
+            const list = Object.entries(rooms).flatMap(([gameId, gameRooms]) =>
+                Object.values(gameRooms).map(room => ({ ...describeRoom(room), gameId })));
+            return response.json(list);
+        }
+        if (typeof game !== 'string' || !Object.hasOwn(rooms, game)) return response.json([]);
+        const list = Object.values(rooms[game]).map(describeRoom);
         response.json(list);
     }
     catch (error) {
@@ -666,9 +689,30 @@ Express.get('/qi/katago-available', (request, response) => {
 });
 
 Express.get("/qi", (request, response) => sendPublicFile(response, "qi.html"));
+// public/assets/ 中的正式图片通过 /qi/assets/ 访问；替换后每次回源校验。
+Express.use('/qi/assets', express.static(path.join(PUBLIC_ROOT, 'assets'), {
+    index: false,
+    dotfiles: 'deny',
+    fallthrough: false,
+    setHeaders(response) { response.setHeader('Cache-Control', 'no-cache'); }
+}));
 Express.get("/qi/qi.css", (request, response) => sendPublicFile(response, "qi.css"));
 Express.get("/qi/qi.js", (request, response) => sendPublicFile(response, "qi.js"));
 Express.get('/qi/game-catalog.js', (request, response) => sendPublicFile(response, 'game-catalog.js'));
+Express.get('/qi/login', (request, response) => {
+    response.set({
+        'Cache-Control': 'no-store',
+        'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self' https://cdn.jsdmirror.com; font-src 'self' https://cdn.jsdmirror.com data:; img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
+        'X-Content-Type-Options': 'nosniff',
+        'Referrer-Policy': 'same-origin'
+    });
+    sendPublicFile(response, 'login.html');
+});
+Express.get('/qi/auth-client.js', (request, response) => sendPublicFile(response, 'auth-client.js'));
+Express.get('/qi/auth-client.css', (request, response) => sendPublicFile(response, 'auth-client.css'));
+Express.get('/qi/room-share.js', (request, response) => sendPublicFile(response, 'room-share.js'));
+Express.get('/qi/login.js', (request, response) => sendPublicFile(response, 'login.js'));
+Express.get('/qi/login.css', (request, response) => sendPublicFile(response, 'login.css'));
 Express.get('/qi/tsumego', (request, response) => sendPublicFile(response, 'tsumego-host.html'));
 Express.get('/qi/tsumego-host.js', (request, response) => sendPublicFile(response, 'tsumego-host.js'));
 Express.get('/qi/tsumego-host.css', (request, response) => sendPublicFile(response, 'tsumego-host.css'));
@@ -773,20 +817,24 @@ function serveRoomPage(request, response) {
 Express.get('/rooms/:roomId', serveRoomPage);
 Express.get('/qi/rooms/:roomId', serveRoomPage);
 
-const wss = new ws.Server({ noServer: true });
+const wss = new ws.Server({ noServer: true, maxPayload: 1024 * 1024 });
 const Server_ = Express.listen(PORT, '127.0.0.1', () => { console.log(`棋类服务器运行在端口 ${PORT}`); });
 
-Server_.on('upgrade', (req, socket, head) => {
-    const url = new URL(req.url, `http://${req.headers.host}`);
-    if (url.pathname === '/qi/ws') {
+Server_.on('upgrade', async (req, socket, head) => {
+    try {
+        if (!accounts.originAllowed(req)) { socket.destroy(); return; }
+        const url = new URL(req.url, `http://${req.headers.host}`);
+        if (url.pathname !== '/qi/ws') { socket.destroy(); return; }
+        req.qiAuth = await accounts.session(req);
+        if (socket.destroyed) return;
         wss.handleUpgrade(req, socket, head, (ws) => {
             wss.emit('connection', ws, req);
         });
-    } else
-        socket.destroy();
+    } catch (_) { socket.destroy(); }
 });
 
 wss.on('connection', (ws, req) => {
+    if (req.qiAuth && !accounts.bindSocket(ws, req.qiAuth)) return;
     const url = new URL(req.url, `http://${req.headers.host}`);
     const game = url.searchParams.get('game');
     const roomId = url.searchParams.get('room');
@@ -808,6 +856,7 @@ wss.on('connection', (ws, req) => {
     ws.on('error', () => {});
 
     ws.on('message', async (data) => {
+        if (ws.auth && Date.now() >= ws.auth.expiresAt) { ws.close(1008, '登入已过期'); return; }
         if (room.retired || ws._qiDetached) return;
         let msg;
         try {
@@ -816,7 +865,22 @@ wss.on('connection', (ws, req) => {
         catch (e) {
             return;
         }
+        if (!msg || typeof msg !== 'object' || Array.isArray(msg)) return;
+        if (msg.type !== 'join' && !room.players.has(ws) && !room.observers.has(ws) && !ws._qiLocalPlay) return;
+        try {
 
+        if (msg.type === 'authenticate') {
+            const auth = await accounts.socketTicket(msg.ticket);
+            if (!auth || ws.readyState !== 1 || ws._qiDetached || room.retired) {
+                if (ws.readyState === 1) ws.send(JSON.stringify({ type: 'accountAuthenticated', success: false }));
+                return;
+            }
+            if (!accounts.bindSocket(ws, auth)) return;
+            matchRecords.refreshIdentity(room, ws);
+            room.broadcast({ type: 'playerIdentities', playerIdentities: matchRecords.identities(room) });
+            ws.send(JSON.stringify({ type: 'accountAuthenticated', success: true }));
+            return;
+        }
         if (msg.type === 'switchGame') {
             switchRoomGame(room, ws, msg.game);
             return;
@@ -875,6 +939,7 @@ wss.on('connection', (ws, req) => {
         }
 
         if (msg.type === 'join') {
+            if (room.players.has(ws) || room.observers.has(ws) || ws._qiLocalPlay) return;
             room.purgeDeadClients();
             if (room.hasPassword) {
                 const hash = crypto.createHash('sha256').update(msg.password || '').digest('hex');
@@ -971,6 +1036,19 @@ wss.on('connection', (ws, req) => {
         }
         room.syncSwitchState();
         room.syncSoloSeatState();
+        } catch (error) { console.error('[room message]', error.message); }
+        finally {
+            try {
+            matchRecords.inspect(room);
+            const identities = matchRecords.identities(room);
+            const signature = JSON.stringify(identities);
+            if (signature !== room._identitySignature) {
+                room._identitySignature = signature;
+                room.broadcast({ type: 'playerIdentities', playerIdentities: identities });
+            }
+            if (msg.type === 'join' && ws.readyState === 1) ws.send(JSON.stringify({ type: 'playerIdentities', playerIdentities: identities }));
+            } catch (error) { console.error('[room identity]', error.message); }
+        }
     });
 
     ws.on('close', () => {
@@ -989,6 +1067,7 @@ const HEARTBEAT_MS = 10000;
 setInterval(() => {
     wss.clients.forEach((client) => {
         if (client.readyState !== 1) return;
+        if (client.auth && Date.now() >= client.auth.expiresAt) { client.close(1008, '登入已过期'); return; }
         if (client.isAlive === false) {
             try { client.terminate(); } catch (e) {}
             return;

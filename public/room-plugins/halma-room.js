@@ -354,7 +354,7 @@ return {
         function boardSize() { return ps.boardSize || R.DEFAULT_N; }
 
         function boardFlipped() {
-            return ps.mySlot === 'player2';
+            return !ps.localPlay && ps.mySlot === 'player2';
         }
 
         function toDisplayCoord(row, col) {

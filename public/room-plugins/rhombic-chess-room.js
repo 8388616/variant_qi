@@ -414,7 +414,7 @@ const R = (function () {
 
         // 黑方视角：棋盘旋转 180°（黑方坐在对面，看到的是倒置的棋盘）
         function isBlackView() {
-            return ps && ps.mySlot === 'player2';
+            return ps && !ps.localPlay && ps.mySlot === 'player2';
         }
         const ROT_ID = (() => {
             const map = [];
@@ -492,6 +492,7 @@ const R = (function () {
 
         const ps = {
             board: R.setup(),
+            moveHistory: [],
             sideToMove: 'white',
             mySlot: null,
             gameOver: false,
@@ -847,6 +848,7 @@ const R = (function () {
 
         function syncState(state) {
             if (state.board) ps.board = state.board;
+            if (Array.isArray(state.moveHistory)) ps.moveHistory = state.moveHistory;
             if (state.sideToMove) ps.sideToMove = state.sideToMove;
             ps.gameOver = state.gameOver || false;
             ps.winner = state.winner || null;

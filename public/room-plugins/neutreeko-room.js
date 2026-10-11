@@ -209,7 +209,7 @@ const boardSizeSelect = document.getElementById('boardSizeSelect');
             function updateKomiText() { /* 不显示 */ }
 
             /** 默认（观战/未入座/执白）白方在下方；执黑时整体 180° 翻转，使己方在下方 */
-            function viewFlipped() { return ps.mySlot === 'player2'; }
+            function viewFlipped() { return !ps.localPlay && ps.mySlot === 'player2'; }
 
             function boardCenterOfCell(row, col) {
                 const n = ps.BOARD_SIZE;

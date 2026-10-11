@@ -30,7 +30,7 @@ const SUB_META = {
     'hexagon-weiqi': {
         name: '六角围棋', gameType: '六角围棋', prefix: '六角围棋',
         min: 4, max: 11, def: 9,
-		komi: () => (lanes) => (lanes >= 9 ? 7.5 : [0, 0, 12, 7, 4.5, 5.5, 6.5, 7.5][lanes]), gtpSize: (lanes) => lanes
+		komi: () => (lanes) => (lanes >= 9 ? 7.5 : [0, 0, 0, 12, 7, 4.5, 5.5, 6.5, 7.5][lanes]), gtpSize: (lanes) => lanes
     },
     'floret-pentagon-weiqi': {
         name: '花形五角围棋', gameType: '花形五角围棋', prefix: '花形五角围棋',
