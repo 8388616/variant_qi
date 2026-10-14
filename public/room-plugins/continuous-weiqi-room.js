@@ -68,7 +68,7 @@ window.RoomPlugins["continuous-weiqi"] = {
     const TOUCH_DISTANCE = 1.0;
     const EPS = 1e-9;
     const SCORE_GRID = 80;
-    const KOMI = 7.5;
+    let KOMI = 7.5;   // 服务端下发贴目以记录为准（导入棋谱），默认 7.5
 
     // 连续围棋：物理总点数 = boardLength²（棋盘面积，与贴目同单位；经绑定 ctx.getTotalPoints 供限时默认值等使用）。
     // KomiInfo 不适用「黑贴白xxx点(黑yyy点和棋)」双段格式，保持「黑贴白xxx点」（文本来自壳层 defaultKomiText，本文件不写）。
@@ -326,6 +326,7 @@ window.RoomPlugins["continuous-weiqi"] = {
     let numberOfHands = 1;
     let gameOver = false;
     let winner = null;
+    let recordResultText = null;     // 终局结果原文（棋谱记录；导入棋谱以记录为准）
     let moveCoords = [];
     let lastMoveMarkers = [];
     let showEstimateActive = false;
@@ -354,6 +355,7 @@ window.RoomPlugins["continuous-weiqi"] = {
     let tryPlayBasePlayer = 1;
     let _tryPlayBackup = null;
     let liveReplayStonesSeq = [];
+    let liveReplayCache = null;
     let liveReplayMarkers = [];
     let liveViewStep = 0;
     let liveFollowLatest = true;
@@ -569,7 +571,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                 ctx.fillText(String(num), px, py);
             }
         }
-        if (!replayMode && !gameOver && (tryPlayMode || isMyTurn()) && isHoverValid && hoverGx >= 0) {
+        if ((tryPlayMode || (!replayMode && !gameOver && isMyTurn())) && isHoverValid && hoverGx >= 0) {
             const [px, py] = gameToPx(hoverGx, hoverGy);
             ctx.globalAlpha = 0.45;
             ctx.fillStyle = (tryPlayMode ? tryPlayPlayer : currentPlayer) === 1 ? '#1a1a1a' : '#f4f1ea';
@@ -617,7 +619,10 @@ const scoreTitle = document.getElementById('scoreTitle');
 
     function updateEstimate() {
         if (!showEstimateActive) {
-            scoreTitle.innerText = '　';
+            // 终局结果优先留在比分区（导入棋谱以记录为准）；没结束才清空
+            scoreTitle.innerText = gameOver
+                ? QiWeiqiSquarePageRuntime.gameResultTitleText({ recordResultText, winner })
+                : '　';
             scoreBoard.innerText = '　';
             leadInfo.innerText = '　';
             return;
@@ -631,7 +636,12 @@ const scoreTitle = document.getElementById('scoreTitle');
     function updateTurn() {
         if (matchStarted) matchStartedOnce = true;
         const both = slots.player1 && slots.player2;
-        if (!matchStarted) turnDisplay.innerText = QiWeiqiSquarePageRuntime.waitingSeatTurnText(slots, mySlot);
+        if (gameOver) {
+            // 终局结果（导入棋谱以记录为准）：与其它围棋路数的比分框显示一致
+            turnDisplay.innerText = '对局结束';
+            scoreTitle.innerText = QiWeiqiSquarePageRuntime.gameResultTitleText({ recordResultText, winner });
+        }
+        else if (!matchStarted) turnDisplay.innerText = QiWeiqiSquarePageRuntime.waitingSeatTurnText(slots, mySlot);
         else if (numberOfHands <= 1) turnDisplay.innerText = '初始局面';
         else {
             const lastPlayer = currentPlayer === 1 ? 2 : 1;
@@ -729,11 +739,18 @@ const scoreTitle = document.getElementById('scoreTitle');
 
     function syncLiveReplayFromState(state) {
         const mcs = state.moveCoords || [];
+        const base = JSON.stringify([boardLength, openingStones]);
+        const keys = mcs.map(m => JSON.stringify(m));
+        const samePrefix = liveReplayCache && liveReplayCache.seq === liveReplayStonesSeq
+            && liveReplayCache.base === base && liveReplayCache.keys.every((key, i) => key === keys[i]);
+        const remember = () => { liveReplayCache = { base, keys, seq: liveReplayStonesSeq }; };
+        if (samePrefix && keys.length === liveReplayCache.keys.length) return;
         const syncedLen = liveReplayStonesSeq.length - 1;
-        if (syncedLen >= 0 && mcs.length > syncedLen) {
-            if (applyLiveReplayIncremental(mcs)) return;
+        if (samePrefix && syncedLen >= 0 && mcs.length > syncedLen) {
+            if (applyLiveReplayIncremental(mcs)) { remember(); return; }
         }
         rebuildLiveReplayFromMoveCoords(mcs);
+        remember();
     }
 
     function setLiveViewStep(step) {
@@ -888,6 +905,12 @@ const scoreTitle = document.getElementById('scoreTitle');
     }
 
     function syncState(state) {
+        // 贴目：以服务端下发的为准（导入棋谱采纳记录贴目；重置后服务端回到默认值，这里跟着回）
+        if (state.komi != null && Number.isFinite(state.komi) && state.komi !== KOMI) {
+            KOMI = state.komi;
+            const el = document.getElementById('komiInfo');
+            if (el) QiWeiqiSquarePageRuntime.writeKomiInfoText(el, KOMI, boardLength * boardLength);
+        }
         if (tryPlayMode) {
             // 试下期间不覆盖本地局面，仅同步必要元数据
             if (state.boardLength) {
@@ -909,14 +932,18 @@ const scoreTitle = document.getElementById('scoreTitle');
         numberOfHands = state.numberOfHands || 1;
         gameOver = !!state.gameOver;
         winner = state.winner || null;
+        if (state.recordResultText !== undefined) recordResultText = state.recordResultText || null;
+        else if (state.gameOver === false) recordResultText = null;
         moveCoords = (state.moveCoords || []).map(m => ({ ...m }));
         lastMoveMarkers = (state.lastMoveMarkers || []).map(m => ({ ...m }));
         slots = state.slots || slots;
         gameStarted = (numberOfHands || 1) > 1;
-        syncLiveReplayFromState({ moveCoords });
+        const importingReplay = state.type === 'importSuccess' && state.replayData
+            && Array.isArray(state.replayData.moves) && state.replayData.moves.length > 0;
+        if (!importingReplay) syncLiveReplayFromState({ moveCoords });
         liveFollowLatest = true;
         territoryKey = '';
-        if (!replayMode) syncStateFromServer();
+        if (!replayMode && !importingReplay) syncStateFromServer();
         updateEditModeUI();
     }
 
@@ -939,6 +966,8 @@ const scoreTitle = document.getElementById('scoreTitle');
             replayStepPlayers.push(m.player === 'player1' ? 1 : 2);
         }
         replayTotalSteps = replayStonesSeq.length - 1;
+        liveReplayStonesSeq = replayStonesSeq.slice();
+        liveReplayMarkers = replayMarkersSeq.slice();
         replayMode = true;
         replayStep = replayTotalSteps;
         const slider = document.getElementById('replaySlider');

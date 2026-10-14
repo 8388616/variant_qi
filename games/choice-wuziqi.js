@@ -166,6 +166,7 @@ class ChoiceWuziqiRoom extends QiTwoPlayerRoomBase {
             lastMoveMarkers: this.lastMoveMarkers,
             gameOver: this.gameOver,
             winner: this.winner,
+            recordResultText: this.recordResultText,
             candidates: this.candidates,
             matchStarted: this.matchStarted,
             matchTime: {

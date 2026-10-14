@@ -16,7 +16,7 @@
  * 数点/形势判断沿用非四角围棋那套（Benson 保活 + 确定领地覆盖，按本盘邻接计算；没有内置 AI 引擎）
  */
 
-const { QiTwoPlayerRoomBase, gridGraphWeiqiRules, qiMatchTimeControl, qiProtocol, qiBoardSeatOverlay } = require('../common');
+const { qiApplyRecordKomi, qiEffectiveKomi, QiTwoPlayerRoomBase, gridGraphWeiqiRules, qiMatchTimeControl, qiProtocol, qiBoardSeatOverlay } = require('../common');
 
 /* ============================ 一、棋盘几何 ============================ */
 /**
@@ -286,6 +286,7 @@ class LargeSmallCircleWeiqiRoom extends QiTwoPlayerRoomBase {
     }
 
     komi() {
+        if (this.importedKomi != null) return this.importedKomi;   // 导入棋谱采纳记录贴目
         return KOMI;
     }
 
@@ -561,6 +562,7 @@ class LargeSmallCircleWeiqiRoom extends QiTwoPlayerRoomBase {
             lastMoveMarkers: this.lastMoveMarkers,
             gameOver: this.gameOver,
             winner: this.winner,
+            recordResultText: this.recordResultText,
             moveCoords: this.moveCoords,
             slots: {
                 player1: !!this.room.getPlayerBySlot('player1'),
@@ -612,6 +614,7 @@ class LargeSmallCircleWeiqiRoom extends QiTwoPlayerRoomBase {
     }
 
     resetGame() {
+        this.importedKomi = undefined;
         this._stopClockTicker();
         this._buildBoard();
         this._initState();
@@ -620,6 +623,7 @@ class LargeSmallCircleWeiqiRoom extends QiTwoPlayerRoomBase {
     }
 
     resetToEmpty() {
+        this.importedKomi = undefined;
         this._stopClockTicker();
         this._buildBoard();
         this._initState();
@@ -803,6 +807,7 @@ class LargeSmallCircleWeiqiRoom extends QiTwoPlayerRoomBase {
                 this.winner = data.result;
         }
 
+        qiApplyRecordKomi(this, data);   // 导入棋谱采纳记录贴目（新局/重置时清掉）
         this.broadcast({
             type: 'importSuccess',
             ...this.getState(),

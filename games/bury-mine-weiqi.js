@@ -1,4 +1,4 @@
-const {
+const { qiApplyRecordKomi, qiEffectiveKomi,
     qiBoardSeatOverlay,
     qiProtocol,
     qiMatchTimeControl,
@@ -861,6 +861,7 @@ class BuryMineWeiqiRoom extends WeiqiRoom {
                 this.winner = data.result;
         }
 
+        qiApplyRecordKomi(this, data);   // 导入棋谱采纳记录贴目（新局/重置时清掉）
         this.broadcast({
             type: 'importSuccess',
             ...this.getState(),

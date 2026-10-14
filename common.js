@@ -747,13 +747,35 @@ function normalizeQiRecordForImport(self, data) {
     // matchStarted/tcSettings 的，所以这里把 timeControl 去掉即可 —— 否则状态里 matchStarted
     // 与 matchTime.settings 都是「已开局」，而房间里一个人也没有，客户端会按
     // 「对局已开始但双方已退出」显示（时间框写「黑(已退出)」、棋盘也不许再编辑）。
-    const hasMoves = Array.isArray(out.moves) && out.moves.some((m) => typeof m === 'string' && m.trim() !== '');
+    const hasMoves = Array.isArray(out.moves) && out.moves.some((m) => (typeof m === 'string' && m.trim() !== '')
+        || (m && typeof m === 'object' && typeof m.type === 'string'));
     const hasResult = out.result != null
         || (out.resultText != null && String(out.resultText).trim() !== '');
     if (!hasMoves && !hasResult) {
         out.timeControl = null;                           // 限时也当作没协商过：回到开局前，让双方重新确认
     }
     return out;
+}
+
+/**
+ * 导入棋谱时采纳记录里的贴目（读 `data.komi`，存到 `self.importedKomi`）。
+ * 棋种在 `importRecord` 末尾（回放完、广播前）调用即可；新局/重置时把 `this.importedKomi` 清成
+ * `undefined`（写在各棋种的 resetToEmpty / resetGame 里）就回落到各棋种自己的默认贴目。
+ * 继续围棋（continuous-weiqi）此前已有此做法（`this.komi`），这里收归公共。
+ */
+function qiApplyRecordKomi(self, data) {
+    if (!self || !data || data.komi == null) return;
+    const k = Number(data.komi);
+    if (Number.isFinite(k) && Math.abs(k) <= 100) self.importedKomi = k;
+}
+
+/**
+ * 棋种报贴目统一走它：导入过（`this.importedKomi` 有值）就用记录里的贴目，否则用 `fallback`
+ * （各棋种自己的默认：常量、`komiForSize(this.boardSize)`、`this._komi()` 等，原样传进来）。
+ */
+function qiEffectiveKomi(self, fallback) {
+    if (self && self.importedKomi != null && Number.isFinite(Number(self.importedKomi))) return Number(self.importedKomi);
+    return typeof fallback === 'function' ? fallback() : fallback;
 }
 
 /** 方格五子棋：连五判定与棋盘是否已满（与前端 qi.js 中同名逻辑保持一致） */
@@ -3210,6 +3232,8 @@ const qiBoardSeatOverlay = {
 
 module.exports = {
     normalizeQiRecordForImport,
+    qiApplyRecordKomi,
+    qiEffectiveKomi,
     copyBoard,
     boardToString,
     encodeInitialPositionCompact,

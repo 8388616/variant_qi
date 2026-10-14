@@ -1,4 +1,4 @@
-const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, applyInitialPositionCompact, encodeInitialPositionCompact, qiBoardSeatOverlay, encodeOpeningPositionCompact , computeNearestWeiqiLead, squareWeiqiScoringOps } = require('../common');
+const { qiApplyRecordKomi, qiEffectiveKomi, QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, applyInitialPositionCompact, encodeInitialPositionCompact, qiBoardSeatOverlay, encodeOpeningPositionCompact , computeNearestWeiqiLead, squareWeiqiScoringOps } = require('../common');
 
 class RusWeiqiRoom extends QiTwoPlayerRoomBase {
     constructor(room) {
@@ -377,7 +377,7 @@ class RusWeiqiRoom extends QiTwoPlayerRoomBase {
 
     /** 形势判断 / 数点：只用最近归属档（公共口径）；不判死子、不叠 Benson */
     computeLead() {
-        const { lead } = computeNearestWeiqiLead(this.board, 2.25, squareWeiqiScoringOps(this.boardSize, {
+        const { lead } = computeNearestWeiqiLead(this.board, qiEffectiveKomi(this, 2.25), squareWeiqiScoringOps(this.boardSize, {
             copyBoard: (b) => this.copyBoard(b)
         }));
         return lead;
@@ -387,15 +387,16 @@ class RusWeiqiRoom extends QiTwoPlayerRoomBase {
         return {
             boardSize: this.boardSize,
             board: this.board,
-            komi: 2.25,
+            komi: qiEffectiveKomi(this, 2.25),
             numberOfHands: 1 + this.historyBoards.length,
             currentPlayer: this.currentPlayer,
             lastMoveMarkers: this.lastMoveMarkers,
             gameOver: this.gameOver,
             winner: this.winner,
+            recordResultText: this.recordResultText,
             lastUsedShapeByColor: this.lastUsedShapeByColor,
             moveCoords: this.moveCoords,
-            komi: 2.25,
+            komi: qiEffectiveKomi(this, 2.25),
             slots: {
                 player1: !!this.room.getPlayerBySlot('player1'),
                 player2: !!this.room.getPlayerBySlot('player2')
@@ -512,6 +513,7 @@ class RusWeiqiRoom extends QiTwoPlayerRoomBase {
         this.tcSettings = null;
         this.tcClock = null;
         this.recordResultText = null;
+        this.importedKomi = undefined;
         this.matchStarted = false;
         this.board = Array(this.boardSize).fill().map(() => Array(this.boardSize).fill(0));
         this.currentPlayer = 1;
@@ -819,7 +821,7 @@ class RusWeiqiRoom extends QiTwoPlayerRoomBase {
             gameType: '罗斯围棋',
             gameId: 'rus-weiqi',
             boardSize: this.boardSize,
-            komi: 2.25,
+            komi: qiEffectiveKomi(this, 2.25),
             stoneEncoding: 'plusMinus',
             players: { player1: null, player2: null },
             // 开局盘面（编辑模式的开局；默认空盘）——导出当前盘面会让导入时与 moves 重放冲突
@@ -848,6 +850,7 @@ class RusWeiqiRoom extends QiTwoPlayerRoomBase {
         this.tcSettings = null;
         this.tcClock = null;
         this.recordResultText = null;
+        this.importedKomi = undefined;
         this.matchStarted = false;
         this.board = Array(this.boardSize).fill().map(() => Array(this.boardSize).fill(0));
         this.currentPlayer = 1;
@@ -1064,6 +1067,7 @@ class RusWeiqiRoom extends QiTwoPlayerRoomBase {
                 this.winner = data.result;
         }
 
+        qiApplyRecordKomi(this, data);   // 导入棋谱采纳记录贴目（新局/重置时清掉）
         this.broadcast({
             type: 'importSuccess',
             ...this.getState(),

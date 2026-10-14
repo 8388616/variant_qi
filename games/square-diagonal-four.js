@@ -213,6 +213,7 @@ class SquareDiagonalFourRoom extends QiTwoPlayerRoomBase {
             lastMoveMarkers: this.lastMoveMarkers,
             gameOver: this.gameOver,
             winner: this.winner,
+            recordResultText: this.recordResultText,
             moveHistory: this.moveHistory.slice(),
             moveCoords: this.wireMoveCoords(),
             matchTime: {

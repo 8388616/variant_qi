@@ -1,4 +1,4 @@
-const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, qiBoardSeatOverlay } = require('../common');
+const { qiApplyRecordKomi, qiEffectiveKomi, QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, qiBoardSeatOverlay } = require('../common');
 const MINE = -3;
 class MinesweeperWeiqiRoom extends QiTwoPlayerRoomBase
 {
@@ -331,7 +331,7 @@ class MinesweeperWeiqiRoom extends QiTwoPlayerRoomBase
         const liveBoard = this.removeDeadAndDying(this.board);
         const territory = this.assignTerritoryWithRange(liveBoard);
         const { blackTotal, whiteTotal } = this.computeScore(liveBoard, territory);
-        const KOMI = 3.25;
+        const KOMI = qiEffectiveKomi(this, 3.25);
         return blackTotal - whiteTotal - 2 * KOMI;
     }
 
@@ -368,6 +368,7 @@ class MinesweeperWeiqiRoom extends QiTwoPlayerRoomBase
         return {
             boardSize: this.boardSize,
             board: this.getClientBoard(),
+            komi: qiEffectiveKomi(this, 3.25),
             minesweeperHints: this.computeMinesweeperHints(this.board),
             holesGenerated: this.holesGenerated,
             remainingMines: this.holesGenerated ? this.countRemainingMines() : null,
@@ -378,6 +379,7 @@ class MinesweeperWeiqiRoom extends QiTwoPlayerRoomBase
             lastMoveMarkers: this.lastMoveMarkers.map(m => ({ ...m })),
             gameOver: this.gameOver,
             winner: this.winner,
+            recordResultText: this.recordResultText,
             moveCoords: this.moveCoords.map(m => ({ ...m })),
             slots: {
                 player1: !!this.room.getPlayerBySlot('player1'),
@@ -726,6 +728,7 @@ class MinesweeperWeiqiRoom extends QiTwoPlayerRoomBase
             lastMoveMarkers: [],
             gameOver: this.gameOver,
             winner: this.winner,
+            recordResultText: this.recordResultText,
             moveCoords: [],
             slots: {
                 player1: !!this.room.getPlayerBySlot('player1'),
@@ -816,6 +819,7 @@ class MinesweeperWeiqiRoom extends QiTwoPlayerRoomBase
         this.gameOver = false;
         this.winner = null;
         this.recordResultText = null;
+        this.importedKomi = undefined;
         this.passCounter = 0;
         this.moveCoords = [];
         this.minesRevealedPublicly = false;
@@ -876,7 +880,7 @@ class MinesweeperWeiqiRoom extends QiTwoPlayerRoomBase
             gameType: '扫雷围棋',
             gameId: 'minesweeper-weiqi',
             boardSize: this.boardSize,
-            komi: 3.25,
+            komi: qiEffectiveKomi(this, 3.25),
             players: { player1: null, player2: null },
             initialPosition,
             moves: this.moveCoords.map(encodeMove),
@@ -906,6 +910,7 @@ class MinesweeperWeiqiRoom extends QiTwoPlayerRoomBase
         this.gameOver = false;
         this.winner = null;
         this.recordResultText = null;
+        this.importedKomi = undefined;
         this.passCounter = 0;
         this.pendingNewGame = null;
         this.pendingUndo = null;
@@ -1142,6 +1147,7 @@ class MinesweeperWeiqiRoom extends QiTwoPlayerRoomBase
         this.randomMinesFromGame = !holesFromFile && !!(this.snapshotHolesAfterGen && this.snapshotHolesAfterGen.length) && smAfter.length >= 2;
         this.minesRevealedPublicly = !!data.result || holesFromFile;
 
+        qiApplyRecordKomi(this, data);   // 导入棋谱采纳记录贴目（新局/重置时清掉）
         this.broadcast({
             type: 'importSuccess',
             ...this.getState(),

@@ -1,4 +1,5 @@
-﻿const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, applyInitialPositionCompact, encodeInitialPositionCompact, qiBoardSeatOverlay, encodeOpeningPositionCompact, computeBensonWeiqiLead, squareWeiqiScoringOps } = require('../common');
+﻿const {
+    qiApplyRecordKomi, qiEffectiveKomi, QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, applyInitialPositionCompact, encodeInitialPositionCompact, qiBoardSeatOverlay, encodeOpeningPositionCompact, computeBensonWeiqiLead, squareWeiqiScoringOps } = require('../common');
 
 /**
  * 避锋围棋（sharp-edge-evasion-weiqi）：一个棋种，四个子棋类。
@@ -261,6 +262,7 @@ class SharpEdgeEvasionWeiqiRoom extends QiTwoPlayerRoomBase
 
     /** 贴目：普通围棋口径（四种子棋类相同） */
     _komi() {
+        if (this.importedKomi != null) return this.importedKomi;   // 导入棋谱采纳记录贴目
         return komiForSize(this.boardSize);
     }
 
@@ -315,6 +317,7 @@ class SharpEdgeEvasionWeiqiRoom extends QiTwoPlayerRoomBase
             lastMoveMarkers: this.lastMoveMarkers,
             gameOver: this.gameOver,
             winner: this.winner,
+            recordResultText: this.recordResultText,
             moveCoords: this.moveCoords,
             slots: {
                 player1: !!this.room.getPlayerBySlot('player1'),
@@ -349,6 +352,7 @@ class SharpEdgeEvasionWeiqiRoom extends QiTwoPlayerRoomBase
             lastMoveMarkers: this.lastMoveMarkers,
             gameOver: this.gameOver,
             winner: this.winner,
+            recordResultText: this.recordResultText,
             moveCoords: [],
             slots: {
                 player1: !!this.room.getPlayerBySlot('player1'),
@@ -565,6 +569,7 @@ class SharpEdgeEvasionWeiqiRoom extends QiTwoPlayerRoomBase
         this.tcSettings = null;
         this.tcClock = null;
         this.recordResultText = null;
+        this.importedKomi = undefined;
         this.matchStarted = false;
         this.board = Array(this.boardSize).fill().map(() => Array(this.boardSize).fill(0));
         this.openingBoard = this.copyBoard(this.board);
@@ -651,6 +656,7 @@ class SharpEdgeEvasionWeiqiRoom extends QiTwoPlayerRoomBase
         this.tcSettings = null;
         this.tcClock = null;
         this.recordResultText = null;
+        this.importedKomi = undefined;
         this.matchStarted = false;
         this.board = Array(this.boardSize).fill().map(() => Array(this.boardSize).fill(0));
         this.openingBoard = this.copyBoard(this.board);
@@ -767,6 +773,7 @@ class SharpEdgeEvasionWeiqiRoom extends QiTwoPlayerRoomBase
                 this.winner = data.result;
         }
 
+        qiApplyRecordKomi(this, data);   // 导入棋谱采纳记录贴目（新局/重置时清掉）
         this.broadcast({
             type: 'importSuccess',
             ...this.getState(),

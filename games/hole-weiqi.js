@@ -1,4 +1,4 @@
-const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, encodeInitialPositionCompact, applyInitialPositionCompact, qiBoardSeatOverlay, encodeOpeningPositionCompact } = require('../common');
+const { qiApplyRecordKomi, qiEffectiveKomi, QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, encodeInitialPositionCompact, applyInitialPositionCompact, qiBoardSeatOverlay, encodeOpeningPositionCompact } = require('../common');
 
 /** 洞围棋贴目（按路数）：7 路 4.75，其余（含默认 19 路）4.25 */
 function komiForSizeHole(boardSize) {
@@ -259,7 +259,7 @@ class HoleWeiqiRoom extends QiTwoPlayerRoomBase
     }
 
     computeLead() {
-        const KOMI = komiForSizeHole(this.boardSize);
+        const KOMI = qiEffectiveKomi(this, komiForSizeHole(this.boardSize));
         const size = this.boardSize;
         const isHoleBoard = (bd) => (r, c) => bd[r][c] === -1;
         // Benson（洞版）：洞不可落子、无气、不连通，不参与分析
@@ -298,12 +298,13 @@ class HoleWeiqiRoom extends QiTwoPlayerRoomBase
         return {
             board: this.board,
             initialBoard,
-            komi: komiForSizeHole(this.boardSize),
+            komi: qiEffectiveKomi(this, komiForSizeHole(this.boardSize)),
             numberOfHands: 1 + this.historyBoards.length,
             currentPlayer: this.currentPlayer,
             lastMoveMarkers: this.lastMoveMarkers,
             gameOver: this.gameOver,
             winner: this.winner,
+            recordResultText: this.recordResultText,
             holes: this.holes,
             moveCoords: this.moveCoords,
             boardSize: this.boardSize,
@@ -329,12 +330,13 @@ class HoleWeiqiRoom extends QiTwoPlayerRoomBase
         return {
             board: this.board,
             initialBoard,
-            komi: komiForSizeHole(this.boardSize),
+            komi: qiEffectiveKomi(this, komiForSizeHole(this.boardSize)),
             currentPlayer: this.currentPlayer,
             numberOfHands: 1,
             lastMoveMarkers: this.lastMoveMarkers,
             gameOver: this.gameOver,
             winner: this.winner,
+            recordResultText: this.recordResultText,
             holes: this.holes,
             moveCoords: [],
             boardSize: this.boardSize,
@@ -546,6 +548,7 @@ class HoleWeiqiRoom extends QiTwoPlayerRoomBase
         this.gameOver = false;
         this.winner = null;
         this.recordResultText = null;
+        this.importedKomi = undefined;
         this.passCounter = 0;
         qiProtocol.releaseAllSeats(this);
         this.broadcast({ type: 'newGameStarted', ...this.getInitialState(), slots: { player1: false, player2: false } });
@@ -566,7 +569,7 @@ class HoleWeiqiRoom extends QiTwoPlayerRoomBase
             game: '洞围棋',
             gameId: 'hole-weiqi',
             boardSize: this.boardSize,
-            komi: komiForSizeHole(this.boardSize),
+            komi: qiEffectiveKomi(this, komiForSizeHole(this.boardSize)),
             players: { player1: '', player2: '' },
             initialPosition: encodeOpeningPositionCompact(this),
             moves: this.moveCoords.map(m => {
@@ -599,6 +602,7 @@ class HoleWeiqiRoom extends QiTwoPlayerRoomBase
         this.gameOver = false;
         this.winner = null;
         this.recordResultText = null;
+        this.importedKomi = undefined;
         this.passCounter = 0;
         this.pendingNewGame = null;
         this.pendingUndo = null;
@@ -702,6 +706,7 @@ class HoleWeiqiRoom extends QiTwoPlayerRoomBase
                 this.winner = data.result;
         }
 
+        qiApplyRecordKomi(this, data);   // 导入棋谱采纳记录贴目（新局/重置时清掉）
         this.broadcast({
             type: 'importSuccess',
             ...this.getState(),

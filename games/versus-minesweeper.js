@@ -387,6 +387,7 @@ class VersusMinesweeperRoom extends QiTwoPlayerRoomBase {
             matchStarted: this.matchStarted,
             gameOver: this.gameOver,
             winner: this.winner,
+            recordResultText: this.recordResultText,
             resultText: this.resultText,
             clock: this._clockSnapshot(),
             slots: {

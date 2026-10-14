@@ -564,10 +564,7 @@ const scoreBoard = document.getElementById('scoreBoard');
 
             function updateScore() {
                 if (ps.gameOver) {
-                    if (ps.winner === 'player2') leadInfo.textContent = '黑胜';
-                    else if (ps.winner === 'player1') leadInfo.textContent = '白胜';
-                    else if (ps.winner === 'draw') leadInfo.textContent = '和棋';
-                    else leadInfo.textContent = '　';
+                    leadInfo.textContent = QiWeiqiSquarePageRuntime.gameResultTitleText(ps, (w) => (w === 'player2' ? '黑胜' : '白胜'));
                 }
             }
 
@@ -952,6 +949,8 @@ const scoreBoard = document.getElementById('scoreBoard');
                 ps.currentPlayer = state.currentPlayer != null ? state.currentPlayer : 1;
                 ps.gameOver = !!state.gameOver;
                 ps.winner = state.winner || null;
+                if (state.recordResultText !== undefined) ps.recordResultText = state.recordResultText || null;
+                else if (state.gameOver === false) ps.recordResultText = null;
                 if (state.matchStarted !== undefined) ps.matchStarted = !!state.matchStarted;
                 if (state.matchTime !== undefined) {
                     ps.matchTime = state.matchTime;

@@ -72,8 +72,11 @@ window.RoomPlugins["nogrid-weiqi"] = {
     const BOARD_SIZE_PX = 600;
     const PADDING = 25;
     const INNER_SIZE = BOARD_SIZE_PX - 2 * PADDING;
-    const KOMI = 3.25;
+    let KOMI = 3.25;   // 服务端下发贴目以记录为准（导入棋谱），默认 3.25
     const LIBERTY_ANGLE_STEP = Math.PI / 36;
+    const LIBERTY_OFFSETS = [];
+    for (let angle = 0; angle < 2 * Math.PI; angle += LIBERTY_ANGLE_STEP)
+        LIBERTY_OFFSETS.push([Math.cos(angle), Math.sin(angle)]);
 
     let roadCount = 18;
     function getDiameter() { return INNER_SIZE / roadCount; }
@@ -98,6 +101,7 @@ window.RoomPlugins["nogrid-weiqi"] = {
     let numberOfHands = 1;
     let gameOver = false;
     let winner = null;
+    let recordResultText = null;     // 终局结果原文（棋谱记录；导入棋谱以记录为准）
     let moveCoords = [];
     let lastMoveMarkers = [];
 
@@ -126,6 +130,7 @@ window.RoomPlugins["nogrid-weiqi"] = {
     let liveReplayStonesSeq = [];
     /** 与 liveReplayStonesSeq 同下标：该步局面下的最后落子标记 */
     let liveReplayMarkers = [];
+    let liveReplayKey = null;
     let liveViewStep = 0;
     let liveFollowLatest = true;
 
@@ -247,31 +252,57 @@ const scoreTitle = document.getElementById('scoreTitle');
         return false;
     }
 
+    const adjacencyGeometry = new WeakMap();
+    function getAdjacencyGeometry(allStones, diameter) {
+        let cached = adjacencyGeometry.get(allStones);
+        if (cached && cached.diameter === diameter) return cached;
+        const points = allStones.map(stoneXY);
+        const segments = [];
+        for (let i = 0; i < allStones.length; i++) {
+            for (let j = i + 1; j < allStones.length; j++) {
+                const length = distance(points[i], points[j]);
+                if (length < 2 * diameter) segments.push({ i, j, length });
+            }
+        }
+        cached = { diameter, points, segments };
+        adjacencyGeometry.set(allStones, cached);
+        return cached;
+    }
+
     function areAdjacent(a, b, allStones, diameter) {
         if (a.color !== b.color) return false;
         const pa = stoneXY(a);
         const pb = stoneXY(b);
         const d = distance(pa, pb);
         if (d >= 2 * diameter) return false;
+        const geometry = getAdjacencyGeometry(allStones, diameter);
         const mid = { x: (pa.x + pb.x) / 2, y: (pa.y + pb.y) / 2 };
         const halfAB = d / 2;
-        for (let f of allStones) {
-            if (stonesEqual(f, a) || stonesEqual(f, b)) continue;
-            if (distance(stoneXY(f), mid) < halfAB - 1e-7) return false;
-        }
         for (let i = 0; i < allStones.length; i++) {
-            for (let j = i + 1; j < allStones.length; j++) {
-                const ds = allStones[i], es = allStones[j];
-                if (stonesEqual(ds, a) || stonesEqual(ds, b) || stonesEqual(es, a) || stonesEqual(es, b)) continue;
-                const pd = stoneXY(ds), pe = stoneXY(es);
-                const deLen = distance(pd, pe);
-                if (deLen < d - 1e-7 && segmentsIntersect(pa, pb, pd, pe)) return false;
-            }
+            const f = allStones[i];
+            if (stonesEqual(f, a) || stonesEqual(f, b)) continue;
+            if (distance(geometry.points[i], mid) < halfAB - 1e-7) return false;
+        }
+        for (const { i, j, length: deLen } of geometry.segments) {
+            const ds = allStones[i], es = allStones[j];
+            if (stonesEqual(ds, a) || stonesEqual(ds, b) || stonesEqual(es, a) || stonesEqual(es, b)) continue;
+            const pd = geometry.points[i], pe = geometry.points[j];
+            if (deLen < d - 1e-7 && segmentsIntersect(pa, pb, pd, pe)) return false;
         }
         return true;
     }
 
     function getGroups(allStones, targetColor, diameter) {
+        const geometry = getAdjacencyGeometry(allStones, diameter);
+        if (!geometry.neighbors) {
+            geometry.neighbors = allStones.map(() => []);
+            for (const { i, j } of geometry.segments) {
+                if (areAdjacent(allStones[i], allStones[j], allStones, diameter)) {
+                    geometry.neighbors[i].push(j);
+                    geometry.neighbors[j].push(i);
+                }
+            }
+        }
         const visited = new Set();
         const groups = [];
         for (let i = 0; i < allStones.length; i++) {
@@ -279,21 +310,17 @@ const scoreTitle = document.getElementById('scoreTitle');
             if (s.color !== targetColor) continue;
             const key = `${s.ix},${s.iy}`;
             if (visited.has(key)) continue;
-            const queue = [s];
+            const queue = [i];
             visited.add(key);
             const group = [s];
-            while (queue.length) {
-                const cur = queue.shift();
-                for (let j = 0; j < allStones.length; j++) {
+            for (let head = 0; head < queue.length; head++) {
+                for (const j of geometry.neighbors[queue[head]]) {
                     const ns = allStones[j];
-                    if (ns.color !== targetColor) continue;
                     const nKey = `${ns.ix},${ns.iy}`;
                     if (visited.has(nKey)) continue;
-                    if (areAdjacent(cur, ns, allStones, diameter)) {
-                        visited.add(nKey);
-                        queue.push(ns);
-                        group.push(ns);
-                    }
+                    visited.add(nKey);
+                    queue.push(j);
+                    group.push(ns);
                 }
             }
             groups.push(group);
@@ -303,16 +330,16 @@ const scoreTitle = document.getElementById('scoreTitle');
 
     function hasGroupLiberty(group, allStones, diameter) {
         const d2 = diameter * diameter;
+        const points = getAdjacencyGeometry(allStones, diameter).points;
         for (let stone of group) {
             const sxy = stoneXY(stone);
-            for (let ang = 0; ang < 2 * Math.PI; ang += LIBERTY_ANGLE_STEP) {
-                const px = sxy.x + diameter * Math.cos(ang);
-                const py = sxy.y + diameter * Math.sin(ang);
+            for (const [cos, sin] of LIBERTY_OFFSETS) {
+                const px = sxy.x + diameter * cos;
+                const py = sxy.y + diameter * sin;
                 if (px < PADDING - 1e-5 || px > BOARD_SIZE_PX - PADDING + 1e-5 ||
                     py < PADDING - 1e-5 || py > BOARD_SIZE_PX - PADDING + 1e-5) continue;
                 let occupied = false;
-                for (let s of allStones) {
-                    const t = stoneXY(s);
+                for (const t of points) {
                     const dx = px - t.x;
                     const dy = py - t.y;
                     if (dx * dx + dy * dy < d2 - 1e-7) { occupied = true; break; }
@@ -593,7 +620,10 @@ const scoreTitle = document.getElementById('scoreTitle');
 
     function updateEstimate() {
         if (!showEstimateActive) {
-            scoreTitle.innerText = '　';
+            // 终局结果优先留在比分区（导入棋谱以记录为准）；没结束才清空
+            scoreTitle.innerText = gameOver
+                ? QiWeiqiSquarePageRuntime.gameResultTitleText({ recordResultText, winner })
+                : '　';
             scoreBoard.innerText = '　';
             leadInfo.innerText = '　';
             return;
@@ -614,7 +644,11 @@ const scoreTitle = document.getElementById('scoreTitle');
         const matchReady = !!(matchStarted || matchStartedOnce);
         if (bothSelected && matchReady) matchStartedOnce = true;
         if (numberOfHands > 1 || hasStoneOnBoard) matchStartedOnce = true;
-        if (!matchStarted) {
+        if (gameOver) {
+            // 终局结果（导入棋谱以记录为准）：与其它围棋路数的比分框显示一致
+            turnDisplay.innerText = '对局结束';
+            scoreTitle.innerText = QiWeiqiSquarePageRuntime.gameResultTitleText({ recordResultText, winner });
+        } else if (!matchStarted) {
             turnDisplay.innerText = QiWeiqiSquarePageRuntime.waitingSeatTurnText(slots, mySlot);
         } else if (numberOfHands <= 1) {
             turnDisplay.innerText = '初始局面';
@@ -744,17 +778,39 @@ const scoreTitle = document.getElementById('scoreTitle');
         if (slider && tryPlayMode) { slider.max = tryPlayTotalSteps; slider.value = tryPlayStep; }
     }
 
+    function replayMoveKey(move) {
+        return JSON.stringify([move.type, move.player, move.ix, move.iy]);
+    }
+    function replayKey(moves) {
+        return JSON.stringify([roadCount, (moves || []).map(replayMoveKey)]);
+    }
+    function applyReplayMove(current, move, diameter) {
+        const changes = move.stoneChanges;
+        if (changes && Array.isArray(changes.removed) && Array.isArray(changes.added)) {
+            const key = s => `${s.ix},${s.iy},${s.color}`;
+            const removed = new Set(changes.removed.map(key));
+            return current.filter(s => !removed.has(key(s))).concat(deepCopyStones(changes.added));
+        }
+        // 旧服务器或本地生成的棋谱仍按原有规则计算提子。
+        return applyMoveClient(current, { ix: move.ix, iy: move.iy, color: move.player === 'player1' ? 1 : 2 }, diameter);
+    }
+
     function enterReplayMode(data) {
         const diameter = getDiameter();
         let cur = [];
         replayStonesSeq = [deepCopyStones(cur)];
         replayMarkersSeq = [[]];
         replayStepPlayers = [0];
-        for (const move of (data.moves || [])) {
+        const moves = data.moves || [];
+        if (liveReplayKey === replayKey(moves) && liveReplayStonesSeq.length === moves.length + 1) {
+            replayStonesSeq = liveReplayStonesSeq.slice();
+            replayMarkersSeq = liveReplayMarkers.slice();
+            replayStepPlayers = [0, ...moves.map(m => m.player === 'player1' ? 1 : 2)];
+        } else for (const move of moves) {
             const playerVal = move.player === 'player1' ? 1 : 2;
             replayStepPlayers.push(playerVal);
             if (move.type === 'move') {
-                cur = applyMoveClient(cur, { ix: move.ix, iy: move.iy, color: playerVal }, diameter);
+                cur = applyReplayMove(cur, move, diameter);
                 replayStonesSeq.push(deepCopyStones(cur));
                 replayMarkersSeq.push([{ ix: move.ix, iy: move.iy, color: playerVal }]);
             } else if (move.type === 'pass') {
@@ -839,6 +895,8 @@ const scoreTitle = document.getElementById('scoreTitle');
     }
 
     function rebuildLiveReplayFromMoveCoords(coords) {
+        const key = replayKey(coords);
+        if (liveReplayKey === key && liveReplayStonesSeq.length === (coords || []).length + 1) return;
         const diameter = getDiameter();
         let cur = [];
         liveReplayStonesSeq = [deepCopyStones(cur)];
@@ -846,7 +904,7 @@ const scoreTitle = document.getElementById('scoreTitle');
         for (const m of coords || []) {
             const pv = m.player === 'player1' ? 1 : 2;
             if (m.type === 'move') {
-                cur = applyMoveClient(cur, { ix: m.ix, iy: m.iy, color: pv }, diameter);
+                cur = applyReplayMove(cur, m, diameter);
                 liveReplayStonesSeq.push(deepCopyStones(cur));
                 liveReplayMarkers.push([{ ix: m.ix, iy: m.iy, color: pv }]);
             } else if (m.type === 'pass') {
@@ -854,10 +912,12 @@ const scoreTitle = document.getElementById('scoreTitle');
                 liveReplayMarkers.push([]);
             }
         }
+        liveReplayKey = key;
     }
     function applyLiveReplayIncremental(coords) {
         const startLen = liveReplayStonesSeq.length - 1;
         const mcs = coords || [];
+        if (liveReplayKey !== replayKey(mcs.slice(0, startLen))) return false;
         if (mcs.length <= startLen) return true;
         const diameter = getDiameter();
         let cur = deepCopyStones(liveReplayStonesSeq[liveReplayStonesSeq.length - 1]);
@@ -865,7 +925,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             const m = mcs[i];
             const pv = m.player === 'player1' ? 1 : 2;
             if (m.type === 'move') {
-                cur = applyMoveClient(cur, { ix: m.ix, iy: m.iy, color: pv }, diameter);
+                cur = applyReplayMove(cur, m, diameter);
                 liveReplayStonesSeq.push(deepCopyStones(cur));
                 liveReplayMarkers.push([{ ix: m.ix, iy: m.iy, color: pv }]);
             } else if (m.type === 'pass') {
@@ -873,6 +933,7 @@ const scoreTitle = document.getElementById('scoreTitle');
                 liveReplayMarkers.push([]);
             } else { return false; }
         }
+        liveReplayKey = replayKey(mcs);
         return true;
     }
 
@@ -913,6 +974,11 @@ const scoreTitle = document.getElementById('scoreTitle');
     }
 
     function syncState(state) {
+        // 贴目：以服务端下发的为准（导入棋谱采纳记录贴目；重置后服务端回到默认值，这里跟着回）
+        if (state.komi != null && Number.isFinite(state.komi) && state.komi !== KOMI) {
+            KOMI = state.komi;
+            refreshNogridKomiInfo();
+        }
         if (tryPlayMode) {
             // 试下期间不覆盖本地局面，仅同步必要元数据（与其它自绘棋种一致）
             if (state.roadCount && state.roadCount !== roadCount) {
@@ -932,6 +998,8 @@ const scoreTitle = document.getElementById('scoreTitle');
         currentPlayer = state.currentPlayer;
         gameOver = state.gameOver || false;
         winner = state.winner || null;
+        if (state.recordResultText !== undefined) recordResultText = state.recordResultText || null;
+        else if (state.gameOver === false) recordResultText = null;
         if (state.matchStarted !== undefined) {
             matchStarted = !!state.matchStarted;
             if (matchStarted) matchStartedOnce = true;
@@ -944,7 +1012,8 @@ const scoreTitle = document.getElementById('scoreTitle');
             const prevTotal = Math.max(0, liveReplayStonesSeq.length - 1);
             const wasAtEnd = liveFollowLatest || liveViewStep >= prevTotal;
             const syncedLen = liveReplayStonesSeq.length - 1;
-            const liveMcs = state.moveCoords || [];
+            const liveMcs = state.type === 'importSuccess' && state.replayData
+                ? state.replayData.moves || [] : state.moveCoords || [];
             if (syncedLen >= 0 && liveMcs.length > syncedLen && applyLiveReplayIncremental(liveMcs)) {
             } else {
                 rebuildLiveReplayFromMoveCoords(liveMcs);
@@ -1198,7 +1267,7 @@ syncState,
     });
 
     canvas.addEventListener('mousemove', (e) => {
-        const canHover = !waitingScoreConfirm && !replayMode && !gameOver && (tryPlayMode || isMyTurn());
+        const canHover = tryPlayMode || (!waitingScoreConfirm && !replayMode && !gameOver && isMyTurn());
         if (!canHover) {
             if (isHoverValid || hoverIx >= 0 || hoverIy >= 0) {
                 isHoverValid = false;

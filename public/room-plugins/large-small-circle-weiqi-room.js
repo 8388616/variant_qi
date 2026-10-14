@@ -478,6 +478,7 @@ window.RoomPlugins['large-small-circle-weiqi'] = {
         let mySlot = null;               // 'player1' or 'player2'
         let gameOver = false;
         let winner = null;
+        let recordResultText = null;     // 终局结果原文（棋谱记录；导入棋谱以记录为准）
         let lastMoveMarkers = [];
         let showEstimateActive = false;
         let cachedLiveBoard = null;
@@ -1095,6 +1096,8 @@ const scoreTitle = document.getElementById('scoreTitle');
         function updateTurn()
         {
             if (replayMode) {
+                // 终局结果照常显示在比分区（回放面板只写手数；导入棋谱以记录为准）
+                if (gameOver) scoreTitle.innerText = QiWeiqiSquarePageRuntime.gameResultTitleText({ recordResultText, winner });
                 isMyTurn = false;
                 if (showEstimateActive) showEstimate();
                 else drawBoardWithOverlay();
@@ -1116,10 +1119,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             }
             if (gameOver) {
                 turnDisplay.innerText = '对局结束';
-                if (winner === 'player1') scoreTitle.innerText = '黑胜';
-                else if (winner === 'player2') scoreTitle.innerText = '白胜';
-                else if (winner === 'draw') scoreTitle.innerText = '和棋';
-                else scoreTitle.innerText = '　';
+                scoreTitle.innerText = QiWeiqiSquarePageRuntime.gameResultTitleText({ recordResultText, winner });
                 isMyTurn = false;
                 drawBoardWithOverlay();
                 return;
@@ -1606,6 +1606,13 @@ const scoreTitle = document.getElementById('scoreTitle');
             currentPlayer = state.currentPlayer;
             gameOver = state.gameOver || false;
             winner = state.winner || null;
+            // 贴目：以服务端下发的为准（导入棋谱采纳记录贴目；重置后服务端回到默认值，这里跟着回）
+            if (state.komi != null && Number.isFinite(state.komi) && state.komi !== VIEW.komi) {
+                VIEW.komi = state.komi;
+                refreshKomiInfo();
+            }
+            if (state.recordResultText !== undefined) recordResultText = state.recordResultText || null;
+            else if (state.gameOver === false) recordResultText = null;
             if (state.matchStarted !== undefined) {
                 matchStarted = !!state.matchStarted;
                 if (matchStarted) matchStartedOnce = true;

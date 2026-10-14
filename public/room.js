@@ -1933,11 +1933,12 @@
             if (S.soloMode) {
                 [btnSit, btnCB, btnCW, btnCancel, btnComputer, btnLocal].forEach((button) => { if (button) button.hidden = true; });
                 const vacant = !mySlot && !S.soloOccupied && !S.tryPlayMode;
+                if (btnCancel) btnCancel.hidden = !vacant;
                 if (btnContinueSolo) {
                     btnContinueSolo.hidden = !vacant;
                     btnContinueSolo.disabled = !!S._soloResumePending;
                 }
-                setAllSeatOverlaysHidden(!vacant);
+                setAllSeatOverlaysHidden(!vacant || S.seatOverlayLocalHide);
                 refreshColorStatus();
                 updatePlayerLeftIndicators();
                 notifySeatOverlayVisibility();
@@ -4485,6 +4486,28 @@
     }
 
     /**
+     * 终局结果文案（比分框）：**棋谱记录原文优先**（「黑胜1.5点」「白中盘胜」「黑方超时，白胜」…，
+     * 导入棋谱以记录为准），没有记录文案时按胜方座位推「黑胜/白胜/和棋」。
+     * @param {{recordResultText?:?string, winner?:?string, sideLabels?:Object}} state 状态对象（ps 或闭包变量打包）
+     * @param {(winner:string)=>string} [winTextOf] 可选：座位 → 胜方文案（棋种自己的称呼）；缺省按 sideLabels 或黑/白
+     */
+    function gameResultTitleText(state, winTextOf) {
+        const s = state || {};
+        if (s.recordResultText) return String(s.recordResultText);
+        const w = s.winner;
+        if (w === 'player1' || w === 'player2') {
+            if (typeof winTextOf === 'function') {
+                const t = winTextOf(w);
+                if (t) return t;
+            }
+            const label = (s.sideLabels && s.sideLabels[w]) || (w === 'player1' ? '黑方' : '白方');
+            return String(label).replace(/方$/, '') + '胜';
+        }
+        if (w === 'draw') return '和棋';
+        return '　';
+    }
+
+    /**
      * @param {Object} ps
      * @param {{
      *   turnDisplay: HTMLElement,
@@ -4942,7 +4965,15 @@
             if (typeof opts.afterDrawBoard === 'function') opts.afterDrawBoard();
         }
 
+        /** 终局结果文案（比分框）：公共实现在 gameResultTitleText（棋谱记录原文优先，导入棋谱以记录为准） */
+        function updateResultTitle() {
+            dom.scoreTitle.innerText = gameResultTitleText(ps);
+        }
+
         function updateTurn() {
+            // 终局结果在**所有**模式下都要显示在比分区（含回放/浏览历史）：导入带胜负的棋谱后，
+            // 回放面板只写「第N手」，比分区不能空着（结果只按棋谱记录显示）
+            if (ps.gameOver) updateResultTitle();
             if (ps.replayMode) {
                 drawBoard();
                 return;
@@ -4970,14 +5001,7 @@
             }
             if (ps.gameOver) {
                 dom.turnDisplay.innerText = '对局结束';
-                // 胜方文案按实际执方名（服务端下发的 sideLabels；缺省黑/白）——player1 未必执黑
-                if (ps.winner === 'player1' || ps.winner === 'player2') {
-                    const label = (ps.sideLabels && ps.sideLabels[ps.winner])
-                        || (ps.winner === 'player1' ? '黑方' : '白方');
-                    dom.scoreTitle.innerText = String(label).replace(/方$/, '') + '胜';
-                }
-                else if (ps.winner === 'draw') dom.scoreTitle.innerText = '和棋';
-                else dom.scoreTitle.innerText = '　';
+                updateResultTitle();
                 ps.isMyTurn = false;
                 drawBoard();
                 return;
@@ -5054,6 +5078,10 @@
             ps.replayMarkers = built.replayMarkers;
             ps.replayStepPlayers = built.replayStepPlayers;
             ps.replayTotalSteps = built.replayTotalSteps;
+            // 导入只重放一次；直播回看沿用刚构建的同一份历史。
+            ps.liveReplayBoards = built.replayBoards.slice();
+            ps.liveReplayMarkers = built.replayMarkers.slice();
+            ps.liveReplayStepPlayers = built.replayStepPlayers.slice();
             ps.replayMode = true;
             const slider = document.getElementById('replaySlider');
             slider.max = ps.replayTotalSteps;
@@ -5304,6 +5332,7 @@
             }
         }
 
+        let liveReplayCache = null;
         function rebuildLiveReplayBoard(moveCoords, openingBoard) {
             if (opts.rebuildLiveReplayFromMoveCoords) {
                 opts.rebuildLiveReplayFromMoveCoords(moveCoords, openingBoard);
@@ -5311,12 +5340,19 @@
             }
             // 增量（仅公共路径；自定义棋类各自处理）：已同步到 startLen 手时只对新的一手本地计算提子
             const mcs = moveCoords || [];
+            const openingKey = JSON.stringify([ps.BOARD_SIZE, openingBoard || ps.liveOpeningBoard || null]);
+            const moveKeys = mcs.map(m => JSON.stringify(m));
+            const sameBase = liveReplayCache && liveReplayCache.boards === ps.liveReplayBoards
+                && liveReplayCache.openingKey === openingKey;
+            const samePrefix = sameBase && liveReplayCache.moveKeys.every((key, i) => key === moveKeys[i]);
+            if (samePrefix && liveReplayCache.moveKeys.length === moveKeys.length) return;
+            const remember = () => { liveReplayCache = { openingKey, moveKeys, boards: ps.liveReplayBoards }; };
             const syncedLen = ps.liveReplayBoards.length - 1;
-            if (syncedLen >= 0 && mcs.length > syncedLen) {
+            if (samePrefix && syncedLen >= 0 && mcs.length > syncedLen) {
                 const inc = R().applyLiveReplayIncrementalBoards(
                     ps.liveReplayBoards, ps.liveReplayMarkers, ps.liveReplayStepPlayers,
                     mcs, tryPlaceStone, deepCopyBoard);
-                if (inc.ok) return;
+                if (inc.ok) { remember(); return; }
             }
             const o = R().rebuildLiveReplayFromMoveCoords(
                 mcs,
@@ -5336,6 +5372,7 @@
             ps.liveReplayBoards = o.liveReplayBoards;
             ps.liveReplayMarkers = o.liveReplayMarkers;
             ps.liveReplayStepPlayers = o.liveReplayStepPlayers;
+            remember();
         }
 
         function applyLiveViewBoard() {
@@ -5497,6 +5534,15 @@
         function syncState(state) {
             // 子层标记跟随/剪枝的兜底（绕过 createWeiqiMessageBindings 直调 syncState 的路径也会走到；同一消息重复调用是幂等的）
             syncStoneMarksWithState(ps, state);
+            // 终局结果文案（棋谱记录原文，导入棋谱以记录为准）：随状态下发，比分区显示用
+            if (state && state.recordResultText !== undefined) ps.recordResultText = state.recordResultText || null;
+            else if (state && state.gameOver === false) ps.recordResultText = null;
+            // 贴目：以服务端下发的为准（导入棋谱采纳记录贴目；重置后服务端回到默认值，这里跟着回）。
+            // 放在自定义 syncState（opts.syncState）之前，带自定义同步的棋种也能拿到
+            if (state && state.komi != null && Number.isFinite(state.komi) && state.komi !== ps.KOMI) {
+                ps.KOMI = state.komi;
+                if (dom.komiInfo) updateBoardGeometry();
+            }
             if (enableEditBoard && state && !ps.editModeEnabled) {
                 // 尺寸变化时旧尺寸开局盘（initialBoard/liveOpeningBoard）不能用作 opening：
                 // 以其为起点重放会产生维度不匹配的棋盘，drawBoard 越界。按新尺寸过滤
@@ -5607,7 +5653,9 @@
                 ps.matchStartedOnce = false;
             }
 
-            if (!ps.replayMode) {
+            const importingReplay = !opts.enterReplayMode && state.type === 'importSuccess' && state.replayData
+                && Array.isArray(state.replayData.moves) && state.replayData.moves.length > 0;
+            if (!ps.replayMode && !importingReplay) {
                 const prevTotal = Math.max(0, ps.liveReplayBoards.length - 1);
                 const wasAtEnd = ps.liveFollowLatest || ps.liveViewStep >= prevTotal;
                 const moves = state.moveCoords || [];
@@ -8034,6 +8082,7 @@ function bensonCoreGraph(opts) {
         resetStoneMarks,
         waitingSeatTurnText,
         roundTurnText,
+        gameResultTitleText,
         countGroupLiberties, 
         hasLiberty, 
         removeGroup, 

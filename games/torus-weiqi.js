@@ -1,6 +1,6 @@
 const crypto = require('crypto');
 
-const { qiBoardSeatOverlay, QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, gridGraphWeiqiRules, applyInitialPositionCompact, encodeInitialPositionCompact, encodeOpeningPositionCompact } = require('../common');
+const { qiApplyRecordKomi, qiEffectiveKomi, qiBoardSeatOverlay, QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, gridGraphWeiqiRules, applyInitialPositionCompact, encodeInitialPositionCompact, encodeOpeningPositionCompact } = require('../common');
 
 /**
  * 环面围棋规则：上方与下方相连、左侧与右侧相连，棋盘无边界。
@@ -364,6 +364,7 @@ class WeiqiRoom extends QiTwoPlayerRoomBase
 
     _komi()
     {
+        if (this.importedKomi != null) return this.importedKomi;   // 导入棋谱采纳记录贴目
         switch (this.boardSize)
         {
             case 8:
@@ -453,6 +454,7 @@ class WeiqiRoom extends QiTwoPlayerRoomBase
             lastMoveMarkers: this.lastMoveMarkers,
             gameOver: this.gameOver,
             winner: this.winner,
+            recordResultText: this.recordResultText,
             moveCoords: this.moveCoords,
             slots: {
                 player1: !!this.room.getPlayerBySlot('player1'),
@@ -663,6 +665,7 @@ class WeiqiRoom extends QiTwoPlayerRoomBase
         this.tcSettings = null;
         this.tcClock = null;
         this.recordResultText = null;
+        this.importedKomi = undefined;
         this.matchStarted = false;
         this.board = Array(this.boardSize).fill().map(() => Array(this.boardSize).fill(0));
         this.currentPlayer = 1;
@@ -731,6 +734,7 @@ class WeiqiRoom extends QiTwoPlayerRoomBase
         this.tcSettings = null;
         this.tcClock = null;
         this.recordResultText = null;
+        this.importedKomi = undefined;
         this.matchStarted = false;
         this.board = Array(this.boardSize).fill().map(() => Array(this.boardSize).fill(0));
         this.currentPlayer = 1;
@@ -842,6 +846,7 @@ class WeiqiRoom extends QiTwoPlayerRoomBase
                 this.winner = data.result;
         }
 
+        qiApplyRecordKomi(this, data);   // 导入棋谱采纳记录贴目（新局/重置时清掉）
         this.broadcast({
             type: 'importSuccess',
             ...this.getState(),

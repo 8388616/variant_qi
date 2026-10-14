@@ -492,6 +492,7 @@ class GuessNumberRoom {
             round: this.round,
             gameOver: this.gameOver,
             winner: this.winner,
+            recordResultText: this.recordResultText,
             resultText: this.resultText,
             serverNow: this._now(),
             mySlot: slot || null,

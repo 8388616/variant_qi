@@ -1,6 +1,6 @@
 const crypto = require('crypto');
 
-const { qiBoardSeatOverlay, QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, gridGraphWeiqiRules, applyInitialPositionCompact, encodeInitialPositionCompact, encodeOpeningPositionCompact } = require('../common');
+const { qiApplyRecordKomi, qiEffectiveKomi, qiBoardSeatOverlay, QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, gridGraphWeiqiRules, applyInitialPositionCompact, encodeInitialPositionCompact, encodeOpeningPositionCompact } = require('../common');
 
 /**
  * 断线围棋（broken-line-weiqi）＝ 围棋 + 棋盘上随机切断一部分相邻点之间的连线。
@@ -353,7 +353,7 @@ class BrokenLineWeiqiRoom extends QiTwoPlayerRoomBase
      * 但气 / 死子 / 归属全部按**断线后的邻接**算；归属里的「距离扩张」是图上 BFS 距离（不穿断线）。
      */
     computeLead() {
-        const KOMI = this.boardSize <= 8 ? 4.25 : 3.25;
+        const KOMI = qiEffectiveKomi(this, this.boardSize <= 8 ? 4.25 : 3.25);
         const nb = this._nb();
         const isPoint = (r, c) => this._isValidPoint(r, c);
         const bensonOf = (bd) => gridGraphWeiqiRules.bensonAlive(bd, this.boardSize, this.boardSize, nb, isPoint);
@@ -414,7 +414,7 @@ class BrokenLineWeiqiRoom extends QiTwoPlayerRoomBase
             : this.copyBoard(this.board);
         const st = {
             boardSize: this.boardSize,
-            komi: this.boardSize <= 8 ? 4.25 : 3.25,
+            komi: qiEffectiveKomi(this, this.boardSize <= 8 ? 4.25 : 3.25),
             board: this.board,
             initialBoard,
             numberOfHands: 1 + this.historyBoards.length,
@@ -422,6 +422,7 @@ class BrokenLineWeiqiRoom extends QiTwoPlayerRoomBase
             lastMoveMarkers: this.lastMoveMarkers,
             gameOver: this.gameOver,
             winner: this.winner,
+            recordResultText: this.recordResultText,
             moveCoords: this.moveCoords,
             slots: {
                 player1: !!this.room.getPlayerBySlot('player1'),
@@ -656,6 +657,7 @@ class BrokenLineWeiqiRoom extends QiTwoPlayerRoomBase
         this.tcSettings = null;
         this.tcClock = null;
         this.recordResultText = null;
+        this.importedKomi = undefined;
         this.matchStarted = false;
         this.brokenEdgeList = [];
         this._generateBrokenEdges();
@@ -714,7 +716,7 @@ class BrokenLineWeiqiRoom extends QiTwoPlayerRoomBase
             gameType: RECORD_GAME_TYPE,
             gameId: RECORD_GAME_ID,
             boardSize: this.boardSize,
-            komi: this.boardSize <= 8 ? 4.25 : 3.25,
+            komi: qiEffectiveKomi(this, this.boardSize <= 8 ? 4.25 : 3.25),
             brokenEdges: this._brokenEdgesForState(),
             players: { player1: null, player2: null },
             initialPosition: encodeOpeningPositionCompact(this),
@@ -735,6 +737,7 @@ class BrokenLineWeiqiRoom extends QiTwoPlayerRoomBase
         this.tcSettings = null;
         this.tcClock = null;
         this.recordResultText = null;
+        this.importedKomi = undefined;
         this.matchStarted = false;
         this.brokenEdgeList = [];
         this._generateBrokenEdges();
@@ -850,6 +853,7 @@ class BrokenLineWeiqiRoom extends QiTwoPlayerRoomBase
                 this.winner = data.result;
         }
 
+        qiApplyRecordKomi(this, data);   // 导入棋谱采纳记录贴目（新局/重置时清掉）
         this.broadcast({
             type: 'importSuccess',
             ...this.getStateWithBrokenEdges(),

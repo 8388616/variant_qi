@@ -4,7 +4,7 @@
  * 寿命 = (0.1×路数×路数) 向上取为不小于该值的最小奇数。棋盘 7～21 路。
  */
 
-const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, encodeInitialPositionCompact, applyInitialPositionCompact, qiBoardSeatOverlay, computeBensonWeiqiLead, squareWeiqiScoringOps } = require('../common');
+const { qiApplyRecordKomi, qiEffectiveKomi, QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, encodeInitialPositionCompact, applyInitialPositionCompact, qiBoardSeatOverlay, computeBensonWeiqiLead, squareWeiqiScoringOps } = require('../common');
 class InstabilityWeiqiRoom extends QiTwoPlayerRoomBase
 {
     constructor(room, initialSize = 19) {
@@ -351,7 +351,7 @@ class InstabilityWeiqiRoom extends QiTwoPlayerRoomBase
 
     /** 形势判断 / 数点：用 Benson 档（公共口径：弱气去死子 ↔ Benson 保活 → 最近归属 → 确定领地覆盖） */
     computeLead() {
-        const { lead } = computeBensonWeiqiLead(this.board, 3.25, squareWeiqiScoringOps(this.boardSize, {
+        const { lead } = computeBensonWeiqiLead(this.board, qiEffectiveKomi(this, 3.25), squareWeiqiScoringOps(this.boardSize, {
             copyBoard: (b) => this.copyBoard(b)
         }));
         return lead;
@@ -361,6 +361,7 @@ class InstabilityWeiqiRoom extends QiTwoPlayerRoomBase
         return {
             boardSize: this.boardSize,
             board: this.board,
+            komi: qiEffectiveKomi(this, 3.25),
             unstableInfo: this.unstableInfo,
             moveCount: this.moveCount,
             unstableLifetime: this.unstableLifetime(),
@@ -369,6 +370,7 @@ class InstabilityWeiqiRoom extends QiTwoPlayerRoomBase
             lastMoveMarkers: this.lastMoveMarkers,
             gameOver: this.gameOver,
             winner: this.winner,
+            recordResultText: this.recordResultText,
             moveCoords: this.moveCoords,
             slots: {
                 player1: !!this.room.getPlayerBySlot('player1'),
@@ -674,6 +676,7 @@ class InstabilityWeiqiRoom extends QiTwoPlayerRoomBase
         this.tcSettings = null;
         this.tcClock = null;
         this.recordResultText = null;
+        this.importedKomi = undefined;
         this.matchStarted = false;
         this.board = Array(this.boardSize).fill().map(() => Array(this.boardSize).fill(0));
         this.unstableInfo = Array(this.boardSize).fill().map(() => Array(this.boardSize).fill(0));
@@ -717,7 +720,7 @@ class InstabilityWeiqiRoom extends QiTwoPlayerRoomBase
             gameId: 'instability-weiqi',
             boardSize: this.boardSize,
             unstableLifetime: this.unstableLifetime(),
-            komi: 3.25,
+            komi: qiEffectiveKomi(this, 3.25),
             players: { player1: null, player2: null },
             initialPosition: encodeInitialPositionCompact(emptyBoard, this.boardSize),
             moves: this.moveCoords.map(m => {
@@ -755,6 +758,7 @@ class InstabilityWeiqiRoom extends QiTwoPlayerRoomBase
         this.tcSettings = null;
         this.tcClock = null;
         this.recordResultText = null;
+        this.importedKomi = undefined;
         this.matchStarted = false;
     }
 
@@ -898,6 +902,7 @@ class InstabilityWeiqiRoom extends QiTwoPlayerRoomBase
                 this.winner = data.result;
         }
 
+        qiApplyRecordKomi(this, data);   // 导入棋谱采纳记录贴目（新局/重置时清掉）
         this.broadcast({
             type: 'importSuccess',
             ...this.getState(),

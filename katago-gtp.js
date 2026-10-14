@@ -750,6 +750,7 @@ class KatagoGtpSession {
         }
         await this.command('clear_board');
         if (Number.isFinite(komi)) await this.command(`komi ${komi}`);
+        await this.disableResignation();
 
         // 权重围棋：kata-set-weights w0 w1 … w(N-1)——引擎要求盘上无子，故须在 clear_board
         // 之后、set_position 之前发送。展开顺序与棋子天然一致（2026-09 对引擎源码核实）：
@@ -1037,6 +1038,24 @@ class KatagoGtpSession {
             console.warn('[katago] kata-set-param maxVisits 失败，按配置文件的值继续：', err && err.message);
         }
         return v;
+    }
+
+    /**
+     * 关掉引擎自带的认输（genmove 返回 'resign'）。本站约定**电脑永远不认输**：
+     * 各子棋类的 gtp.cfg 都显式写了 allowResignation = false（该配置默认 false，但抄 example
+     * 或漏写时会变成 true），这里在会话内再用 kata-set-param 兜一层，与 cfg 无关地生效。
+     * 起因（2026-10-13 用户报）：翻转围棋电脑大优却突然认输——引擎自评落后就 resign，
+     * 而网站此前把 resign 当成普通虚着（不记日志、不提示），玩家看到的就是「电脑忽然不下了」。
+     * 老引擎不认这个参数就告警一次、按配置文件继续（与 setMaxVisits 同），绝不阻塞对局。
+     */
+    async disableResignation() {
+        if (this._resignationDisabled) return;
+        this._resignationDisabled = true;   // 只试一次（失败也不反复发）
+        try {
+            await this.command('kata-set-param allowResignation false');
+        } catch (err) {
+            console.warn(`[katago:${this.gameId}] kata-set-param allowResignation 失败（引擎太老？），按配置文件继续：`, err && err.message);
+        }
     }
 
     destroy() {

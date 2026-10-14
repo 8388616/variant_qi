@@ -2,11 +2,11 @@ window.RoomPlugins = window.RoomPlugins || {};
 window.RoomPlugins['non-rectangular-weiqi'] = {
     shell: {
         "title": "非四角围棋",
-        "rulesHtml": "基本规则同标准围棋。<br /><br />采用非四角棋盘。<br />",
+        "rulesHtml": "基本规则同标准围棋。<br /><br />采用非四角棋盘（三角 / 菱形三角 / 六角形三角 / 六角 / 花形五角 / 开罗五角 / 扭棱四角）。<br />",
         "defaultKomiText": "黑贴白3.25点",
-        "boardSizeMin": 4,
-        "boardSizeMax": 11,
-        "defaultBoardSize": 9,
+        "boardSizeMin": 9,
+        "boardSizeMax": 31,
+        "defaultBoardSize": 27,
         "minLib": 1,
         "recordDownloadPrefix": "非四角围棋",
         "standardWeiqiMatchTime": true,
@@ -49,33 +49,51 @@ window.RoomPlugins['non-rectangular-weiqi'] = {
         /* ---------------------------- 子棋类目录 ---------------------------- */
         /** 每种子棋类的壳配置：名称、路数范围与默认路数、贴目、规则说明、棋谱前缀 */
         const SUB_META = {
-            'hexagon-weiqi': {
-                name: '六角围棋', min: 4, max: 11, def: 9,
-                komi: (lanes) => (lanes >= 9 ? 7.5 : [0, 0, 0, 12, 7, 4.5, 5.5, 6.5, 7.5][lanes]),
-                rulesHtml: '基本规则同标准围棋。<br /><br />采用六角棋盘。<br />',
-                prefix: '六角围棋'
-            },
-            'floret-pentagon-weiqi': {
-                name: '花形五角围棋', min: 3, max: 9, def: 7,
+            'triangle-weiqi': {
+                name: '三角', min: 7, max: 31, def: 27,
                 komi: () => 3.25,
-                rulesHtml: '基本规则同标准围棋。<br /><br />采用花形五角棋盘。<br />',
-                prefix: '花形五角围棋'
-            },
-            'cairo-pentagon-weiqi': {
-                name: '开罗五角围棋', min: 3, max: 9, def: 7,
-                komi: (lanes) => (lanes === 3 ? 2 : 3),
-                rulesHtml: '基本规则同围棋。<br /><br />采用开罗五角棋盘。<br />',
-                prefix: '开罗五角围棋'
+                rulesHtml: '基本规则同标准围棋。<br /><br />采用三角形棋盘（尖端在上）。<br />',
+                prefix: '三角'
             },
             'snub-quadrangle-weiqi': {
-                name: '扭棱四角围棋', min: 3, max: 9, def: 7,
+                name: '扭棱四角', min: 3, max: 9, def: 7,
                 komi: (lanes) => (lanes === 3 ? 3 : 2),
                 rulesHtml: '基本规则同围棋。<br /><br />采用扭棱四角棋盘。<br />',
-                prefix: '扭棱四角围棋'
+                prefix: '扭棱四角'
+            },
+            'cairo-pentagon-weiqi': {
+                name: '开罗五角', min: 3, max: 9, def: 7,
+                komi: (lanes) => (lanes === 3 ? 2 : 3),
+                rulesHtml: '基本规则同围棋。<br /><br />采用开罗五角棋盘。<br />',
+                prefix: '开罗五角'
+            },
+            'floret-pentagon-weiqi': {
+                name: '花形五角', min: 3, max: 9, def: 7,
+                komi: () => 3.25,
+                rulesHtml: '基本规则同标准围棋。<br /><br />采用花形五角棋盘。<br />',
+                prefix: '花形五角'
+            },
+            'hexagon-weiqi': {
+                name: '六角', min: 4, max: 11, def: 9,
+                komi: (lanes) => (lanes >= 9 ? 7.5 : [0, 0, 0, 12, 7, 4.5, 5.5, 6.5, 7.5][lanes]),
+                rulesHtml: '基本规则同标准围棋。<br /><br />采用六角棋盘。<br />',
+                prefix: '六角'
+            },
+            'rhom-triangle-weiqi': {
+                name: '菱形三角', min: 5, max: 21, def: 13,
+                komi: (lanes) => (lanes <= 8 ? 4.25 : 3.25),
+                rulesHtml: '基本规则同标准围棋。<br /><br />采用菱形（正方形格点 30° 斜置）棋盘。<br />',
+                prefix: '菱形三角'
+            },
+            'hexagon-triangle-weiqi': {
+                name: '六角形三角', min: 3, max: 15, def: 6,
+                komi: () => 3.25,
+                rulesHtml: '基本规则同标准围棋。<br /><br />采用六角形棋盘（三角形格点）。<br />',
+                prefix: '六角形三角'
             }
         };
         const SUB_GAMES = Object.keys(SUB_META);
-        const DEFAULT_SUB_GAME = 'hexagon-weiqi';
+        const DEFAULT_SUB_GAME = 'triangle-weiqi';
 
         /** 当前子棋类、当前路数、各子棋类上次用的路数（首次进入某子棋类用它自己的默认路数） */
         let SUB = DEFAULT_SUB_GAME;
@@ -845,6 +863,510 @@ window.RoomPlugins['non-rectangular-weiqi'] = {
             return best;
         }
 
+        /* ---------------------------- 三角围棋族（三角 / 菱形三角 / 六角形三角） ----------------------------
+           从合并前的 triangle-weiqi-room.js 移植：同样的行数/行长/6 向邻接/坐标公式/木框常量/星位/标签字号，
+           只是改成统一 VIEW（pos[i] 为最终画布坐标、koordOf[i] 即棋谱坐标 [r,c]、掩码外无效）。
+           三角与六角形三角的木框固定按 27 行参考（与旧插件逐字一致：框大小不随路数变）；
+           菱形的框与坐标标签随路数走 fit。 */
+
+        const TRI_BASE_WIDTH = 500;        // 参考 27 路时的棋盘宽度（像素），用于确定固定外框
+        const TRI_CENTER_X_REF = 300;      // 画布水平中心（参考）
+        const TRI_ROWS_REF = 27;
+        const RHOM_Y_SCALE = 0.8660254037844386;
+        const RHOM_ROT_CCW_RAD = -Math.PI / 6;
+        const RHOM_FRAME_CORNER_RADIUS = 4;
+
+        function triRowsOf(kind, lanes) {
+            return kind === 'hexagon' ? lanes * 2 - 1 : lanes;
+        }
+        /** 行 r 格点数（与旧插件 rowLen 同口径：三角 r+1；菱形恒为路数；六角 N+min(r, 2N−2−r)） */
+        function triRowLenAt(kind, lanes, r) {
+            if (kind === 'triangle') return r + 1;
+            if (kind === 'rhombus') return lanes;
+            return lanes + Math.min(r, 2 * lanes - 2 - r);
+        }
+        function triIsValidVertex(kind, lanes, r, c) {
+            return r >= 0 && r < triRowsOf(kind, lanes) && c >= 0 && c < triRowLenAt(kind, lanes, r);
+        }
+        /** 6 向邻接（坐标对；掩码外的由上层的 index 查表过滤）——与旧插件 getNeighbors 同口径 */
+        function triNeighborCoordsOf(kind, lanes, r, c) {
+            const rows = triRowsOf(kind, lanes);
+            const push = (out, nr, nc) => { if (triIsValidVertex(kind, lanes, nr, nc)) out.push([nr, nc]); };
+            const out = [];
+            if (kind === 'triangle') {
+                for (const [dr, dc] of [[0, 1], [0, -1], [1, 0], [-1, 0], [1, 1], [-1, -1]]) push(out, r + dr, c + dc);
+                return out;
+            }
+            if (kind === 'rhombus') {
+                for (const [dr, dc] of [[0, 1], [0, -1], [1, 0], [-1, 0], [1, -1], [-1, 1]]) push(out, r + dr, c + dc);
+                return out;
+            }
+            push(out, r, c - 1);
+            push(out, r, c + 1);
+            if (r > 0) {
+                if (triRowLenAt(kind, lanes, r - 1) > triRowLenAt(kind, lanes, r)) { push(out, r - 1, c); push(out, r - 1, c + 1); }
+                else { push(out, r - 1, c - 1); push(out, r - 1, c); }
+            }
+            if (r < rows - 1) {
+                if (triRowLenAt(kind, lanes, r + 1) > triRowLenAt(kind, lanes, r)) { push(out, r + 1, c); push(out, r + 1, c + 1); }
+                else { push(out, r + 1, c - 1); push(out, r + 1, c); }
+            }
+            return out;
+        }
+
+        // ---- 三角 / 六角形三角的固定外框（参考 27 行；与旧插件 FIXED_OUTER_* 逐字一致）----
+        function triGridCorners(rows, dx, dy, topY, centerX) {
+            const rMax = rows - 1;
+            const A = { x: centerX, y: topY };
+            const leftX = centerX - (rMax * dx) / 2;
+            return { A, B: { x: leftX, y: topY + rMax * dy }, C: { x: leftX + rMax * dx, y: topY + rMax * dy } };
+        }
+        function triOutwardExpand(A, B, C, margin) {
+            const cx = (A.x + B.x + C.x) / 3;
+            const cy = (A.y + B.y + C.y) / 3;
+            const expand = (P) => {
+                const vx = P.x - cx, vy = P.y - cy;
+                const len = Math.hypot(vx, vy);
+                return { x: P.x + (vx / len) * margin, y: P.y + (vy / len) * margin };
+            };
+            return [expand(A), expand(B), expand(C)];
+        }
+        function hexTriCorners(rows, dx, dy, topY, centerX) {
+            const R = (rows - 1) / 2;
+            const L = (r) => R + 1 + Math.min(r, 2 * R - r);
+            const xOf = (r, c) => centerX + (c - (L(r) - 1) / 2) * dx;
+            const yOf = (r) => topY + r * dy;
+            return [
+                { x: xOf(0, 0), y: yOf(0) },
+                { x: xOf(R, 0), y: yOf(R) },
+                { x: xOf(2 * R, 0), y: yOf(2 * R) },
+                { x: xOf(2 * R, L(2 * R) - 1), y: yOf(2 * R) },
+                { x: xOf(R, L(R) - 1), y: yOf(R) },
+                { x: xOf(0, L(0) - 1), y: yOf(0) }
+            ];
+        }
+        function triOutwardExpandVerts(verts, margin) {
+            const cx = verts.reduce((s, p) => s + p.x, 0) / verts.length;
+            const cy = verts.reduce((s, p) => s + p.y, 0) / verts.length;
+            return verts.map((P) => {
+                const vx = P.x - cx, vy = P.y - cy;
+                const len = Math.hypot(vx, vy);
+                return { x: P.x + (vx / len) * margin, y: P.y + (vy / len) * margin };
+            });
+        }
+        const TRI_FIXED_FRAME = (() => {
+            const dxRef = TRI_BASE_WIDTH / (TRI_ROWS_REF - 1);
+            const dyRef = (Math.sqrt(3) / 2) * dxRef;
+            const totalHRef = dyRef * (TRI_ROWS_REF - 1);
+            const topYRef = (CANVAS_SIZE - totalHRef) / 2;
+            const { A, B, C } = triGridCorners(TRI_ROWS_REF, dxRef, dyRef, topYRef, TRI_CENTER_X_REF);
+            const outer = triOutwardExpand(A, B, C, 45);
+            const centroid = { x: (outer[0].x + outer[1].x + outer[2].x) / 3, y: (outer[0].y + outer[1].y + outer[2].y) / 3 };
+            const k27 = Math.hypot(A.x - centroid.x, A.y - centroid.y) / Math.hypot(outer[0].x - centroid.x, outer[0].y - centroid.y);
+            return { outer, centroid, k27 };
+        })();
+        const HEX_TRI_FIXED_FRAME = (() => {
+            const dxRef = TRI_BASE_WIDTH / (TRI_ROWS_REF - 1);
+            const dyRef = (Math.sqrt(3) / 2) * dxRef;
+            const totalHRef = dyRef * (TRI_ROWS_REF - 1);
+            const topYRef = (CANVAS_SIZE - totalHRef) / 2;
+            const ref = hexTriCorners(TRI_ROWS_REF, dxRef, dyRef, topYRef, TRI_CENTER_X_REF);
+            const outer = triOutwardExpandVerts(ref, 22);
+            const centroid = {
+                x: outer.reduce((s, p) => s + p.x, 0) / outer.length,
+                y: outer.reduce((s, p) => s + p.y, 0) / outer.length
+            };
+            const k27 = Math.hypot(ref[0].x - centroid.x, ref[0].y - centroid.y) / Math.hypot(outer[0].x - centroid.x, outer[0].y - centroid.y);
+            return { outer, centroid, k27 };
+        })();
+
+        /** 三角/六角形三角的格点布局（照旧插件 updateBoardGeometry 的两支）：返回点阵坐标函数与间距 */
+        function triLayoutOf(kind, lanes) {
+            const rows = triRowsOf(kind, lanes);
+            const rowLen = (r) => triRowLenAt(kind, lanes, r);
+            if (kind === 'hexagon') {
+                if (rows < 3) return null;
+                const padding = 24.6 - 0.1 * rows;
+                let factor = HEX_TRI_FIXED_FRAME.k27 * (22 / padding);
+                if (factor > 1) factor = 1;
+                const G = HEX_TRI_FIXED_FRAME.centroid;
+                const inner = HEX_TRI_FIXED_FRAME.outer.map((O) => ({ x: G.x + factor * (O.x - G.x), y: G.y + factor * (O.y - G.y) }));
+                const R = (rows - 1) / 2;
+                const dx = (inner[5].x - inner[0].x) / R;
+                const dy = (inner[1].y - inner[0].y) / R;
+                const topY = inner[0].y;
+                const centerX = (inner[0].x + inner[5].x) / 2;
+                // 行 0 画在下方（y 镜像），与旧插件一致
+                const posOf = (r, c) => ({ x: centerX - ((rowLen(r) - 1) / 2) * dx + c * dx, y: topY + (rows - 1 - r) * dy });
+                // 坐标标签固定物理位置（不随棋盘内容镜像）：y 用未镜像公式
+                const labelYOf = (r) => topY + r * dy;
+                return { rows, dx, dy, topY, centerX, rowLen, posOf, labelYOf, frame: HEX_TRI_FIXED_FRAME.outer, frameRadius: 3, cellSize: dx };
+            }
+            if (rows < 2) return null;
+            const padding = 50.4 - 0.2 * rows;
+            let factor = TRI_FIXED_FRAME.k27 * (45 / padding);
+            if (factor > 1) factor = 1;
+            const G = TRI_FIXED_FRAME.centroid;
+            const inner = TRI_FIXED_FRAME.outer.map((O) => ({ x: G.x + factor * (O.x - G.x), y: G.y + factor * (O.y - G.y) }));
+            const dx = (inner[2].x - inner[1].x) / (rows - 1);
+            const dy = (inner[1].y - inner[0].y) / (rows - 1);
+            const topY = inner[0].y;
+            const centerX = inner[0].x;
+            const posOf = (r, c) => ({ x: centerX - (r * dx) / 2 + c * dx, y: topY + r * dy });
+            return { rows, dx, dy, topY, centerX, rowLen, posOf, labelYOf: (r) => topY + r * dy, frame: TRI_FIXED_FRAME.outer, frameRadius: 3, cellSize: dx };
+        }
+
+        /** 菱形三角的布局（照旧插件 RhomBoardGeom）：方形点阵纵向压缩 → 逆时针转 30° → 整体 fit 进画布 */
+        function buildRhomLayout(lanes) {
+            const n = lanes;
+            const { padding, cellSize } = QiSquareWeiqiCanvas.computePaddingAndCell(n);
+            const xyBase = (r, c) => {
+                const bottomY = padding + (n - 1) * cellSize;
+                const y = bottomY - (n - 1 - r) * cellSize * RHOM_Y_SCALE;
+                const shiftU = 0.5 * (n - 1 - r);
+                return { x: padding + c * cellSize - shiftU * cellSize, y };
+            };
+            const cornersBase = [[0, 0], [0, n - 1], [n - 1, 0], [n - 1, n - 1]].map(([r, c]) => xyBase(r, c));
+            const rc = {
+                cx: cornersBase.reduce((s, p) => s + p.x, 0) / 4,
+                cy: cornersBase.reduce((s, p) => s + p.y, 0) / 4
+            };
+            const rotCCW = (p) => {
+                const dx = p.x - rc.cx, dy = p.y - rc.cy;
+                const cos = Math.cos(RHOM_ROT_CCW_RAD), sin = Math.sin(RHOM_ROT_CCW_RAD);
+                return { x: rc.cx + dx * cos - dy * sin, y: rc.cy + dx * sin + dy * cos };
+            };
+            const xyRot = (r, c) => rotCCW(xyBase(r, c));
+            const ensureCcW = (verts) => {
+                let area = 0;
+                for (let i = 0; i < verts.length; i++) {
+                    const j = (i + 1) % verts.length;
+                    area += verts[i].x * verts[j].y - verts[j].x * verts[i].y;
+                }
+                return area < 0 ? verts.slice().reverse() : verts.slice();
+            };
+            const lineIntersect = (p1, p2, p3, p4) => {
+                const dax = p2.x - p1.x, day = p2.y - p1.y;
+                const dbx = p4.x - p3.x, dby = p4.y - p3.y;
+                const denom = dax * dby - day * dbx;
+                if (Math.abs(denom) < 1e-9) return { x: p1.x, y: p1.y };
+                const t = ((p3.x - p1.x) * dby - (p3.y - p1.y) * dbx) / denom;
+                return { x: p1.x + t * dax, y: p1.y + t * day };
+            };
+            const parallelOffsetQuad = (verts, dist) => {
+                const v = ensureCcW(verts);
+                let area = 0;
+                for (let i = 0; i < 4; i++) {
+                    const j = (i + 1) % 4;
+                    area += v[i].x * v[j].y - v[j].x * v[i].y;
+                }
+                const sign = area >= 0 ? 1 : -1;
+                const lines = [];
+                for (let i = 0; i < 4; i++) {
+                    const a = v[i], b = v[(i + 1) % 4];
+                    const dx = b.x - a.x, dy = b.y - a.y;
+                    const len = Math.hypot(dx, dy) || 1;
+                    const nx = sign * (dy / len) * dist;
+                    const ny = sign * (-dx / len) * dist;
+                    lines.push({ p1: { x: a.x + nx, y: a.y + ny }, p2: { x: b.x + nx, y: b.y + ny } });
+                }
+                const out = [];
+                for (let i = 0; i < 4; i++) {
+                    const L0 = lines[(i - 1 + 4) % 4];
+                    const L1 = lines[i];
+                    out.push(lineIntersect(L0.p1, L0.p2, L1.p1, L1.p2));
+                }
+                return out;
+            };
+            // fit：全部在未缩放坐标系测量（含外框，外框偏移 = cellSize），与旧插件 recomputeDisplayFit 同口径
+            const rawCorners = [[0, 0], [0, n - 1], [n - 1, n - 1], [n - 1, 0]].map(([r, c]) => xyRot(r, c));
+            const frameRaw = parallelOffsetQuad(rawCorners, cellSize);
+            let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+            const include = (p) => {
+                minX = Math.min(minX, p.x); minY = Math.min(minY, p.y);
+                maxX = Math.max(maxX, p.x); maxY = Math.max(maxY, p.y);
+            };
+            for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) include(xyRot(r, c));
+            for (const p of frameRaw) include(p);
+            const canvasMargin = 16;
+            const avail = CANVAS_SIZE - 2 * canvasMargin;
+            const scale = Math.min(avail / Math.max(1e-6, maxX - minX), avail / Math.max(1e-6, maxY - minY));
+            const offX = CANVAS_SIZE / 2 - scale * ((minX + maxX) / 2);
+            const offY = CANVAS_SIZE / 2 - scale * ((minY + maxY) / 2);
+            const posOf = (r, c) => {
+                const p = xyRot(r, c);
+                return { x: offX + p.x * scale, y: offY + p.y * scale };
+            };
+            const frame = parallelOffsetQuad(rawCorners.map((p) => ({ x: offX + p.x * scale, y: offY + p.y * scale })), cellSize * scale);
+            return { rows: n, n, padding, cell: cellSize, scale, offX, offY, posOf, frame, frameRadius: RHOM_FRAME_CORNER_RADIUS, cellSize: cellSize * scale, frameOutsetDisplay: cellSize * scale };
+        }
+
+        /** 三角族的统一几何（产出 vertexViewFromGeo 的入参 + 供骨架绘制用的 layout） */
+        function triGeoOf(kind, lanes) {
+            const rows = triRowsOf(kind, lanes);
+            const layout = kind === 'rhombus' ? buildRhomLayout(lanes) : triLayoutOf(kind, lanes);
+            const cols = kind === 'hexagon' ? 2 * lanes - 1 : lanes;
+            const pos = [];
+            const koordOf = [];
+            const indexAt = new Map();
+            for (let r = 0; r < rows; r++) {
+                for (let c = 0; c < triRowLenAt(kind, lanes, r); c++) {
+                    indexAt.set(r * cols + c, pos.length);
+                    koordOf.push([r, c]);
+                    pos.push(layout.posOf(r, c));
+                }
+            }
+            const neighbors = koordOf.map(([r, c]) => {
+                const out = [];
+                for (const [nr, nc] of triNeighborCoordsOf(kind, lanes, r, c)) {
+                    const i = indexAt.get(nr * cols + nc);
+                    if (i !== undefined) out.push(i);
+                }
+                return out;
+            });
+            const cell = layout.cellSize;
+            return {
+                vertexCount: pos.length,
+                transformed: pos,
+                neighbors,
+                koordOf,
+                cellSize: cell,
+                // 与合并前的三角围棋同口径：木框内点击一律取最近格点（不设死区；格距小时靠两步落子防误触）
+                clickThreshold: Infinity,
+                frame: layout.frame,
+                layout
+            };
+        }
+        function triTotalPoints(kind, lanes) {
+            if (kind === 'triangle') return (lanes * (lanes + 1)) / 2;
+            if (kind === 'rhombus') return lanes * lanes;
+            return 3 * lanes * lanes - 3 * lanes + 1;
+        }
+        /** 星位（照旧插件 getShapeStars；菱形用公共星位、返回 null） */
+        function triStarsOf(kind, lanes) {
+            if (kind === 'rhombus') return null;
+            if (kind === 'hexagon') {
+                const rows = triRowsOf(kind, lanes);
+                if (rows < 11) return [];
+                const R = (rows - 1) / 2;
+                return [{ r: R, c: R }];
+            }
+            const rows = lanes;
+            if (rows < 11) return [];
+            const base = [{ r: 4, c: 2 }, { r: rows - 3, c: 2 }, { r: rows - 3, c: rows - 5 }];
+            if (rows % 2 === 1 && rows >= 15) {
+                base.push({ r: (1 + rows) / 2, c: 2 });
+                base.push({ r: (1 + rows) / 2, c: (rows - 3) / 2 });
+                base.push({ r: rows - 3, c: (rows - 3) / 2 });
+            }
+            return base;
+        }
+        function triRightEdgeLabel(r) {
+            if (r < 26) return String.fromCharCode(65 + r);
+            return String(r + 1);
+        }
+
+        /** 木框（自绘木纹，与旧插件同款：无阴影、底色 = 画布木纹、边线 #3a281c 0.5px） */
+        function triDrawWoodFrame(c2, frame, radius) {
+            c2.save();
+            c2.shadowBlur = 0;
+            c2.shadowOffsetY = 0;
+            c2.lineWidth = 0.5;
+            c2.strokeStyle = '#3a281c';
+            c2.fillStyle = QiSquareWeiqiCanvas.getWoodFill(c2, document.getElementById('goBoard')) || '#fdcc90';
+            drawRoundedPolygon(c2, frame, radius, false);
+            c2.restore();
+        }
+
+        function triDrawSkeleton(c2, view) {
+            const kind = 'triangle';
+            const lanes = LANES;
+            const L = view.geo.layout;
+            const rows = L.rows;
+            triDrawWoodFrame(c2, L.frame, L.frameRadius);
+            // 格线（三族直线）——与旧插件一致
+            c2.lineWidth = 1.2;
+            c2.strokeStyle = '#3a281c';
+            for (let r = 0; r < rows; r++) {
+                const a = L.posOf(r, 0), b = L.posOf(r, r);
+                c2.beginPath(); c2.moveTo(a.x, a.y); c2.lineTo(b.x, b.y); c2.stroke();
+            }
+            for (let c = 0; c < rows; c++) {
+                const a = L.posOf(c, c), b = L.posOf(rows - 1, c);
+                c2.beginPath(); c2.moveTo(a.x, a.y); c2.lineTo(b.x, b.y); c2.stroke();
+            }
+            for (let s = 0; s < rows; s++) {
+                const a = L.posOf(s, 0), b = L.posOf(rows - 1, rows - 1 - s);
+                c2.beginPath(); c2.moveTo(a.x, a.y); c2.lineTo(b.x, b.y); c2.stroke();
+            }
+            // 星位
+            c2.fillStyle = '#3a281c';
+            for (const { r, c } of triStarsOf(kind, lanes)) {
+                const p = L.posOf(r, c);
+                c2.beginPath();
+                c2.arc(p.x, p.y, 10.1 - 0.3 * rows, 0, 2 * Math.PI);
+                c2.fill();
+            }
+            // 坐标：左数字右字母
+            c2.font = `bold ${16.4 - 0.2 * rows}px Arial`;
+            c2.fillStyle = '#3a281c';
+            c2.textAlign = 'center';
+            c2.textBaseline = 'middle';
+            const labelOff = 17.4 - 0.2 * rows;
+            for (let r = 0; r < rows; r++) {
+                const p = L.posOf(r, 0);
+                c2.fillText((rows - r).toString(), p.x - labelOff, L.labelYOf(r));
+            }
+            for (let r = 0; r < rows; r++) {
+                const p = L.posOf(r, r);
+                c2.fillText(triRightEdgeLabel(r), p.x + labelOff, L.labelYOf(r));
+            }
+        }
+
+        function hexTriDrawSkeleton(c2, view) {
+            const kind = 'hexagon';
+            const lanes = LANES;
+            const L = view.geo.layout;
+            const rows = L.rows;
+            triDrawWoodFrame(c2, L.frame, L.frameRadius);
+            // 格线：每条边只画一次（右邻 + 下方两邻）
+            c2.lineWidth = 1.2;
+            c2.strokeStyle = '#3a281c';
+            for (let r = 0; r < rows; r++) {
+                for (let c = 0; c < L.rowLen(r); c++) {
+                    const start = L.posOf(r, c);
+                    if (c + 1 < L.rowLen(r)) {
+                        const end = L.posOf(r, c + 1);
+                        c2.beginPath(); c2.moveTo(start.x, start.y); c2.lineTo(end.x, end.y); c2.stroke();
+                    }
+                    for (const [nr, nc] of triNeighborCoordsOf(kind, lanes, r, c)) {
+                        if (nr > r) {
+                            const end = L.posOf(nr, nc);
+                            c2.beginPath(); c2.moveTo(start.x, start.y); c2.lineTo(end.x, end.y); c2.stroke();
+                        }
+                    }
+                }
+            }
+            // 星位（中心）
+            c2.fillStyle = '#3a281c';
+            for (const { r, c } of triStarsOf(kind, lanes)) {
+                const p = L.posOf(r, c);
+                c2.beginPath();
+                c2.arc(p.x, p.y, 10.1 - 0.3 * rows, 0, 2 * Math.PI);
+                c2.fill();
+            }
+            // 坐标：上边字母、左上数字、左下希腊字母（物理位置固定，取值随镜像反序）
+            const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+            const GREEK = 'ΑΒΓΔΕΖΗΘΙΚΛΜΝΞΟΠΡΣΤΥΦΧΨΩ';
+            const labelOff = 17.4 - 0.2 * rows;
+            const labelDy = L.dy * 0.35;
+            const RH = (rows - 1) / 2;
+            c2.font = `bold ${16.4 - 0.2 * rows}px Arial`;
+            c2.fillStyle = '#3a281c';
+            c2.textAlign = 'center';
+            c2.textBaseline = 'middle';
+            for (let c = 0; c < L.rowLen(0); c++) {
+                const p = L.posOf(0, c);
+                c2.fillText(LETTERS[c], p.x + labelOff * 0.5, L.labelYOf(0) - 0.7 * labelOff);
+            }
+            for (let r = 0; r <= RH; r++) {
+                const p = L.posOf(r, 0);
+                c2.fillText(String(RH + 1 - r), p.x - labelOff * 0.6, L.labelYOf(r) - labelDy);
+            }
+            for (let r = RH; r < rows; r++) {
+                const p = L.posOf(r, 0);
+                c2.fillText(GREEK[rows - 1 - r] || String(rows - r), p.x - labelOff * 0.6, L.labelYOf(r) + labelDy);
+            }
+        }
+
+        function rhomDrawSkeleton(c2, view) {
+            const lanes = LANES;
+            const L = view.geo.layout;
+            const n = L.n;
+            triDrawWoodFrame(c2, L.frame, L.frameRadius);
+            // 行/列格线
+            c2.strokeStyle = '#3a281c';
+            c2.lineWidth = 1.5;
+            c2.beginPath();
+            for (let r = 0; r < n; r++) {
+                const a = L.posOf(r, 0), b = L.posOf(r, n - 1);
+                c2.moveTo(a.x, a.y); c2.lineTo(b.x, b.y);
+            }
+            for (let c = 0; c < n; c++) {
+                const a = L.posOf(0, c), b = L.posOf(n - 1, c);
+                c2.moveTo(a.x, a.y); c2.lineTo(b.x, b.y);
+            }
+            c2.stroke();
+            // 反对角线（r+c = k）
+            c2.lineWidth = 1.2;
+            c2.beginPath();
+            for (let k = 0; k <= 2 * (n - 1); k++) {
+                const c0 = Math.max(0, k - (n - 1));
+                const c1 = Math.min(k, n - 1);
+                const a = L.posOf(k - c0, c0), b = L.posOf(k - c1, c1);
+                c2.moveTo(a.x, a.y); c2.lineTo(b.x, b.y);
+            }
+            c2.stroke();
+            // 星位（公共星位，半径 = 显示格距 × 0.12）
+            c2.fillStyle = '#3a281c';
+            for (const [r, c] of QiSquareWeiqiCanvas.getStarPoints(n)) {
+                const p = L.posOf(r, c);
+                c2.beginPath();
+                c2.arc(p.x, p.y, L.cellSize * 0.12, 0, 2 * Math.PI);
+                c2.fill();
+            }
+            // 坐标：上边数字、右边字母（沿框外偏移的一半处）
+            const mid = Math.floor((n - 1) / 2);
+            const outwardNormalForEdge = (p0, p1, interiorRef) => {
+                const tx = p1.x - p0.x, ty = p1.y - p0.y;
+                const len = Math.hypot(tx, ty) || 1;
+                let nx = -ty / len, ny = tx / len;
+                const mx = (p0.x + p1.x) / 2, my = (p0.y + p1.y) / 2;
+                if ((interiorRef.x - mx) * nx + (interiorRef.y - my) * ny > 0) { nx = -nx; ny = -ny; }
+                return { x: nx, y: ny };
+            };
+            const topLeft = L.posOf(0, 0);
+            const topRight = L.posOf(0, n - 1);
+            const rightBot = L.posOf(n - 1, n - 1);
+            const topN = outwardNormalForEdge(topLeft, topRight, L.posOf(1, 0));
+            const rightN = outwardNormalForEdge(topRight, rightBot, L.posOf(mid, mid));
+            const gapHalf = L.frameOutsetDisplay * 0.5;
+            const numExtraX = -0.2 * L.cellSize;
+            const numExtraY = 0.115 * L.cellSize;
+            const letExtraX = 0.2 * L.cellSize;
+            const letExtraY = 0.115 * L.cellSize;
+            c2.font = 'bold ' + Math.max(9, 250 / n * L.scale) + 'px Arial';
+            c2.fillStyle = '#3a281c';
+            c2.textBaseline = 'middle';
+            c2.textAlign = 'center';
+            for (let c = 0; c < n; c++) {
+                const p = L.posOf(0, c);
+                c2.fillText(String(c + 1), p.x + topN.x * gapHalf + numExtraX, p.y + topN.y * gapHalf + numExtraY);
+            }
+            for (let r = 0; r < n; r++) {
+                const p = L.posOf(r, n - 1);
+                c2.fillText(String.fromCharCode(65 + r), p.x + rightN.x * gapHalf + letExtraX, p.y + rightN.y * gapHalf + letExtraY);
+            }
+        }
+
+        /** 三角族的 VIEW 构建（三个形状共用）：totalPoints/komi/两步落子/座位蒙版形状都按当前子棋类取 */
+        function triBuildView(kind, lanes) {
+            const geo = triGeoOf(kind, lanes);
+            const seating = kind === 'hexagon' ? 'hexagon' : (kind === 'rhombus' ? 'rhombus' : 'triangle');
+            const view = vertexViewFromGeo(geo, lanes, {
+                totalPoints: triTotalPoints(kind, lanes),
+                // 点太密（显示格距 < 25px）时才要两步落子：31 路三角、13 路以上菱形等
+                twoStepPlacing: geo.cellSize < 25,
+                seatOverlayShape: seating,
+                komi: subCfg().komi(lanes)
+            });
+            view.geo.layout = geo.layout;
+            view.stoneRadius = geo.cellSize * 0.42;   // 与旧插件 DX*0.42 一致
+            view.markLen = (r) => r * 0.81;           // 旧插件标记长 DX*0.34 = 半径*0.81
+            view.markFontPx = (r, ch) => r * (ch === '🚩' ? 1.12 : 1.24);
+            return view;
+        }
+
         /* ---------------------------- 几何注册表 ---------------------------- */
         /** 子棋类 id → { build(lanes), drawSkeleton(ctx, view), pick(view, x, y) } */
         const GEOMETRY = {
@@ -929,6 +1451,21 @@ window.RoomPlugins['non-rectangular-weiqi'] = {
                 },
                 drawSkeleton: snubDrawSkeleton,
                 pick: snubPick
+            },
+            'triangle-weiqi': {
+                build(lanes) { return triBuildView('triangle', lanes); },
+                drawSkeleton: triDrawSkeleton,
+                pick: vertexPick
+            },
+            'rhom-triangle-weiqi': {
+                build(lanes) { return triBuildView('rhombus', lanes); },
+                drawSkeleton: rhomDrawSkeleton,
+                pick: vertexPick
+            },
+            'hexagon-triangle-weiqi': {
+                build(lanes) { return triBuildView('hexagon', lanes); },
+                drawSkeleton: hexTriDrawSkeleton,
+                pick: vertexPick
             }
         };
 
@@ -1053,6 +1590,7 @@ window.RoomPlugins['non-rectangular-weiqi'] = {
         let mySlot = null;               // 'player1' or 'player2'
         let gameOver = false;
         let winner = null;
+        let recordResultText = null;     // 终局结果原文（棋谱记录；导入棋谱以记录为准）
         let lastMoveMarkers = [];
         let showEstimateActive = false;
         let cachedLiveBoard = null;
@@ -1621,6 +2159,8 @@ const scoreTitle = document.getElementById('scoreTitle');
         function updateTurn()
         {
             if (replayMode) {
+                // 终局结果照常显示在比分区（回放面板只写手数；导入棋谱以记录为准）
+                if (gameOver) scoreTitle.innerText = QiWeiqiSquarePageRuntime.gameResultTitleText({ recordResultText, winner });
                 isMyTurn = false;
                 if (showEstimateActive) showEstimate();
                 else drawBoardWithOverlay();
@@ -1642,10 +2182,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             }
             if (gameOver) {
                 turnDisplay.innerText = '对局结束';
-                if (winner === 'player1') scoreTitle.innerText = '黑胜';
-                else if (winner === 'player2') scoreTitle.innerText = '白胜';
-                else if (winner === 'draw') scoreTitle.innerText = '和棋';
-                else scoreTitle.innerText = '　';
+                scoreTitle.innerText = QiWeiqiSquarePageRuntime.gameResultTitleText({ recordResultText, winner });
                 isMyTurn = false;
                 drawBoardWithOverlay();
                 return;
@@ -2133,12 +2670,20 @@ const scoreTitle = document.getElementById('scoreTitle');
                 syncSubGameSelect();
                 rebuildSizeSelect();
                 buildView();
+                resetStateForNewGeometry();   // 旧下标作废，随后从 state 重建盘面/手顺
                 applySubShellChrome();
             }
             numberOfHands = state.numberOfHands || 1;
             currentPlayer = state.currentPlayer;
             gameOver = state.gameOver || false;
             winner = state.winner || null;
+            // 贴目：以服务端下发的为准（导入棋谱采纳记录贴目；重置后服务端回到默认值，这里跟着回）
+            if (VIEW && state.komi != null && Number.isFinite(state.komi) && state.komi !== VIEW.komi) {
+                VIEW.komi = state.komi;
+                refreshKomiInfo();
+            }
+            if (state.recordResultText !== undefined) recordResultText = state.recordResultText || null;
+            else if (state.gameOver === false) recordResultText = null;
             if (state.matchStarted !== undefined) {
                 matchStarted = !!state.matchStarted;
                 if (matchStarted) matchStartedOnce = true;
@@ -2300,16 +2845,21 @@ komiInfo,
                     recordSize();
                     buildView();
                     rebuildSizeSelect();
-                    board = Array(VIEW.vertexCount).fill(0);
+                    resetStateForNewGeometry();
                 }
                 const sel = document.getElementById('boardSizeSelect');
                 if (sel) sel.value = String(msg.boardSize);
                 drawBoardWithOverlay();
+                // 菱形三角等的木框随路数变：蒙版多边形要跟着重画（形状一致才贴得住）
+                refreshSeatOverlay();
             },
             isMouseDevice,
             standardWeiqiMatchTime,
             boardSeatOverlay: true,
-            get seatOverlayShape() { return VIEW.seatOverlayShape || 'square'; }
+            get seatOverlayShape() { return VIEW.seatOverlayShape || 'square'; },
+            /** 蒙版多边形 = 当前子棋类画出来的木框（三角三点 / 六角形三角六点 / 菱形四边形） */
+            getSeatOverlayVertices: () => (VIEW && VIEW.frame) ? VIEW.frame : null,
+            seatOverlayCornerRadius: 3
         });
         handleMessage = _weiqiBindings.handleMessage;
         updateRecordButtons = _weiqiBindings.updateRecordButtons;
@@ -2618,15 +3168,20 @@ komiInfo,
 
         /**
          * 木纹外框按子棋类切换：
-         *   六角围棋 —— 隐藏壳统一的方形木纹（body 加 qi-room-transparent-canvas），只画自己的六角形木框；
+         *   六角 / 三角 / 菱形三角 / 六角形三角 —— 隐藏壳统一的方形木纹（body 加 qi-room-transparent-canvas），
+         *     由骨架自绘各自的木框（这几种子棋类的棋盘不是方形，方形木纹会露在框外）；
          *   其余三种 —— 去掉该 class，并把方形木纹铺回画布（它们的骨架只画格线与坐标标签）。
          */
         function applySubWoodFrame() {
-            const hexagon = SUB === 'hexagon-weiqi';
-            document.body.classList.toggle('qi-room-transparent-canvas', hexagon);
+            const selfFramed = SUB === 'hexagon-weiqi' || SUB === 'triangle-weiqi'
+                || SUB === 'rhom-triangle-weiqi' || SUB === 'hexagon-triangle-weiqi';
+            document.body.classList.toggle('qi-room-transparent-canvas', selfFramed);
             const canvasEl = document.getElementById('goBoard');
             if (!canvasEl) return;
-            if (hexagon) {
+            // 标记留白（applyLooseBoardMarkGap）按底色探测一次就缓存：换子棋类后必须失效重探，
+            // 否则「开罗（方形木纹）→ 三角（自绘木框）」后擦洞会用错策略
+            delete canvasEl.__qiMarkGapKind;
+            if (selfFramed) {
                 canvasEl.style.backgroundImage = '';
                 canvasEl.style.backgroundSize = '';
                 canvasEl.style.backgroundRepeat = '';
@@ -2635,6 +3190,38 @@ komiInfo,
                 QiSquareWeiqiCanvas.applyBoardWoodTexture(canvasEl);
             }
             drawBoardWithOverlay();
+        }
+
+        /** 座位蒙版重画：蒙版多边形取当前 VIEW.frame（随子棋类/路数变），交给公共 bindings 重画 */
+        function refreshSeatOverlay() {
+            if (_weiqiBindings && typeof _weiqiBindings.updateSeatOverlay === 'function') _weiqiBindings.updateSeatOverlay();
+        }
+
+        /**
+         * 换几何/换路数后：所有「按旧顶点下标存」的渲染状态一律作废。
+         * 必须在 buildView() 之后、任何 drawBoard 之前调用——不同子棋类的顶点数不同（27 路三角 378 vs
+         * 13 路菱形 169），旧下标在新 VIEW 的 pos[] 里越界会直接抛错（木框自绘的子棋类尤其明显）。
+         * 标记映射**就地清空**（不换对象）：bindActiveUserBoardMarks 绑的是这一对引用。
+         */
+        function resetStateForNewGeometry() {
+            board = Array(VIEW.vertexCount).fill(0);
+            lastMoveMarkers = [];
+            moveLog = [];
+            moveCoordsFull = [];
+            liveReplayBoards = [];
+            liveReplayMarkers = [];
+            liveReplayStepPlayers = [];
+            liveViewStep = 0;
+            liveFollowLatest = true;
+            cachedLiveBoard = null;
+            cachedTerritory = null;
+            if (typeof QiWeiqiSquarePageRuntime !== 'undefined' && QiWeiqiSquarePageRuntime.clearUserBoardMarksMap) {
+                QiWeiqiSquarePageRuntime.clearUserBoardMarksMap(userBoardMarks);
+                QiWeiqiSquarePageRuntime.clearUserBoardMarksMap(userStoneMarks);
+            } else {
+                userBoardMarks = Object.create(null);
+                userStoneMarks = Object.create(null);
+            }
         }
 
         /** 规则弹层与贴目文案按当前子棋类 */
@@ -2646,8 +3233,9 @@ komiInfo,
             if (rulesBody) rulesBody.innerHTML = cfg.rulesHtml;
             applySubWoodFrame();
             // 蒙版形状在「创建蒙版」与「窗口 resize」时才会重新解析：换子棋类后补发一次 resize，
-            // 让壳按当前的 ctx.seatOverlayShape（六角=六边形，其余=方形）重画蒙版
+            // 让壳按当前的 ctx.seatOverlayShape（三角/六角=对应多边形，其余=方形）重画蒙版
             try { window.dispatchEvent(new Event('resize')); } catch (e) { /* ignore */ }
+            refreshSeatOverlay();
             refreshKomiInfo();
         }
 
@@ -2675,10 +3263,8 @@ komiInfo,
                 LANES = rememberedOrDef(v);
                 rebuildSizeSelect();
                 buildView();
+                resetStateForNewGeometry();   // 旧下标作废（新几何顶点数可能更少），再重绘
                 applySubShellChrome();
-                board = Array(VIEW.vertexCount).fill(0);
-                lastMoveMarkers = [];
-                userBoardMarks = Object.create(null); userStoneMarks = Object.create(null);
                 if (typeof ws !== 'undefined' && ws && ws.readyState === 1)
                     ws.send(JSON.stringify({ type: 'setSubGame', subGameId: v }));
                 drawBoardWithOverlay();

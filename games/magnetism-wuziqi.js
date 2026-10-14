@@ -169,6 +169,7 @@ class MagnetismWuziqiRoom extends QiTwoPlayerRoomBase {
             lastMoveMarkers: this.lastMoveMarkers,
             gameOver: this.gameOver,
             winner: this.winner,
+            recordResultText: this.recordResultText,
             moveCoords: this.wireMoveCoords(),
             matchTime: {
                 negotiation: this.tcNego,

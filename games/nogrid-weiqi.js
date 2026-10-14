@@ -4,6 +4,9 @@ const PADDING = 25;
 const INNER_SIZE = BOARD_SIZE_PX - 2 * PADDING;
 const KOMI = 3.25;
 const LIBERTY_ANGLE_STEP = Math.PI / 36;
+const LIBERTY_OFFSETS = [];
+for (let angle = 0; angle < 2 * Math.PI; angle += LIBERTY_ANGLE_STEP)
+    LIBERTY_OFFSETS.push([Math.cos(angle), Math.sin(angle)]);
 
 function ixToX(ix) {
     return PADDING + (ix / COORD_SCALE) * INNER_SIZE;
@@ -66,35 +69,62 @@ function segmentsIntersect(p1, p2, p3, p4) {
     return false;
 }
 
+const adjacencyGeometry = new WeakMap();
+function getAdjacencyGeometry(allStones, diameter) {
+    let cached = adjacencyGeometry.get(allStones);
+    if (cached && cached.diameter === diameter) return cached;
+    const points = allStones.map(stoneXY);
+    const segments = [];
+    for (let i = 0; i < allStones.length; i++) {
+        for (let j = i + 1; j < allStones.length; j++) {
+            const length = distance(points[i], points[j]);
+            // AB < 2d，所以长度 >= 2d 的 DE 不可能阻断 AB。
+            if (length < 2 * diameter) segments.push({ i, j, length });
+        }
+    }
+    cached = { diameter, points, segments };
+    adjacencyGeometry.set(allStones, cached);
+    return cached;
+}
+
 function areAdjacent(a, b, allStones, diameter) {
     if (a.color !== b.color) return false;
     const pa = stoneXY(a);
     const pb = stoneXY(b);
     const d = distance(pa, pb);
     if (d >= 2 * diameter) return false;
+    const geometry = getAdjacencyGeometry(allStones, diameter);
     const mid = { x: (pa.x + pb.x) / 2, y: (pa.y + pb.y) / 2 };
     const halfAB = d / 2;
-    for (let f of allStones) {
+    for (let i = 0; i < allStones.length; i++) {
+        const f = allStones[i];
         if (stonesEqual(f, a) || stonesEqual(f, b)) continue;
-        const pf = stoneXY(f);
+        const pf = geometry.points[i];
         if (distance(pf, mid) < halfAB - 1e-7) return false;
     }
-    for (let i = 0; i < allStones.length; i++) {
-        for (let j = i + 1; j < allStones.length; j++) {
-            const dStone = allStones[i];
-            const eStone = allStones[j];
-            if (stonesEqual(dStone, a) || stonesEqual(dStone, b) || stonesEqual(eStone, a) || stonesEqual(eStone, b)) continue;
-            const pd = stoneXY(dStone);
-            const pe = stoneXY(eStone);
-            const deLen = distance(pd, pe);
-            // 规则：DE < AB（严格小于）
-            if (deLen < d - 1e-7 && segmentsIntersect(pa, pb, pd, pe)) return false;
-        }
+    for (const { i, j, length: deLen } of geometry.segments) {
+        const dStone = allStones[i];
+        const eStone = allStones[j];
+        if (stonesEqual(dStone, a) || stonesEqual(dStone, b) || stonesEqual(eStone, a) || stonesEqual(eStone, b)) continue;
+        const pd = geometry.points[i];
+        const pe = geometry.points[j];
+        // 规则：DE < AB（严格小于）
+        if (deLen < d - 1e-7 && segmentsIntersect(pa, pb, pd, pe)) return false;
     }
     return true;
 }
 
 function getGroups(allStones, targetColor, diameter) {
+    const geometry = getAdjacencyGeometry(allStones, diameter);
+    if (!geometry.neighbors) {
+        geometry.neighbors = allStones.map(() => []);
+        for (const { i, j } of geometry.segments) {
+            if (areAdjacent(allStones[i], allStones[j], allStones, diameter)) {
+                geometry.neighbors[i].push(j);
+                geometry.neighbors[j].push(i);
+            }
+        }
+    }
     const visited = new Set();
     const groups = [];
     for (let i = 0; i < allStones.length; i++) {
@@ -102,21 +132,17 @@ function getGroups(allStones, targetColor, diameter) {
         if (s.color !== targetColor) continue;
         const key = `${s.ix},${s.iy}`;
         if (visited.has(key)) continue;
-        const queue = [s];
+        const queue = [i];
         visited.add(key);
         const group = [s];
-        while (queue.length) {
-            const cur = queue.shift();
-            for (let j = 0; j < allStones.length; j++) {
+        for (let head = 0; head < queue.length; head++) {
+            for (const j of geometry.neighbors[queue[head]]) {
                 const ns = allStones[j];
-                if (ns.color !== targetColor) continue;
                 const nKey = `${ns.ix},${ns.iy}`;
                 if (visited.has(nKey)) continue;
-                if (areAdjacent(cur, ns, allStones, diameter)) {
-                    visited.add(nKey);
-                    queue.push(ns);
-                    group.push(ns);
-                }
+                visited.add(nKey);
+                queue.push(j);
+                group.push(ns);
             }
         }
         groups.push(group);
@@ -126,16 +152,16 @@ function getGroups(allStones, targetColor, diameter) {
 
 function hasGroupLiberty(group, allStones, diameter) {
     const d2 = diameter * diameter;
+    const points = getAdjacencyGeometry(allStones, diameter).points;
     for (let stone of group) {
         const sxy = stoneXY(stone);
-        for (let ang = 0; ang < 2 * Math.PI; ang += LIBERTY_ANGLE_STEP) {
-            const px = sxy.x + diameter * Math.cos(ang);
-            const py = sxy.y + diameter * Math.sin(ang);
+        for (const [cos, sin] of LIBERTY_OFFSETS) {
+            const px = sxy.x + diameter * cos;
+            const py = sxy.y + diameter * sin;
             if (px < PADDING - 1e-5 || px > BOARD_SIZE_PX - PADDING + 1e-5 ||
                 py < PADDING - 1e-5 || py > BOARD_SIZE_PX - PADDING + 1e-5) continue;
             let occupied = false;
-            for (let s of allStones) {
-                const t = stoneXY(s);
+            for (const t of points) {
                 const dx = px - t.x;
                 const dy = py - t.y;
                 if (dx * dx + dy * dy < d2 - 1e-7) {
@@ -234,11 +260,11 @@ function computeTerritoryLead(stones, roadCount) {
     }
     const blackPoints = totalArea * (blackPixels / totalInsidePixels);
     const whitePoints = totalArea * (whitePixels / totalInsidePixels);
-    const lead = blackPoints - whitePoints - 2 * KOMI;
+    const lead = blackPoints - whitePoints - 2 * qiEffectiveKomi(this, KOMI);
     return { lead, blackPoints, whitePoints };
 }
 
-const { QiTwoPlayerRoomBase, qiMatchTimeControl, qiBoardSeatOverlay, encodeOpeningPositionCompact, qiProtocol } = require('../common');
+const { qiApplyRecordKomi, qiEffectiveKomi, QiTwoPlayerRoomBase, qiMatchTimeControl, qiBoardSeatOverlay, encodeOpeningPositionCompact, qiProtocol } = require('../common');
 class NogridWeiqiRoom extends QiTwoPlayerRoomBase {
     constructor(room) {
         super(room);
@@ -414,11 +440,13 @@ class NogridWeiqiRoom extends QiTwoPlayerRoomBase {
         return {
             roadCount: this.roadCount,
             stones: copyStones(this.stones),
+            komi: qiEffectiveKomi(this, KOMI),
             numberOfHands: 1 + this.historyStones.length,
             currentPlayer: this.currentPlayer,
             lastMoveMarkers: this.lastMoveMarkers.map(m => ({ ...m })),
             gameOver: this.gameOver,
             winner: this.winner,
+            recordResultText: this.recordResultText,
             moveCoords: this.moveCoords.map(m => ({ ...m })),
             slots: {
                 player1: !!this.room.getPlayerBySlot('player1'),
@@ -521,6 +549,7 @@ class NogridWeiqiRoom extends QiTwoPlayerRoomBase {
         this.gameOver = false;
         this.winner = null;
         this.recordResultText = null;
+        this.importedKomi = undefined;
         this.passCounter = 0;
         this.slotJoinedAt = { player1: null, player2: null };
         this.tcNego = null;
@@ -546,6 +575,7 @@ class NogridWeiqiRoom extends QiTwoPlayerRoomBase {
         this.gameOver = false;
         this.winner = null;
         this.recordResultText = null;
+        this.importedKomi = undefined;
         this.passCounter = 0;
         this.slotJoinedAt = { player1: null, player2: null };
         this.tcNego = null;
@@ -582,7 +612,7 @@ class NogridWeiqiRoom extends QiTwoPlayerRoomBase {
             gameType: '无格线围棋',
             gameId: 'nogrid-weiqi',
             roadCount: this.roadCount,
-            komi: KOMI,
+            komi: qiEffectiveKomi(this, KOMI),
             coordScale: COORD_SCALE,
             players: { player1: null, player2: null },
             initialPosition: encodeOpeningPositionCompact(this),
@@ -711,11 +741,24 @@ class NogridWeiqiRoom extends QiTwoPlayerRoomBase {
                 this.winner = data.result;
         }
 
+        qiApplyRecordKomi(this, data);   // 导入棋谱采纳记录贴目（新局/重置时清掉）
         this.broadcast({
             type: 'importSuccess',
             ...this.getState(),
             replayData: {
-                moves: this.moveCoords.map(m => ({ ...m }))
+                // 服务端已验证全部着法，把局面变化带给前端，避免再做几何提子重放。
+                moves: this.moveCoords.map((m, i) => {
+                    if (m.type !== 'move') return { ...m };
+                    const before = i === 0 ? [] : this.historyStones[i - 1];
+                    const after = this.historyStones[i];
+                    const key = s => `${s.ix},${s.iy},${s.color}`;
+                    const beforeSet = new Set(before.map(key));
+                    const afterSet = new Set(after.map(key));
+                    return { ...m, stoneChanges: {
+                        removed: copyStones(before.filter(s => !afterSet.has(key(s)))),
+                        added: copyStones(after.filter(s => !beforeSet.has(key(s))))
+                    } };
+                })
             }
         });
     }

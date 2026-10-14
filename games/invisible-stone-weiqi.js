@@ -1,4 +1,4 @@
-const { QiTwoPlayerRoomBase, applyInitialPositionCompact, encodeInitialPositionCompact, qiBoardSeatOverlay, qiMatchTimeControl, qiProtocol, squareWeiqiRules, computeNearestWeiqiLead, squareWeiqiScoringOps } = require('../common');
+const { qiApplyRecordKomi, qiEffectiveKomi, QiTwoPlayerRoomBase, applyInitialPositionCompact, encodeInitialPositionCompact, qiBoardSeatOverlay, qiMatchTimeControl, qiProtocol, squareWeiqiRules, computeNearestWeiqiLead, squareWeiqiScoringOps } = require('../common');
 class InvisibleStoneWeiqiRoom extends QiTwoPlayerRoomBase {
     constructor(room, initialSize = 9) {
         super(room);
@@ -262,7 +262,7 @@ class InvisibleStoneWeiqiRoom extends QiTwoPlayerRoomBase {
 
     /** 形势判断 / 数点：只用最近归属档（公共口径）；不判死子、不叠 Benson */
     computeLead() {
-        const { lead } = computeNearestWeiqiLead(this.board, 4.25, squareWeiqiScoringOps(this.boardSize, {
+        const { lead } = computeNearestWeiqiLead(this.board, qiEffectiveKomi(this, 4.25), squareWeiqiScoringOps(this.boardSize, {
             copyBoard: (b) => this.copyBoard(b)
         }));
         return lead;
@@ -474,6 +474,7 @@ class InvisibleStoneWeiqiRoom extends QiTwoPlayerRoomBase {
             lastMoveMarkers: this.filterLastMoveMarkers(slot),
             gameOver: this.gameOver,
             winner: this.winner,
+            recordResultText: this.recordResultText,
             moveCoords: this.filterMoveCoordsForSlot(slot),
             plainWeiqiStartHand: this.plainWeiqiStartHand,
             invisibleStoneCounts: this.getInvisibleStoneCounts(),
@@ -486,7 +487,7 @@ class InvisibleStoneWeiqiRoom extends QiTwoPlayerRoomBase {
                 plainWeiqiStartHand: this.plainWeiqiStartHand,
                 moves: (this.gameOver ? this.moveCoords : this.filterMoveCoordsForSlot(slot)).map(m => ({ ...m }))
             },
-            komi: 4.25,
+            komi: qiEffectiveKomi(this, 4.25),
             slots: {
                 player1: !!this.room.getPlayerBySlot('player1'),
                 player2: !!this.room.getPlayerBySlot('player2')
@@ -892,6 +893,7 @@ class InvisibleStoneWeiqiRoom extends QiTwoPlayerRoomBase {
         this.moveCoords = [];
         this.plainWeiqiStartHand = null;
         this.recordResultText = null;
+        this.importedKomi = undefined;
         this.slotJoinedAt = { player1: null, player2: null };
         this.tcNego = null;
         this.tcSettings = null;
@@ -946,7 +948,7 @@ class InvisibleStoneWeiqiRoom extends QiTwoPlayerRoomBase {
             gameType: '隐身子围棋',
             gameId: 'invisible-stone-weiqi',
             boardSize: this.boardSize,
-            komi: 4.25,
+            komi: qiEffectiveKomi(this, 4.25),
             players: { player1: null, player2: null },
             initialPosition: encodeInitialPositionCompact(this.openingBoard, this.boardSize),
             plainWeiqiStartHand: this.plainWeiqiStartHand,
@@ -979,6 +981,7 @@ class InvisibleStoneWeiqiRoom extends QiTwoPlayerRoomBase {
         this.scoreProposalData = null;
         this.plainWeiqiStartHand = null;
         this.recordResultText = null;
+        this.importedKomi = undefined;
         this.slotJoinedAt = { player1: null, player2: null };
         this.tcNego = null;
         this.tcSettings = null;
@@ -1159,6 +1162,7 @@ class InvisibleStoneWeiqiRoom extends QiTwoPlayerRoomBase {
                 this.winner = data.result;
         }
 
+        qiApplyRecordKomi(this, data);   // 导入棋谱采纳记录贴目（新局/重置时清掉）
         const allClients = [...this.room.players.keys(), ...this.room.observers];
         for (const client of allClients) {
             if (client.readyState !== 1) continue;

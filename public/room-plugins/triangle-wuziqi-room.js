@@ -173,6 +173,7 @@ let board = initBoardArray(ROWS);
         let mySlot = null;
         let gameOver = false;
         let winner = null;
+        let recordResultText = null;     // 终局结果原文（棋谱记录；导入棋谱以记录为准）
         let lastMoveMarkers = [];
         let ws;
         let isMyTurn = false;
@@ -423,7 +424,7 @@ const scoreTitle = document.getElementById('scoreTitle');
         }
 
         function updateTurn() {
-            scoreTitle.innerText = gameOver ? (winner === 'player1' ? '黑胜' : winner === 'player2' ? '白胜' : winner === 'draw' ? '和棋' : '　') : '　';
+            scoreTitle.innerText = gameOver ? QiWeiqiSquarePageRuntime.gameResultTitleText({ recordResultText, winner }) : '　';
             scoreBoard.innerText = '　';
             leadInfo.innerText = '　';
             if (replayMode) {
@@ -794,6 +795,8 @@ const scoreTitle = document.getElementById('scoreTitle');
             currentPlayer = state.currentPlayer;
             gameOver = state.gameOver || false;
             winner = state.winner || null;
+            if (state.recordResultText !== undefined) recordResultText = state.recordResultText || null;
+            else if (state.gameOver === false) recordResultText = null;
             matchStarted = !!state.matchStarted;
             matchTime = state.matchTime || null;
             if (state.moveCoords) moveLog = state.moveCoords.map(m => m.type === 'move' ? { row: m.row, col: m.col } : null);

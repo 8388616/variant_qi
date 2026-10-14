@@ -1,6 +1,6 @@
 'use strict';
 
-const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, encodeInitialPositionCompact, applyInitialPositionCompact, qiBoardSeatOverlay, computeBensonWeiqiLead, squareWeiqiScoringOps } = require('../common');
+const { qiApplyRecordKomi, qiEffectiveKomi, QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, encodeInitialPositionCompact, applyInitialPositionCompact, qiBoardSeatOverlay, computeBensonWeiqiLead, squareWeiqiScoringOps } = require('../common');
 
 class SyncWeiqiRoom extends QiTwoPlayerRoomBase {
     constructor(room, initialSize = 19) {
@@ -183,6 +183,7 @@ class SyncWeiqiRoom extends QiTwoPlayerRoomBase {
     }
 
     getKomi() {
+        if (this.importedKomi != null) return this.importedKomi;   // 导入棋谱采纳记录贴目
         return this.boardSize <= 8 ? 4.25 : 3.25;
     }
 
@@ -411,6 +412,7 @@ class SyncWeiqiRoom extends QiTwoPlayerRoomBase {
             moveCoords: this.moveCoords,
             gameOver: this.gameOver,
             winner: this.winner,
+            recordResultText: this.recordResultText,
             slots: {
                 player1: !!this.room.getPlayerBySlot('player1'),
                 player2: !!this.room.getPlayerBySlot('player2')
@@ -483,6 +485,7 @@ class SyncWeiqiRoom extends QiTwoPlayerRoomBase {
         this.tcSettings = null;
         this.tcClock = null;
         this.recordResultText = null;
+        this.importedKomi = undefined;
         this.matchStarted = false;
     }
 
@@ -688,6 +691,7 @@ class SyncWeiqiRoom extends QiTwoPlayerRoomBase {
             this.matchStarted = true;
         }
 
+        qiApplyRecordKomi(this, data);   // 导入棋谱采纳记录贴目（新局/重置时清掉）
         this.broadcast({
             type: 'importSuccess',
             ...this.getState(),
@@ -727,6 +731,7 @@ class SyncWeiqiRoom extends QiTwoPlayerRoomBase {
         this.tcSettings = null;
         this.tcClock = null;
         this.recordResultText = null;
+        this.importedKomi = undefined;
         this.matchStarted = false;
         this.resetToEmpty();
         qiProtocol.releaseAllSeats(this);

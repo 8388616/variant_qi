@@ -1874,6 +1874,31 @@ body.qi-room .qd-bag-inner {
     gap: 8px;
 }
 
+/* 复合子背包沿用路墙棋的木框与双侧布局。 */
+body.qi-room .compound-stone-bags .qd-bag-inner { gap: 3px; justify-content: space-between; }
+body.qi-room .compound-bag-piece {
+    display: inline-flex; flex-direction: column; align-items: center; justify-content: center;
+    width: 38px; min-height: 58px; padding: 3px 0; border: 0; border-radius: 7px;
+    color: var(--qi-room-ink); font: inherit; background: transparent; cursor: pointer; flex-shrink: 0;
+}
+body.qi-room .compound-bag-piece.active { box-shadow: 0 0 0 2px #a97b3f, 0 0 10px #b98b4f; }
+body.qi-room .compound-bag-piece:disabled { opacity: .45; cursor: default; }
+body.qi-room .compound-bag-piece:focus-visible { outline: 2px solid #a97b3f; outline-offset: 2px; }
+body.qi-room .compound-bag-shape { position: relative; display: block; width: 34px; height: 34px; }
+body.qi-room .compound-bag-stone {
+    position: absolute; width: 10px; height: 10px; border-radius: 50%; transform: translate(-50%,-50%);
+    background: radial-gradient(circle at 30% 30%,#666,#111 70%); box-shadow: 0 1px 2px #0005;
+}
+body.qi-room .qd-white-side .compound-bag-stone { background: radial-gradient(circle at 30% 30%,#fff,#eee 65%,#c4c4c4); }
+body.qi-room .compound-bag-count { font-size: 13px; line-height: 18px; }
+body.qi-room .compound-stone-bags > .transform-buttons { justify-content: center; margin-top: 8px; }
+@media (max-width: 700px) and (hover: none) and (pointer: coarse) {
+    body.qi-room.qi-room-compound-stone .palette-stack-aside {
+        order: 3; display: flex; flex-direction: column; width: 100%; max-width: 100%; margin-top: 10px;
+    }
+    body.qi-room.qi-room-compound-stone .compound-stone-bags .qd-bag-col { width: 100%; }
+}
+
 body.qi-room .qd-wall-slot {
     background: transparent;
     border: none;

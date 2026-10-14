@@ -30,11 +30,8 @@
     <div class="top-panel">
         <div class="left-group">
             <button type="button" class="komi-info game-switch-trigger" id="gameTitleInfo" aria-expanded="false" aria-controls="roomGameMenu" aria-haspopup="dialog" title="切换棋类">围棋</button>
-            <select id="subGameSelect" class="board-size-select" style="display: none;">
-                <option value="triangle">三角形</option>
-                <option value="rhombus">菱形</option>
-                <option value="hexagon">六角形</option>
-            </select>
+            <!-- 子棋类下拉：选项由各棋种插件自己重建（非四角围棋 / 权重围棋 / 避锋围棋 …） -->
+            <select id="subGameSelect" class="board-size-select" style="display: none;"></select>
             <select id="boardSizeSelect" class="board-size-select" style="display: none;"></select>
             <div class="komi-info" id="komiInfo">黑贴白3.25点</div>
             <div class="side-select" id="sideSelect" hidden>
@@ -65,6 +62,7 @@
             </label>
         </div>
         <div class="right-buttons">
+            <button type="button" class="qi-account-control" id="roomLoginBtn">登入</button>
             <button class="help-btn" id="helpBtn">说明</button>
             <button class="back-to-lobby-btn" id="backToLobbyBtn">返回大厅</button>
             <button type="button" class="color-status room-share-btn" id="roomShareBtn" hidden>
@@ -74,7 +72,6 @@
                     <path d="M8.6 10.5l6.8-4M8.6 13.5l6.8 4"></path>
                 </svg>
             </button>
-            <button type="button" class="qi-account-control" id="roomLoginBtn">登入</button>
         </div>
     </div>
 

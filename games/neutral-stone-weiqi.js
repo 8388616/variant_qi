@@ -1,4 +1,4 @@
-const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, encodeInitialPositionCompact, applyInitialPositionCompact, qiBoardSeatOverlay, computeBensonWeiqiLead, squareWeiqiScoringOps } = require('../common');
+const { qiApplyRecordKomi, qiEffectiveKomi, QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, encodeInitialPositionCompact, applyInitialPositionCompact, qiBoardSeatOverlay, computeBensonWeiqiLead, squareWeiqiScoringOps } = require('../common');
 
 const NEUTRAL = 10000;
 
@@ -221,7 +221,7 @@ class NeutralStoneWeiqiRoom extends QiTwoPlayerRoomBase
             copyBoard: (b) => this.copyBoard(b)
         });
         ops.bensonAlive = (bd) => squareWeiqiRules.bensonAliveWithHoles(bd, this.boardSize, isNeutral(bd));
-        const { lead } = computeBensonWeiqiLead(this.board, 4.75, ops);
+        const { lead } = computeBensonWeiqiLead(this.board, qiEffectiveKomi(this, 4.75), ops);
         return lead;
     }
 
@@ -242,12 +242,13 @@ class NeutralStoneWeiqiRoom extends QiTwoPlayerRoomBase
         return {
             board: this.board,
             initialBoard,
-            komi: 4.75,
+            komi: qiEffectiveKomi(this, 4.75),
             numberOfHands: 1 + this.historyBoards.length,
             currentPlayer: this.currentPlayer,
             lastMoveMarkers: this.lastMoveMarkers,
             gameOver: this.gameOver,
             winner: this.winner,
+            recordResultText: this.recordResultText,
             initialNeutralStones: this.initialNeutralStones,
             neutralStones: this.getNeutralStonesOnBoard(),
             moveCoords: this.moveCoords,
@@ -274,12 +275,13 @@ class NeutralStoneWeiqiRoom extends QiTwoPlayerRoomBase
         return {
             board: this.board,
             initialBoard,
-            komi: 4.75,
+            komi: qiEffectiveKomi(this, 4.75),
             currentPlayer: this.currentPlayer,
             numberOfHands: 1,
             lastMoveMarkers: this.lastMoveMarkers,
             gameOver: this.gameOver,
             winner: this.winner,
+            recordResultText: this.recordResultText,
             initialNeutralStones: this.initialNeutralStones,
             neutralStones: this.getNeutralStonesOnBoard(),
             moveCoords: [],
@@ -493,6 +495,7 @@ class NeutralStoneWeiqiRoom extends QiTwoPlayerRoomBase
         this.gameOver = false;
         this.winner = null;
         this.recordResultText = null;
+        this.importedKomi = undefined;
         this.passCounter = 0;
         qiProtocol.releaseAllSeats(this);
         this.broadcast({ type: 'newGameStarted', ...this.getInitialState(), slots: { player1: false, player2: false } });
@@ -513,7 +516,7 @@ class NeutralStoneWeiqiRoom extends QiTwoPlayerRoomBase
             game: '中立子围棋',
             gameId: 'neutral-stone-weiqi',
             boardSize: this.boardSize,
-            komi: 4.75,
+            komi: qiEffectiveKomi(this, 4.75),
             players: { player1: '', player2: '' },
             initialPosition: encodeInitialPositionCompact(initialBoard, this.boardSize),
             moves: this.moveCoords.map(m => {
@@ -546,6 +549,7 @@ class NeutralStoneWeiqiRoom extends QiTwoPlayerRoomBase
         this.gameOver = false;
         this.winner = null;
         this.recordResultText = null;
+        this.importedKomi = undefined;
         this.passCounter = 0;
         this.pendingNewGame = null;
         this.pendingUndo = null;
@@ -651,6 +655,7 @@ class NeutralStoneWeiqiRoom extends QiTwoPlayerRoomBase
                 this.winner = data.result;
         }
 
+        qiApplyRecordKomi(this, data);   // 导入棋谱采纳记录贴目（新局/重置时清掉）
         this.broadcast({
             type: 'importSuccess',
             ...this.getState(),

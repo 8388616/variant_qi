@@ -50,6 +50,7 @@ let BOARD_SIZE = 9;
         let matchTime = null;
         let gameOver = false;
         let winner = null;
+        let recordResultText = null;     // 终局结果原文（棋谱记录；导入棋谱以记录为准）
         let lastMoveMarkers = [];
         let showEstimateActive = false;
         let cachedLiveBoard = null;
@@ -603,21 +604,16 @@ const scoreTitle = document.getElementById('scoreTitle');
                     const emoji = (n % 2 === 1) ? '⚫' : '⚪';
                     turnDisplay.innerText = `${emoji} 第${n}手`;
                 }
-                scoreTitle.innerText = '　';
+                scoreTitle.innerText = gameOver
+                    ? QiWeiqiSquarePageRuntime.gameResultTitleText({ recordResultText, winner })
+                    : '　';
                 isMyTurn = false;
                 drawBoard();
                 return;
             }
             if (gameOver) {
                 turnDisplay.innerText = '对局结束';
-                if (winner === 'player1')
-                    scoreTitle.innerText = '黑胜';
-                else if (winner === 'player2')
-                    scoreTitle.innerText = '白胜';
-                else if (winner === 'draw')
-                    scoreTitle.innerText = '和棋';
-                else
-                    scoreTitle.innerText = '对局结束';
+                scoreTitle.innerText = QiWeiqiSquarePageRuntime.gameResultTitleText({ recordResultText, winner });
                 isMyTurn = false;
                 drawBoard();
                 return;
@@ -851,6 +847,8 @@ syncState,
                         nextLifetimePreview = state.nextLifetimePreview;
                         gameOver = state.gameOver;
                         winner = state.winner;
+                        if (state.recordResultText !== undefined) recordResultText = state.recordResultText || null;
+                        else if (state.gameOver === false) recordResultText = null;
                         psBindings.gameOver = !!gameOver;
                         psBindings.winner = winner;
                         lastMoveMarkers = state.lastMoveMarkers || [];
@@ -865,6 +863,8 @@ syncState,
                 nextLifetimePreview = state.nextLifetimePreview;
                 gameOver = state.gameOver;
                 winner = state.winner;
+                if (state.recordResultText !== undefined) recordResultText = state.recordResultText || null;
+                else if (state.gameOver === false) recordResultText = null;
                 psBindings.gameOver = !!gameOver;
                 psBindings.winner = winner;
                 lastMoveMarkers = state.lastMoveMarkers || [];
@@ -948,10 +948,7 @@ syncState,
             else
                 turnDisplay.innerText = `打谱 ${step} / ${replayTotalSteps}`;
             if (gameOver) {
-                if (winner === 'player1') scoreTitle.innerText = '黑胜';
-                else if (winner === 'player2') scoreTitle.innerText = '白胜';
-                else if (winner === 'draw') scoreTitle.innerText = '和棋';
-                else scoreTitle.innerText = '对局结束';
+                scoreTitle.innerText = QiWeiqiSquarePageRuntime.gameResultTitleText({ recordResultText, winner });
             } else {
                 scoreTitle.innerText = '　';
             }

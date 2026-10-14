@@ -1,6 +1,6 @@
 'use strict';
 
-const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, applyInitialPositionCompact, encodeInitialPositionCompact, qiBoardSeatOverlay, encodeOpeningPositionCompact , computeNearestWeiqiLead, squareWeiqiScoringOps } = require('../common');
+const { qiApplyRecordKomi, qiEffectiveKomi, QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, applyInitialPositionCompact, encodeInitialPositionCompact, qiBoardSeatOverlay, encodeOpeningPositionCompact , computeNearestWeiqiLead, squareWeiqiScoringOps } = require('../common');
 
 const BACKPACK_CAP = 8;
 
@@ -336,7 +336,7 @@ class VariousLibertyWeiqiRoom extends QiTwoPlayerRoomBase {
 
     /** 形势判断 / 数点：只用最近归属档（公共口径）；不判死子、不叠 Benson */
     computeLead() {
-        const { lead } = computeNearestWeiqiLead(this.board, 3.25, squareWeiqiScoringOps(this.boardSize, {
+        const { lead } = computeNearestWeiqiLead(this.board, qiEffectiveKomi(this, 3.25), squareWeiqiScoringOps(this.boardSize, {
             copyBoard: (b) => this.copyBoard(b)
         }));
         return lead;
@@ -349,12 +349,13 @@ class VariousLibertyWeiqiRoom extends QiTwoPlayerRoomBase {
             levelBoard: this.levelBoard,
             blackBag: [...this.blackBag],
             whiteBag: [...this.whiteBag],
-            komi: 3.25,
+            komi: qiEffectiveKomi(this, 3.25),
             numberOfHands: 1 + this.historyStacks.length,
             currentPlayer: this.currentPlayer,
             lastMoveMarkers: this.lastMoveMarkers,
             gameOver: this.gameOver,
             winner: this.winner,
+            recordResultText: this.recordResultText,
             moveCoords: this.moveCoords,
             slots: {
                 player1: !!this.room.getPlayerBySlot('player1'),
@@ -431,6 +432,7 @@ class VariousLibertyWeiqiRoom extends QiTwoPlayerRoomBase {
         this.tcSettings = null;
         this.tcClock = null;
         this.recordResultText = null;
+        this.importedKomi = undefined;
         this.matchStarted = false;
         this.board = Array(this.boardSize).fill().map(() => Array(this.boardSize).fill(0));
         this.levelBoard = copyLevelBoard(this.boardSize);
@@ -508,6 +510,7 @@ class VariousLibertyWeiqiRoom extends QiTwoPlayerRoomBase {
         this.tcSettings = null;
         this.tcClock = null;
         this.recordResultText = null;
+        this.importedKomi = undefined;
         this.matchStarted = false;
     }
 
@@ -526,7 +529,7 @@ class VariousLibertyWeiqiRoom extends QiTwoPlayerRoomBase {
             gameType: '异气围棋',
             gameId: 'various-liberty-weiqi',
             boardSize: this.boardSize,
-            komi: 3.25,
+            komi: qiEffectiveKomi(this, 3.25),
             players: { player1: null, player2: null },
             initialPosition: encodeOpeningPositionCompact(this),
             moves: this.moveCoords.map(m => encodeMoveToRecordString(m)),
@@ -680,6 +683,7 @@ class VariousLibertyWeiqiRoom extends QiTwoPlayerRoomBase {
                 this.winner = data.result;
         }
 
+        qiApplyRecordKomi(this, data);   // 导入棋谱采纳记录贴目（新局/重置时清掉）
         this.broadcast({
             type: 'importSuccess',
             ...this.getState(),

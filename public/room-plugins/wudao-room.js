@@ -441,7 +441,7 @@ const boardSizeSelect = document.getElementById('boardSizeSelect');
                 const n = ps.BOARD_SIZE;
                 const b = ps.board && ps.board.length === n ? ps.board : initialBoard(n);
                 leadInfo.textContent = ps.gameOver
-                    ? (ps.winner === 'player2' ? '黑胜' : (ps.winner === 'player1' ? '白胜' : '和棋'))
+                    ? QiWeiqiSquarePageRuntime.gameResultTitleText(ps, (w) => (w === 'player2' ? '黑胜' : '白胜'))
                     : '　';
             }
 
@@ -797,6 +797,8 @@ const boardSizeSelect = document.getElementById('boardSizeSelect');
                 ps.moveLog = (state.moveCoords || []).map((m) => ({ ...m }));
                 ps.gameOver = !!state.gameOver;
                 ps.winner = state.winner || null;
+                if (state.recordResultText !== undefined) ps.recordResultText = state.recordResultText || null;
+                else if (state.gameOver === false) ps.recordResultText = null;
                 ps.matchStarted = !!state.matchStarted;
                 ps.matchTime = state.matchTime || null;
                 if (ps.matchStarted || ps.moveLog.length > 0 || (ps.matchTime && ps.matchTime.settings)) ps.matchStartedOnce = true;

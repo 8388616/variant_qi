@@ -1241,6 +1241,8 @@ const scoreTitle = document.getElementById('scoreTitle');
             if (ps.waitingScoreConfirm) return;
             if (ps.gameOver) {
                 turnDisplay.innerText = '对局结束';
+                // 终局结果（导入棋谱以记录为准）：与其它围棋路数的比分框显示一致
+                scoreTitle.innerText = QiWeiqiSquarePageRuntime.gameResultTitleText(ps);
                 drawAllBoards();
                 return;
             }
@@ -1286,6 +1288,8 @@ const scoreTitle = document.getElementById('scoreTitle');
             moveCoords = s.moveCoords || moveCoords;
             ps.gameOver = !!s.gameOver;
             ps.winner = s.winner;
+            if (s.recordResultText !== undefined) ps.recordResultText = s.recordResultText || null;
+            else if (s.gameOver === false) ps.recordResultText = null;
             if (s.slots) ps.slots = s.slots;
 
             if (!ps.replayMode) {

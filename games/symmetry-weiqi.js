@@ -1,5 +1,5 @@
 const crypto = require('crypto');
-const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, applyInitialPositionCompact, encodeInitialPositionCompact, qiBoardSeatOverlay, encodeOpeningPositionCompact, computeBensonWeiqiLead, squareWeiqiScoringOps } = require('../common');
+const { qiApplyRecordKomi, qiEffectiveKomi, QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, applyInitialPositionCompact, encodeInitialPositionCompact, qiBoardSeatOverlay, encodeOpeningPositionCompact, computeBensonWeiqiLead, squareWeiqiScoringOps } = require('../common');
 
 /**
  * 全部七种对称（客户端插件里有一份必须逐字一致的映射与同样的类型判断，见 public/room-plugins/symmetry-weiqi-room.js）：
@@ -302,7 +302,7 @@ class SymmetryWeiqiRoom extends QiTwoPlayerRoomBase
 
     /** 形势判断 / 数点：用 Benson 档（公共口径）；本棋种贴目比普通围棋高 */
     computeLead() {
-        const { lead } = computeBensonWeiqiLead(this.board, this.boardSize <= 8 ? 5.25 : 4.25, squareWeiqiScoringOps(this.boardSize, {
+        const { lead } = computeBensonWeiqiLead(this.board, qiEffectiveKomi(this, this.boardSize <= 8 ? 5.25 : 4.25), squareWeiqiScoringOps(this.boardSize, {
             copyBoard: (b) => this.copyBoard(b)
         }));
         return lead;
@@ -312,13 +312,14 @@ class SymmetryWeiqiRoom extends QiTwoPlayerRoomBase
     {
         return {
             boardSize: this.boardSize,
-            komi: this.boardSize <= 8 ? 5.25 : 4.25,
+            komi: qiEffectiveKomi(this, this.boardSize <= 8 ? 5.25 : 4.25),
             board: this.board,
             numberOfHands: 1 + this.historyBoards.length,
             currentPlayer: this.currentPlayer,
             lastMoveMarkers: this.lastMoveMarkers,
             gameOver: this.gameOver,
             winner: this.winner,
+            recordResultText: this.recordResultText,
             symmetryAxis: this.symmetryAxis,
             enabledSymmetries: ENABLED_SYMMETRIES.slice(),   // 前端「试下」本地预览按这份随机；停用只改服务端即可
             moveCoords: this.moveCoords,
@@ -603,6 +604,7 @@ class SymmetryWeiqiRoom extends QiTwoPlayerRoomBase
         this.tcSettings = null;
         this.tcClock = null;
         this.recordResultText = null;
+        this.importedKomi = undefined;
         this.matchStarted = false;
         this.board = Array(this.boardSize).fill().map(() => Array(this.boardSize).fill(0));
         this.currentPlayer = 1;
@@ -644,7 +646,7 @@ class SymmetryWeiqiRoom extends QiTwoPlayerRoomBase
             gameType: '对称围棋',
             gameId: 'symmetry-weiqi',
             boardSize: this.boardSize,
-            komi: this.boardSize <= 8 ? 5.25 : 4.25,
+            komi: qiEffectiveKomi(this, this.boardSize <= 8 ? 5.25 : 4.25),
             players: { player1: null, player2: null },
             initialPosition: encodeOpeningPositionCompact(this),
             moves: this.moveCoords.map(m => {
@@ -682,6 +684,7 @@ class SymmetryWeiqiRoom extends QiTwoPlayerRoomBase
         this.tcSettings = null;
         this.tcClock = null;
         this.recordResultText = null;
+        this.importedKomi = undefined;
         this.matchStarted = false;
     }
 
@@ -807,6 +810,7 @@ class SymmetryWeiqiRoom extends QiTwoPlayerRoomBase
                 this.winner = data.result;
         }
 
+        qiApplyRecordKomi(this, data);   // 导入棋谱采纳记录贴目（新局/重置时清掉）
         this.broadcast({
             type: 'importSuccess',
             ...this.getState(),

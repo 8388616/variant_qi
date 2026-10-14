@@ -837,6 +837,11 @@ const scoreTitle = document.getElementById('scoreTitle');
                 rebuildLiveReplayFog(coords);
             },
             syncState(state) {
+                // 贴目：以服务端下发的为准（导入棋谱采纳记录贴目；重置后服务端回到默认值，这里跟着回）
+                if (state.komi != null && Number.isFinite(state.komi) && state.komi !== ps.KOMI) {
+                    ps.KOMI = state.komi;
+                    QiWeiqiSquarePageRuntime.writeKomiInfoText(komiInfo, ps.KOMI, ps.BOARD_SIZE * ps.BOARD_SIZE);
+                }
                 ps.hoverRow = -1;
                 ps.hoverCol = -1;
                 ps.isHoverValid = false;
@@ -867,6 +872,8 @@ const scoreTitle = document.getElementById('scoreTitle');
                 ps.currentPlayer = state.currentPlayer;
                 ps.gameOver = state.gameOver || false;
                 ps.winner = state.winner || null;
+                if (state.recordResultText !== undefined) ps.recordResultText = state.recordResultText || null;
+                else if (state.gameOver === false) ps.recordResultText = null;
                 if (state.moveCoords) {
                     ps.moveLog = state.moveCoords.map(m => m.type === 'move' ? { row: m.row, col: m.col } : null);
                     ps.syncedMoveCoords = state.moveCoords.map(m => ({ ...m }));
@@ -1258,6 +1265,8 @@ const scoreTitle = document.getElementById('scoreTitle');
 
         function updateTurnFogImpl() {
             if (ps.replayMode) {
+                // 终局结果照常显示在比分区（回放面板只写手数；导入棋谱以记录为准）
+                if (ps.gameOver) scoreTitle.innerText = QiWeiqiSquarePageRuntime.gameResultTitleText(ps);
                 refreshUnknownFogScoreLine();
                 fogOpts.drawBoard();
                 return;
@@ -1282,10 +1291,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             }
             if (ps.gameOver) {
                 turnDisplay.innerText = '对局结束';
-                if (ps.winner === 'player1') scoreTitle.innerText = '黑胜';
-                else if (ps.winner === 'player2') scoreTitle.innerText = '白胜';
-                else if (ps.winner === 'draw') scoreTitle.innerText = '和棋';
-                else scoreTitle.innerText = '　';
+                scoreTitle.innerText = QiWeiqiSquarePageRuntime.gameResultTitleText(ps);
                 ps.isMyTurn = false;
                 refreshUnknownFogScoreLine();
                 fogOpts.drawBoard();

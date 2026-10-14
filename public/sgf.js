@@ -26,7 +26,7 @@
     const SGF_GAMES = new Set([
         // 围棋族（方格、单点落子）
         'weiqi', 'capture-weiqi', 'greedy-weiqi', 'short-liberty-weiqi', 'various-liberty-weiqi',
-        'global-liberty-weiqi', 'zeroliberty-weiqi', 'conservatism-weiqi', 'front-back-weiqi',
+        'global-liberty-weiqi', 'zeroliberty-weiqi', 'sharp-edge-evasion-weiqi', 'front-back-weiqi',
         'hole-weiqi', 'bridge-weiqi', 'neutral-stone-weiqi', 'weight-weiqi', 'broken-line-weiqi',
         'sudoku-weiqi', 'custom-weiqi', 'shizi-weiqi', 'family-weiqi', 'fat-weiqi',
         'drift-weiqi', 'rotation-weiqi', 'magnetism-weiqi', 'instability-weiqi', 'duo-quadricolour-weiqi',

@@ -1,6 +1,6 @@
 'use strict';
 
-const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, qiBoardSeatOverlay } = require('../common');
+const { qiApplyRecordKomi, qiEffectiveKomi, QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, qiBoardSeatOverlay } = require('../common');
 
 function createBoard(n) {
     return Array.from({ length: n }, () => Array(n).fill(0));
@@ -170,7 +170,7 @@ class WxdRoom extends QiTwoPlayerRoomBase {
     /** 终局判胜：返回**座位名**（player1 执黑；与 SLOT_OF_COLOR 及客户端弹窗口径一致） */
     computeFinalWinner() {
         const black = this.blackScore;
-        const white = this.whiteScore + this.komi;
+        const white = this.whiteScore + qiEffectiveKomi(this, this.komi);
         if (black > white) return 'player1';
         if (white > black) return 'player2';
         return 'draw';
@@ -261,7 +261,7 @@ class WxdRoom extends QiTwoPlayerRoomBase {
             board: this.board,
             weights: this.weights,
             center: this.center,
-            komi: this.komi,
+            komi: qiEffectiveKomi(this, this.komi),
             numberOfHands: this.moveCoords.length + 1,
             currentPlayer: this.currentPlayer,
             blackScore: this.blackScore,
@@ -270,6 +270,7 @@ class WxdRoom extends QiTwoPlayerRoomBase {
             moveCoords: this.moveCoords,
             gameOver: this.gameOver,
             winner: this.winner,
+            recordResultText: this.recordResultText,
             matchTime: {
                 negotiation: this.tcNego,
                 settings: this.tcSettings,
@@ -294,7 +295,8 @@ class WxdRoom extends QiTwoPlayerRoomBase {
         this.currentPlayer = 1;
         this.blackScore = 0;
         this.whiteScore = 0;
-        this.komi = Math.floor(0.01 * ((this.boardSize * this.boardSize - 1) * this.boardSize * this.boardSize / 2));
+        this.importedKomi = undefined;
+        this.komi = qiEffectiveKomi(this, Math.floor(0.01 * ((this.boardSize * this.boardSize - 1) * this.boardSize * this.boardSize / 2)));
         this.lastByPlayer = { player1: null, player2: null };
         this.lastMoveMarkers = [];
         this.moveCoords = [];
@@ -312,6 +314,7 @@ class WxdRoom extends QiTwoPlayerRoomBase {
     }
 
     resetGame() {
+        this.importedKomi = undefined;
         this.resetToEmpty();
         qiProtocol.releaseAllSeats(this);
         this.broadcast({ type: 'newGameStarted', ...this.getState(), slots: { player1: false, player2: false } });
@@ -398,6 +401,7 @@ class WxdRoom extends QiTwoPlayerRoomBase {
             this.winner = data.result;
             this.recordResultText = data.resultText ? String(data.resultText) : '';
         }
+        qiApplyRecordKomi(this, data);   // 导入棋谱采纳记录贴目（新局/重置时清掉）
         this.broadcast({ type: 'importSuccess', ...this.getState(), replayData: { moves: this.moveCoords.map((m) => ({ ...m })) } });
     }
 

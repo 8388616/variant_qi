@@ -1,5 +1,5 @@
 const crypto = require('crypto');
-const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, encodeInitialPositionCompact, applyInitialPositionCompact, qiBoardSeatOverlay, computeBensonWeiqiLead, squareWeiqiScoringOps } = require('../common');
+const { qiApplyRecordKomi, qiEffectiveKomi, QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, encodeInitialPositionCompact, applyInitialPositionCompact, qiBoardSeatOverlay, computeBensonWeiqiLead, squareWeiqiScoringOps } = require('../common');
 
 function komiForSize(boardSize) {
     if (boardSize === 7) 
@@ -283,7 +283,7 @@ class TranspositionWeiqiRoom extends QiTwoPlayerRoomBase
 
     /** 形势判断 / 数点：用 Benson 档（公共口径：弱气去死子 ↔ Benson 保活 → 最近归属 → 确定领地覆盖） */
     computeLead() {
-        const { lead } = computeBensonWeiqiLead(this.board, komiForSize(this.boardSize), squareWeiqiScoringOps(this.boardSize, {
+        const { lead } = computeBensonWeiqiLead(this.board, qiEffectiveKomi(this, komiForSize(this.boardSize)), squareWeiqiScoringOps(this.boardSize, {
             copyBoard: (b) => this.copyBoard(b)
         }));
         return lead;
@@ -294,7 +294,7 @@ class TranspositionWeiqiRoom extends QiTwoPlayerRoomBase
     {
         return {
             boardSize: this.boardSize,
-            komi: komiForSize(this.boardSize),
+            komi: qiEffectiveKomi(this, komiForSize(this.boardSize)),
             board: this.board,
             numberOfHands: 1 + this.historyBoards.length,
             currentPlayer: this.currentPlayer,
@@ -303,6 +303,7 @@ class TranspositionWeiqiRoom extends QiTwoPlayerRoomBase
             movePlayerColor: this.movePlayerColor,
             gameOver: this.gameOver,
             winner: this.winner,
+            recordResultText: this.recordResultText,
             moveCount: this.moveCount,
             maxTranspositionMoves: this.maxTranspositionMoves,
             canTransposition: this.moveCount < this.maxTranspositionMoves,
@@ -371,6 +372,7 @@ class TranspositionWeiqiRoom extends QiTwoPlayerRoomBase
         this.tcSettings = null;
         this.tcClock = null;
         this.recordResultText = null;
+        this.importedKomi = undefined;
         this.matchStarted = false;
         this.board = Array(this.boardSize).fill().map(() => Array(this.boardSize).fill(0));
         this.currentPlayer = 1;
@@ -677,7 +679,7 @@ class TranspositionWeiqiRoom extends QiTwoPlayerRoomBase
             gameType: '易位围棋',
             gameId: 'translocation-weiqi',
             boardSize: this.boardSize,
-            komi: komiForSize(this.boardSize),
+            komi: qiEffectiveKomi(this, komiForSize(this.boardSize)),
             players: { player1: null, player2: null },
             initialPosition: encodeInitialPositionCompact(opening, this.boardSize),
             moves: this.moveCoords.map(m => {
@@ -718,6 +720,7 @@ class TranspositionWeiqiRoom extends QiTwoPlayerRoomBase
         this.tcSettings = null;
         this.tcClock = null;
         this.recordResultText = null;
+        this.importedKomi = undefined;
         this.matchStarted = false;
     }
 
@@ -907,6 +910,7 @@ class TranspositionWeiqiRoom extends QiTwoPlayerRoomBase
                 this.winner = data.result;
         }
 
+        qiApplyRecordKomi(this, data);   // 导入棋谱采纳记录贴目（新局/重置时清掉）
         this.broadcast({
             type: 'importSuccess',
             ...this.getState(),

@@ -1,4 +1,4 @@
-const { QiTwoPlayerRoomBase, qiMatchTimeControl, squareWeiqiRules, applyInitialPositionCompact, qiBoardSeatOverlay, encodeOpeningPositionCompact, qiProtocol, computeNearestWeiqiLead, squareWeiqiScoringOps } = require('../common');
+const { qiApplyRecordKomi, qiEffectiveKomi, QiTwoPlayerRoomBase, qiMatchTimeControl, squareWeiqiRules, applyInitialPositionCompact, qiBoardSeatOverlay, encodeOpeningPositionCompact, qiProtocol, computeNearestWeiqiLead, squareWeiqiScoringOps } = require('../common');
 const {
     acquireKatagoSession,
     releaseKatagoSession,
@@ -178,7 +178,7 @@ class ChoiceWeiqiRoom extends QiTwoPlayerRoomBase {
 
     /** 形势判断 / 数点：只用最近归属档（公共口径）；不判死子、不叠 Benson */
     computeLead() {
-        const { lead } = computeNearestWeiqiLead(this.board, 2.25, squareWeiqiScoringOps(this.boardSize, {
+        const { lead } = computeNearestWeiqiLead(this.board, qiEffectiveKomi(this, 2.25), squareWeiqiScoringOps(this.boardSize, {
             copyBoard: (b) => this.copyBoard(b)
         }));
         return lead;
@@ -436,12 +436,13 @@ class ChoiceWeiqiRoom extends QiTwoPlayerRoomBase {
         return {
             boardSize: this.boardSize,
             board: this.board,
-            komi: 2.25,
+            komi: qiEffectiveKomi(this, 2.25),
             numberOfHands: 1 + this.historyBoards.length,
             currentPlayer: this.currentPlayer,
             lastMoveMarkers: this.lastMoveMarkers,
             gameOver: this.gameOver,
             winner: this.winner,
+            recordResultText: this.recordResultText,
             moveCoords: this.wireMoveCoords(),
             candidates: this.candidates,
             aiCandidates: this.aiCandidatesEnabled,
@@ -780,6 +781,7 @@ class ChoiceWeiqiRoom extends QiTwoPlayerRoomBase {
         this.historyMarkers = [];
         this.lastMoveMarkers = [];
         this.gameOver = false;
+        this.importedKomi = undefined;
         this.winner = null;
         this.passCounter = 0;
         this.moveCoords = [];
@@ -940,7 +942,7 @@ class ChoiceWeiqiRoom extends QiTwoPlayerRoomBase {
             gameType: '选点围棋',
             gameId: 'choice-weiqi',
             boardSize: this.boardSize,
-            komi: 2.25,
+            komi: qiEffectiveKomi(this, 2.25),
             players: { player1: null, player2: null },
             initialPosition: encodeOpeningPositionCompact(this),
             moves: this.moveCoords.map(m => {
@@ -963,6 +965,7 @@ class ChoiceWeiqiRoom extends QiTwoPlayerRoomBase {
         this.historyMarkers = [];
         this.lastMoveMarkers = [];
         this.gameOver = false;
+        this.importedKomi = undefined;
         this.winner = null;
         this.passCounter = 0;
         this.pendingNewGame = null;
@@ -1079,6 +1082,7 @@ class ChoiceWeiqiRoom extends QiTwoPlayerRoomBase {
 
         // 候选生成（AI 模式为异步）完成后再广播导入结果
         this.generateCandidates().then(() => {
+            qiApplyRecordKomi(this, data);   // 导入棋谱采纳记录贴目（新局/重置时清掉）
             this.broadcast({
                 type: 'importSuccess',
             ...this.getState(),

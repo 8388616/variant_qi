@@ -12,7 +12,7 @@
  *   任何附加物都不会因磁力移动；棋子（落子与移动）都不能停在附加物格上。
  * 客户端 public/room-plugins/custom-weiqi-room.js 内有一份等价规则实现（试下/乐观落子用）。
  */
-const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, gridGraphWeiqiRules, applyInitialPositionCompact, encodeInitialPositionCompact, qiBoardSeatOverlay, encodeOpeningPositionCompact } = require('../common');
+const { qiApplyRecordKomi, qiEffectiveKomi, QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, gridGraphWeiqiRules, applyInitialPositionCompact, encodeInitialPositionCompact, qiBoardSeatOverlay, encodeOpeningPositionCompact } = require('../common');
 // 非方格棋盘的几何：六角/花形的顶点图与邻居表直接复用非四角围棋的生成器（同一份棋盘数据）
 const { generateHexBoardData, generateFloretPentBoardData } = require('./non-rectangular-weiqi.js');
 
@@ -88,7 +88,7 @@ function defaultCustomConfig() {
 
 /**
  * 棋盘形状：square 四角（默认，现有方格棋盘）、triangle 三角、snub 扭棱四角、cairo 开罗五角、
- * floret 花形五角、hexagon 六角。后五种沿用相应棋类的棋盘几何（三角取三角围棋的六角三角子棋类）。
+ * floret 花形五角、hexagon 六角。后五种沿用相应棋类的棋盘几何（三角取非四角围棋「六角形三角」子棋类的几何）。
  * 路数范围/默认值：四角 7～99 默认 19；三角 3～11 默认 9；扭棱四角/开罗五角/花形五角 3～9 默认 7；六角 4～11 默认 9。
  * 贴目：四角按普通围棋口径（≤8 路 4.25，其余 3.25），其余形状一律 3.25。
  * 磁性只在 square / triangle 生效；桥只在 square / triangle 生成（其它形状勾了也不生成、不提示）。
@@ -113,7 +113,7 @@ function shapeMeta(shape) {
  *   points[i]  = [x, y] 屏幕单位坐标（x 向右、y 向下；与客户端绘制方向一致），等比缩放到画布由客户端做
  *   coord[i]   = [行, 列] 协议坐标（棋谱/消息与相邻棋种同口径；三角沿用六角三角的行列）
  *   neighbors  = 每点的相邻点下标
- * 来源：三角 = 三角围棋的六角三角子棋类；六角/花形 = 顶点图生成器（邻居与显示坐标直接复用
+ * 来源：三角 = 非四角围棋「六角形三角」子棋类；六角/花形 = 顶点图生成器（邻居与显示坐标直接复用
  *   games/non-rectangular-weiqi.js 的导出，顶点坐标按同款算法复算）；开罗/扭棱 = 掩码网格，
  *   与客户端 buildCairoLayout / buildSnubLayout 的坐标同源。
  */
@@ -1336,6 +1336,7 @@ class CustomWeiqiRules {
 
     /** 贴目：四角按普通围棋口径（≤8 路 4.25，其余 3.25）；其它形状一律 3.25 */
     komi() {
+        if (this.importedKomi != null) return this.importedKomi;   // 导入棋谱采纳记录贴目
         if (this.shape && this.shape !== 'square') return 3.25;
         return this.boardSize <= 8 ? 4.25 : 3.25;
     }
@@ -1807,7 +1808,7 @@ class CustomWeiqiRoom extends QiTwoPlayerRoomBase
             gridHeight: this.rules.rows,
             // 非方格形状广播子棋类 id：qi-katago-opponent 会去找 katagos/custom-weiqi-{形状}/，目录不存在 → 自动不显示人机
             ...(shape === 'square' ? {} : { subGameId: `custom-weiqi-${shape}` }),
-            komi: this.rules.komi(),
+            komi: qiEffectiveKomi(this, this.rules.komi()),
             board: this.board,
             initialBoard,
             customRules: this.configSnapshot(),
@@ -1819,6 +1820,7 @@ class CustomWeiqiRoom extends QiTwoPlayerRoomBase
             lastMoveMarkers: this.lastMoveMarkers,
             gameOver: this.gameOver,
             winner: this.winner,
+            recordResultText: this.recordResultText,
             moveCoords: this.moveCoords,
             candidates: this.config.greedy ? this.rules.collectMaxCaptureCandidates(this.board, playerVal, this.historyBoardSet, this._ruleOpts(playerVal)) : [],
             slots: {
@@ -2121,6 +2123,7 @@ class CustomWeiqiRoom extends QiTwoPlayerRoomBase
         this.tcSettings = null;
         this.tcClock = null;
         this.recordResultText = null;
+        this.importedKomi = undefined;
         this.matchStarted = false;
         this.board = this.createOpeningBoard();
         this.openingBoard = this.copyBoard(this.board);
@@ -2229,7 +2232,7 @@ class CustomWeiqiRoom extends QiTwoPlayerRoomBase
             gameType: '自定义围棋',
             gameId: 'custom-weiqi',
             boardSize: this.boardSize,
-            komi: this.rules.komi(),
+            komi: qiEffectiveKomi(this, this.rules.komi()),
             customRules: this.configSnapshot(),
             players: { player1: null, player2: null },
             // 附加物随开局盘面一起导出（H/I/N/M 字母代号）
@@ -2263,6 +2266,7 @@ class CustomWeiqiRoom extends QiTwoPlayerRoomBase
         this.tcSettings = null;
         this.tcClock = null;
         this.recordResultText = null;
+        this.importedKomi = undefined;
         this.matchStarted = false;
         this.board = this._rebuildRules();
         this.openingBoard = this.copyBoard(this.board);
@@ -2420,6 +2424,7 @@ class CustomWeiqiRoom extends QiTwoPlayerRoomBase
                 this.winner = data.result;
         }
 
+        qiApplyRecordKomi(this, data);   // 导入棋谱采纳记录贴目（新局/重置时清掉）
         this.broadcast({
             type: 'importSuccess',
             ...this.getState(),

@@ -1,6 +1,6 @@
 const crypto = require('crypto');
 
-const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, applyInitialPositionCompact, encodeInitialPositionCompact, qiBoardSeatOverlay, encodeOpeningPositionCompact, computeBensonWeiqiLead, squareWeiqiScoringOps } = require('../common');
+const { qiApplyRecordKomi, qiEffectiveKomi, QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, applyInitialPositionCompact, encodeInitialPositionCompact, qiBoardSeatOverlay, encodeOpeningPositionCompact, computeBensonWeiqiLead, squareWeiqiScoringOps } = require('../common');
 
 function komiForSize(boardSize) {
     if (boardSize === 3) return 4.5;
@@ -271,7 +271,7 @@ class GreedyWeiqiRoom extends QiTwoPlayerRoomBase
 
     /** 形势判断 / 数点：用 Benson 档（公共口径：弱气去死子 ↔ Benson 保活 → 最近归属 → 确定领地覆盖） */
     computeLead() {
-        const { lead } = computeBensonWeiqiLead(this.board, komiForSize(this.boardSize), squareWeiqiScoringOps(this.boardSize, {
+        const { lead } = computeBensonWeiqiLead(this.board, qiEffectiveKomi(this, komiForSize(this.boardSize)), squareWeiqiScoringOps(this.boardSize, {
             copyBoard: (b) => this.copyBoard(b)
         }));
         return lead;
@@ -308,12 +308,13 @@ class GreedyWeiqiRoom extends QiTwoPlayerRoomBase
             boardSize: this.boardSize,
             board: this.board,
             initialBoard,
-            komi: komiForSize(this.boardSize),
+            komi: qiEffectiveKomi(this, komiForSize(this.boardSize)),
             numberOfHands: 1 + this.historyBoards.length,
             currentPlayer: this.currentPlayer,
             lastMoveMarkers: this.lastMoveMarkers,
             gameOver: this.gameOver,
             winner: this.winner,
+            recordResultText: this.recordResultText,
             moveCoords: this.moveCoords,
             candidates: this.collectMaxCaptureCandidates(),
             slots: {
@@ -341,12 +342,13 @@ class GreedyWeiqiRoom extends QiTwoPlayerRoomBase
             board: this.board,
             initialBoard,
             boardSize: this.boardSize,
-            komi: komiForSize(this.boardSize),
+            komi: qiEffectiveKomi(this, komiForSize(this.boardSize)),
             currentPlayer: this.currentPlayer,
             numberOfHands: 1,
             lastMoveMarkers: this.lastMoveMarkers,
             gameOver: this.gameOver,
             winner: this.winner,
+            recordResultText: this.recordResultText,
             moveCoords: [],
             slots: {
                 player1: !!this.room.getPlayerBySlot('player1'),
@@ -579,6 +581,7 @@ class GreedyWeiqiRoom extends QiTwoPlayerRoomBase
         this.tcSettings = null;
         this.tcClock = null;
         this.recordResultText = null;
+        this.importedKomi = undefined;
         this.matchStarted = false;
         this.board = Array(this.boardSize).fill().map(() => Array(this.boardSize).fill(0));
         this.openingBoard = this.copyBoard(this.board);
@@ -629,7 +632,7 @@ class GreedyWeiqiRoom extends QiTwoPlayerRoomBase
             gameType: '贪吃围棋',
             gameId: 'greedy-weiqi',
             boardSize: this.boardSize,
-            komi: komiForSize(this.boardSize),
+            komi: qiEffectiveKomi(this, komiForSize(this.boardSize)),
             players: { player1: null, player2: null },
             initialPosition: encodeOpeningPositionCompact(this),
             moves: this.moveCoords.map(m => {
@@ -648,6 +651,7 @@ class GreedyWeiqiRoom extends QiTwoPlayerRoomBase
         this.tcSettings = null;
         this.tcClock = null;
         this.recordResultText = null;
+        this.importedKomi = undefined;
         this.matchStarted = false;
         this.board = Array(this.boardSize).fill().map(() => Array(this.boardSize).fill(0));
         this.openingBoard = this.copyBoard(this.board);
@@ -769,6 +773,7 @@ class GreedyWeiqiRoom extends QiTwoPlayerRoomBase
                 this.winner = data.result;
         }
 
+        qiApplyRecordKomi(this, data);   // 导入棋谱采纳记录贴目（新局/重置时清掉）
         this.broadcast({
             type: 'importSuccess',
             ...this.getState(),

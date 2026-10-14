@@ -1,4 +1,4 @@
-const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, qiBoardSeatOverlay , computeNearestWeiqiLead, squareWeiqiScoringOps } = require('../common');
+const { qiApplyRecordKomi, qiEffectiveKomi, QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, qiBoardSeatOverlay , computeNearestWeiqiLead, squareWeiqiScoringOps } = require('../common');
 
 class FogWeiqiRoom extends QiTwoPlayerRoomBase {
     constructor(room, initialSize = 19) {
@@ -185,7 +185,7 @@ class FogWeiqiRoom extends QiTwoPlayerRoomBase {
 
     /** 形势判断 / 数点：只用最近归属档（公共口径）；不判死子、不叠 Benson */
     computeLead() {
-        const { lead } = computeNearestWeiqiLead(this.board, this.boardSize <= 8 ? 4.25 : 3.25, squareWeiqiScoringOps(this.boardSize, {
+        const { lead } = computeNearestWeiqiLead(this.board, qiEffectiveKomi(this, this.boardSize <= 8 ? 4.25 : 3.25), squareWeiqiScoringOps(this.boardSize, {
             copyBoard: (b) => this.copyBoard(b)
         }));
         return lead;
@@ -518,7 +518,7 @@ class FogWeiqiRoom extends QiTwoPlayerRoomBase {
         const unknownFogCountsHistory = cleared ? null : (full ? this.getUnknownFogCountsHistory() : null);
         return {
             boardSize: this.boardSize,
-            komi: this.boardSize <= 8 ? 4.25 : 3.25,
+            komi: qiEffectiveKomi(this, this.boardSize <= 8 ? 4.25 : 3.25),
             board,
             fogMask,
             fogCleared: cleared,
@@ -528,6 +528,7 @@ class FogWeiqiRoom extends QiTwoPlayerRoomBase {
             lastMoveMarkers: cleared ? this.lastMoveMarkers : this.filterLastMoveMarkers(slot),
             gameOver: this.gameOver,
             winner: this.winner,
+            recordResultText: this.recordResultText,
             moveCoords,
             replayStepPlayers: full ? replayStepPlayers : undefined,
             maskedBoardHistory,
@@ -849,6 +850,7 @@ class FogWeiqiRoom extends QiTwoPlayerRoomBase {
         this.tcSettings = null;
         this.tcClock = null;
         this.recordResultText = null;
+        this.importedKomi = undefined;
         this.matchStarted = false;
         this.board = this.emptyBoard();
         this.currentPlayer = 1;
@@ -914,7 +916,7 @@ class FogWeiqiRoom extends QiTwoPlayerRoomBase {
             gameType: '迷雾围棋',
             gameId: 'fog-weiqi',
             boardSize: this.boardSize,
-            komi: this.boardSize <= 8 ? 4.25 : 3.25,
+            komi: qiEffectiveKomi(this, this.boardSize <= 8 ? 4.25 : 3.25),
             players: { player1: null, player2: null },
             initialPosition: { player1: [], player2: [] }
         };
@@ -967,6 +969,7 @@ class FogWeiqiRoom extends QiTwoPlayerRoomBase {
         this.tcSettings = null;
         this.tcClock = null;
         this.recordResultText = null;
+        this.importedKomi = undefined;
         this.matchStarted = false;
     }
 
@@ -1085,6 +1088,7 @@ class FogWeiqiRoom extends QiTwoPlayerRoomBase {
                 this.winner = data.result;
         }
 
+        qiApplyRecordKomi(this, data);   // 导入棋谱采纳记录贴目（新局/重置时清掉）
         const allClients = [...this.room.players.keys(), ...this.room.observers];
         for (const client of allClients) {
             if (client.readyState !== 1) continue;

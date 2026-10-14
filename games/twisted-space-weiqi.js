@@ -1,4 +1,4 @@
-const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, gridGraphWeiqiRules, qiBoardSeatOverlay, encodeOpeningPositionCompact, computeNearestWeiqiLead, gridGraphWeiqiScoringOps } = require('../common');
+const { qiApplyRecordKomi, qiEffectiveKomi, QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, gridGraphWeiqiRules, qiBoardSeatOverlay, encodeOpeningPositionCompact, computeNearestWeiqiLead, gridGraphWeiqiScoringOps } = require('../common');
 
 class TwistedSpaceWeiqiRoom extends QiTwoPlayerRoomBase {
     constructor(room, initialSize = 9) {
@@ -166,7 +166,7 @@ class TwistedSpaceWeiqiRoom extends QiTwoPlayerRoomBase {
 
     /** 形势判断 / 数点：只用最近归属档（公共口径，图版几何）；不判死子、不叠 Benson */
     computeLead() {
-        const { lead } = computeNearestWeiqiLead(this.board, 4.75, gridGraphWeiqiScoringOps(
+        const { lead } = computeNearestWeiqiLead(this.board, qiEffectiveKomi(this, 4.75), gridGraphWeiqiScoringOps(
             this.boardSize, this.boardSize * 2 - 1, this._neighbors(), (r, c) => this.isValidCoord(r, c), {
                 copyBoard: (b) => this.copyBoard(b)
             }
@@ -178,11 +178,13 @@ class TwistedSpaceWeiqiRoom extends QiTwoPlayerRoomBase {
         return {
             boardSize: this.boardSize,
             board: this.board,
+            komi: qiEffectiveKomi(this, 4.75),
             numberOfHands: 1 + this.historyBoards.length,
             currentPlayer: this.currentPlayer,
             lastMoveMarkers: this.lastMoveMarkers,
             gameOver: this.gameOver,
             winner: this.winner,
+            recordResultText: this.recordResultText,
             moveCoords: this.moveCoords,
             cellNumbers: this.cellNumbers,
             slots: {
@@ -339,7 +341,7 @@ class TwistedSpaceWeiqiRoom extends QiTwoPlayerRoomBase {
             gameType: '扭曲空间围棋',
             gameId: 'twisted-space-weiqi',
             boardSize: this.boardSize,
-            komi: 4.75,
+            komi: qiEffectiveKomi(this, 4.75),
             players: { player1: null, player2: null },
             initialPosition: encodeOpeningPositionCompact(this),
             cellNumbers: this.cellNumbers ? this.cellNumbers.map(row => row.slice()) : null,
@@ -413,6 +415,15 @@ class TwistedSpaceWeiqiRoom extends QiTwoPlayerRoomBase {
                 this.lastMoveMarkers = [];
             }
         }
+        if (data.result || data.resultText) {
+            // 导入不做任何判定：结果只按棋谱记录显示（公共层已按本棋种执方名把文案折成座位）
+            this.gameOver = true;
+            this.recordResultText = data.resultText ? String(data.resultText) : '';
+            if (data.result === 'player1' || data.result === 'player2' || data.result === 'draw')
+                this.winner = data.result;
+        }
+
+        qiApplyRecordKomi(this, data);   // 导入棋谱采纳记录贴目（新局/重置时清掉）
         this.broadcast({
             type: 'importSuccess',
             ...this.getState(),
@@ -454,6 +465,7 @@ class TwistedSpaceWeiqiRoom extends QiTwoPlayerRoomBase {
         this.tcSettings = null;
         this.tcClock = null;
         this.recordResultText = null;
+        this.importedKomi = undefined;
         this.matchStarted = false;
         this.board = this.createEmptyBoard();
         this.cellNumbers = null;
@@ -478,6 +490,7 @@ class TwistedSpaceWeiqiRoom extends QiTwoPlayerRoomBase {
     }
 
     resetGame() {
+        this.importedKomi = undefined;
         this.resetToEmpty();
         qiProtocol.releaseAllSeats(this);
         this.broadcast({ type: 'newGameStarted', ...this.getState(), slots: { player1: false, player2: false } });

@@ -1,4 +1,4 @@
-const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, encodeInitialPositionCompact, applyInitialPositionCompact, qiBoardSeatOverlay } = require('../common');
+const { qiApplyRecordKomi, qiEffectiveKomi, QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, encodeInitialPositionCompact, applyInitialPositionCompact, qiBoardSeatOverlay } = require('../common');
 
 const HOLE = -1;
 const BRIDGE = -2;
@@ -271,7 +271,7 @@ class FamilyWeiqiRoom extends QiTwoPlayerRoomBase {
     }
 
     computeLead() {
-        const KOMI = 4.75;
+        const KOMI = qiEffectiveKomi(this, 4.75);
         const liveBoard = this.removeDeadAndDyingForFamily(this.board);
         const territory = assignTerritoryBridgeAware(liveBoard, this.boardSize, {
             isPassable: (v) => v !== HOLE && v !== BRIDGE && v !== MINE && v !== NEUTRAL
@@ -285,12 +285,13 @@ class FamilyWeiqiRoom extends QiTwoPlayerRoomBase {
         return {
             board: this.board,
             initialBoard,
-            komi: 4.75,
+            komi: qiEffectiveKomi(this, 4.75),
             numberOfHands: 1 + this.historyBoards.length,
             currentPlayer: this.currentPlayer,
             lastMoveMarkers: this.lastMoveMarkers,
             gameOver: this.gameOver,
             winner: this.winner,
+            recordResultText: this.recordResultText,
             moveCoords: this.moveCoords,
             boardSize: this.boardSize,
             slots: {
@@ -313,12 +314,13 @@ class FamilyWeiqiRoom extends QiTwoPlayerRoomBase {
         return {
             board: this.board,
             initialBoard,
-            komi: 4.75,
+            komi: qiEffectiveKomi(this, 4.75),
             currentPlayer: this.currentPlayer,
             numberOfHands: 1,
             lastMoveMarkers: this.lastMoveMarkers,
             gameOver: this.gameOver,
             winner: this.winner,
+            recordResultText: this.recordResultText,
             moveCoords: [],
             boardSize: this.boardSize,
             slots: {
@@ -501,6 +503,7 @@ class FamilyWeiqiRoom extends QiTwoPlayerRoomBase {
         this.gameOver = false;
         this.winner = null;
         this.recordResultText = null;
+        this.importedKomi = undefined;
         this.passCounter = 0;
         qiProtocol.releaseAllSeats(this);
         this.broadcast({ type: 'newGameStarted', ...this.getInitialState(), slots: { player1: false, player2: false } });
@@ -527,7 +530,7 @@ class FamilyWeiqiRoom extends QiTwoPlayerRoomBase {
             game: '全家福围棋',
             gameId: 'family-weiqi',
             boardSize: this.boardSize,
-            komi: 4.75,
+            komi: qiEffectiveKomi(this, 4.75),
             players: { player1: '', player2: '' },
             initialPosition: encodeInitialPositionCompact(initialBoard, this.boardSize),
             moves: moves,
@@ -556,6 +559,7 @@ class FamilyWeiqiRoom extends QiTwoPlayerRoomBase {
         this.gameOver = false;
         this.winner = null;
         this.recordResultText = null;
+        this.importedKomi = undefined;
         this.passCounter = 0;
         this.pendingNewGame = null;
         this.pendingUndo = null;
@@ -669,6 +673,7 @@ class FamilyWeiqiRoom extends QiTwoPlayerRoomBase {
             if (data.result === 'player1' || data.result === 'player2' || data.result === 'draw')
                 this.winner = data.result;
         }
+        qiApplyRecordKomi(this, data);   // 导入棋谱采纳记录贴目（新局/重置时清掉）
         this.broadcast({
             type: 'importSuccess',
             ...this.getState(),

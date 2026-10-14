@@ -1,6 +1,6 @@
 const crypto = require('crypto');
 
-const { qiBoardSeatOverlay, QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, applyInitialPositionCompact, encodeInitialPositionCompact, encodeOpeningPositionCompact, computeNearestWeiqiLead, squareWeiqiScoringOps } = require('../common');
+const { qiApplyRecordKomi, qiEffectiveKomi, qiBoardSeatOverlay, QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, applyInitialPositionCompact, encodeInitialPositionCompact, encodeOpeningPositionCompact, computeNearestWeiqiLead, squareWeiqiScoringOps } = require('../common');
 
 // ======================== 胖围棋规则 ========================
 // 胖围棋在围棋基础上修改三条规则：
@@ -330,7 +330,7 @@ class WeiqiRoom extends QiTwoPlayerRoomBase
 
     /** 形势判断 / 数点：只用最近归属档（公共口径）；不做自动判死（无气提子只发生在落子时） */
     computeLead() {
-        const { lead } = computeNearestWeiqiLead(this.board, this.boardSize <= 8 ? 4.25 : 3.25, squareWeiqiScoringOps(this.boardSize, {
+        const { lead } = computeNearestWeiqiLead(this.board, qiEffectiveKomi(this, this.boardSize <= 8 ? 4.25 : 3.25), squareWeiqiScoringOps(this.boardSize, {
             copyBoard: (b) => this.copyBoard(b)
         }));
         return lead;
@@ -365,7 +365,7 @@ class WeiqiRoom extends QiTwoPlayerRoomBase
             : this.copyBoard(this.board);
         return {
             boardSize: this.boardSize,
-            komi: this.boardSize <= 8 ? 4.25 : 3.25,
+            komi: qiEffectiveKomi(this, this.boardSize <= 8 ? 4.25 : 3.25),
             board: this.board,
             initialBoard,
             numberOfHands: 1 + this.historyBoards.length,
@@ -373,6 +373,7 @@ class WeiqiRoom extends QiTwoPlayerRoomBase
             lastMoveMarkers: this.lastMoveMarkers,
             gameOver: this.gameOver,
             winner: this.winner,
+            recordResultText: this.recordResultText,
             moveCoords: this.moveCoords,
             slots: {
                 player1: !!this.room.getPlayerBySlot('player1'),
@@ -583,6 +584,7 @@ class WeiqiRoom extends QiTwoPlayerRoomBase
         this.tcSettings = null;
         this.tcClock = null;
         this.recordResultText = null;
+        this.importedKomi = undefined;
         this.matchStarted = false;
         this.board = Array(this.boardSize).fill().map(() => Array(this.boardSize).fill(0));
         this.currentPlayer = 1;
@@ -631,7 +633,7 @@ class WeiqiRoom extends QiTwoPlayerRoomBase
             gameType: '围棋',
             gameId: 'weiqi',
             boardSize: this.boardSize,
-            komi: this.boardSize <= 8 ? 4.25 : 3.25,
+            komi: qiEffectiveKomi(this, this.boardSize <= 8 ? 4.25 : 3.25),
             players: { player1: null, player2: null },
             initialPosition: encodeOpeningPositionCompact(this),
             moves: this.moveCoords.map(m => {
@@ -651,6 +653,7 @@ class WeiqiRoom extends QiTwoPlayerRoomBase
         this.tcSettings = null;
         this.tcClock = null;
         this.recordResultText = null;
+        this.importedKomi = undefined;
         this.matchStarted = false;
         this.board = Array(this.boardSize).fill().map(() => Array(this.boardSize).fill(0));
         this.currentPlayer = 1;
@@ -762,6 +765,7 @@ class WeiqiRoom extends QiTwoPlayerRoomBase
                 this.winner = data.result;
         }
 
+        qiApplyRecordKomi(this, data);   // 导入棋谱采纳记录贴目（新局/重置时清掉）
         this.broadcast({
             type: 'importSuccess',
             ...this.getState(),

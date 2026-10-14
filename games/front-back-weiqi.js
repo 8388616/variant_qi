@@ -343,6 +343,7 @@ class FrontBackWeiqiRoom extends QiTwoPlayerRoomBase {
             moveCoords: this.moveCoords,
             gameOver: this.gameOver,
             winner: this.winner,
+            recordResultText: this.recordResultText,
             passCounter: this.passCounter,
             matchTime: {
                 negotiation: this.tcNego,

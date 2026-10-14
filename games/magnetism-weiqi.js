@@ -1,4 +1,4 @@
-const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, applyInitialPositionCompact, encodeInitialPositionCompact, qiBoardSeatOverlay, encodeOpeningPositionCompact, computeBensonWeiqiLead, squareWeiqiScoringOps } = require('../common');
+const { qiApplyRecordKomi, qiEffectiveKomi, QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, applyInitialPositionCompact, encodeInitialPositionCompact, qiBoardSeatOverlay, encodeOpeningPositionCompact, computeBensonWeiqiLead, squareWeiqiScoringOps } = require('../common');
 /** 三种磁性围棋（弱/中/强）合并为一种棋类：磁性围棋 magnetism-weiqi。
  * 子棋类 id（subGameId）沿用旧棋类 id：weak/medium/strong-magnetism-weiqi。
  * 客户端「显示序号」按 moveCoords 与对应磁性规则重放，使序号随子移动。 */
@@ -162,6 +162,7 @@ class MagnetismWeiqiRoom extends QiTwoPlayerRoomBase
 
     /** 贴目（服务端数子口径）：弱磁性按尺寸查表；中/强磁性 ≤8 路 4.25，其余 3.25 */
     _komi() {
+        if (this.importedKomi != null) return this.importedKomi;   // 导入棋谱采纳记录贴目
         if (this.magnetism === 'weak') return komiForSize(this.boardSize);
         return this.boardSize <= 8 ? 4.25 : 3.25;
     }
@@ -343,6 +344,7 @@ class MagnetismWeiqiRoom extends QiTwoPlayerRoomBase
             lastMoveMarkers: this.lastMoveMarkers,
             gameOver: this.gameOver,
             winner: this.winner,
+            recordResultText: this.recordResultText,
             moveCoords: this.moveCoords,
             slots: {
                 player1: !!this.room.getPlayerBySlot('player1'),
@@ -552,6 +554,7 @@ class MagnetismWeiqiRoom extends QiTwoPlayerRoomBase
         this.winner = null;
         this.passCounter = 0;
         this.recordResultText = null;
+        this.importedKomi = undefined;
         this.slotJoinedAt = { player1: null, player2: null };
         this.tcNego = null;
         this.tcSettings = null;
@@ -644,6 +647,7 @@ class MagnetismWeiqiRoom extends QiTwoPlayerRoomBase
         this.pendingScore = null;
         this.scoreProposalData = null;
         this.recordResultText = null;
+        this.importedKomi = undefined;
         this.slotJoinedAt = { player1: null, player2: null };
         this.tcNego = null;
         this.tcSettings = null;
@@ -749,6 +753,7 @@ class MagnetismWeiqiRoom extends QiTwoPlayerRoomBase
                 this.winner = data.result;
         }
 
+        qiApplyRecordKomi(this, data);   // 导入棋谱采纳记录贴目（新局/重置时清掉）
         this.broadcast({
             type: 'importSuccess',
             ...this.getState(),

@@ -241,6 +241,7 @@ class MatchWuziqiRoom extends QiTwoPlayerRoomBase {
             lastMoveMarkers: this.lastMoveMarkers,
             gameOver: this.gameOver,
             winner: this.winner,
+            recordResultText: this.recordResultText,
             blackScore: this.blackScore,
             whiteScore: this.whiteScore,
             pendingRemoval: this.pendingRemoval,

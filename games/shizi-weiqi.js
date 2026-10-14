@@ -1,4 +1,4 @@
-const { qiBoardSeatOverlay, qiProtocol, squareWuziqiRules, applyInitialPositionCompact } = require('../common');
+const { qiApplyRecordKomi, qiEffectiveKomi, qiBoardSeatOverlay, qiProtocol, squareWuziqiRules, applyInitialPositionCompact } = require('../common');
 const { WeiqiRoom } = require('./weiqi');
 
 const WIN_IN_ROW = 10;
@@ -135,6 +135,7 @@ class ShiziWeiqiRoom extends WeiqiRoom {
                 this.winner = data.result;
         }
 
+        qiApplyRecordKomi(this, data);   // 导入棋谱采纳记录贴目（新局/重置时清掉）
         this.broadcast({
             type: 'importSuccess',
             ...this.getState(),

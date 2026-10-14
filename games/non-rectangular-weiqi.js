@@ -15,11 +15,11 @@
  * 非方形棋盘另给 katagoBoardWidth/Height（GTP 的 boardsize X:Y）。
  */
 
-const { QiTwoPlayerRoomBase, gridGraphWeiqiRules, qiMatchTimeControl, qiProtocol, qiBoardSeatOverlay } = require('../common');
+const { qiApplyRecordKomi, qiEffectiveKomi, QiTwoPlayerRoomBase, gridGraphWeiqiRules, qiMatchTimeControl, qiProtocol, qiBoardSeatOverlay } = require('../common');
 
 /** 子棋类清单（顺序即下拉框顺序） */
-const SUB_GAMES = ['hexagon-weiqi', 'floret-pentagon-weiqi', 'cairo-pentagon-weiqi', 'snub-quadrangle-weiqi'];
-const DEFAULT_SUB_GAME = 'hexagon-weiqi';
+const SUB_GAMES = ['triangle-weiqi', 'snub-quadrangle-weiqi', 'cairo-pentagon-weiqi', 'floret-pentagon-weiqi', 'hexagon-weiqi', 'rhom-triangle-weiqi', 'hexagon-triangle-weiqi'];
+const DEFAULT_SUB_GAME = 'triangle-weiqi';
 
 /**
  * 子棋类元数据。
@@ -27,29 +27,44 @@ const DEFAULT_SUB_GAME = 'hexagon-weiqi';
  *   komi(lanes)：贴目；gtpSize(lanes)：引擎看到的棋盘尺寸（与该棋种 katagos 目录里 gtp.cfg 的 boardsize 约定一致）
  */
 const SUB_META = {
-    'hexagon-weiqi': {
-        name: '六角围棋', gameType: '六角围棋', prefix: '六角围棋',
-        min: 4, max: 11, def: 9,
-		komi: () => (lanes) => (lanes >= 9 ? 7.5 : [0, 0, 0, 12, 7, 4.5, 5.5, 6.5, 7.5][lanes]), gtpSize: (lanes) => lanes
-    },
-    'floret-pentagon-weiqi': {
-        name: '花形五角围棋', gameType: '花形五角围棋', prefix: '花形五角围棋',
-        min: 3, max: 9, def: 7,
+    'triangle-weiqi': {
+        name: '三角', gameType: '三角', prefix: '三角',
+        min: 7, max: 31, def: 27,
         komi: () => 3.25, gtpSize: (lanes) => lanes
     },
+    'snub-quadrangle-weiqi': {
+        name: '扭棱四角', gameType: '扭棱四角', prefix: '扭棱四角',
+        min: 3, max: 9, def: 7,
+        komi: (lanes) => (lanes === 3 ? 3 : 2), gtpSize: (lanes) => 3 * lanes - 2
+    },
     'cairo-pentagon-weiqi': {
-        name: '开罗五角围棋', gameType: '开罗五角围棋', prefix: '开罗五角围棋',
+        name: '开罗五角', gameType: '开罗五角', prefix: '开罗五角',
         min: 3, max: 9, def: 7,
         komi: (lanes) => (lanes === 3 ? 2 : 3), gtpSize: (lanes) => 4 * lanes - 3
     },
-    'snub-quadrangle-weiqi': {
-        name: '扭棱四角围棋', gameType: '扭棱四角围棋', prefix: '扭棱四角围棋',
+    'floret-pentagon-weiqi': {
+        name: '花形五角', gameType: '花形五角', prefix: '花形五角',
         min: 3, max: 9, def: 7,
-        komi: (lanes) => (lanes === 3 ? 3 : 2), gtpSize: (lanes) => 3 * lanes - 2
+        komi: () => 3.25, gtpSize: (lanes) => lanes
+    },
+    'hexagon-weiqi': {
+        name: '六角', gameType: '六角', prefix: '六角',
+        min: 4, max: 11, def: 9,
+        komi: (lanes) => (lanes >= 9 ? 7.5 : [0, 0, 0, 12, 7, 4.5, 5.5, 6.5, 7.5][lanes]), gtpSize: (lanes) => lanes
+    },
+    'rhom-triangle-weiqi': {
+        name: '菱形三角', gameType: '菱形三角', prefix: '菱形三角',
+        min: 5, max: 21, def: 13,
+        komi: (lanes) => (lanes <= 8 ? 4.25 : 3.25), gtpSize: (lanes) => lanes
+    },
+    'hexagon-triangle-weiqi': {
+        name: '六角形三角', gameType: '六角形三角', prefix: '六角形三角',
+        min: 3, max: 15, def: 6,
+        komi: () => 3.25, gtpSize: (lanes) => 2 * lanes - 1
     }
 };
 
-/* ============================ 一、四种棋盘的几何 ============================ */
+/* ============================ 一、七种棋盘的几何 ============================ */
 
 /** 六角围棋：n 路正六边形密铺的顶点图（顶点 + 邻接 + 显示坐标表） */
 function generateHexBoardData(n) {
@@ -400,6 +415,49 @@ function vertexGraphModel(gen, lanes) {
 }
 
 /** 子棋类 → 统一模型 */
+/* ---- 三角围棋族（三角 / 菱形三角 / 六角形三角）：三角形格点、6 向邻接 ----
+   从合并前的 games/triangle-weiqi.js 原样搬来（行数/行长/邻接口径逐字一致），
+   只是换成掩码网格模型：非格点 = −1，坐标 (r,c) 即棋谱坐标（与旧棋谱逐字相同）。 */
+
+/** 行数：三角/菱形 = 路数；六角形 = 2·路数−1 */
+function triRows(kind, lanes) {
+    return kind === 'hexagon' ? 2 * lanes - 1 : lanes;
+}
+
+/** 行 r 的格点数：三角 r+1；菱形恒为路数；六角形 N+min(r, 2N−2−r) */
+function triRowLen(kind, lanes, r) {
+    if (kind === 'triangle') return r + 1;
+    if (kind === 'rhombus') return lanes;
+    return lanes + Math.min(r, 2 * lanes - 2 - r);
+}
+
+/** 6 向候选邻点（越界/掩码外的由 gridModel 过滤）：菱形斜向与三角相反；六角形按相邻行长增减推导 */
+function triNeighborList(kind, lanes, r, c) {
+    if (kind === 'triangle')
+        return [[r, c + 1], [r, c - 1], [r + 1, c], [r - 1, c], [r + 1, c + 1], [r - 1, c - 1]];
+    if (kind === 'rhombus')
+        return [[r, c + 1], [r, c - 1], [r + 1, c], [r - 1, c], [r + 1, c - 1], [r - 1, c + 1]];
+    const rows = triRows(kind, lanes);
+    const out = [[r, c - 1], [r, c + 1]];
+    if (r > 0) {
+        if (triRowLen(kind, lanes, r - 1) > triRowLen(kind, lanes, r)) out.push([r - 1, c], [r - 1, c + 1]);
+        else out.push([r - 1, c - 1], [r - 1, c]);
+    }
+    if (r < rows - 1) {
+        if (triRowLen(kind, lanes, r + 1) > triRowLen(kind, lanes, r)) out.push([r + 1, c], [r + 1, c + 1]);
+        else out.push([r + 1, c - 1], [r + 1, c]);
+    }
+    return out;
+}
+
+/** 三角族的掩码网格模型：网格是方阵（行数 × 最大行长），锯齿外的格点无效 */
+function triGridModel(kind, lanes) {
+    const rows = triRows(kind, lanes);
+    const cols = kind === 'hexagon' ? 2 * lanes - 1 : lanes;
+    return gridModel(rows, cols, (r, c) => c < triRowLen(kind, lanes, r), (r, c) => triNeighborList(kind, lanes, r, c));
+}
+
+/** 子棋类 → 统一模型 */
 const MODEL_BUILDERS = {
     'hexagon-weiqi': (lanes) => vertexGraphModel(generateHexBoardData, lanes),
     'floret-pentagon-weiqi': (lanes) => vertexGraphModel(generateFloretPentBoardData, lanes),
@@ -410,7 +468,10 @@ const MODEL_BUILDERS = {
     'snub-quadrangle-weiqi': (lanes) => {
         const { w, h } = snubGridDims(lanes);
         return gridModel(w, h, (r, c) => snubIsValidVertex(r, c, w, h), snubNeighborList);
-    }
+    },
+    'triangle-weiqi': (lanes) => triGridModel('triangle', lanes),
+    'rhom-triangle-weiqi': (lanes) => triGridModel('rhombus', lanes),
+    'hexagon-triangle-weiqi': (lanes) => triGridModel('hexagon', lanes)
 };
 
 /* ============================ 二、房间逻辑 ============================ */
@@ -516,6 +577,7 @@ class NonRectangularWeiqiRoom extends QiTwoPlayerRoomBase {
     }
 
     komi() {
+        if (this.importedKomi != null) return this.importedKomi;   // 导入棋谱采纳记录贴目
         return this.subCfg().komi(this.boardLanes);
     }
 
@@ -764,6 +826,7 @@ class NonRectangularWeiqiRoom extends QiTwoPlayerRoomBase {
             lastMoveMarkers: this.lastMoveMarkers,
             gameOver: this.gameOver,
             winner: this.winner,
+            recordResultText: this.recordResultText,
             moveCoords: this.moveCoords,
             slots: {
                 player1: !!this.room.getPlayerBySlot('player1'),
@@ -834,6 +897,7 @@ class NonRectangularWeiqiRoom extends QiTwoPlayerRoomBase {
     }
 
     resetGame() {
+        this.importedKomi = undefined;
         this._stopClockTicker();
         this._buildBoard();
         this._initState();
@@ -842,6 +906,7 @@ class NonRectangularWeiqiRoom extends QiTwoPlayerRoomBase {
     }
 
     resetToEmpty() {
+        this.importedKomi = undefined;
         this._stopClockTicker();
         this._buildBoard();
         this._initState();
@@ -1030,6 +1095,7 @@ class NonRectangularWeiqiRoom extends QiTwoPlayerRoomBase {
                 this.winner = data.result;
         }
 
+        qiApplyRecordKomi(this, data);   // 导入棋谱采纳记录贴目（新局/重置时清掉）
         this.broadcast({
             type: 'importSuccess',
             ...this.getState(),

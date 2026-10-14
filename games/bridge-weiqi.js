@@ -1,4 +1,4 @@
-const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, gridGraphWeiqiRules, encodeInitialPositionCompact, applyInitialPositionCompact, qiBoardSeatOverlay } = require('../common');
+const { qiApplyRecordKomi, qiEffectiveKomi, QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, gridGraphWeiqiRules, encodeInitialPositionCompact, applyInitialPositionCompact, qiBoardSeatOverlay } = require('../common');
 const BRIDGE = -2;
 
 /** 桥围棋贴目（按路数）：7 路 4.75、8/9 路 4.25，其余（含默认 19 路）3.75 */
@@ -349,7 +349,7 @@ class BridgeWeiqiRoom extends QiTwoPlayerRoomBase
     }
 
     computeLead() {
-        const KOMI = komiForSizeBridge(this.boardSize);
+        const KOMI = qiEffectiveKomi(this, komiForSizeBridge(this.boardSize));
         const size = this.boardSize;
         // Benson（桥版）：桥不可落子/无气；邻接采用"桥缩短"的图邻接（桥上下两点互通、左右两点互通）
         const bensonOf = (bd) => gridGraphWeiqiRules.bensonAlive(
@@ -390,12 +390,13 @@ class BridgeWeiqiRoom extends QiTwoPlayerRoomBase
         return {
             board: this.board,
             initialBoard,
-            komi: komiForSizeBridge(this.boardSize),
+            komi: qiEffectiveKomi(this, komiForSizeBridge(this.boardSize)),
             numberOfHands: 1 + this.historyBoards.length,
             currentPlayer: this.currentPlayer,
             lastMoveMarkers: this.lastMoveMarkers,
             gameOver: this.gameOver,
             winner: this.winner,
+            recordResultText: this.recordResultText,
             bridges: this.bridges,
             moveCoords: this.moveCoords,
             boardSize: this.boardSize,
@@ -419,12 +420,13 @@ class BridgeWeiqiRoom extends QiTwoPlayerRoomBase
         return {
             board: this.board,
             initialBoard,
-            komi: komiForSizeBridge(this.boardSize),
+            komi: qiEffectiveKomi(this, komiForSizeBridge(this.boardSize)),
             currentPlayer: this.currentPlayer,
             numberOfHands: 1,
             lastMoveMarkers: this.lastMoveMarkers,
             gameOver: this.gameOver,
             winner: this.winner,
+            recordResultText: this.recordResultText,
             bridges: this.bridges,
             moveCoords: [],
             boardSize: this.boardSize,
@@ -572,6 +574,7 @@ class BridgeWeiqiRoom extends QiTwoPlayerRoomBase
         this.gameOver = false;
         this.winner = null;
         this.recordResultText = null;
+        this.importedKomi = undefined;
         this.passCounter = 0;
         qiProtocol.releaseAllSeats(this);
         this.broadcast({ type: 'newGameStarted', ...this.getInitialState(), slots: { player1: false, player2: false } });
@@ -592,7 +595,7 @@ class BridgeWeiqiRoom extends QiTwoPlayerRoomBase
             game: '桥围棋',
             gameId: 'bridge-weiqi',
             boardSize: this.boardSize,
-            komi: komiForSizeBridge(this.boardSize),
+            komi: qiEffectiveKomi(this, komiForSizeBridge(this.boardSize)),
             players: { player1: '', player2: '' },
             initialPosition: encodeInitialPositionCompact(initialBoard, this.boardSize),
             moves: this.moveCoords.map(m => {
@@ -625,6 +628,7 @@ class BridgeWeiqiRoom extends QiTwoPlayerRoomBase
         this.gameOver = false;
         this.winner = null;
         this.recordResultText = null;
+        this.importedKomi = undefined;
         this.passCounter = 0;
         this.pendingNewGame = null;
         this.pendingUndo = null;
@@ -725,6 +729,7 @@ class BridgeWeiqiRoom extends QiTwoPlayerRoomBase
             if (data.result === 'player1' || data.result === 'player2' || data.result === 'draw')
                 this.winner = data.result;
         }
+        qiApplyRecordKomi(this, data);   // 导入棋谱采纳记录贴目（新局/重置时清掉）
         this.broadcast({
             type: 'importSuccess',
             ...this.getState(),

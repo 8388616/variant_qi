@@ -132,6 +132,7 @@ class RandomInstabilityWuziqiRoom extends QiTwoPlayerRoomBase {
             nextLifetimePreview: this.nextLifetimePreview,
             gameOver: this.gameOver,
             winner: this.winner,
+            recordResultText: this.recordResultText,
             lastMoveMarkers: this.lastMoveMarkers,
             moveLog: this.moveLog.map(m => ({ ...m })),
             matchStarted: this.matchStarted,

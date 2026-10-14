@@ -44,7 +44,7 @@ window.RoomPlugins["twisted-space-weiqi"] = {
 
         (function () {
 let ROWS = 9; // 扭曲空间路数（比三角围棋少一路）
-        const KOMI = 4.75;
+        let KOMI = 4.75;   // 服务端下发贴目以记录为准（导入棋谱），默认 4.75
         const BASE_WIDTH = 500;
         const CENTER_X_REF = 300;
         const TRI_REF_ROWS = 27; // 对应三角围棋路数
@@ -236,6 +236,7 @@ let ROWS = 9; // 扭曲空间路数（比三角围棋少一路）
 
         let board = initBoardArray(ROWS), numberOfHands = 1, currentPlayer = 1;
         let mySlot = null, gameOver = false, winner = null, lastMoveMarkers = [];
+        let recordResultText = null;     // 终局结果原文（棋谱记录；导入棋谱以记录为准）
         let showEstimateActive = false, cachedLiveBoard = null, cachedTerritory = null;
         let waitingScoreConfirm = false, iRejected = false, matchTime = null, matchStarted = false;
         let ws, isMyTurn = false, slots = { player1: false, player2: false }, reconnectTimer = null;
@@ -652,6 +653,11 @@ if (sizeSelect) {
         }
 
         function syncState(state) {
+            // 贴目：以服务端下发的为准（导入棋谱采纳记录贴目；重置后服务端回到默认值，这里跟着回）
+            if (state.komi != null && Number.isFinite(state.komi) && state.komi !== KOMI) {
+                KOMI = state.komi;
+                updateBoardGeometry();
+            }
             clearMobileMovePreview();
             const prevMatchStarted = matchStarted;
             if (state.boardSize && state.boardSize !== ROWS) {
@@ -665,6 +671,8 @@ if (sizeSelect) {
             currentPlayer = state.currentPlayer;
             gameOver = !!state.gameOver;
             winner = state.winner || null;
+            if (state.recordResultText !== undefined) recordResultText = state.recordResultText || null;
+            else if (state.gameOver === false) recordResultText = null;
             matchTime = state.matchTime || null;
             matchStarted = !!state.matchStarted;
             if (state.moveCoords) moveLog = state.moveCoords.map(m => m.type === 'move' ? { row: m.row, col: m.col } : null);
@@ -704,6 +712,8 @@ if (sizeSelect) {
         }
         function updateTurn() {
             if (replayMode) {
+                // 终局结果照常显示在比分区（回放面板只写手数；导入棋谱以记录为准）
+                if (gameOver) scoreTitle.innerText = QiWeiqiSquarePageRuntime.gameResultTitleText({ recordResultText, winner });
                 if (tryPlayMode) {
                     if (showEstimateActive) updateEstimateData();
                     drawBoardWithOverlay();
@@ -742,7 +752,7 @@ if (sizeSelect) {
 
             if (gameOver) {
                 turnDisplay.innerText = '对局结束';
-                scoreTitle.innerText = winner === 'player1' ? '黑胜' : (winner === 'player2' ? '白胜' : (winner === 'draw' ? '和棋' : '　'));
+                scoreTitle.innerText = QiWeiqiSquarePageRuntime.gameResultTitleText({ recordResultText, winner });
                 isMyTurn = false;
             } else if (!matchStarted) {
                 if (matchStartedOnce) {

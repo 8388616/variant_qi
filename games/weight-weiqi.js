@@ -1,4 +1,4 @@
-const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, applyInitialPositionCompact, encodeInitialPositionCompact, qiBoardSeatOverlay, encodeOpeningPositionCompact } = require('../common');
+const { qiApplyRecordKomi, qiEffectiveKomi, QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, applyInitialPositionCompact, encodeInitialPositionCompact, qiBoardSeatOverlay, encodeOpeningPositionCompact } = require('../common');
 
 function applyInitialPositionFromRecord(board, boardSize, initialPosition) {
     if (!initialPosition) return;
@@ -438,7 +438,7 @@ class WeightWeiqiRoom extends QiTwoPlayerRoomBase {
             }
         }
         const { blackTotal, whiteTotal } = this.computeScore(liveBoard, territory);
-        const KOMI = this.komiFor();
+        const KOMI = qiEffectiveKomi(this, this.komiFor());
 
         return blackTotal - whiteTotal - 2 * KOMI;
     }
@@ -447,7 +447,7 @@ class WeightWeiqiRoom extends QiTwoPlayerRoomBase {
         return {
             boardSize: this.boardSize,
             subGameId: this.subGameId,
-            komi: this.komiFor(),
+            komi: qiEffectiveKomi(this, this.komiFor()),
             board: this.board,
             weights: this.weights,
             numberOfHands: 1 + this.historyBoards.length,
@@ -455,6 +455,7 @@ class WeightWeiqiRoom extends QiTwoPlayerRoomBase {
             lastMoveMarkers: this.lastMoveMarkers,
             gameOver: this.gameOver,
             winner: this.winner,
+            recordResultText: this.recordResultText,
             moveCoords: this.moveCoords,
             slots: {
                 player1: !!this.room.getPlayerBySlot('player1'),
@@ -709,6 +710,7 @@ class WeightWeiqiRoom extends QiTwoPlayerRoomBase {
         this.tcSettings = null;
         this.tcClock = null;
         this.recordResultText = null;
+        this.importedKomi = undefined;
         this.matchStarted = false;
         this.board = Array(this.boardSize).fill().map(() => Array(this.boardSize).fill(0));
         this.weights = this.generateWeights();  // 重新生成权重
@@ -779,7 +781,7 @@ class WeightWeiqiRoom extends QiTwoPlayerRoomBase {
             gameId: 'weight-weiqi',
             subGameId: this.subGameId,
             boardSize: this.boardSize,
-            komi: this.komiFor(),
+            komi: qiEffectiveKomi(this, this.komiFor()),
             weights: this.weights.map(row => row.slice()),
             players: { player1: null, player2: null },
             initialPosition: encodeOpeningPositionCompact(this),
@@ -799,6 +801,7 @@ class WeightWeiqiRoom extends QiTwoPlayerRoomBase {
         this.tcSettings = null;
         this.tcClock = null;
         this.recordResultText = null;
+        this.importedKomi = undefined;
         this.matchStarted = false;
         this.board = Array(this.boardSize).fill().map(() => Array(this.boardSize).fill(0));
         this.weights = this.generateWeights();
@@ -924,6 +927,7 @@ class WeightWeiqiRoom extends QiTwoPlayerRoomBase {
                 this.winner = data.result;
         }
 
+        qiApplyRecordKomi(this, data);   // 导入棋谱采纳记录贴目（新局/重置时清掉）
         this.broadcast({
             type: 'importSuccess',
             ...this.getState(),

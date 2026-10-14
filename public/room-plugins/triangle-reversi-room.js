@@ -616,6 +616,9 @@ const boardSizeSelect = document.getElementById('boardSizeSelect');
                     return;
                 }
                 if (ps.replayMode) {
+                    // 终局结果照常显示在比分区（打谱面板只写手数；导入棋谱以记录为准）
+                    if (ps.gameOver && scoreTitle)
+                        scoreTitle.textContent = QiWeiqiSquarePageRuntime.gameResultTitleText(ps);
                     if (ps.replayStep <= 0) {
                         turnDisplay.textContent = '打谱：初始局面';
                     } else {
@@ -626,6 +629,8 @@ const boardSizeSelect = document.getElementById('boardSizeSelect');
                     return;
                 }
                 if (ps.gameOver) {
+                    // 终局结果（导入棋谱以记录为准）
+                    if (scoreTitle) scoreTitle.textContent = QiWeiqiSquarePageRuntime.gameResultTitleText(ps);
                     turnDisplay.textContent = '对局结束';
                     return;
                 }
@@ -968,6 +973,8 @@ const boardSizeSelect = document.getElementById('boardSizeSelect');
                 ps.moveLog = (state.moveCoords || []).map((m) => ({ ...m }));
                 ps.gameOver = !!state.gameOver;
                 ps.winner = state.winner || null;
+                if (state.recordResultText !== undefined) ps.recordResultText = state.recordResultText || null;
+                else if (state.gameOver === false) ps.recordResultText = null;
                 ps.matchStarted = !!state.matchStarted;
                 ps.matchTime = state.matchTime || null;
                 if (ps.matchStarted || ps.moveLog.length > 0 || (ps.matchTime && ps.matchTime.settings)) ps.matchStartedOnce = true;

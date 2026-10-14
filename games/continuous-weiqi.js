@@ -515,6 +515,7 @@ class ContinuousWeiqiRoom extends QiTwoPlayerRoomBase {
             lastMoveMarkers: this.copyMarkers(this.lastMoveMarkers),
             gameOver: this.gameOver,
             winner: this.winner,
+            recordResultText: this.recordResultText,
             moveCoords: this.moveCoords.map(m => ({ ...m })),
             slots: {
                 player1: !!this.room.getPlayerBySlot('player1'),
@@ -542,6 +543,7 @@ class ContinuousWeiqiRoom extends QiTwoPlayerRoomBase {
             lastMoveMarkers: this.copyMarkers(this.lastMoveMarkers),
             gameOver: this.gameOver,
             winner: this.winner,
+            recordResultText: this.recordResultText,
             moveCoords: [],
             slots: {
                 player1: !!this.room.getPlayerBySlot('player1'),

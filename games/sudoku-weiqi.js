@@ -1,6 +1,6 @@
 'use strict';
 
-const { qiBoardSeatOverlay, QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, applyInitialPositionCompact, encodeInitialPositionCompact , computeNearestWeiqiLead, squareWeiqiScoringOps } = require('../common');
+const { qiApplyRecordKomi, qiEffectiveKomi, qiBoardSeatOverlay, QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, applyInitialPositionCompact, encodeInitialPositionCompact , computeNearestWeiqiLead, squareWeiqiScoringOps } = require('../common');
 
 /* ========== 数独求解器（精确、完备） ==========
  * 支持 N=9（宫 3×3）与 N=16（宫 4×4）。
@@ -496,7 +496,7 @@ class SudokuWeiqiRoom extends QiTwoPlayerRoomBase {
 
     /** 形势判断 / 数点：只用最近归属档（公共口径）；不判死子、不叠 Benson */
     computeLead() {
-        const { lead } = computeNearestWeiqiLead(this.board, 3.25, squareWeiqiScoringOps(this.boardSize, {
+        const { lead } = computeNearestWeiqiLead(this.board, qiEffectiveKomi(this, 3.25), squareWeiqiScoringOps(this.boardSize, {
             copyBoard: (b) => this.copyBoard(b)
         }));
         return lead;
@@ -531,7 +531,7 @@ class SudokuWeiqiRoom extends QiTwoPlayerRoomBase {
     getState() {
         return {
             boardSize: this.boardSize,
-            komi: 3.25,
+            komi: qiEffectiveKomi(this, 3.25),
             board: this.board,
             digitBoard: this.digitBoard,
             blackBagAvail: copyBagAvail(this.blackBagAvail),
@@ -542,6 +542,7 @@ class SudokuWeiqiRoom extends QiTwoPlayerRoomBase {
             lastMoveMarkers: this.lastMoveMarkers,
             gameOver: this.gameOver,
             winner: this.winner,
+            recordResultText: this.recordResultText,
             moveCoords: this.moveCoords,
             slots: {
                 player1: !!this.room.getPlayerBySlot('player1'),
@@ -651,6 +652,7 @@ class SudokuWeiqiRoom extends QiTwoPlayerRoomBase {
         this.tcSettings = null;
         this.tcClock = null;
         this.recordResultText = null;
+        this.importedKomi = undefined;
         this.matchStarted = false;
         this.board = Array(this.boardSize).fill(null).map(() => Array(this.boardSize).fill(0));
         this.digitBoard = emptyDigitBoard(this.boardSize);
@@ -694,6 +696,7 @@ class SudokuWeiqiRoom extends QiTwoPlayerRoomBase {
         this.tcSettings = null;
         this.tcClock = null;
         this.recordResultText = null;
+        this.importedKomi = undefined;
         this.matchStarted = false;
         this.board = Array(this.boardSize).fill(null).map(() => Array(this.boardSize).fill(0));
         this.digitBoard = emptyDigitBoard(this.boardSize);
@@ -734,7 +737,7 @@ class SudokuWeiqiRoom extends QiTwoPlayerRoomBase {
             gameType: '数独围棋',
             gameId: 'sudoku-weiqi',
             boardSize: this.boardSize,
-            komi: 3.25,
+            komi: qiEffectiveKomi(this, 3.25),
             players: { player1: null, player2: null },
             initialPosition: encodeInitialPositionCompact(this.openingBoard || this.board, this.boardSize),
             initialDigits: this._encodeDigitsCompact(this.openingDigitBoard || this.digitBoard),
@@ -904,6 +907,7 @@ class SudokuWeiqiRoom extends QiTwoPlayerRoomBase {
                 this.winner = data.result;
         }
 
+        qiApplyRecordKomi(this, data);   // 导入棋谱采纳记录贴目（新局/重置时清掉）
         this.broadcast({
             type: 'importSuccess',
             ...this.getState(),

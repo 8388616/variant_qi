@@ -4,7 +4,6 @@
   let user = null;
   const login = document.getElementById("lobbyLoginBtn") || document.getElementById("roomLoginBtn");
   const isRoom = !!window.__qiRoomRoute && !window.__qiTsumego;
-  if (window.__qiTsumego && login) login.hidden = true;
 
   async function refreshSocket(socket) {
     socket._qiAuthRefreshPending = true;
@@ -23,7 +22,9 @@
     } finally { socket._qiAuthRefreshing = false; }
   }
 
-  if (login && !window.__qiTsumego) {
+  // 死活题页（room.html 注入 __qiTsumego）同样显示登入并走同一套账户菜单；
+  // 它没有真实房间 socket（roomSockets 为空），所以下面的身份同步自然空转
+  if (login) {
     let loading = false;
     let reloadPending = false;
     const isLobby = login.id === "lobbyLoginBtn";
@@ -67,6 +68,13 @@
     login.onclick = () => {
       if (!user) {
         const returnTo = location.pathname + location.search + location.hash;
+        // 死活题的棋盘嵌在宿主页（/qi/tsumego）的 iframe 里，而登录页 CSP frame-ancestors 'none'
+        // 不允许内嵌：嵌入时改为整个顶层窗口跳转，回跳地址用宿主页而不是视图页
+        if (window.__qiTsumego && window.parent !== window) {
+          window.top.location.href = "/qi/login?returnTo="
+            + encodeURIComponent(returnTo.replace("/qi/tsumego-view", "/qi/tsumego"));
+          return;
+        }
         location.href = "/qi/login?returnTo=" + encodeURIComponent(returnTo);
         return;
       }

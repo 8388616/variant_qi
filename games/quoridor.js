@@ -497,6 +497,7 @@ if (QiTwoPlayerRoomBase) {
             lastMoveMarkers: this.lastMoveMarkers,
             gameOver: this.gameOver,
             winner: this.winner,
+            recordResultText: this.recordResultText,
             matchStarted: this.matchStarted,
             matchTime: {
                 negotiation: this.tcNego,

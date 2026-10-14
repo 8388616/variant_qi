@@ -4,7 +4,6 @@
     const games = [
             // 围棋类
             { id: 'choice-weiqi', name: '选点围棋', randomLevel: 4, path: 'choice-weiqi', enabled: true, recommended: false, category: '围棋/占地', intro: '每步棋只能从随机候选点中选择落子。' },
-            { id: 'triangle-weiqi', name: '三角围棋', randomLevel: 0, path: 'triangle-weiqi', enabled: true, recommended: false, category: '围棋/占地', intro: '三角棋盘。' },
             { id: 'non-rectangular-weiqi', name: '非四角围棋', randomLevel: 0, path: 'non-rectangular-weiqi', enabled: true, recommended: true, category: '围棋/占地', intro: '各种非四角棋盘。' },
             { id: 'large-small-circle-weiqi', name: '大小圆围棋', randomLevel: 0, path: 'large-small-circle-weiqi', enabled: true, recommended: false, category: '围棋/占地', intro: '不对称连接的棋盘。' },
             { id: 'torus-weiqi', name: '环面围棋', randomLevel: 0, path: 'torus-weiqi', enabled: true, recommended: true, category: '围棋/占地', intro: '' },
@@ -25,6 +24,7 @@
 			{ id: 'ukrainian-weiqi', name: '乌克兰围棋', randomLevel: 0, path: 'ukrainian-weiqi', enabled: true, recommended: false, category: '围棋/占地', intro: '一次下三颗子。' },
             { id: 'russian-weiqi', name: '俄罗斯围棋', randomLevel: 4, path: 'russian-weiqi', enabled: true, recommended: false, category: '围棋/占地', intro: '棋子是俄罗斯方块的形状。' },
             { id: 'rus-weiqi', name: '罗斯围棋', randomLevel: 0, path: 'rus-weiqi', enabled: true, recommended: false, category: '围棋/占地', intro: '一次下三颗子，其中有一颗是对方的。' },
+			{ id: 'compound-stone-weiqi', name: '复合子围棋', randomLevel: 0, path: 'compound-stone-weiqi', enabled: true, recommended: false, category: '围棋/占地', intro: '可落单子或复合子。' },
             { id: 'symmetry-weiqi', name: '对称围棋', randomLevel: 4, path: 'symmetry-weiqi', enabled: true, recommended: false, category: '围棋/占地', intro: '落子时会同时在对称位置落子。' },
             { id: 'magnetism-weiqi', name: '磁性围棋', randomLevel: 0, path: 'magnetism-weiqi', enabled: true, recommended: true, category: '围棋/占地', intro: '落子时会吸引或排斥附近的棋子。' },
 			{ id: 'rotation-weiqi', name: '旋转围棋', randomLevel: 0, path: 'rotation-weiqi', enabled: true, recommended: false, category: '围棋/占地', intro: '落子后周围的棋子顺时针转一格。' },

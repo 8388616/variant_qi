@@ -33,7 +33,7 @@ function engineGameId(self) {
 
 /** 引擎目录 id：**只有**权重围棋家族的三个子棋类（二/三权重、焦点）与主棋类
  *  共用 katagos/weight-weiqi——引擎与模型完全相同，差别只在每点权重（由 kata-set-weights 同步）。
- *  其余带子棋类的棋类（磁性围棋 weak/medium/strong-magnetism-weiqi、三角围棋的形状子棋类、
+ *  其余带子棋类的棋类（磁性围棋 weak/medium/strong-magnetism-weiqi、非四角围棋的三角族子棋类、
  *  自由围棋 biliberty/quadriliberty/triliberty-weiqi 等）一律各用 katagos/{子棋类id}/ 自己的引擎与模型。 */
 function engineDirIdOf(gameId) {
     return isWeightWeiqiEngine(gameId) ? 'weight-weiqi' : gameId;
@@ -992,6 +992,14 @@ function maybeScheduleKatago(self) {
         self._qiKatago.genMove(colorOfSlot(self.computerSlot)).then((mv) => {
             if (gen !== self._qiKatagoGen || self.gameOver || !self.computerSlot) return;
             if (mv && mv.pass) {
+                // 引擎自认输（genmove 返回 resign）：本站约定电脑不认输——会话每次 setup 都发
+                // kata-set-param allowResignation false（见 katago-gtp.js 的 disableResignation），
+                // 仍出现说明该引擎不认这个参数 / cfg 又开了：留痕（含改哪份配置文件），
+                // 行为上按虚着继续对局，不让「引擎自评落后」直接判掉一盘还在下的棋。
+                if (mv.resign) {
+                    logComputerPassFallback(self, '引擎自认输（genmove 返回 resign）→ 本站按虚着处理',
+                        `检查 katagos/${engineDirId(self)}/gtp.cfg 的 allowResignation（应为 false）`);
+                }
                 applyComputerPass(self);           // 引擎本意虚着：正常，不记日志
             }
             else if (mv && mv.compound) {

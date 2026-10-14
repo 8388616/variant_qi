@@ -1,6 +1,6 @@
 ﻿const crypto = require('crypto');
 
-const { QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, applyInitialPositionCompact, encodeInitialPositionCompact, qiBoardSeatOverlay, encodeOpeningPositionCompact, computeBensonWeiqiLead, squareWeiqiScoringOps } = require('../common');
+const { qiApplyRecordKomi, qiEffectiveKomi, QiTwoPlayerRoomBase, qiProtocol, qiMatchTimeControl, squareWeiqiRules, applyInitialPositionCompact, encodeInitialPositionCompact, qiBoardSeatOverlay, encodeOpeningPositionCompact, computeBensonWeiqiLead, squareWeiqiScoringOps } = require('../common');
 
 /** 短气围棋（二气/三气/四气合并为一种棋类）：子棋类 id 沿用旧棋类 id */
 const SHORT_LIBERTY_SUB_GAME_ID = {
@@ -240,6 +240,7 @@ class ShortLibertyWeiqiRoom extends QiTwoPlayerRoomBase
 
     /** 贴目（服务端数子口径）：二气/三气按尺寸查表（各自不同），四气固定 3.25 */
     _komi() {
+        if (this.importedKomi != null) return this.importedKomi;   // 导入棋谱采纳记录贴目
         if (this.liberty === 'tri') return komiForSizeTri(this.boardSize);
         if (this.liberty === 'quad') return 3.25;
         return komiForSizeBi(this.boardSize);
@@ -294,6 +295,7 @@ class ShortLibertyWeiqiRoom extends QiTwoPlayerRoomBase
             lastMoveMarkers: this.lastMoveMarkers,
             gameOver: this.gameOver,
             winner: this.winner,
+            recordResultText: this.recordResultText,
             moveCoords: this.moveCoords,
             slots: {
                 player1: !!this.room.getPlayerBySlot('player1'),
@@ -329,6 +331,7 @@ class ShortLibertyWeiqiRoom extends QiTwoPlayerRoomBase
             lastMoveMarkers: this.lastMoveMarkers,
             gameOver: this.gameOver,
             winner: this.winner,
+            recordResultText: this.recordResultText,
             moveCoords: [],
             slots: {
                 player1: !!this.room.getPlayerBySlot('player1'),
@@ -545,6 +548,7 @@ class ShortLibertyWeiqiRoom extends QiTwoPlayerRoomBase
         this.tcSettings = null;
         this.tcClock = null;
         this.recordResultText = null;
+        this.importedKomi = undefined;
         this.matchStarted = false;
         this.board = Array(this.boardSize).fill().map(() => Array(this.boardSize).fill(0));
         this.openingBoard = this.copyBoard(this.board);
@@ -633,6 +637,7 @@ class ShortLibertyWeiqiRoom extends QiTwoPlayerRoomBase
         this.tcSettings = null;
         this.tcClock = null;
         this.recordResultText = null;
+        this.importedKomi = undefined;
         this.matchStarted = false;
         this.board = Array(this.boardSize).fill().map(() => Array(this.boardSize).fill(0));
         this.openingBoard = this.copyBoard(this.board);
@@ -753,6 +758,7 @@ class ShortLibertyWeiqiRoom extends QiTwoPlayerRoomBase
                 this.winner = data.result;
         }
 
+        qiApplyRecordKomi(this, data);   // 导入棋谱采纳记录贴目（新局/重置时清掉）
         this.broadcast({
             type: 'importSuccess',
             ...this.getState(),
