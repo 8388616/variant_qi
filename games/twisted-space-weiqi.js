@@ -40,6 +40,9 @@ class TwistedSpaceWeiqiRoom extends QiTwoPlayerRoomBase {
         return Array(this.boardSize).fill().map((_, r) => Array(2 * r + 1).fill(0));
     }
 
+    get katagoBoardWidth() { return 2 * this.boardSize - 1; }
+    get katagoBoardHeight() { return this.boardSize; }
+
     isValidCoord(r, c) {
         return Number.isInteger(r) && Number.isInteger(c) && r >= 0 && r < this.boardSize && c >= 0 && c <= 2 * r;
     }

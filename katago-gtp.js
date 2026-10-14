@@ -8,6 +8,29 @@ const KATAGOS_ROOT = path.join(__dirname, 'katagos');
 // 与 KataGo 一致：A-Z 跳过 I（单字母 0-24）；≥25 用双字母（AA=25），与 cpp tryParseLetterCoordinate 一致
 const GTP_LETTERS = 'ABCDEFGHJKLMNOPQRSTUVWXYZ';
 
+function flattenTwistCellNumbers(numbers, side, width) {
+    if (!Number.isInteger(side) || side < 2 || side > 21 || width !== 2 * side - 1 ||
+        !Array.isArray(numbers) || numbers.length !== side)
+        throw new Error('Invalid twist-space board dimensions or cell-number layout');
+    const flat = [];
+    const max = Math.ceil(side * side / 2), counts = new Array(max + 1).fill(0);
+    for (let r = 0; r < side; r++) {
+        if (!Array.isArray(numbers[r]) || numbers[r].length !== 2 * r + 1)
+            throw new Error('Invalid twist-space cell-number row length');
+        for (const value of numbers[r]) {
+            if (!Number.isInteger(value) || value < 1 || value > max)
+                throw new Error('Invalid twist-space cell number');
+            counts[value]++;
+            flat.push(value);
+        }
+    }
+    for (let value = 1; value <= max; value++) {
+        const expected = value === max && side % 2 === 1 ? 1 : 2;
+        if (counts[value] !== expected) throw new Error('Invalid twist-space number pairing');
+    }
+    return flat;
+}
+
 /** 列号 → GTP 坐标字母（单字母或双字母） */
 function gtpColLetters(col) {
     if (col < GTP_LETTERS.length) return GTP_LETTERS[col];
@@ -705,8 +728,11 @@ class KatagoGtpSession {
         // 坐标映射（六角围棋这类「引擎网格 ≠ 站点网格」的棋盘）：由棋种提供，见 games/non-rectangular-weiqi.js
         this.coordOf = (opts && typeof opts.coordOf === 'function') ? opts.coordOf : null;
         this.coordInverse = (opts && typeof opts.coordInverse === 'function') ? opts.coordInverse : null;
-        const boardWidth = (opts.boardWidth | 0) || (opts.boardSize | 0);
-        const boardHeight = (opts.boardHeight | 0) || boardWidth;
+        const twist = this.gameId === 'twisted-space-weiqi';
+        const boardWidth = (opts.boardWidth | 0) || (twist ? 2 * opts.boardSize - 1 : opts.boardSize | 0);
+        const boardHeight = (opts.boardHeight | 0) || (twist ? opts.boardSize | 0 : boardWidth);
+        // Freeze and validate topology before mutating the engine. Never fall back to random numbers.
+        const cellNumbers = twist ? flattenTwistCellNumbers(opts.cellNumbers, boardHeight, boardWidth) : null;
         const komi = Number(opts.komi);
         // 同步期间先作废「引擎着法史手数」基准：中途抛错时基于陈旧基准的判断会误报（见 verifyEngineState）
         this.lastSyncMoveNum = null;
@@ -749,6 +775,13 @@ class KatagoGtpSession {
             this._nnPrimedForSize = null;
         }
         await this.command('clear_board');
+        if (cellNumbers) {
+            await this.command(`kata-set-cell-numbers ${cellNumbers.join(' ')}`);
+            const response = await this.command('kata-get-cell-numbers');
+            const got = String(response).trim().split(/\s+/).map(Number);
+            if (got.length !== cellNumbers.length || got.some((value, i) => value !== cellNumbers[i]))
+                throw new Error('Twist-space cell-number synchronization failed: engine topology differs from room');
+        }
         if (Number.isFinite(komi)) await this.command(`komi ${komi}`);
         await this.disableResignation();
 
@@ -1240,14 +1273,17 @@ function scheduleIdleReclaim(entry) {
  */
 async function warmupSession(session, opts) {
     const rawSize = opts && opts.boardSize != null ? Number(opts.boardSize) : NaN;
+    const twist = session.gameId === 'twisted-space-weiqi';
     const boardSize = Number.isFinite(rawSize)
         ? Math.min(19, Math.max(2, rawSize | 0))
         : 19;
     // boardsize 若触发 NN 按路数重建，19 路可能远超 60s
     const boardsizeTimeoutMs = boardSize >= 15 ? 300000 : 120000;
     try {
-        await session.command(`boardsize ${boardSize}`, { timeoutMs: boardsizeTimeoutMs });
+        const width = twist ? 2 * boardSize - 1 : boardSize;
+        await session.command(twist ? `boardsize ${width}:${boardSize}` : `boardsize ${boardSize}`, { timeoutMs: boardsizeTimeoutMs });
         session.boardSize = boardSize;
+        if (twist) { session.boardWidth = width; session.boardHeight = boardSize; }
         session._nnPrimedForSize = null;
         await session.command('clear_board', { timeoutMs: 30000 });
         // 已有其它存活 KataGo 时跳过 19 路 raw-nn，避免双进程同时推理把机器打满
@@ -1410,6 +1446,7 @@ function releaseKatagoSession(session) {
 }
 
 module.exports = {
+    flattenTwistCellNumbers,
     BOARD_CELL,
     IDLE_RECLAIM_MS,
     GLOBAL_PROCESS_LIMIT,

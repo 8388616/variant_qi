@@ -169,6 +169,12 @@ function buildKatagoSetupOpts(self, board) {
         opts.boardWidth = self.katagoBoardWidth;
         opts.boardHeight = self.katagoBoardHeight;
     }
+    if (engineDirId(self) === 'twisted-space-weiqi') {
+        opts.boardWidth = 2 * self.boardSize - 1;
+        opts.boardHeight = self.boardSize;
+        if (!Array.isArray(self.cellNumbers)) throw new Error('Twist-space cell numbers are missing');
+        opts.cellNumbers = self.cellNumbers.map(row => row.slice());
+    }
     // 坐标系不同的棋盘（六角围棋：引擎是 4n−5×4n−4 的蜂窝细格，站点是显示网格）：
     // 由棋种给出双向换算，会话在 set_position/play/genmove 时套用
     if (typeof self.katagoCoordOf === 'function' && typeof self.katagoIndexAt === 'function') {

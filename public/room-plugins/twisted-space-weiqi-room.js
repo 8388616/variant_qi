@@ -588,6 +588,25 @@ if (sizeSelect) {
                 }
             }
 
+            // Pairing is topology information: show it even over an occupied cell or while observing.
+            if (isHoverValid && isValidCoord(hoverR, hoverC) && cellNumbers) {
+                const number = cellNumbers[hoverR][hoverC];
+                ctx.save();
+                ctx.strokeStyle = '#ff8c00';
+                ctx.lineWidth = 2;
+                for (let r = 0; r < ROWS; r++) for (let c = 0; c <= 2 * r; c++) {
+                    if ((r === hoverR && c === hoverC) || cellNumbers[r][c] !== number) continue;
+                    const k = Math.floor(c / 2);
+                    const points = (c & 1) === 0
+                        ? [triPointToPixel(r, k), triPointToPixel(r + 1, k), triPointToPixel(r + 1, k + 1)]
+                        : [triPointToPixel(r, k), triPointToPixel(r, k + 1), triPointToPixel(r + 1, k + 1)];
+                    ctx.beginPath(); ctx.moveTo(points[0].x, points[0].y);
+                    ctx.lineTo(points[1].x, points[1].y); ctx.lineTo(points[2].x, points[2].y);
+                    ctx.closePath(); ctx.stroke();
+                }
+                ctx.restore();
+            }
+
             const editCb = document.getElementById('editModeCheckbox');
             const editSel = document.getElementById('editToolSelect');
             const editing = !!(editCb && editCb.checked);
@@ -1298,7 +1317,7 @@ if (sizeSelect) {
                 const { row, col } = getClosestCell(x, y);
                 hoverR = row; hoverC = col;
                 const editing = !!(document.getElementById('editModeCheckbox') || {}).checked;
-                isHoverValid = (row >= 0 && col >= 0 && isValidCoord(row, col) && (editing || board[row][col] === 0));
+                isHoverValid = (row >= 0 && col >= 0 && isValidCoord(row, col));
                 drawBoardWithOverlay();
             });
             canvas.addEventListener('mouseleave', () => {
