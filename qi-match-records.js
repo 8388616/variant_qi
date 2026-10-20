@@ -3,7 +3,8 @@ const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
 const { pool } = require("./qi-accounts");
-const { qiMatchTimeControl } = require("./common");
+const { qiMatchTimeControl, qiForcedFriendlyMatch } = require("./common");
+const ratings = require('./qi-ratings');
 const pending = new Map();
 const spoolPath = path.resolve(
   process.env.MATCH_RECORD_SPOOL ||
@@ -19,6 +20,7 @@ try {
         record.ended_at = bootTime;
         record.winner_id = null;
         record.winner_role = null;
+        record.winner_slot = null;
       }
       pending.set(record.id, record);
     }
@@ -47,6 +49,10 @@ function role(logic, slot) {
 function identities(room) {
   const out = {};
   for (const slot of ["player1", "player2"]) {
+    if (room.gameLogic.computerSlot === slot) {
+      out[slot] = { ...ratings.computerIdentity(room.gameLogic.aiLevel), role: role(room.gameLogic, slot) };
+      continue;
+    }
     const client = room.getPlayerBySlot(slot);
     const user =
       (client && client.auth && client.auth.user) ||
@@ -64,7 +70,35 @@ function identities(room) {
     else if (room._match && room._match.players[slot])
       out[slot] = room._match.players[slot];
   }
+  const subGameId = room._qiRatingSubGameId || room._match?.data.sub_game_id || room.gameLogic.subGameId || room.gameType;
+  for (const slot of ['player1', 'player2']) {
+    if (!out[slot]) continue;
+    const rating = ratings.gameRatingForRoom(out[slot].id, subGameId, room);
+    out[slot] = { ...out[slot], rating: rating.rating, rank: rating.rank };
+  }
   return out;
+}
+// 空座保留最后一位棋手的署名；重新落座（包括匿名棋手）则替换旧署名。
+function syncMatchPlayers(room, client) {
+  const match = room._match;
+  if (!match) return;
+  const current = identities(room);
+  let changed = false;
+  for (const slot of ['player1', 'player2']) {
+    const seat = room.getPlayerBySlot(slot);
+    if (client && seat !== client && seat?.localPlay?.client !== client) continue;
+    const next = current[slot];
+    const previous = match.players[slot];
+    if (!next || (previous && previous.id === next.id && previous.username === next.username && previous.role === next.role)) continue;
+    match.players[slot] = next;
+    if (match.data.status === 'in_progress') {
+      match.data[slot + '_id'] = next.id;
+      match.data[slot + '_username'] = next.username;
+      match.data[slot + '_role'] = next.role;
+      changed = true;
+    }
+  }
+  if (changed) enqueue(match.data);
 }
 function enqueue(record) {
   if (!pool) return;
@@ -92,15 +126,7 @@ async function flush() {
       recovered = true;
     }
     for (const [id, record] of [...pending].slice(0, 100)) {
-      const keys = Object.keys(record);
-      const update = keys
-        .filter((k) => k !== "id")
-        .map((k) => `${k}=EXCLUDED.${k}`)
-        .join(",");
-      await pool.query(
-        `INSERT INTO match_records(${keys.join(",")}) VALUES(${keys.map((_, i) => "$" + (i + 1)).join(",")}) ON CONFLICT(id) DO UPDATE SET ${update}`,
-        keys.map((k) => record[k]),
-      );
+      await ratings.writeMatch(pool, record);
       if (pending.get(id) === record) pending.delete(id);
     }
     await fs.promises.writeFile(
@@ -119,6 +145,7 @@ setInterval(flush, 5000).unref();
 function inspect(room, event = {}) {
   if (!room.roomId || room.retired || room._recordImporting) return;
   const logic = room.gameLogic;
+  syncMatchPlayers(room);
   // 此表描述双人棋局；多人排行榜游戏使用另一种结果结构。
   if (typeof logic.gameOver !== "boolean") return;
   const reset =
@@ -138,12 +165,16 @@ function inspect(room, event = {}) {
   if (!room._match && started) {
     const players = identities(room);
     const settings = logic.tcSettings || {};
+    const subGameId = logic.getState?.()?.subGameId || room._qiRatingSubGameId || logic.subGameId || room.gameType;
     room._match = {
       players,
       data: {
         id: crypto.randomUUID(),
         room_id: room.roomId,
         game_type: room.gameType,
+        sub_game_id: subGameId,
+        is_friendly: logic.friendlyMatch === true || qiForcedFriendlyMatch(logic),
+        is_local: !!room.localPlay,
         player1_id: players.player1?.id || null,
         player2_id: players.player2?.id || null,
         player1_username: players.player1?.username || null,
@@ -163,6 +194,7 @@ function inspect(room, event = {}) {
         player2_time_ms: settings.timed ? 0 : null,
         winner_id: null,
         winner_role: null,
+        winner_slot: null,
         status: "in_progress",
       },
     };
@@ -185,6 +217,7 @@ function inspect(room, event = {}) {
       data[slot + "_time_ms"] = Math.round(clock?.[slot]?.spentMs || 0);
   if (logic.gameOver) {
     const winner = logic.winner;
+    data.winner_slot = ['player1', 'player2', 'draw'].includes(winner) ? winner : null;
     data.status = "finished";
     data.ended_at = new Date();
     data.winner_id =
@@ -206,33 +239,45 @@ function close(room) {
     data.ended_at = new Date();
     data.winner_id = null;
     data.winner_role = null;
+    data.winner_slot = null;
     enqueue(data);
     void flush();
   }
 }
 function install(room) {
   const logic = room.gameLogic;
+  room._qiRatingSubGameId = logic.getState?.()?.subGameId || room.gameType;
+  room._qiNotifyRatingUpdate = () => room.broadcast({ type: 'playerIdentities', playerIdentities: identities(room) });
   const broadcast = room.broadcast.bind(room);
   room.broadcast = (data, exclude) => {
+    if (data.subGameId) room._qiRatingSubGameId = data.subGameId;
+    if (data.type === 'editBoardAccepted' && !logic._qiApplyingHandicap) {
+      logic._qiOpeningEdited = true;
+      logic.friendlyMatch = true;
+    }
     if (room._recordImporting && data.type === "importSuccess")
       room._importSucceeded = true;
     try { inspect(room, data); } catch (e) { console.error("[matches] 读取棋局失败:", e.message); }
-    broadcast({ ...data, playerIdentities: identities(room) }, exclude);
+    broadcast({ ...data, openingEdited: !!logic._qiOpeningEdited,
+      forcedFriendlyMatch: qiForcedFriendlyMatch(logic),
+      friendlyMatch: logic.friendlyMatch === true || qiForcedFriendlyMatch(logic),
+      playerIdentities: identities(room) }, exclude);
   };
   if (logic.exportRecord) {
     const original = logic.exportRecord.bind(logic);
     logic.exportRecord = (...args) => {
       const record = original(...args);
-      const players = room._match?.players || identities(room);
+      syncMatchPlayers(room);
+      const players = identities(room);
       return {
         ...record,
         players: room.recordTree?.record?.players ||
           room._importedPlayers || {
             ...(record.players || {}),
             player1:
-              players.player1?.username || record.players?.player1 || null,
+              players.player1 ? players.player1.username : record.players?.player1 || null,
             player2:
-              players.player2?.username || record.players?.player2 || null,
+              players.player2 ? players.player2.username : record.players?.player2 || null,
           },
       };
     };
@@ -270,17 +315,6 @@ function install(room) {
     }
 }
 function refreshIdentity(room, client) {
-  const match = room._match;
-  if (!match || match.data.status !== 'in_progress') return;
-  const current = identities(room);
-  for (const slot of ['player1', 'player2']) {
-    const seat = room.getPlayerBySlot(slot);
-    if (seat !== client && seat?.localPlay?.client !== client) continue;
-    if (match.players[slot]?.id || !current[slot]?.id) continue;
-    match.players[slot] = current[slot];
-    match.data[slot + '_id'] = current[slot].id;
-    match.data[slot + '_username'] = current[slot].username;
-  }
-  enqueue(match.data);
+  syncMatchPlayers(room, client);
 }
 module.exports = { install, inspect, close, identities, flush, refreshIdentity };

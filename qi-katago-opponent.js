@@ -323,9 +323,10 @@ function enrichState(self, state) {
         }
     }
     state.katagoAvailable = !!self.katagoAvailable;
-    // 人机棋力档位：配置文件 maxVisits > 1 时客户端才显示「棋力」下拉框
+    // 中级仍由配置文件 maxVisits > 1 决定；新手/初级始终可选。
     state.katagoMaxVisits = self.katagoAvailable ? readConfigMaxVisits(engineDirId(self)) : null;
     state.computerSlot = self.computerSlot || null;
+    state.aiLevel = self.computerSlot ? (self.aiLevel || 'basic') : null;
     if (!state.slots) state.slots = { player1: false, player2: false };
     if (self.computerSlot === 'player1') state.slots.player1 = true;
     if (self.computerSlot === 'player2') state.slots.player2 = true;
@@ -406,6 +407,7 @@ function releasePreparedKatago(self) {
 }
 
 function stopKatago(self) {
+    self._qiKatagoEndCheck = null;
     self._qiKatagoGen = (self._qiKatagoGen || 0) + 1;
     self._qiKatagoBusy = false;
     clearKatagoHibernateTimer(self);
@@ -738,7 +740,48 @@ function applyComputerSwap(self, aRow, aCol, bRow, bCol) {
     return true;
 }
 
+async function requestRatedEnd(self, ws) {
+    if (self._qiKatagoEndCheck) return;
+    if (self._qiKatagoBusy) {
+        ws.send(JSON.stringify({ type: 'error', message: '对方拒绝终局。' }));
+        return;
+    }
+    const token = {};
+    self._qiKatagoEndCheck = token;
+    const boardKey = boardToString(self, self.board);
+    const moves = (self.moveHistory || []).length;
+    const turn = seatToMove(self);
+    const positionUnchanged = () => moves === (self.moveHistory || []).length
+        && turn === seatToMove(self) && boardKey === boardToString(self, self.board);
+    let isCurrent = () => self._qiKatagoEndCheck === token && !self.gameOver && humanWs(self) === ws && ws.readyState === 1;
+    try {
+        const session = await ensureKatagoEngine(self);
+        if (!session || !isCurrent()) return;
+        const gen = self._qiKatagoGen;
+        const active = isCurrent;
+        isCurrent = () => active() && gen === self._qiKatagoGen && self._qiKatago === session;
+        // 查询实际行棋方，避免切换引擎行棋方而清掉禁全同历史。
+        const accepted = await session.canEndGame(colorOfSlot(turn), { isCurrent, canSearch: positionUnchanged });
+        if (!isCurrent()) return;
+        if (!positionUnchanged()) {
+            ws.send(JSON.stringify({ type: 'error', message: '局面已变化，请重新申请终局。' }));
+        } else if (accepted) startScoreVsComputer(self);
+        else ws.send(JSON.stringify({ type: 'error', message: '对方拒绝终局。' }));
+    } catch (err) {
+        if (isCurrent()) {
+            console.warn('KataGo 终局判断失败', err && err.message);
+            ws.send(JSON.stringify({ type: 'error', message: '对方拒绝终局。' }));
+        }
+    } finally {
+        if (self._qiKatagoEndCheck === token) {
+            self._qiKatagoEndCheck = null;
+            maybeScheduleKatago(self);
+        }
+    }
+}
+
 function startScoreVsComputer(self) {
+    stopKatago(self);
     const human = humanWs(self);
     if (!human) {
         self.gameOver = true;
@@ -879,14 +922,16 @@ async function verifyEngineState(self, session, gen, trigger) {
     // 站点盘面 = probed.stones 的比对：坐标系不同的棋盘（六角）要先把站点格换算成引擎格
     const coordOf = (typeof self.katagoCoordOf === 'function') ? self.katagoCoordOf.bind(self) : null;
     const bridgeEngine = engineGameId(self) === 'bridge-weiqi';
+    const holeEngine = engineGameId(self) === 'hole-weiqi';
     let stoneDiff = 0;
     for (let r = 0; r < (self.board ? self.board.length : 0) && stoneDiff === 0; r++) {
         const row = Array.isArray(self.board[r]) ? self.board[r] : [];
         for (let c = 0; c < row.length; c++) {
             let mine = row[c] === 1 || row[c] === 2 ? row[c] : 0;
-            // 桥引擎 placeBridges 将站点的 -2 存成 C_WALL，showboard 打印为 '#'（回读哨兵 -9）。
-            // 必须比对桥的位置，不能按空点比较或跳过，否则会每手误报或漏掉桥拓扑不同步。
-            if (bridgeEngine && row[c] === -2) mine = -9;
+            // placeBridges / placeHoles 将站点的桥 -2 / 洞 -1 存成 C_WALL，
+            // showboard 打印为 '#'（回读哨兵 -9）。按对应棋种转换后仍逐点核对位置，
+            // 避免把结构格当空点而每手误报，也不能跳过它们而漏报真正的拓扑差异。
+            if ((bridgeEngine && row[c] === -2) || (holeEngine && row[c] === -1)) mine = -9;
             let er = r; let ec = c;
             if (coordOf) {
                 const e = coordOf(r, c);
@@ -969,7 +1014,7 @@ async function verifyEngineState(self, session, gen, trigger) {
 }
 
 function maybeScheduleKatago(self) {
-    if (!self.computerSlot || self.gameOver || self._qiKatagoBusy || !self.matchStarted) return;
+    if (!self.computerSlot || self.gameOver || self._qiKatagoBusy || self._qiKatagoEndCheck || !self.matchStarted) return;
     if (!humanWs(self) || humanWs(self).readyState !== 1) return;
     if (self.pendingScore) return;
     const turnSlot = seatToMove(self);
@@ -985,7 +1030,7 @@ function maybeScheduleKatago(self) {
             abortVsComputerOnEngineFailure(self, null, err);
             return;
         }
-        if (!self.computerSlot || self.gameOver || self._qiKatagoBusy || !self.matchStarted) return;
+        if (!self.computerSlot || self.gameOver || self._qiKatagoBusy || self._qiKatagoEndCheck || !self.matchStarted) return;
         if (!humanWs(self) || humanWs(self).readyState !== 1) return;
         if (self.pendingScore) return;
         if (seatToMove(self) !== self.computerSlot) return;
@@ -995,8 +1040,17 @@ function maybeScheduleKatago(self) {
         self._qiKatagoBusy = true;
         touchKatagoActivity(self);
 		
-        self._qiKatago.genMove(colorOfSlot(self.computerSlot)).then((mv) => {
+        const session = self._qiKatago;
+        session.genMove(colorOfSlot(self.computerSlot), {
+            confirmPass: self.aiLevel === 'novice',
+            isCurrent: () => gen === self._qiKatagoGen && self._qiKatago === session
+                && !!humanWs(self) && humanWs(self).readyState === 1
+        }).then((mv) => {
             if (gen !== self._qiKatagoGen || self.gameOver || !self.computerSlot) return;
+            if (!humanWs(self) || humanWs(self).readyState !== 1) {
+                stopKatago(self); // genmove 已改变引擎盘面，续坐时重新同步服务端盘面。
+                return;
+            }
             if (mv && mv.pass) {
                 // 引擎自认输（genmove 返回 resign）：本站约定电脑不认输——会话每次 setup 都发
                 // kata-set-param allowResignation false（见 katago-gtp.js 的 disableResignation），
@@ -1034,6 +1088,10 @@ function maybeScheduleKatago(self) {
         }).catch((err) => {
             console.error('KataGo genmove 失败', err);
             if (gen !== self._qiKatagoGen || self.gameOver) return;
+            if (!humanWs(self) || humanWs(self).readyState !== 1) {
+                stopKatago(self);
+                return;
+            }
             // 超时杀进程 / 引擎崩溃：结束人机，禁止落子后再拉起
             if (!self._qiKatago || self._qiKatago.dead) {
                 logEngineCrashPosition(self, err);
@@ -1115,8 +1173,14 @@ async function ensureKatagoEngine(self, opts) {
             releaseSessionToPool(session);
             return null;
         }
-        // 棋力（初级 1 / 中级 = 配置值）：只影响 genmove 的搜索量，kata-raw-nn 取候选不受影响
-        await session.setMaxVisits(Number(self.aiVisits) || 1);
+        // 参数在每次开局/唤醒时设置，不修改 cfg；新手温度不能泄漏到热池的其它对局。
+        try {
+            await session.setMaxVisits(Number(self.aiVisits) || 1, self.aiLevel === 'novice');
+            await session.setNoviceTemperature(self.aiLevel === 'novice');
+        } catch (err) {
+            session.destroy();
+            throw err;
+        }
 
         // 可能与人类落子并行：setup 后若盘面已变则重同步
         for (let attempt = 0; attempt < 4; attempt++) {
@@ -1246,16 +1310,20 @@ function handleStartVsComputer(self, ws, msg) {
     if (old) releaseSessionToPool(old);
 
     self.computerSlot = computerSlot;
+    self.friendlyMatch = msg && msg.friendlyMatch === true;
+    self._qiRatedUndoCount = 0;
     self.tcNego = null;
     self.tcSettings = { timed: false };
     self.tcClock = null;
     // 让子：人机开局不走 _finalizeTimeControl，这里按对话框传来的让子数摆白子（被让子方执白、黑先）
     require('./common').qiApplyHandicapFromRequest(self, msg && msg.handicap);
+    self.friendlyMatch = self.friendlyMatch || require('./common').qiForcedFriendlyMatch(self);
     // 棋力：初级 = 配置文件 maxVisits 1；中级 = 配置文件里的值（配置本身为 1 或没这项时不提供中级）
     {
         const cfgVisits = readConfigMaxVisits(engineDirId(self));
         const useIntermediate = msg && msg.aiLevel === 'intermediate'
             && Number.isFinite(cfgVisits) && cfgVisits > 1;
+        self.aiLevel = msg && msg.aiLevel === 'novice' ? 'novice' : useIntermediate ? 'intermediate' : 'basic';
         self.aiVisits = useIntermediate ? cfgVisits : 1;
     }
     self.matchStarted = true;
@@ -1388,6 +1456,9 @@ function install(self, gameId) {
         self[name] = function (...args) {
             stopKatago(this);
             this.computerSlot = null;
+            this.aiLevel = null;
+            this.aiVisits = null;
+            this._qiRatedUndoCount = 0;
             return orig(...args);
         };
     };
@@ -1483,8 +1554,9 @@ function install(self, gameId) {
             }
 
             if (msg.type === 'requestEnd') {
-                if (!slot) return;
-                startScoreVsComputer(this);
+                if (!slot || this.gameOver || !this.matchStarted || this.pendingScore) return;
+                if (this.friendlyMatch || require('./common').qiForcedFriendlyMatch(this)) startScoreVsComputer(this);
+                else requestRatedEnd(this, ws);
                 return;
             }
 
@@ -1520,6 +1592,11 @@ function install(self, gameId) {
 
             if (msg.type === 'requestUndo') {
                 if (!slot || this.gameOver) return;
+                const rated = !this.friendlyMatch && !require('./common').qiForcedFriendlyMatch(this);
+                if (rated && (this._qiRatedUndoCount || 0) >= 3) {
+                    ws.send(JSON.stringify({ type: 'error', message: '对方拒绝悔棋。' }));
+                    return;
+                }
                 let steps = 0;
                 // 一「回合」能连走多手的棋种（先一各二围棋）：退到「该方回合开始之前」，由棋种自己算
                 if (typeof this._undoStepsToTurnStart === 'function') {
@@ -1534,7 +1611,10 @@ function install(self, gameId) {
                     ws.send(JSON.stringify({ type: 'error', message: '无法悔棋。' }));
                     return;
                 }
+                const beforeUndo = (this.moveHistory || []).length;
                 if (typeof this.performUndo === 'function') this.performUndo(steps, ws);
+                if ((this.moveHistory || []).length >= beforeUndo) return;
+                if (rated) this._qiRatedUndoCount = (this._qiRatedUndoCount || 0) + 1;
                 if (this._qiKatago && !this._qiKatago.dead) {
                     touchKatagoActivity(this);
                     // 作废进行中的 play/genmove 回调，避免悔棋后旧着法再写入引擎

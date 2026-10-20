@@ -436,7 +436,7 @@ class HoleWeiqiRoom extends QiTwoPlayerRoomBase
                 if (this.pendingEnd && msg.accept) {
                     this.startScoreCounting(this.pendingEnd.requester, this.pendingEnd.opponent);
                 } else if (this.pendingEnd && !msg.accept) {
-                    this.pendingEnd.requester.send(JSON.stringify({ type: 'error', message: '对方拒绝数点。' }));
+                    this.pendingEnd.requester.send(JSON.stringify({ type: 'error', message: '对方拒绝终局。' }));
                 }
                 this.pendingEnd = null;
                 break;

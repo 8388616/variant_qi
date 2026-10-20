@@ -755,7 +755,7 @@ class FogWeiqiRoom extends QiTwoPlayerRoomBase {
                 break;
 
             case 'endResponse':
-                qiProtocol.endResponse(this, ws, msg, { endDeniedMsg: '对方拒绝数点。' });
+                qiProtocol.endResponse(this, ws, msg, { endDeniedMsg: '对方拒绝终局。' });
                 break;
 
             case 'scoreResponse':

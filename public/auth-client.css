@@ -33,6 +33,34 @@
     box-shadow: 0 4px 16px #0002;
 }
 .qi-account-menu[hidden] { display: none; }
+.qi-account-rating { margin: 4px 8px 8px; font-size: 13px; line-height: 1.6; white-space: pre-line; }
+.qi-account-menu--ratings { width: min(330px, calc(100vw - 16px)); box-sizing: border-box; }
+.qi-account-game-ratings {
+    --qi-rating-row-height: 28px;
+    height: min(calc(10 * var(--qi-rating-row-height) + 1px), calc(100dvh - 116px));
+    overflow-y: auto;
+    overflow-x: hidden;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+    scrollbar-color: #c6a57d #f5ecdd;
+    margin-top: 8px;
+    border-top: 1px solid #d5c4a7;
+    white-space: normal;
+}
+.qi-account-game-ratings::-webkit-scrollbar { width: 7px; }
+.qi-account-game-ratings::-webkit-scrollbar-track { background: #f5ecdd; border-radius: 4px; }
+.qi-account-game-ratings::-webkit-scrollbar-thumb { background: #c6a57d; border-radius: 4px; }
+.qi-account-game-rating {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    gap: 12px;
+    height: var(--qi-rating-row-height);
+    align-items: center;
+}
+.qi-account-game-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.qi-account-game-score, .qi-account-game-rank { text-align: right; font-variant-numeric: tabular-nums; }
+.qi-account-game-rank { min-width: 4ch; }
+.qi-account-ratings-empty { padding-top: 8px; color: #806350; }
 .qi-account-menu button {
     display: block;
     width: 100%;
@@ -54,3 +82,5 @@ body.qi-room .go-timer-title.qi-timer-has-username {
 }
 body.qi-room .qi-timer-has-username .qi-side-dot { flex-shrink: 0; }
 body.qi-room .qi-timer-has-username .qi-player-username { min-width: 0; flex: 0 1 auto; }
+body.qi-room .qi-timer-has-username .qi-player-left-status { flex-shrink: 0; }
+body.qi-room .qi-player-rank { flex-shrink: 0; white-space: nowrap; }

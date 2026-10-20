@@ -1248,6 +1248,10 @@
         const GAMES_DATA = window.QiGameCatalog.games;
 
         let pendingGame = null;
+        let roomCreationPending = false;
+        window.addEventListener('pageshow', (event) => {
+            if (event.persisted) roomCreationPending = false;
+        });
         let activeTooltip = null;
         const API_BASE = location.origin;
 
@@ -1262,6 +1266,25 @@
 
         /** 与 qi.js 中 sessionStorage 键一致：大厅导入成功后由游戏页在 joined 时发送 importRecord */
         const QI_LOBBY_PENDING_IMPORT_KEY = 'qiLobbyPendingImport';
+
+        // 建房成功后保持锁定直到跳转，避免响应较慢时重复提交、留下多个空房。
+        async function lobbyRequestRoomCreation(game, password, source) {
+            if (roomCreationPending) return null;
+            roomCreationPending = true;
+            try {
+                const response = await fetch(`${API_BASE}/qi/create`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ game, password: password || null, source })
+                });
+                const result = await response.json();
+                if (!response.ok || !result.success) roomCreationPending = false;
+                return result;
+            } catch (error) {
+                roomCreationPending = false;
+                throw error;
+            }
+        }
 
         function lobbyGetQrcodeFactory() {
             if (typeof qrcode === 'function') return qrcode;
@@ -1323,12 +1346,8 @@
                 return;
             }
             try {
-                const res = await fetch(`${API_BASE}/qi/create`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ game: game.id, password: null })
-                });
-                const result = await res.json();
+                const result = await lobbyRequestRoomCreation(game.id, null, 'qr-code');
+                if (!result) return;
                 if (!result.success) {
                     qiAlert('创建房间失败：' + (result.error || '未知错误'));
                     return;
@@ -1387,12 +1406,8 @@
                 return;
             }
             try {
-                const res = await fetch(`${API_BASE}/qi/create`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ game: game.id, password: null })
-                });
-                const result = await res.json();
+                const result = await lobbyRequestRoomCreation(game.id, null, 'record-import');
+                if (!result) return;
                 if (!result.success) {
                     qiAlert('创建房间失败：' + (result.error || '未知错误'));
                     return;
@@ -1555,6 +1570,7 @@
 
             if (game.enabled) {
                 const openCreate = () => {
+                    if (roomCreationPending) return;
                     pendingGame = game;
                     document.getElementById('modalGameName').innerText = `创建「${game.name}」房间`;
                     document.getElementById('roomPasswordInput').value = '';
@@ -1716,12 +1732,8 @@
 
         async function createRoom(game, password) {
             try {
-                const res = await fetch(`${API_BASE}/qi/create`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ game: game.id, password: password || null })
-                });
-                const data = await res.json();
+                const data = await lobbyRequestRoomCreation(game.id, password, 'lobby');
+                if (!data) return;
                 if (data.success) {
                     if (password) {
                         sessionStorage.setItem(`roomPassword_${data.roomId}`, password);

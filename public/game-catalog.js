@@ -4,6 +4,7 @@
     const games = [
             // 围棋类
             { id: 'choice-weiqi', name: '选点围棋', randomLevel: 4, path: 'choice-weiqi', enabled: true, recommended: false, category: '围棋/占地', intro: '每步棋只能从随机候选点中选择落子。' },
+            { id: 'traitor-weiqi', name: '内奸围棋', randomLevel: 3, path: 'traitor-weiqi', enabled: true, recommended: false, category: '围棋/占地', intro: '在对手的棋子中藏入己方内奸。' },
             { id: 'non-rectangular-weiqi', name: '非四角围棋', randomLevel: 0, path: 'non-rectangular-weiqi', enabled: true, recommended: true, category: '围棋/占地', intro: '各种非四角棋盘。' },
             { id: 'large-small-circle-weiqi', name: '大小圆围棋', randomLevel: 0, path: 'large-small-circle-weiqi', enabled: true, recommended: false, category: '围棋/占地', intro: '不对称连接的棋盘。' },
             { id: 'torus-weiqi', name: '环面围棋', randomLevel: 0, path: 'torus-weiqi', enabled: true, recommended: true, category: '围棋/占地', intro: '' },
@@ -16,7 +17,8 @@
 	        { id: 'hole-weiqi', name: '洞围棋', randomLevel: 2, path: 'hole-weiqi', enabled: true, recommended: true, category: '围棋/占地', intro: '棋盘上破了一些洞。' },
             { id: 'bridge-weiqi', name: '桥围棋', randomLevel: 2, path: 'bridge-weiqi', enabled: true, recommended: true, category: '围棋/占地', intro: '棋盘上建了一些桥。' },
             { id: 'neutral-stone-weiqi', name: '中立子围棋', randomLevel: 2, path: 'neutral-stone-weiqi', enabled: true, recommended: false, category: '围棋/占地', intro: '棋盘上有一些中立的棋子。' },
-            { id: 'greedy-weiqi', name: '贪吃围棋', randomLevel: 0, path: 'greedy-weiqi', enabled: true, recommended: true, category: '围棋/占地', intro: '有提必提。' },
+			{ id: 'mirror-weiqi', name: '镜子围棋', randomLevel: 2, path: 'mirror-weiqi', enabled: true, recommended: true, category: '围棋/占地', intro: '落子后会经过镜子反射在多处落子。' },
+			{ id: 'greedy-weiqi', name: '贪吃围棋', randomLevel: 0, path: 'greedy-weiqi', enabled: true, recommended: true, category: '围棋/占地', intro: '有提必提。' },
             { id: 'capture-weiqi', name: '吃子围棋', randomLevel: 0, path: 'capture-weiqi', enabled: true, recommended: true, category: '围棋/占地', intro: '吃子即赢。' },
 			{ id: 'sharp-edge-evasion-weiqi', name: '避锋围棋', randomLevel: 0, path: 'sharp-edge-evasion-weiqi', enabled: true, recommended: false, category: '围棋/占地', intro: '不能下在前一手旁边。' },
 			{ id: 'travel-expense-weiqi', name: '路费围棋', randomLevel: 0, path: 'travel-expense-weiqi', enabled: false, recommended: false, category: '围棋/占地', intro: '距离前一手越远成本越高。' },
@@ -119,7 +121,21 @@
             { id: 'guess-number', name: '猜数字', randomLevel: 0, path: 'guess-number', enabled: true, recommended: false, category: '其它', intro: '' },
             { id: 'dfw', name: 'DFW', randomLevel: 0, path: 'dfw', enabled: true, recommended: false, category: '其它', intro: '测试游戏，无实际功能。' },
 		];
-    const catalog = { games, categories: ['围棋/占地', '五子棋/成型', '象棋/杀王', '不围棋/封锁', '国际跳棋/全歼', '跳达棋/到达', '结子棋/成型', '其它'] };
+    const subGameNames = {
+        'weak-magnetism-weiqi': '弱磁性围棋', 'medium-magnetism-weiqi': '中磁性围棋', 'strong-magnetism-weiqi': '强磁性围棋',
+        'biliberty-weiqi': '二气围棋', 'triliberty-weiqi': '三气围棋', 'quadriliberty-weiqi': '四气围棋',
+        'triangle-weiqi': '三角围棋', 'snub-quadrangle-weiqi': '扭棱四角围棋', 'cairo-pentagon-weiqi': '开罗五角围棋',
+        'floret-pentagon-weiqi': '花形五角围棋', 'hexagon-weiqi': '六角围棋', 'rhom-triangle-weiqi': '菱形三角围棋', 'hexagon-triangle-weiqi': '六角形三角围棋',
+        'biweight-weiqi': '二权重围棋', 'triweight-weiqi': '三权重围棋', 'focus-weight-weiqi': '焦点围棋',
+        'no-adjacent-prev-weiqi': '不邻前手围棋', 'no-adjacent-own-prev-weiqi': '不邻己方前手围棋',
+        'no-near-prev-weiqi': '不近前手围棋', 'no-near-own-prev-weiqi': '不近己方前手围棋',
+        snort: '小放牛棋', lnort: '大放牛棋', 'ultimate-24': '究级24点',
+        'custom-weiqi-triangle': '自定义围棋（三角）', 'custom-weiqi-snub': '自定义围棋（扭棱四角）',
+        'custom-weiqi-cairo': '自定义围棋（开罗五角）', 'custom-weiqi-floret': '自定义围棋（花形五角）', 'custom-weiqi-hexagon': '自定义围棋（六角）'
+    };
+    const catalog = { games, categories: ['围棋/占地', '五子棋/成型', '象棋/杀王', '不围棋/封锁', '国际跳棋/全歼', '跳达棋/到达', '结子棋/成型', '其它'],
+        getGameName(id) { return subGameNames[id] || games.find(game => game.id === id)?.name || id; }
+    };
     if (typeof module === 'object' && module.exports) module.exports = catalog;
     else global.QiGameCatalog = catalog;
 })(typeof window !== 'undefined' ? window : globalThis);

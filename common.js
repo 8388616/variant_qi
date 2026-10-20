@@ -68,7 +68,7 @@ function applyInitialPositionCompact(board, boardSize, initialPosition, opts) {
     for (const s of initialPosition) {
         if (typeof s !== 'string' || s.length < 3) continue;
         const prefix = s[0];
-        if (prefix !== 'B' && prefix !== 'W' && prefix !== 'N' && prefix !== 'H' && prefix !== 'I' && prefix !== 'M') continue;
+        if (prefix !== 'B' && prefix !== 'W' && prefix !== 'N' && prefix !== 'H' && prefix !== 'I' && prefix !== 'M' && prefix !== 'J') continue;
         const comma = s.indexOf(',');
         if (comma <= 1) continue;
         const r = parseInt(s.slice(1, comma), 10);
@@ -81,6 +81,7 @@ function applyInitialPositionCompact(board, boardSize, initialPosition, opts) {
         else if (prefix === 'H') board[r][c] = -1;
         else if (prefix === 'I') board[r][c] = -2;
         else if (prefix === 'M') board[r][c] = -3;
+        else if (prefix === 'J') board[r][c] = -4;
     }
 }
 
@@ -136,6 +137,9 @@ const qiMatchTimeControl = {
             if (!Number.isFinite(h) || h < 0 || h > 9) return { ok: false, error: '让子数须在 0~9 之间。' };
             result.handicap = h;
         }
+        if (msg.friendlyMatch !== undefined && typeof msg.friendlyMatch !== 'boolean')
+            return { ok: false, error: '友谊赛选项无效。' };
+        result.friendlyMatch = msg.friendlyMatch === true;
         return result;
     },
 
@@ -620,11 +624,19 @@ function qiApplyHandicap(self) {
     if (n <= 0) return false;
     const board = qiHandicapBoard(self, n);
     if (!board) return false;
+    const wasApplying = self._qiApplyingHandicap;
+    self._qiApplyingHandicap = true;
     try {
         return qiProtocol.applyOpeningBoard(self, board);
     } catch (_) {
         return false;
+    } finally {
+        self._qiApplyingHandicap = wasApplying;
     }
+}
+
+function qiForcedFriendlyMatch(self, handicap = self && self.handicap) {
+    return !!(self && self._qiOpeningEdited) || Number(handicap) > 0;
 }
 
 function qiSeatOfResultText(self, resultText) {
@@ -1064,7 +1076,7 @@ const qiProtocol = {
     },
 
     endResponse(self, ws, msg, opts = {}) {
-        const denyMsg = opts.endDeniedMsg ?? '对方拒绝数点。';
+        const denyMsg = opts.endDeniedMsg ?? '对方拒绝终局。';
         if (self.pendingEnd && msg.accept) {
             self.startScoreCounting(self.pendingEnd.requester, self.pendingEnd.opponent);
         } else if (self.pendingEnd && !msg.accept) {
@@ -1262,6 +1274,8 @@ const qiProtocol = {
         if ('passCounter' in self) self.passCounter = 0;
         self.gameOver = false;
         self.winner = null;
+        if (!self._qiApplyingHandicap) self._qiOpeningEdited = true;
+        if (qiForcedFriendlyMatch(self)) self.friendlyMatch = true;
 
         const state = typeof self.getInitialState === 'function'
             ? self.getInitialState()
@@ -1408,6 +1422,9 @@ const qiProtocol = {
     installStandardEditBoard(self) {
         if (!self || self._qiStandardEditBoardInstalled) return self;
         self._qiStandardEditBoardInstalled = true;
+        const openingKey = board => JSON.stringify(typeof board?.toStones === 'function'
+            ? { boardLength: board.boardLength, stones: board.toStones() } : board);
+        self._qiDefaultOpeningKey = openingKey(self.board);
 
         /** 连续围棋等：board 为对象而非数组，且 useCustomEditBoard 时勿用二维 copyBoard */
         const copyGridBoard = (roomSelf, src) => {
@@ -1432,6 +1449,9 @@ const qiProtocol = {
         };
         const enrich = (state) => {
             if (!state || typeof state !== 'object') return state;
+            state.openingEdited = !!self._qiOpeningEdited;
+            state.forcedFriendlyMatch = qiForcedFriendlyMatch(self);
+            state.friendlyMatch = self.friendlyMatch === true || state.forcedFriendlyMatch;
             if (state.initialBoard == null && self.openingBoard && Array.isArray(self.openingBoard)) {
                 const ib = copyGridBoard(self, self.openingBoard);
                 if (ib != null) state.initialBoard = ib;
@@ -1475,9 +1495,18 @@ const qiProtocol = {
             const orig = self[name].bind(self);
             self[name] = function (...args) {
                 const room = this.room;
+                const editedOpening = this._qiOpeningEdited ? openingKey(this.openingBoard || this.board) : null;
+                const syncEditedOpening = () => {
+                    const boardKey = openingKey(this.board);
+                    this._qiOpeningEdited = editedOpening !== null && boardKey === editedOpening
+                        && boardKey !== this._qiDefaultOpeningKey;
+                    if (!this._qiOpeningEdited) this._qiDefaultOpeningKey = boardKey;
+                    if (qiForcedFriendlyMatch(this)) this.friendlyMatch = true;
+                };
                 if (!room || typeof room.broadcast !== 'function') {
                     const r = orig(...args);
                     copyOpeningFromBoard(this);
+                    syncEditedOpening();
                     return r;
                 }
                 const origBroadcast = room.broadcast.bind(room);
@@ -1485,6 +1514,7 @@ const qiProtocol = {
                     if (data && typeof data === 'object'
                         && (data.type === 'newGameStarted' || data.type === 'roomReset')) {
                         copyOpeningFromBoard(this);
+                        syncEditedOpening();
                         if (typeof this.getState === 'function') {
                             const fresh = this.getState();
                             data = Object.assign({}, fresh, {
@@ -1500,6 +1530,7 @@ const qiProtocol = {
                 } finally {
                     room.broadcast = origBroadcast;
                     copyOpeningFromBoard(this);
+                    syncEditedOpening();
                 }
             };
         };
@@ -1523,7 +1554,7 @@ const qiProtocol = {
             ? self.isValidMoveCoord(row, col)
             : (row >= 0 && row < self.boardSize && col >= 0 && col < self.boardSize);
         if (!inBoard) return;
-        if (self.board[row][col] !== 0) return;
+        if (typeof self.canPlaceAt === 'function' ? !self.canPlaceAt(row, col) : self.board[row][col] !== 0) return;
         const playerVal = self.currentPlayer === 1 ? 1 : 2;
         const newBoard = self.tryPlaceStone(self.board, row, col, playerVal);
         if (!newBoard) return;
@@ -1539,7 +1570,7 @@ const qiProtocol = {
         self.moveHistory.push(slot);
         self.moveCoords.push({ type: 'move', player: slot, row, col });
         self.board = newBoard;
-        self.lastMoveMarkers = [{ row, col, color: playerVal }];
+        self.lastMoveMarkers = newBoard.moveMarkers || [{ row, col, color: playerVal }];
         self.passCounter = 0;
         let endedByAfterPlace = false;
         if (typeof opts.afterPlace === 'function') {
@@ -2856,7 +2887,8 @@ const qiBoardSeatOverlay = {
                     maxTimeouts: proposal.maxTimeouts,
                     colorChoice: proposal.colorChoice || null,
                     colorChooserSlot: proposal.colorChooserSlot || null,
-                    handicap: proposal.handicap || 0
+                    handicap: proposal.handicap || 0,
+                    friendlyMatch: proposal.friendlyMatch === true
                 }
             }));
         };
@@ -2978,6 +3010,7 @@ const qiBoardSeatOverlay = {
                 const want = Number.isFinite(v.handicap) ? v.handicap : 0;
                 v.handicap = maxH > 0 ? Math.max(0, Math.min(want, maxH)) : 0;
             }
+            v.friendlyMatch = v.friendlyMatch || qiForcedFriendlyMatch(this, v.handicap);
             const room = this.room;
             if (slot !== this.tcNego.waitingSlot) {
                 this._qiResendNegotiationUi(ws);
@@ -3003,6 +3036,8 @@ const qiBoardSeatOverlay = {
         const origFinalize = typeof self._finalizeTimeControl === 'function'
             ? self._finalizeTimeControl.bind(self) : null;
         self._finalizeTimeControl = function (valid) {
+            valid = { ...valid, friendlyMatch: valid.friendlyMatch === true || qiForcedFriendlyMatch(this, valid.handicap || 0) };
+            this.friendlyMatch = valid && valid.friendlyMatch === true;
             const chooserSlot = (valid && valid.colorChooserSlot)
                 || (this.tcNego && this.tcNego.lastProposerSlot)
                 || this._firstPickerSlot();
@@ -3095,6 +3130,10 @@ const qiBoardSeatOverlay = {
             if (!state || typeof state !== 'object') return state;
             state.hostSlot = self.hostWs ? self.room.getSlotByWs(self.hostWs) : null;
             state.boardSeatOverlay = true;
+            state.friendlyMatch = self.friendlyMatch === true;
+            state.openingEdited = !!self._qiOpeningEdited;
+            state.forcedFriendlyMatch = qiForcedFriendlyMatch(self);
+            if (state.forcedFriendlyMatch) state.friendlyMatch = true;
             if (self.matchStarted !== undefined) state.matchStarted = !!self.matchStarted;
             // 让子：当前设置 + 这个路数能选的上限（客户端据此显示下拉框与选项）
             state.handicap = Number(self.handicap) || 0;
@@ -3136,6 +3175,7 @@ const qiBoardSeatOverlay = {
             const orig = self[name].bind(self);
             self[name] = function (...args) {
                 this.hostWs = null;
+                this.friendlyMatch = false;
                 return orig(...args);
             };
         };
@@ -3231,6 +3271,7 @@ const qiBoardSeatOverlay = {
 };
 
 module.exports = {
+    qiForcedFriendlyMatch,
     normalizeQiRecordForImport,
     qiApplyRecordKomi,
     qiEffectiveKomi,

@@ -1043,9 +1043,78 @@ class KatagoGtpSession {
         await this.command(`play ${color} ts ${from} ${to}`);
     }
 
-    async genMove(slot) {
+    async restorePendingTemperatures(isCurrent) {
+        const saved = this._pendingTemperatureRestore;
+        if (!saved) return;
+        for (let i = 0; i < saved.length; i++) {
+            if (isCurrent && !isCurrent()) return;
+            const name = ['chosenMoveTemperature', 'chosenMoveTemperatureEarly'][i];
+            await this.command(`kata-set-param ${name} ${saved[i]}`);
+        }
+        if (this._pendingTemperatureRestore === saved) this._pendingTemperatureRestore = null;
+    }
+
+    /** 以零温度查询当前行棋方是否推荐虚着；kata-search 不写入着法。 */
+    async canEndGame(slot, opts = {}) {
+        const isCurrent = () => !this.dead && (!opts.isCurrent || opts.isCurrent());
+        const canSearch = () => isCurrent() && (!opts.canSearch || opts.canSearch());
+        if (!canSearch()) return false;
+        await this.restorePendingTemperatures(isCurrent);
+        const names = ['chosenMoveTemperature', 'chosenMoveTemperatureEarly'];
+        const saved = [];
+        for (const name of names) {
+            if (!canSearch()) return false;
+            const value = Number(JSON.parse(await this.command(`kata-get-param ${name}`)));
+            if (!Number.isFinite(value) || value < 0 || value > 5) throw new Error('KataGo 温度参数无效');
+            saved.push(value);
+        }
+        this._pendingTemperatureRestore = saved;
+        try {
+            for (const name of names) {
+                if (!canSearch()) return false;
+                await this.command(`kata-set-param ${name} 0`);
+            }
+            if (!canSearch()) return false;
+            const raw = await this.command(`kata-search ${slotToGtpColor(slot)}`, { timeoutMs: GENMOVE_TIMEOUT_MS });
+            return canSearch() && /^pass$/i.test(String(raw).trim());
+        } finally {
+            if (isCurrent()) {
+                try { await this.restorePendingTemperatures(isCurrent); }
+                catch (err) { this.destroy(); throw err; }
+            }
+        }
+    }
+
+    /** 新手抽到 pass 时以零温度确认一次，避免把随机虚着写进对局。 */
+    async genMove(slot, opts) {
         const color = slotToGtpColor(slot);
-        const raw = await this.command(`genmove ${color}`, { timeoutMs: GENMOVE_TIMEOUT_MS });
+        const isCurrent = () => !this.dead && (!opts || !opts.isCurrent || opts.isCurrent());
+        if (!isCurrent()) return null;
+        await this.restorePendingTemperatures(isCurrent);
+        if (!isCurrent()) return null;
+        let raw = await this.command(`genmove ${color}`, { timeoutMs: GENMOVE_TIMEOUT_MS });
+        if (opts && opts.confirmPass && /^pass$/i.test(String(raw).trim()) && isCurrent()) {
+            try {
+                // genmove 已在引擎中走了一手；先撤销，确保重选仍是同一盘面、同一方。
+                await this.undoMoves(1);
+                for (const name of ['chosenMoveTemperature', 'chosenMoveTemperatureEarly']) {
+                    if (!isCurrent()) return null;
+                    await this.command(`kata-set-param ${name} 0`);
+                }
+                if (!isCurrent()) return null;
+                raw = await this.command(`genmove ${color}`, { timeoutMs: GENMOVE_TIMEOUT_MS });
+            } catch (err) {
+                // 重选失败时引擎可能只撤销了虚着，不能再当作已完成的着法归还热池。
+                this.destroy();
+                throw err;
+            } finally {
+                // 离座会把会话归还热池；取消后不再发命令，下一位使用者会设置自己的档位。
+                if (isCurrent()) {
+                    try { await this.setNoviceTemperature(true, isCurrent); }
+                    catch (err) { this.destroy(); throw err; }
+                }
+            }
+        }
         const bs = this.boardWidth || (this.boardSize | 0);
         const bh = this.boardHeight || bs;
         const mv = fromGtpMove(raw, bs, bh);
@@ -1062,15 +1131,39 @@ class KatagoGtpSession {
      * 设置本会话的搜索量（人机棋力：初级 1、中级 = 配置值）。
      * 用 kata-set-param（KataGo 扩展命令）；失败不抛，继续用配置文件里的值。
      */
-    async setMaxVisits(n) {
+    async setMaxVisits(n, strict = false) {
         const v = Math.max(1, Math.floor(Number(n) || 1));
         this.maxVisits = v;
         try {
             await this.command(`kata-set-param maxVisits ${v}`);
         } catch (err) {
+            if (strict) throw err;
             console.warn('[katago] kata-set-param maxVisits 失败，按配置文件的值继续：', err && err.message);
         }
         return v;
+    }
+
+    /** 新手开局少随机，随后按引擎半衰期逐渐升温；复用到其它档位时恢复原配置。 */
+    async setNoviceTemperature(novice, isCurrent) {
+        await this.restorePendingTemperatures(isCurrent);
+        if (!novice && !this._noviceTemperatureApplied) return;
+        const names = ['chosenMoveTemperature', 'chosenMoveTemperatureEarly'];
+        const noviceValues = [1.2, 0.9];
+        if (!this._configuredTemperatures) {
+            const values = [];
+            for (const name of names) {
+                const value = Number(JSON.parse(await this.command(`kata-get-param ${name}`)));
+                if (!Number.isFinite(value) || value < 0 || value > 5)
+                    throw new Error(`KataGo 温度参数无效：${name}`);
+                values.push(value);
+            }
+            this._configuredTemperatures = values;
+        }
+        for (let i = 0; i < names.length; i++) {
+            if (isCurrent && !isCurrent()) return;
+            await this.command(`kata-set-param ${names[i]} ${novice ? noviceValues[i] : this._configuredTemperatures[i]}`);
+        }
+        this._noviceTemperatureApplied = !!novice;
     }
 
     /**

@@ -2469,6 +2469,24 @@ body.qi-room .main-area-right {
     min-width: 0;
 }
 
+body.qi-room .qi-traitor-btn.qi-seat-overlay-btn {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: auto;
+    max-width: calc(100% - 28px);
+    margin: 0;
+    padding: 6px 12px;
+    font-size: 0.85rem;
+    white-space: nowrap;
+    cursor: pointer;
+}
+body.qi-room .qi-traitor-btn.qi-seat-overlay-btn:disabled { opacity: 0.55; cursor: default; }
+body.qi-room .qi-traitor-btn.qi-seat-overlay-btn:active:not(:disabled) {
+    transform: translate(-50%, calc(-50% + 1px));
+}
+
 body.qi-room .info-panel {
     padding: 20px 16px;
     width: 100%;
@@ -2667,6 +2685,17 @@ body.qi-room .qi-time-control-radio-row {
 body.qi-room .qi-time-control-radio {
     font-size: 0.95rem;
     cursor: pointer;
+}
+
+body.qi-room .qi-time-control-friendly-row {
+    display: flex;
+    justify-content: center;
+    margin: 10px 0;
+}
+body.qi-room .qi-time-control-friendly-row .qi-time-control-radio {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
 }
 
 body.qi-room .qi-time-control-fields {

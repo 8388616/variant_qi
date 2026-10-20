@@ -360,10 +360,14 @@
   <div class="qi-time-control-row qi-time-control-ai-row" id="qiTcAiLevelRow" style="display:none;">
     <label class="qi-time-control-radio">电脑棋力
       <select class="qi-time-control-select" id="qiTcAiLevelSel">
+        <option value="novice">新手</option>
         <option value="basic">初级</option>
         <option value="intermediate">中级</option>
       </select>
     </label>
+  </div>
+  <div class="qi-time-control-row qi-time-control-friendly-row">
+    <label class="qi-time-control-radio"><input type="checkbox" id="qiTcFriendlyMatch"> 友谊赛</label>
   </div>
   <p class="qi-time-control-hint"><span id="qiTcHint"></span><span class="qi-handicap-hint" id="qiTcHandicapHint" style="display:none;">被让子的一方执白。</span></p>
   <div class="qi-time-control-footer" id="qiTcFooterPropose">
@@ -395,6 +399,29 @@
             const handicapHint = wrap.querySelector('#qiTcHandicapHint');
             const aiLevelRow = wrap.querySelector('#qiTcAiLevelRow');
             const aiLevelSel = wrap.querySelector('#qiTcAiLevelSel');
+            const friendlyMatch = wrap.querySelector('#qiTcFriendlyMatch');
+            let friendlyReadonly = false, friendlyForced = false, friendlyBeforeForce = false;
+            function syncFriendlyMatch() {
+                const forced = !!S._openingEdited || currentHandicap() > 0;
+                if (forced) {
+                    if (!friendlyForced) friendlyBeforeForce = friendlyMatch.checked;
+                    friendlyMatch.checked = true;
+                } else if (friendlyForced) friendlyMatch.checked = friendlyBeforeForce;
+                friendlyForced = forced;
+                friendlyMatch.disabled = forced || friendlyReadonly || wrap.classList.contains('qi-time-control-readonly');
+                friendlyMatch.title = forced ? '让子棋和编辑过的棋盘固定为友谊赛。' : '';
+            }
+            function setFriendlyMatch(checked, readonly) {
+                friendlyForced = false;
+                friendlyMatch.checked = !!checked;
+                friendlyReadonly = !!readonly;
+                syncFriendlyMatch();
+            }
+            function setFriendlyReadonly(readonly) {
+                friendlyReadonly = !!readonly;
+                syncFriendlyMatch();
+            }
+            aiLevelSel.onchange = () => { ui._aiLevelChosen = true; };
             const lowerControls = [mainIn, byoIn, maxTIn];
             if (handicapSel) handicapSel.onchange = () => {
                 updateHandicapHint();
@@ -443,6 +470,8 @@
                 }
                 // 让子：控件可见时总是发（0 = 不让子，用来取消原来的设置）
                 if (handicapLabel && handicapLabel.style.display !== 'none') payload.handicap = currentHandicap();
+                syncFriendlyMatch();
+                payload.friendlyMatch = friendlyMatch.checked;
                 return payload;
             }
 
@@ -457,6 +486,7 @@
             }
 
             function setDialogReadonly(dis) {
+                setFriendlyReadonly(dis);
                 radios.forEach((r) => { r.disabled = dis; });
                 setLowerDisabled(dis);
                 colorRadios.forEach((r) => { r.disabled = dis || !!S.localPlay; });
@@ -561,6 +591,7 @@
 
             /** 选了让子才显示那行红字提示 */
             function updateHandicapHint() {
+                syncFriendlyMatch();
                 if (!handicapHint) return;
                 handicapHint.style.display = currentHandicap() > 0 ? '' : 'none';
             }
@@ -685,6 +716,7 @@
                         type: 'startVsComputer',
                         colorChoice: p.colorChoice || 'black',
                         handicap: p.handicap || 0,
+                        friendlyMatch: p.friendlyMatch,
                         aiLevel: (aiLevelRow && aiLevelRow.style.display !== 'none' && aiLevelSel)
                             ? aiLevelSel.value : 'basic'
                     }));
@@ -730,6 +762,7 @@
 
             btnAdjust.onclick = () => {
                 adjustMode = true;
+                setFriendlyReadonly(false);
                 setLimitedDisabled(false);
                 radios.forEach((r) => { r.disabled = false; });
                 if (colorRow && colorRow.style.display !== 'none') {
@@ -751,7 +784,7 @@
                 setLimitedDisabled, readPayloadFromInputs, setColorRowVisible, setColorChoice, colorChoiceLabel,
                 selfColorFromProposal, refreshRespondHint, clearProposalHintState,
                 currentHandicap, handicapSuffix,   // 让子（下拉框在执子那一行）
-                aiLevelRow, aiLevelSel,            // 人机棋力一行
+                aiLevelRow, aiLevelSel, friendlyMatch, syncFriendlyMatch, setFriendlyMatch, setFriendlyReadonly,
                 getLastRespondProposal: () => lastRespondProposal,
                 setLastRespondProposal: (p) => { lastRespondProposal = p; },
                 restoreAfterError() {
@@ -759,6 +792,7 @@
                     ui.wrap.classList.remove('qi-time-control-readonly');
                     ui.waitEl.style.display = 'none';
                     if (ui.vsComputerMode) {
+                        setFriendlyReadonly(false);
                         // 开局失败：可重试，保留已预热进程；关掉窗口时再 cancel
                         ui._vsComputerStarting = false;
                         ui.footProp.style.display = 'flex';
@@ -777,6 +811,7 @@
                         return;
                     }
                     if (lastRespondProposal) {
+                        setFriendlyMatch(lastRespondProposal.friendlyMatch === true, true);
                         ui.footProp.style.display = 'none';
                         ui.footResp.style.display = 'flex';
                         ui.btnAdjust.style.display = '';
@@ -793,6 +828,7 @@
                         ui.btnAdjust.disabled = false;
                         refreshRespondHint(lastRespondProposal);
                     } else {
+                        setFriendlyMatch(false, false);
                         clearProposalHintState();
                         ui.footProp.style.display = 'flex';
                         ui.footResp.style.display = 'none';
@@ -822,6 +858,7 @@
             ui.btnAdjust.style.display = '';
             ui.wrap.classList.remove('qi-time-control-readonly');
             ui.wrap.querySelectorAll('input, button').forEach((el) => { el.disabled = false; });
+            ui.setFriendlyReadonly(false);
             ui.wrap.querySelector('input[name="qiTimedMode"][value="unlimited"]').disabled = false;
             if (typeof ui.clearProposalHintState === 'function') ui.clearProposalHintState();
             else if (ui.hint) ui.hint.textContent = '';
@@ -835,7 +872,7 @@
         }
 
         /**
-         * 人机「棋力」一行的显隐：只在人机设置窗口、且服务端下发的配置 maxVisits > 1 时显示。
+         * 人机始终提供新手/初级；中级沿用配置 maxVisits > 1 的条件。
          * 服务端的状态可能晚于第一次打开（`S._katagoMaxVisits` 还没到），所以值到了要能就地刷新。
          */
         function refreshAiLevelRow() {
@@ -845,20 +882,23 @@
                 return;
             }
             const cfgVisits = Number(S._katagoMaxVisits);
-            const show = Number.isFinite(cfgVisits) && cfgVisits > 1;
-            ui.aiLevelRow.style.display = show ? '' : 'none';
-            // 一行诊断：值变化时打一次，方便确认服务端到底下发了什么
-            if (S._qiAiLevelLogged !== cfgVisits) {
-                S._qiAiLevelLogged = cfgVisits;
-                if (typeof console !== 'undefined' && console.info)
-                    console.info('[棋力] 服务端下发 maxVisits =', S._katagoMaxVisits, '→', show ? '显示初级/中级' : '不显示');
+            const intermediate = Number.isFinite(cfgVisits) && cfgVisits > 1;
+            ui.aiLevelRow.style.display = '';
+            if (ui.aiLevelSel) {
+                const option = ui.aiLevelSel.querySelector('[value="intermediate"]');
+                option.hidden = !intermediate;
+                option.disabled = !intermediate;
+                // 配置可能异步到达；只有用户尚未选择时才更新默认档位。
+                if (!ui._aiLevelChosen || (!intermediate && ui.aiLevelSel.value === 'intermediate'))
+                    ui.aiLevelSel.value = intermediate ? 'intermediate' : 'basic';
             }
-            if (show && ui.aiLevelSel) ui.aiLevelSel.value = 'intermediate';   // 有中级就默认中级
         }
 
         function openVsComputerSetup() {
             ensureModal();
+            ui.setFriendlyMatch(false, false);
             ui.vsComputerMode = true;
+            ui._aiLevelChosen = false;
             ui._vsComputerStarting = false;
             ui.wrap.style.display = 'flex';
             ui.waitEl.style.display = 'none';
@@ -878,7 +918,7 @@
             ui.btnProposeOk.disabled = false;
             ui.setColorRowVisible(true, false);
             ui.setColorChoice('black');
-            refreshAiLevelRow();   // 棋力：只有配置文件 maxVisits > 1 时才给「初级/中级」二选一
+            refreshAiLevelRow();
             // 与设置并行：预热/复用 KataGo 进程
             {
                 const w = ctx.getWs && ctx.getWs();
@@ -908,6 +948,7 @@
             else ui.hint.textContent = '';
             const showColor = !!(msg.boardSeatOverlay || ctx.boardSeatOverlay);
             if (msg.mode === 'propose') {
+                ui.setFriendlyMatch(false, false);
                 const d = getDefaultTimeControlByBoardSize(ctx.getBoardSize());
                 ui.wrap.classList.remove('qi-time-control-readonly');
                 ui.footProp.style.display = 'flex';
@@ -934,6 +975,7 @@
                 adjustMode = false;
                 ui.btnAdjust.style.display = '';
                 const pr = msg.proposal;
+                ui.setFriendlyMatch(pr.friendlyMatch === true, true);
                 if (ui.setLastRespondProposal) ui.setLastRespondProposal(pr);
                 if (!pr.timed) {
                     ui.wrap.querySelector('input[name="qiTimedMode"][value="unlimited"]').checked = true;
@@ -1236,6 +1278,7 @@
         }
 
         return {
+            refreshFriendlyMatch() { if (ui) ui.syncFriendlyMatch(); },
             openVsComputerSetup,
             refreshAiLevelRow,
             handleMessage(msg) {
@@ -2180,6 +2223,11 @@
                 && typeof global.QiWeiqiSquarePageRuntime.resetStoneMarks === 'function')
                 global.QiWeiqiSquarePageRuntime.resetStoneMarks(S);
             ctx.syncState(msg);
+            // 部分自绘插件只同步棋盘，不同步开局标志；重新进入时也要恢复行棋权限。
+            if (msg.matchStarted !== undefined && S.matchStarted !== !!msg.matchStarted) {
+                S.matchStarted = !!msg.matchStarted;
+                if (typeof ctx.updateTurn === 'function') ctx.updateTurn();
+            }
             if (Object.prototype.hasOwnProperty.call(msg, 'katagoAvailable'))
                 S.katagoAvailable = !!msg.katagoAvailable;
             if (Object.prototype.hasOwnProperty.call(msg, 'computerSlot'))
@@ -2197,6 +2245,10 @@
                 syncSoloRoomState(msg);
                 const localState = msg.type === 'joined' ? msg.state : msg;
                 if (localState && localState.localPlay !== undefined) S.localPlay = !!localState.localPlay;
+                if (localState && localState.openingEdited !== undefined) {
+                    S._openingEdited = !!localState.openingEdited;
+                    if (mtCtl && mtCtl.refreshFriendlyMatch) mtCtl.refreshFriendlyMatch();
+                }
                 // 让子：服务端在当前路数上算出的上限，与当前设置（对话框据此建下拉框/预选）
                 if (Number.isFinite(Number(msg.maxHandicap))) S._maxHandicap = Number(msg.maxHandicap);
                 if (msg.katagoMaxVisits !== undefined && msg.katagoMaxVisits !== null
@@ -2485,7 +2537,7 @@
                 case 'scoreRejected':
                     if (msg.board) syncStateWithMatch(msg);
                     if (ctx.getIRejected()) ctx.setIRejected(false);
-                    else qiAlert('对方拒绝数点结果，对局继续');
+                    else qiAlert('对方拒绝终局结果，对局继续');
                     ctx.clearMobileMovePreview();
                     if (ctx.getShowEstimateActive()) {
                         ctx.setShowEstimateActive(false);
@@ -2495,7 +2547,7 @@
                     ctx.setWaitingScoreConfirm(false);
                     break;
                 case 'requestEnd':
-                    qiConfirm('对方申请数点，是否同意？').then(ok => { ws.send(JSON.stringify({ type: 'endResponse', accept: !!ok })); });
+                    qiConfirm('对方申请终局，是否同意？').then(ok => { ws.send(JSON.stringify({ type: 'endResponse', accept: !!ok })); });
                     break;
                 case 'gameRecord':
                     qiExportRecordWithFormatChoice(msg.data);
@@ -2681,6 +2733,8 @@
         }
 
         function updateRadioStyles() {
+            // 进入房间 / 续坐 / 离座同样会改变对局按钮；自绘棋种的 updateTurn 不一定刷新它们。
+            if (typeof ctx.updateReplayUI === 'function') ctx.updateReplayUI();
             if (ctx.boardSeatOverlay) {
                 updateRecordButtons();
                 updateSeatOverlay();
@@ -2839,7 +2893,7 @@
         if (endReqBtn !== null) 
         {
             endReqBtn.onclick = () => {
-                if (!S.mySlot) { qiAlert('只有对局者可以申请数点'); return; }
+                if (!S.mySlot) { qiAlert('只有对局者可以申请终局'); return; }
                 S.ws.send(JSON.stringify({ type: 'requestEnd' }));
             };
         }
@@ -3645,7 +3699,7 @@
             const canHover = editMode || tryPlayMode || (!gameOver && isMyTurn);
             if (!canHover || hoverRow < 0 || hoverCol < 0) return;
             if (!options.isHoverValid) return;
-            if (!editMode && board[hoverRow][hoverCol] !== 0) return;
+            if (!editMode && (options.canPlaceAt ? !options.canPlaceAt(hoverRow, hoverCol) : board[hoverRow][hoverCol] !== 0)) return;
             if (!editMode && options.hoverCapture) return;
 
             if (editMode) {
@@ -5267,7 +5321,7 @@
 
         function tryPlayMove(row, col) {
             if (opts.tryPlayMove) return opts.tryPlayMove(row, col);
-            if (ps.board[row][col] !== 0) return false;
+            if (opts.canPlaceAt ? !opts.canPlaceAt(row, col) : ps.board[row][col] !== 0) return false;
             const playerVal = ps.tryPlayCurrentPlayer;
             const newBoard = tryPlaceStone(ps.board, row, col, playerVal);
             if (!newBoard) return false;
@@ -5278,13 +5332,13 @@
             }
 
             ps.tryPlayBoards.push(deepCopyBoard(newBoard));
-            ps.tryPlayMarkers.push([{ row, col, color: playerVal }]);
+            ps.tryPlayMarkers.push(newBoard.moveMarkers || [{ row, col, color: playerVal }]);
             ps.tryPlayTotalSteps = ps.tryPlayBoards.length - 1;
             ps.tryPlayStep = ps.tryPlayTotalSteps;
             ps.tryPlayCurrentPlayer = 3 - ps.tryPlayCurrentPlayer;
 
             ps.board = deepCopyBoard(newBoard);
-            ps.lastMoveMarkers = [{ row, col, color: playerVal }];
+            ps.lastMoveMarkers = newBoard.moveMarkers || [{ row, col, color: playerVal }];
 
             const slider = document.getElementById('replaySlider');
             slider.max = ps.tryPlayTotalSteps;
@@ -5750,7 +5804,7 @@
         function commitMove(row, col) {
             if (ps.gameOver) return false;
             if (!ps.isMyTurn) return false;
-            if (ps.board[row][col] !== 0) return false;
+            if (opts.canPlaceAt ? !opts.canPlaceAt(row, col) : ps.board[row][col] !== 0) return false;
             ps.ws.send(JSON.stringify({ type: 'move', row, col }));
             return true;
         }
@@ -6966,7 +7020,7 @@ function bensonCoreGraph(opts) {
         for (const s of initialPosition) {
             if (typeof s !== 'string' || s.length < 3) continue;
             const prefix = s[0];
-            if (prefix !== 'B' && prefix !== 'W' && prefix !== 'N' && prefix !== 'H' && prefix !== 'I' && prefix !== 'M') continue;
+            if (prefix !== 'B' && prefix !== 'W' && prefix !== 'N' && prefix !== 'H' && prefix !== 'I' && prefix !== 'M' && prefix !== 'J') continue;
             const comma = s.indexOf(',');
             if (comma <= 1) continue;
             const r = parseInt(s.slice(1, comma), 10);
@@ -6979,6 +7033,7 @@ function bensonCoreGraph(opts) {
             else if (prefix === 'H') board[r][c] = -1;
             else if (prefix === 'I') board[r][c] = -2;
             else if (prefix === 'M') board[r][c] = -3;
+            else if (prefix === 'J') board[r][c] = -4;
         }
     }
 
@@ -6996,12 +7051,14 @@ function bensonCoreGraph(opts) {
 
         for (const move of (data.moves || [])) {
             const playerVal = slotColorValue(null, move.player);
+            // 内奸只改变棋子归属，着手方仍用于回放行棋顺序和试下起始执方。
+            const stoneVal = move.traitor === true ? 3 - playerVal : playerVal;
             replayStepPlayers.push(playerVal);
             if (move.type === 'move') {
-                const newBoard = tryPlaceStone(curBoard, move.row, move.col, playerVal);
+                const newBoard = tryPlaceStone(curBoard, move.row, move.col, stoneVal);
                 if (newBoard) curBoard = newBoard;
                 replayBoards.push(deepCopyBoard(curBoard));
-                replayMarkers.push([{ row: move.row, col: move.col, color: playerVal }]);
+                replayMarkers.push((newBoard && newBoard.moveMarkers) || [{ row: move.row, col: move.col, color: stoneVal }]);
             } else if (move.type === 'pass') {
                 replayBoards.push(deepCopyBoard(curBoard));
                 replayMarkers.push([]);
@@ -7037,12 +7094,13 @@ function bensonCoreGraph(opts) {
         const liveReplayStepPlayers = [0];
         for (const move of (moveCoords || [])) {
             const playerVal = slotColorValue(null, move.player);
+            const stoneVal = move.traitor === true ? 3 - playerVal : playerVal;
             liveReplayStepPlayers.push(playerVal);
             if (move.type === 'move') {
-                const newBoard = tryPlaceStone(curBoard, move.row, move.col, playerVal);
+                const newBoard = tryPlaceStone(curBoard, move.row, move.col, stoneVal);
                 if (newBoard) curBoard = newBoard;
                 liveReplayBoards.push(deepCopyBoard(curBoard));
-                liveReplayMarkers.push([{ row: move.row, col: move.col, color: playerVal }]);
+                liveReplayMarkers.push((newBoard && newBoard.moveMarkers) || [{ row: move.row, col: move.col, color: stoneVal }]);
             } else if (move.type === 'pass') {
                 liveReplayBoards.push(deepCopyBoard(curBoard));
                 liveReplayMarkers.push([]);
@@ -7063,12 +7121,13 @@ function bensonCoreGraph(opts) {
         for (let i = startLen; i < mcs.length; i++) {
             const move = mcs[i];
             const playerVal = slotColorValue(null, move.player);
+            const stoneVal = move.traitor === true ? 3 - playerVal : playerVal;
             liveReplayStepPlayers.push(playerVal);
             if (move.type === 'move') {
-                const newBoard = tryPlaceStone(curBoard, move.row, move.col, playerVal);
+                const newBoard = tryPlaceStone(curBoard, move.row, move.col, stoneVal);
                 if (newBoard) curBoard = newBoard;
                 liveReplayBoards.push(deepCopyBoard(curBoard));
-                liveReplayMarkers.push([{ row: move.row, col: move.col, color: playerVal }]);
+                liveReplayMarkers.push((newBoard && newBoard.moveMarkers) || [{ row: move.row, col: move.col, color: stoneVal }]);
             } else if (move.type === 'pass') {
                 liveReplayBoards.push(deepCopyBoard(curBoard));
                 liveReplayMarkers.push([]);
@@ -7671,12 +7730,12 @@ function bensonCoreGraph(opts) {
     }
 
     /**
-     * 对局控制按钮（虚着/悔棋/认输/和棋/申请数点）与「试下」按钮的可见性：
+     * 对局控制按钮（虚着/悔棋/认输/和棋/申请终局）与「试下」按钮的可见性：
      * 只有**本人在座 + 对局已开始 + 不在回放**才显示对局按钮，其余情况只留「试下」。
      * 自绘/自写插件要动这段就调这个函数，**别自己再抄一份**——雷达/声呐/隐身围棋抄了旧版，
      * 非回放分支无条件把按钮全显示出来，于是开局前满屏按钮（与人机/普通围棋不一致）。
      * @param {object} pageState 至少用到 mySlot / replayMode / tryPlayMode 与 matchStarted（或 matchTime.settings）
-     * @param {{ gameButtonIds?: string[] }} [options] 少数棋种没有「申请数点」等按钮时可覆盖
+     * @param {{ gameButtonIds?: string[] }} [options] 少数棋种没有「申请终局」等按钮时可覆盖
      */
     function syncGameActionButtons(pageState, options = {}) {
         if (typeof document === 'undefined' || !document.body) return;
@@ -8069,7 +8128,7 @@ function bensonCoreGraph(opts) {
     global.QiWeiqiSquarePageRuntime = {
         create,
         syncTryPlayActionButtons,
-        /** 对局按钮（虚着/悔棋/认输/和棋/申请数点）与「试下」按钮的可见性：自写插件统一调它 */
+        /** 对局按钮（虚着/悔棋/认输/和棋/申请终局）与「试下」按钮的可见性：自写插件统一调它 */
         syncGameActionButtons,
         tryPlayPassDefault,
         tryPlayUndoDefault,

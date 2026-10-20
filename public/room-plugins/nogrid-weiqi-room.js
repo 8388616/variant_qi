@@ -1165,7 +1165,7 @@ syncState,
         clearEstimate,
         hideScoreConfirm,
         showEstimate,
-        // 传给公共 bindings：座位/限时消息到达时回调它同步按钮显隐（对局开始要显示虚着/悔棋/认输/申请数子）
+        // 传给公共 bindings：座位/限时消息到达时回调它同步按钮显隐（对局开始要显示虚着/悔棋/认输/申请终局）
         updateReplayUI,
         clearMobileMovePreview: () => {},
         downloadRecord,

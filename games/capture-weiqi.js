@@ -4,7 +4,7 @@
  *     提到对方任意一子（含多子）→ 落子方立即获胜
  *     自杀多颗棋子（整块被提，除刚落下的子外还带走别的己方子）→ 对方立即获胜
  *     禁全同优先：自杀单颗子时盘面不变，这种着手被禁全同挡住（无法落子），不判负
- *   双方都没提过子时，和围棋一样走数点（双方虚着 → 申请数点 → 双方确认）
+ *   双方都没提过子时，和围棋一样走数点（双方虚着 → 申请终局 → 双方确认）
  *   本文件是围棋实现的副本，只有落子入口（playCaptureMove）与棋谱回放不同
  */
 const crypto = require('crypto');
@@ -422,7 +422,7 @@ class WeiqiRoom extends QiTwoPlayerRoomBase
                 if (this.pendingEnd && msg.accept) {
                     this.startScoreCounting(this.pendingEnd.requester, this.pendingEnd.opponent);
                 } else if (this.pendingEnd && !msg.accept) {
-                    this.pendingEnd.requester.send(JSON.stringify({ type: 'error', message: '对方拒绝数点。' }));
+                    this.pendingEnd.requester.send(JSON.stringify({ type: 'error', message: '对方拒绝终局。' }));
                 }
                 this.pendingEnd = null;
                 break;

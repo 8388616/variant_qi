@@ -588,14 +588,14 @@ if (sizeSelect) {
                 }
             }
 
-            // Pairing is topology information: show it even over an occupied cell or while observing.
+            // 同时高亮悬停格和所有同序号格；已有棋子或观战时也可查看连接关系。
             if (isHoverValid && isValidCoord(hoverR, hoverC) && cellNumbers) {
                 const number = cellNumbers[hoverR][hoverC];
                 ctx.save();
                 ctx.strokeStyle = '#ff8c00';
                 ctx.lineWidth = 2;
                 for (let r = 0; r < ROWS; r++) for (let c = 0; c <= 2 * r; c++) {
-                    if ((r === hoverR && c === hoverC) || cellNumbers[r][c] !== number) continue;
+                    if (cellNumbers[r][c] !== number) continue;
                     const k = Math.floor(c / 2);
                     const points = (c & 1) === 0
                         ? [triPointToPixel(r, k), triPointToPixel(r + 1, k), triPointToPixel(r + 1, k + 1)]
@@ -622,12 +622,13 @@ if (sizeSelect) {
                 else hoverColor = mySlot === 'player1' ? '#222' : '#fff';
                 if (hoverColor) {
                     const p = triCellCenter(hoverR, hoverC);
+                    ctx.save();
                     ctx.globalAlpha = 0.45;
                     ctx.beginPath();
                     ctx.arc(p.x, p.y, stoneRadius, 0, 2 * Math.PI);
                     ctx.fillStyle = hoverColor;
                     ctx.fill();
-                    ctx.globalAlpha = 1.0;
+                    ctx.restore();
                 }
             }
 
@@ -677,7 +678,8 @@ if (sizeSelect) {
                 KOMI = state.komi;
                 updateBoardGeometry();
             }
-            clearMobileMovePreview();
+            // 桌面鼠标停在原处时，状态同步后仍应保留悬停预览；移动端继续清除待确认落点。
+            if (!isMouseDevice || (state.boardSize && state.boardSize !== ROWS)) clearMobileMovePreview();
             const prevMatchStarted = matchStarted;
             if (state.boardSize && state.boardSize !== ROWS) {
                 ROWS = state.boardSize;

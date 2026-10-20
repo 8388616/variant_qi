@@ -55,7 +55,7 @@ async function session(req) {
 }
 async function sessionByHash(hash) {
   const result = await pool.query(
-    "SELECT s.token_hash,s.expires_at,u.id,u.username FROM user_sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=$1 AND s.expires_at>now()",
+    "SELECT s.token_hash,s.expires_at,u.id,u.username FROM user_sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=$1 AND s.expires_at>now() AND u.id NOT IN (9001,9002,9003)",
     [hash],
   );
   const row = result.rows[0];
@@ -232,6 +232,13 @@ function mount(app) {
       res.status(503).json({ error: "账号服务暂时不可用。" });
     }
   });
+  app.get('/qi/auth/ratings', async (req, res) => {
+    try {
+      const auth = await session(req);
+      if (!auth) return res.status(401).json({ error: '请先登入。' });
+      res.json(await require('./qi-ratings').readUserRatings(auth.user.id));
+    } catch (_) { res.status(503).json({ error: '等级分暂时不可用。' }); }
+  });
   app.use("/qi/auth", (req, res, next) => {
     if (req.method !== "POST") return next();
     if (!originAllowed(req))
@@ -273,6 +280,8 @@ function mount(app) {
         await captcha(req, action);
         let user;
         if (action === "register") {
+          if (['电脑(新手)', '电脑(初级)', '电脑(中级)'].includes(username))
+            return res.status(409).json({ error: '用户名已被使用。' });
           if (req.body.qq != null && typeof req.body.qq !== "string") throw new Error("QQ号格式无效。");
           const qq =
             req.body.qq == null || req.body.qq === ""
@@ -294,7 +303,7 @@ function mount(app) {
           user = result.rows[0];
         } else {
           const result = await pool.query(
-            "SELECT id,username,password_hash FROM users WHERE username=$1",
+            "SELECT id,username,password_hash FROM users WHERE username=$1 AND id NOT IN (9001,9002,9003)",
             [username],
           );
           const row = result.rows[0];

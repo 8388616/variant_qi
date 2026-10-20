@@ -654,7 +654,7 @@ const scoreTitle = document.getElementById('scoreTitle');
         updateEstimate();
     }
 
-    /** 对局按钮（虚着/悔棋/认输/申请数子）与「试下」按钮的显隐：统一走公共函数（含试下中的文字/显隐） */
+    /** 对局按钮（虚着/悔棋/认输/申请终局）与「试下」按钮的显隐：统一走公共函数（含试下中的文字/显隐） */
     function updateReplayUI() {
         QiWeiqiSquarePageRuntime.syncGameActionButtons({
             mySlot, matchStarted, matchTime, replayMode, tryPlayMode

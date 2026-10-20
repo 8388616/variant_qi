@@ -458,6 +458,8 @@ function switchRoomGame(room, client, game) {
     room.observers.clear();
     room.slotOccupancy.clear();
     next.scheduleDestruction();
+    console.log('[rooms] ' + JSON.stringify({ event: 'switched', at: new Date().toISOString(),
+        roomId: room.roomId, from: room.gameType, game }));
 }
 
 Express.post('/qi/create', (request, response) => {
@@ -514,6 +516,11 @@ Express.post('/qi/create', (request, response) => {
             return response.json({ success: false, error: '游戏模块加载失败' });
         }
 
+        // 创建后页面可能关闭、跳转失败，甚至根本未建立 WebSocket，也必须回收空房。
+        room.scheduleDestruction();
+        console.log('[rooms] ' + JSON.stringify({ event: 'created', at: new Date().toISOString(), roomId, game,
+            source: ['lobby', 'record-import', 'qr-code'].includes(request.body.source) ? request.body.source : 'api',
+            ip: request.ip, userAgent: String(request.get('user-agent') || '').slice(0, 256) }));
         response.json({ success: true, roomId });
     }
     catch (error) {

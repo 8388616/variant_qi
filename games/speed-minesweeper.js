@@ -108,7 +108,10 @@ class SpeedMinesweeperRoom {
         /** roundIndex (1-based) -> { mines: Set, start: {r,c}, openedSeed: Set, generatedAt: number } */
         this.roundMaps = new Map();
         this.matchStartAt = null;
+        this.moveCount = 0;
     }
+
+    getMoveCount() { return this.moveCount; }
 
     broadcast(data, exclude = null) {
         this.room.broadcast(data, exclude);
@@ -327,6 +330,7 @@ class SpeedMinesweeperRoom {
     }
 
     _fullResetRoom() {
+        this.moveCount = 0;
         this.phase = 'lobby';
         this.gameStarted = false;
         this.finished = false;
@@ -340,6 +344,7 @@ class SpeedMinesweeperRoom {
     }
 
     _resetToLobby() {
+        this.moveCount = 0;
         this.phase = 'lobby';
         this.gameStarted = false;
         this.finished = false;
@@ -368,6 +373,7 @@ class SpeedMinesweeperRoom {
     }
 
     _beginMatch(settings) {
+        this.moveCount = 0;
         this.boardSize = settings.boardSize;
         this.mineCount = settings.mineCount;
         this.roundMaps.clear();
@@ -481,6 +487,7 @@ class SpeedMinesweeperRoom {
         if (!map) {
             map = this._generateRound(board.round, r, c);
             if (!map) return;
+            this.moveCount++;
             this._applyMapToPlayersOnRound(board.round);
             // 生成者自己也已在 apply 中打开
             if (board.opened.size >= this._safeTotal(map.mines)) {
@@ -490,6 +497,7 @@ class SpeedMinesweeperRoom {
             return;
         }
 
+        this.moveCount++;
         if (map.mines.has(k)) {
             this._failPlayer(player, new Set([k]));
             this.broadcastState();
@@ -533,6 +541,7 @@ class SpeedMinesweeperRoom {
             if (map.mines.has(nk)) hitMines.add(nk);
             else toOpen.push([rr, cc]);
         }
+        if (hitMines.size > 0 || toOpen.length > 0) this.moveCount++;
         if (hitMines.size > 0) {
             this._failPlayer(player, hitMines);
             this.broadcastState();
@@ -555,6 +564,7 @@ class SpeedMinesweeperRoom {
         const k = cellKey(r, c);
         if (board.opened.has(k)) return;
         const cur = board.flags.get(k) || null;
+        this.moveCount++;
         if (cur == null) board.flags.set(k, 'flag');
         else if (cur === 'flag') board.flags.set(k, 'question');
         else board.flags.delete(k);
