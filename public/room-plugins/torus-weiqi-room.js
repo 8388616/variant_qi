@@ -78,19 +78,25 @@ window.RoomPlugins['torus-weiqi'] = {
             return { boardSize: n, side: s, lines: D, padding, cellSize, half: cellSize / 2 };
         }
 
-        /** 环面坐标 t 在画布上的所有等价显示线（1..D 内） */
-        function torusImages(t, n, s, D) {
-            const m = t + s + 1;
+        /** 循环平移仅改变本地显示原点，不改动实际棋盘坐标。 */
+        function wrapTorusCoordinate(value, n) { return ((value % n) + n) % n; }
+
+        function primaryTorusLine(t, n, s, offset) {
+            return wrapTorusCoordinate(t + offset + 0.5, n) - 0.5 + s + 1;
+        }
+
+        function torusImages(t, n, s, D, offset = 0) {
+            const m = primaryTorusLine(t, n, s, offset);
             const out = [];
-            if (m >= 1 && m <= D) out.push(m);
-            if (m - n >= 1) out.push(m - n);
-            if (m + n <= D) out.push(m + n);
+            // 包含固定外边界处露出一部分的棋子，连续平移时不突然消失。
+            for (let k = Math.ceil(-m / n); k <= Math.floor((D + 1 - m) / n); k++)
+                out.push(m + k * n);
             return out;
         }
 
         /** 显示线 ℓ → 环面坐标 */
-        function displayLineToTorus(ell, n, s) {
-            return ((ell - (s + 1)) % n + n) % n;
+        function displayLineToTorus(ell, n, s, offset = 0) {
+            return wrapTorusCoordinate(Math.round(ell - (s + 1) - offset), n);
         }
 
 // ======================== 客户端环面规则（与 games/torus-weiqi.js 一致） ========================
@@ -253,7 +259,23 @@ window.RoomPlugins['torus-weiqi'] = {
         };
 
 // ======================== 配置 ========================
+        const SUB_NAMES = { 'torus-weiqi': '环面围棋', 'cylinder-weiqi': '柱面围棋' };
+        const cylinderRules = {
+            ...torusRules,
+            neighbors(row, col, n) {
+                const out = [[(row - 1 + n) % n, col], [(row + 1) % n, col]];
+                if (col > 0) out.push([row, col - 1]);
+                if (col + 1 < n) out.push([row, col + 1]);
+                return out;
+            }
+        };
+        const isCylinder = () => ps.subGameId === 'cylinder-weiqi';
+        const boardRules = () => isCylinder() ? cylinderRules : torusRules;
+        function columnImages(t, n, s, D) {
+            return isCylinder() ? [t + s + 1] : torusImages(t, n, s, D, ps.torusOffsetCol);
+        }
         const ps = {
+            subGameId: 'torus-weiqi',
             BOARD_SIZE: 9,
             KOMI: 2.5,
             PADDING: 0,
@@ -302,7 +324,9 @@ window.RoomPlugins['torus-weiqi'] = {
             /** 棋盘局部缩放（与 qi.js QiWeiqiSquarePageRuntime 视口变换配合） */
             viewZoom: 1,
             viewCenterX: 300,
-            viewCenterY: 300
+            viewCenterY: 300,
+            torusOffsetRow: 0,
+            torusOffsetCol: 0
         };
         (function initTorusGeometry() {
             ps.TORUS = computeTorusGeometry(ps.BOARD_SIZE);
@@ -421,6 +445,8 @@ const BOARD_MARK_CHAR_LIST = (() => {
         function ensureTorusGeometry() {
             if (!ps.TORUS || ps.TORUS.boardSize !== ps.BOARD_SIZE) {
                 ps.TORUS = computeTorusGeometry(ps.BOARD_SIZE);
+                ps.torusOffsetRow = 0;
+                ps.torusOffsetCol = 0;
             }
             return ps.TORUS;
         }
@@ -455,6 +481,16 @@ const BOARD_MARK_CHAR_LIST = (() => {
             const pad = g.padding;
             const cell = g.cellSize;
             const half = g.half;
+            const cylinder = isCylinder();
+            const minX = cylinder ? lineX(s + 1, g) - half : pad - half;
+            const maxX = cylinder ? lineX(s + n, g) + half : cs - pad + half;
+            const colPhase = ps.torusOffsetCol - Math.floor(ps.torusOffsetCol + 0.5);
+            const rowPhase = ps.torusOffsetRow - Math.floor(ps.torusOffsetRow + 0.5);
+            const clipGrid = () => {
+                ctx.beginPath();
+                ctx.rect(minX, pad - half, maxX - minX, cs - 2 * pad + cell);
+                ctx.clip();
+            };
 
             // ---- 底色：整盘先铺深色，再在主棋盘区域（含向外半格）盖回原木色 ----
             // 主棋盘区域 = 线 s+1..s+n 向外各半格（9路即 -0.5 路 ~ 9.5 路）。
@@ -463,8 +499,12 @@ const BOARD_MARK_CHAR_LIST = (() => {
             const mainMaxX = lineX(s + n, g) + half;
             const mainMinY = lineY(s + n, g) - half;
             const mainMaxY = lineY(s + 1, g) + half;
-            ctx.fillStyle = TORUS_OUTER_BG;
+            ctx.fillStyle = cylinder ? mainBoardBg() : TORUS_OUTER_BG;
             ctx.fillRect(0, 0, cs, cs);
+            if (cylinder) {
+                ctx.fillStyle = TORUS_OUTER_BG;
+                ctx.fillRect(minX, 0, maxX - minX, cs);
+            }
             // 主棋盘区域盖回原木色；向外扩展 0.5px 覆盖反锯齿缝
             ctx.fillStyle = mainBoardBg();
             ctx.fillRect(
@@ -476,18 +516,21 @@ const BOARD_MARK_CHAR_LIST = (() => {
             const thinLW = Math.max(0.5, 28 / D * invZ);
             ctx.strokeStyle = '#3a281c';
             ctx.lineWidth = thinLW;
-            for (let c = 1; c <= D; c++) {
+            ctx.save();
+            clipGrid();
+            for (let c = cylinder ? s + 1 : 0; c <= (cylinder ? s + n : D + 1); c++) {
                 ctx.beginPath();
-                ctx.moveTo(lineX(c, g), pad - half);
-                ctx.lineTo(lineX(c, g), cs - pad + half);
+                ctx.moveTo(lineX(c + colPhase, g), pad - half);
+                ctx.lineTo(lineX(c + colPhase, g), cs - pad + half);
                 ctx.stroke();
             }
-            for (let r = 1; r <= D; r++) {
+            for (let r = 0; r <= D + 1; r++) {
                 ctx.beginPath();
-                ctx.moveTo(pad - half, lineY(r, g));
-                ctx.lineTo(cs - pad + half, lineY(r, g));
+                ctx.moveTo(minX, lineY(r + rowPhase, g));
+                ctx.lineTo(maxX, lineY(r + rowPhase, g));
                 ctx.stroke();
             }
+            ctx.restore();
 
             // ---- 坐标：上方字母、左侧数字（参照原围棋；主棋盘外线标等价线号） ----
             const margin = pad - half;
@@ -495,24 +538,26 @@ const BOARD_MARK_CHAR_LIST = (() => {
             ctx.fillStyle = '#3a281c';
             ctx.textBaseline = 'middle';
             ctx.textAlign = 'center';
-            for (let c = 1; c <= D; c++) {
-                const t = displayLineToTorus(c, n, s);
+            for (let c = cylinder ? s + 1 : 1; c <= (cylinder ? s + n : D); c++) {
+                const t = displayLineToTorus(c + colPhase, n, s, ps.torusOffsetCol);
                 const letter = t < 26
                     ? String.fromCharCode(65 + t)
                     : String.fromCharCode(64 + Math.floor(t / 26)) + String.fromCharCode(65 + t % 26);
-                ctx.fillText(letter, lineX(c, g), margin * 0.6);
+                ctx.fillText(letter, lineX(c + colPhase, g), margin * 0.6);
             }
             for (let r = 1; r <= D; r++) {
-                const t = displayLineToTorus(r, n, s);
-                ctx.fillText(String(t + 1), margin * 0.5, lineY(r, g));
+                const t = displayLineToTorus(r + rowPhase, n, s, ps.torusOffsetRow);
+                ctx.fillText(String(t + 1), cylinder ? minX - margin * 0.5 : margin * 0.5, lineY(r + rowPhase, g));
             }
 
             // ---- 星位（等价位置同时画出） ----
+            ctx.save();
+            clipGrid();
             const stars = QiSquareWeiqiCanvas.getStarPoints(n);
             ctx.fillStyle = '#3a281c';
             for (const [r, c] of stars) {
-                for (const rr of torusImages(r, n, s, D)) {
-                    for (const cc of torusImages(c, n, s, D)) {
+                for (const rr of torusImages(r, n, s, D, ps.torusOffsetRow)) {
+                    for (const cc of columnImages(c, n, s, D)) {
                         ctx.beginPath();
                         ctx.arc(lineX(cc, g), lineY(rr, g), cell * 0.12, 0, 2 * Math.PI);
                         ctx.fill();
@@ -530,8 +575,8 @@ const BOARD_MARK_CHAR_LIST = (() => {
             if (lowerMarker) {
                 for (const m of ps.lastMoveMarkers || []) {
                     if (m.row == null || m.col == null || m.row < 0 || m.row >= n || m.col < 0 || m.col >= n) continue;
-                    for (const rr of torusImages(m.row, n, s, D)) {
-                        for (const cc of torusImages(m.col, n, s, D)) {
+                    for (const rr of torusImages(m.row, n, s, D, ps.torusOffsetRow)) {
+                        for (const cc of columnImages(m.col, n, s, D)) {
                             const x = lineX(cc, g);
                             const y = lineY(rr, g);
                             ctx.beginPath();
@@ -551,8 +596,8 @@ const BOARD_MARK_CHAR_LIST = (() => {
                 for (let c = 0; c < n; c++) {
                     const val = ps.board[r][c];
                     if (val !== 1 && val !== 2) continue;
-                    for (const rr of torusImages(r, n, s, D)) {
-                        for (const cc of torusImages(c, n, s, D)) {
+                    for (const rr of torusImages(r, n, s, D, ps.torusOffsetRow)) {
+                        for (const cc of columnImages(c, n, s, D)) {
                             const x = lineX(cc, g);
                             const y = lineY(rr, g);
                             ctx.save();
@@ -589,8 +634,8 @@ const BOARD_MARK_CHAR_LIST = (() => {
             if (!lowerMarker) {
                 for (const m of ps.lastMoveMarkers || []) {
                     if (m.row == null || m.col == null || m.row < 0 || m.row >= n || m.col < 0 || m.col >= n) continue;
-                    for (const rr of torusImages(m.row, n, s, D)) {
-                        for (const cc of torusImages(m.col, n, s, D)) {
+                    for (const rr of torusImages(m.row, n, s, D, ps.torusOffsetRow)) {
+                        for (const cc of columnImages(m.col, n, s, D)) {
                             const x = lineX(cc, g);
                             const y = lineY(rr, g);
                             ctx.beginPath();
@@ -609,17 +654,22 @@ const BOARD_MARK_CHAR_LIST = (() => {
             const marksVisible = !ps.showEstimateActive;
             const marksLiveLatest = QiSquareWeiqiCanvas.boardMarksLiveLatest(ps);
             const drawTorusGlyph = (mr, mc, ch, style) => {
-                for (const rr of torusImages(mr, n, s, D)) {
-                    for (const cc of torusImages(mc, n, s, D)) {
+                for (const rr of torusImages(mr, n, s, D, ps.torusOffsetRow)) {
+                    for (const cc of columnImages(mc, n, s, D)) {
                         const x = lineX(cc, g);
                         const y = lineY(rr, g);
                         if (style === 'point') {
                             ctx.beginPath();
                             ctx.arc(x, y, cell * 0.3, 0, 2 * Math.PI);
-                            // 背景色随所在区域：主棋盘区域内用棋盘底色，外围用深色
-                            const inMain = x >= mainMinX && x <= mainMaxX && y >= mainMinY && y <= mainMaxY;
-                            ctx.fillStyle = inMain ? mainBoardBg() : TORUS_OUTER_BG;
-                            ctx.fill();
+                            // 标记跨越主区边缘时，遮住格线的底色仍保留固定的区域边界。
+                            ctx.save();
+                            ctx.clip();
+                            ctx.fillStyle = TORUS_OUTER_BG;
+                            ctx.fillRect(x - cell, y - cell, cell * 2, cell * 2);
+                            ctx.fillStyle = mainBoardBg();
+                            ctx.fillRect(mainMinX - 0.5, mainMinY - 0.5,
+                                mainMaxX - mainMinX + 1, mainMaxY - mainMinY + 1);
+                            ctx.restore();
                         }
                         const fontPx = cell * (ch === '🚩' ? 0.6 : 0.66);
                         ctx.font = `bold ${fontPx}px "Segoe UI", "Apple Color Emoji", "Segoe UI Emoji", sans-serif`;
@@ -669,8 +719,8 @@ const BOARD_MARK_CHAR_LIST = (() => {
                             const fontSize = Math.max(9, Math.floor(cell * (numStr.length >= 3 ? 0.34 : 0.44)));
                             ctx.font = `bold ${fontSize}px Arial`;
                             ctx.fillStyle = ps.board[r][c] === 1 ? '#fff' : '#000';
-                            for (const rr of torusImages(r, n, s, D)) {
-                                for (const cc of torusImages(c, n, s, D)) {
+                            for (const rr of torusImages(r, n, s, D, ps.torusOffsetRow)) {
+                                for (const cc of columnImages(c, n, s, D)) {
                                     ctx.fillText(numStr, lineX(cc, g), lineY(rr, g) + 1);
                                 }
                             }
@@ -700,8 +750,8 @@ const BOARD_MARK_CHAR_LIST = (() => {
                 }
                 if (hoverColor) {
                     ctx.globalAlpha = 0.45;
-                    for (const rr of torusImages(hr, n, s, D)) {
-                        for (const cc of torusImages(hc, n, s, D)) {
+                    for (const rr of torusImages(hr, n, s, D, ps.torusOffsetRow)) {
+                        for (const cc of columnImages(hc, n, s, D)) {
                             ctx.beginPath();
                             ctx.arc(lineX(cc, g), lineY(rr, g), stoneRadius, 0, 2 * Math.PI);
                             ctx.fillStyle = hoverColor;
@@ -718,8 +768,8 @@ const BOARD_MARK_CHAR_LIST = (() => {
                 ctx.save();
                 ctx.strokeStyle = '#d62828';
                 ctx.lineWidth = cell * 0.055 * invZ;
-                for (const rr of torusImages(hr, n, s, D)) {
-                    for (const cc of torusImages(hc, n, s, D)) {
+                for (const rr of torusImages(hr, n, s, D, ps.torusOffsetRow)) {
+                    for (const cc of columnImages(hc, n, s, D)) {
                         ctx.beginPath();
                         ctx.arc(lineX(cc, g), lineY(rr, g), stoneRadius + 1, 0, 2 * Math.PI);
                         ctx.stroke();
@@ -742,8 +792,8 @@ const BOARD_MARK_CHAR_LIST = (() => {
                             style = '#f0f0f0';
                         if (!style) continue;
                         ctx.fillStyle = style;
-                        for (const rr of torusImages(r, n, s, D)) {
-                            for (const cc of torusImages(c, n, s, D)) {
+                        for (const rr of torusImages(r, n, s, D, ps.torusOffsetRow)) {
+                            for (const cc of columnImages(c, n, s, D)) {
                                 ctx.fillRect(
                                     lineX(cc, g) - dotRadius, lineY(rr, g) - dotRadius,
                                     dotRadius * 2, dotRadius * 2
@@ -754,6 +804,7 @@ const BOARD_MARK_CHAR_LIST = (() => {
                 }
             }
 
+            ctx.restore();
             if (useView) ctx.restore();
             syncScrollbarsFromView();
         }
@@ -777,7 +828,7 @@ const BOARD_MARK_CHAR_LIST = (() => {
             const size = ps.BOARD_SIZE;
             return RT.bensonAliveGrid({
                 width: size, height: size,
-                getNeighbors: (r, c) => torusRules.neighbors(r, c, size),
+                getNeighbors: (r, c) => boardRules().neighbors(r, c, size),
                 isValid: () => true,
                 get: (r, c) => bd[r][c]
             });
@@ -789,7 +840,7 @@ const BOARD_MARK_CHAR_LIST = (() => {
             let changed = true;
             while (changed) {
                 changed = false;
-                const cleaned = torusRules.removeDeadAndDying(live, size, 2);
+                const cleaned = boardRules().removeDeadAndDying(live, size, 2);
                 for (let r = 0; r < size; r++) {
                     for (let c = 0; c < size; c++) {
                         const v = srcBoard[r][c];
@@ -805,7 +856,7 @@ const BOARD_MARK_CHAR_LIST = (() => {
         }
         function bensonTorusTerritory(liveBoard) {
             const size = ps.BOARD_SIZE;
-            const territory = torusRules.assignTerritoryWithRange(liveBoard, size);
+            const territory = boardRules().assignTerritoryWithRange(liveBoard, size);
             const secure = bensonTorusInfo(liveBoard);
             for (let r = 0; r < size; r++) {
                 for (let c = 0; c < size; c++) {
@@ -824,10 +875,11 @@ const BOARD_MARK_CHAR_LIST = (() => {
             roomId,
             roomPassword,
             isMouseDevice,
-            tryPlaceStone: (b, r, c, v) => torusRules.tryPlaceStone(b, r, c, v, ps.BOARD_SIZE),
+            tryPlaceStone: (b, r, c, v) => boardRules().tryPlaceStone(b, r, c, v, ps.BOARD_SIZE),
             removeDeadAndDying: bensonTorusLive,
             assignTerritoryWithRange: bensonTorusTerritory,
-            drawBoard
+            drawBoard,
+            getClosestIntersection
         });
         const {
             mobileTwoStepPlacing,
@@ -836,7 +888,6 @@ const BOARD_MARK_CHAR_LIST = (() => {
             updateTurn,
             showEstimate,
             clearEstimate,
-            downloadRecord,
             showScoreConfirm,
             hideScoreConfirm,
             enterReplayMode,
@@ -861,6 +912,20 @@ const BOARD_MARK_CHAR_LIST = (() => {
             applyUserBoardMark
         } = page;
         computeStoneNumbers = page.computeStoneNumbers;
+        ps.recordPointFromClient = (clientX, clientY) => {
+            const p = canvasCoordsFromClient(clientX, clientY);
+            const point = getClosestIntersection(p.x, p.y);
+            return point.row >= 0 ? point : null;
+        };
+        ps.recordPointToCanvas = (row, col) => {
+            const g = ensureTorusGeometry(), n = ps.BOARD_SIZE;
+            const x = lineX(primaryTorusLine(col, n, g.side, ps.torusOffsetCol), g);
+            const y = lineY(primaryTorusLine(row, n, g.side, ps.torusOffsetRow), g);
+            const z = ps.viewZoom || 1, cs = BOARD_VIEW_CS;
+            return { x: z > 1 ? (x - ps.viewCenterX) * z + cs / 2 : x,
+                y: z > 1 ? (y - ps.viewCenterY) * z + cs / 2 : y,
+                cell: g.cellSize * z, size: cs };
+        };
 
         // ---- 环面取点：显示线 → 主棋盘坐标（只记录主棋盘坐标） ----
         function getClosestIntersection(x, y) {
@@ -868,12 +933,17 @@ const BOARD_MARK_CHAR_LIST = (() => {
             const n = ps.BOARD_SIZE;
             const s = g.side;
             const D = g.lines;
-            const colD = Math.round((x - g.padding) / g.cellSize) + 1;
-            const rowD = D - Math.round((y - g.padding) / g.cellSize);
-            if (rowD < 1 || rowD > D || colD < 1 || colD > D) return { row: -1, col: -1 };
+            const edge = g.padding - g.half;
+            if (x < edge || x > BOARD_VIEW_CS - edge || y < edge || y > BOARD_VIEW_CS - edge)
+                return { row: -1, col: -1 };
+            const colD = (x - g.padding) / g.cellSize + 1;
+            const rowD = D - (y - g.padding) / g.cellSize;
+            const col = isCylinder() ? Math.round(colD - (s + 1))
+                : displayLineToTorus(colD, n, s, ps.torusOffsetCol);
+            if (col < 0 || col >= n) return { row: -1, col: -1 };
             return {
-                row: displayLineToTorus(rowD, n, s),
-                col: displayLineToTorus(colD, n, s)
+                row: displayLineToTorus(rowD, n, s, ps.torusOffsetRow),
+                col
             };
         }
 
@@ -1012,16 +1082,50 @@ const BOARD_MARK_CHAR_LIST = (() => {
             if (m.color !== oppColor) return;
             const g = ensureTorusGeometry();
             // 以主棋盘位置为中心（等价位置在主棋盘 ±n 处）
-            ps.viewCenterX = g.padding + (m.col + g.side) * g.cellSize;
-            ps.viewCenterY = g.padding + (g.lines - 1 - (m.row + g.side)) * g.cellSize;
+            ps.viewCenterX = lineX(primaryTorusLine(m.col, ps.BOARD_SIZE, g.side, ps.torusOffsetCol), g);
+            ps.viewCenterY = lineY(primaryTorusLine(m.row, ps.BOARD_SIZE, g.side, ps.torusOffsetRow), g);
             clampBoardView();
             drawBoardCore();
         }
 
         function handleMessage(msg) {
             const mkBefore = lastMoveMarkerKey();
+            const incoming = msg.subGameId || (msg.state && msg.state.subGameId);
+            if (Object.prototype.hasOwnProperty.call(SUB_NAMES, incoming) && incoming !== ps.subGameId) {
+                if (ps.tryPlayMode) exitTryPlay();
+                if (ps.replayMode) exitReplayMode();
+                if (editApi) editApi.clearEditModeUi();
+                ps.liveOpeningBoard = null;
+                ps.liveReplayBoards = [];
+                ps._editCommitSnapshot = ps._editLocalBoard = ps._editPreState = null;
+                ps.userBoardMarks = Object.create(null);
+                ps.userStoneMarks = Object.create(null);
+                clearMobileMovePreview();
+                ps.subGameId = incoming;
+                ps.torusOffsetRow = ps.torusOffsetCol = 0;
+                resetBoardViewZoom();
+            }
             weiqiHandleMessageInner(msg);
+            syncSubGameChrome();
             maybeCenterViewOnOpponentMove(msg, mkBefore);
+        }
+
+        function downloadRecord(data) {
+            QiSquareWeiqiCanvas.downloadWeiqiJsonRecord(data, SUB_NAMES[ps.subGameId]);
+        }
+
+        function syncSubGameChrome() {
+            const sel = document.getElementById('subGameSelect');
+            if (sel) {
+                sel.value = ps.subGameId;
+                window.QiRoomGameSwitcher.syncSettingsSelect(sel);
+            }
+            const title = document.getElementById('rulesTitle');
+            if (title) title.textContent = SUB_NAMES[ps.subGameId];
+            const body = document.getElementById('rulesBody');
+            if (body) body.innerHTML = isCylinder()
+                ? '基本规则同围棋。<br /><br />棋盘上下相连，左右不相连；仅上下显示辅助区。<br />未放大时可上下拖动，循环平移棋盘内容。'
+                : config.rulesHtml || window.RoomPlugins['torus-weiqi'].shell.rulesHtml;
         }
 
         let suppressCanvasClickAfterLongMark = false;
@@ -1071,41 +1175,37 @@ const BOARD_MARK_CHAR_LIST = (() => {
         }, { passive: false });
 
         let boardMousePanning = false;
-        let boardPanLastScreen = null;
 
         function boardUpdateGrabCursor() {
             if (boardMousePanning) {
                 canvas.style.cursor = 'grabbing';
             } else {
-                canvas.style.cursor = ps.viewZoom > 1 ? 'grab' : 'default';
+                canvas.style.cursor = 'default';
             }
         }
 
-        canvas.addEventListener('mousedown', (e) => {
-            if (e.button !== 0 || ps.viewZoom <= 1) return;
-            boardMousePanning = true;
-            boardPanLastScreen = boardScreenPointFromClient(e.clientX, e.clientY);
-            boardUpdateGrabCursor();
-            e.preventDefault();
-        });
-
-        window.addEventListener('mousemove', (e) => {
-            if (!boardMousePanning || !boardPanLastScreen) return;
-            const p = boardScreenPointFromClient(e.clientX, e.clientY);
-            const dx = p.x - boardPanLastScreen.x;
-            const dy = p.y - boardPanLastScreen.y;
-            ps.viewCenterX -= dx / ps.viewZoom;
-            ps.viewCenterY -= dy / ps.viewZoom;
-            boardPanLastScreen = p;
-            clampBoardView();
-            drawBoardCore();
-        });
-
-        window.addEventListener('mouseup', () => {
-            if (!boardMousePanning) return;
-            boardMousePanning = false;
-            boardPanLastScreen = null;
-            boardUpdateGrabCursor();
+        QiSquareWeiqiCanvas.bindBoardMousePan({
+            canvas,
+            getZoom: () => ps.viewZoom,
+            canPan: boardViewZoomAllowed,
+            screenPointFromClient: boardScreenPointFromClient,
+            panBy(dx, dy) {
+                if (ps.viewZoom > 1) {
+                    ps.viewCenterX -= dx / ps.viewZoom;
+                    ps.viewCenterY -= dy / ps.viewZoom;
+                    clampBoardView();
+                } else {
+                    const g = ensureTorusGeometry(), n = ps.BOARD_SIZE;
+                    if (!isCylinder()) ps.torusOffsetCol = wrapTorusCoordinate(ps.torusOffsetCol + dx / g.cellSize, n);
+                    ps.torusOffsetRow = wrapTorusCoordinate(ps.torusOffsetRow - dy / g.cellSize, n);
+                }
+                drawBoardCore();
+            },
+            onActiveChanged(active) {
+                boardMousePanning = active;
+                if (active) clearMobileMovePreview();
+                boardUpdateGrabCursor();
+            }
         });
 
         let pinchGesture = false;
@@ -1325,6 +1425,24 @@ const BOARD_MARK_CHAR_LIST = (() => {
                 ps.waitingScoreConfirm = false;
             };
         }
+        const subGameSelect = document.getElementById('subGameSelect');
+        if (subGameSelect) {
+            subGameSelect.innerHTML = '';
+            for (const [id, name] of Object.entries(SUB_NAMES)) {
+                const option = document.createElement('option');
+                option.value = id;
+                option.textContent = name;
+                subGameSelect.appendChild(option);
+            }
+            subGameSelect.addEventListener('change', () => {
+                const next = subGameSelect.value;
+                subGameSelect.value = ps.subGameId;
+                if (next !== ps.subGameId && Object.prototype.hasOwnProperty.call(SUB_NAMES, next)
+                    && ps.ws && ps.ws.readyState === 1)
+                    ps.ws.send(JSON.stringify({ type: 'setSubGame', subGameId: next }));
+            });
+        }
+        syncSubGameChrome();
         connectWebSocket(handleMessage);
         })();
     }

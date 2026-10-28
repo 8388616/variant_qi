@@ -208,10 +208,24 @@ const torusWeiqiRules = {
         };
     }
 };
+
+const cylinderWeiqiRules = {
+    ...torusWeiqiRules,
+    neighbors(row, col, boardSize) {
+        const n = boardSize;
+        const out = [[(row - 1 + n) % n, col], [(row + 1) % n, col]];
+        if (col > 0) out.push([row, col - 1]);
+        if (col + 1 < n) out.push([row, col + 1]);
+        return out;
+    }
+};
+const TORUS_SUB_GAMES = ['torus-weiqi', 'cylinder-weiqi'];
+
 class WeiqiRoom extends QiTwoPlayerRoomBase
 {
     constructor(room, initialSize = 9) {
         super(room);
+        this.subGameId = 'torus-weiqi';
         this.boardSize = initialSize;
         this.board = Array(this.boardSize).fill().map(() => Array(this.boardSize).fill(0));
         this.openingBoard = this.copyBoard(this.board);
@@ -331,35 +345,39 @@ class WeiqiRoom extends QiTwoPlayerRoomBase
     }
 
     countGroupLiberties(board, row, col) {
-        return torusWeiqiRules.countGroupLiberties(board, row, col, this.boardSize);
+        return this.boardRules.countGroupLiberties(board, row, col, this.boardSize);
     }
 
     removeGroup(board, row, col, color) {
-        torusWeiqiRules.removeGroup(board, row, col, color, this.boardSize);
+        this.boardRules.removeGroup(board, row, col, color, this.boardSize);
     }
 
     tryPlaceStone(boardBefore, row, col, playerVal) {
-        return torusWeiqiRules.tryPlaceStone(
+        return this.boardRules.tryPlaceStone(
             boardBefore, row, col, playerVal, this.boardSize, (b) => this.copyBoard(b)
         );
     }
 
     isLibertySurroundedByOpponent(board, libertyRow, libertyCol, opponentColor) {
-        return torusWeiqiRules.isLibertySurroundedByOpponent(
+        return this.boardRules.isLibertySurroundedByOpponent(
             board, libertyRow, libertyCol, opponentColor, this.boardSize
         );
     }
 
     removeDeadAndDying(srcBoard) {
-        return torusWeiqiRules.removeDeadAndDying(srcBoard, this.boardSize, (b) => this.copyBoard(b));
+        return this.boardRules.removeDeadAndDying(srcBoard, this.boardSize, (b) => this.copyBoard(b));
     }
 
     assignTerritoryWithRange(liveBoard) {
-        return torusWeiqiRules.assignTerritoryWithRange(liveBoard, this.boardSize);
+        return this.boardRules.assignTerritoryWithRange(liveBoard, this.boardSize);
     }
 
     computeScore(liveBoard, territory) {
-        return torusWeiqiRules.computeScore(liveBoard, territory, this.boardSize);
+        return this.boardRules.computeScore(liveBoard, territory, this.boardSize);
+    }
+
+    get boardRules() {
+        return this.subGameId === 'cylinder-weiqi' ? cylinderWeiqiRules : torusWeiqiRules;
     }
 
     _komi()
@@ -385,7 +403,7 @@ class WeiqiRoom extends QiTwoPlayerRoomBase
         const size = this.boardSize;
         const bensonOf = (bd) => gridGraphWeiqiRules.bensonAlive(
             bd, size, size,
-            (r, c) => torusWeiqiRules.neighbors(r, c, size),
+            (r, c) => this.boardRules.neighbors(r, c, size),
             () => true
         );
         const benson = bensonOf(this.board);
@@ -445,6 +463,7 @@ class WeiqiRoom extends QiTwoPlayerRoomBase
             ? this.copyBoard(this.openingBoard)
             : this.copyBoard(this.board);
         return {
+            subGameId: this.subGameId,
             boardSize: this.boardSize,
             komi: this._komi(),
             board: this.board,
@@ -500,6 +519,10 @@ class WeiqiRoom extends QiTwoPlayerRoomBase
 
         switch (msg.type)
         {
+            case 'setSubGame':
+                this.setSubGame(msg.subGameId, ws);
+                break;
+
             case 'setBoardSize':
                 qiProtocol.setBoardSizeWeiqiObserver(this, ws, msg, slot);
                 break;
@@ -699,6 +722,22 @@ class WeiqiRoom extends QiTwoPlayerRoomBase
         return true;
     }
 
+    setSubGame(subGameId, requesterWs) {
+        if (!TORUS_SUB_GAMES.includes(subGameId)) {
+            requesterWs.send(JSON.stringify({ type: 'error', message: '子棋类无效' }));
+            return false;
+        }
+        if (!qiProtocol.canChangeRoomSettings(this)) {
+            this.sendState(requesterWs);
+            return false;
+        }
+        if (subGameId === this.subGameId) return false;
+        qiProtocol.prepareRoomSettingsChange(this);
+        this.subGameId = subGameId;
+        this.broadcast({ type: 'subGameChanged', ...this.getState() });
+        return true;
+    }
+
     exportRecord()
     {
         let resultText = null;
@@ -710,9 +749,10 @@ class WeiqiRoom extends QiTwoPlayerRoomBase
         }
         return {
             format: 'muzei',
-            version: 1,
-            gameType: '围棋',
-            gameId: 'weiqi',
+            version: 2,
+            gameType: this.subGameId === 'cylinder-weiqi' ? '柱面围棋' : '环面围棋',
+            gameId: 'torus-weiqi',
+            subGameId: this.subGameId,
             boardSize: this.boardSize,
             komi: this._komi(),
             players: { player1: null, player2: null },
@@ -766,20 +806,28 @@ class WeiqiRoom extends QiTwoPlayerRoomBase
     }
 
     importRecord(data, requesterWs) {
-        if (!data || data.gameId !== 'weiqi') {
-            requesterWs.send(JSON.stringify({ type: 'error', message: '棋谱格式不匹配（需要围棋棋谱）。' }));
+        // 旧版环面棋谱误用了 weiqi；保留其导入，新棋谱按子棋类区分。
+        if (!data || !['torus-weiqi', 'weiqi'].includes(data.gameId)) {
+            requesterWs.send(JSON.stringify({ type: 'error', message: '棋谱格式不匹配（需要环面或柱面围棋棋谱）。' }));
+            return;
+        }
+        const subGameId = data.subGameId || 'torus-weiqi';
+        if (!TORUS_SUB_GAMES.includes(subGameId)) {
+            requesterWs.send(JSON.stringify({ type: 'error', message: '棋谱中子棋类无效' }));
             return;
         }
         const newSize = data.boardSize || 9;
-        if (!Number.isInteger(newSize) || newSize > 21) {
+        if (!Number.isInteger(newSize) || newSize < 7 || newSize > 21) {
             requesterWs.send(JSON.stringify({ type: 'error', message: '棋谱中棋盘大小无效' }));
             return;
         }
 
+        this.subGameId = subGameId;
         this.boardSize = newSize;
         this.resetToEmpty();
 
         applyInitialPositionCompact(this.board, this.boardSize, data.initialPosition);
+        this.openingBoard = this.copyBoard(this.board);
 
         const rawMoves = data.moves || [];
         const moves = rawMoves.map(WeiqiRoom.parseMove);
@@ -892,6 +940,8 @@ class WeiqiRoom extends QiTwoPlayerRoomBase
 
 module.exports = {
     WeiqiRoom,
+    torusWeiqiRules,
+    cylinderWeiqiRules,
     initRoom(room) {
         room.gameLogic = new WeiqiRoom(room);
         room.maxPlayers = 2;

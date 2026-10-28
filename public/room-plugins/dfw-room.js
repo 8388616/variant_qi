@@ -246,7 +246,6 @@ window.RoomPlugins["dfw"] = {
         let lastFrom = {};         // 座位 -> 上一步的格子（箭头按新格计算：排除来向）
         let viewCenterY = FRAME_CENTER;
         let boardMousePanning = false;
-        let boardPanLastScreen = null;
         let pinchGesture = false;
         let pinchStartDist = 1;
         let pinchStartZoom = 1;
@@ -1784,26 +1783,24 @@ window.RoomPlugins["dfw"] = {
 
         canvas.addEventListener('click', onCanvasClick);
 
-        canvas.addEventListener('mousedown', (e) => {
-            if (e.button !== 0 || viewZoom <= 1) return;
-            boardMousePanning = true;
-            boardPanLastScreen = screenPointFromClient(e.clientX, e.clientY);
-            boardUpdateGrabCursor();
-            e.preventDefault();
+        QiSquareWeiqiCanvas.bindBoardMousePan({
+            canvas,
+            getZoom: () => viewZoom,
+            screenPointFromClient,
+            panBy(dx, dy) {
+                viewCenterX -= dx / viewZoom;
+                viewCenterY -= dy / viewZoom;
+                clampBoardView();
+                drawBoard();
+            },
+            onActiveChanged(active) {
+                boardMousePanning = active;
+                boardUpdateGrabCursor();
+            }
         });
 
         window.addEventListener('mousemove', (e) => {
-            if (boardMousePanning && boardPanLastScreen) {
-                const p = screenPointFromClient(e.clientX, e.clientY);
-                const dx = p.x - boardPanLastScreen.x;
-                const dy = p.y - boardPanLastScreen.y;
-                viewCenterX -= dx / viewZoom;
-                viewCenterY -= dy / viewZoom;
-                boardPanLastScreen = p;
-                clampBoardView();
-                drawBoard();
-                return;
-            }
+            if (boardMousePanning) return;
             // 悬停检测：choosing 阶段鼠标在己方候选目标格上 → 预览角色（drawBoard 画半透明棋子）
             const canAct = gameState && gameState.phase === 'playing' &&
                 gameState.roundPhase === 'choosing' &&
@@ -1848,13 +1845,6 @@ window.RoomPlugins["dfw"] = {
                     else showTip('占领的土地，每回合获取' + tipLands[tipV] + '财富点', e.clientX, e.clientY);
                 }
             } else if (tipCellShow >= 0) hideTip();
-        });
-
-        window.addEventListener('mouseup', () => {
-            if (!boardMousePanning) return;
-            boardMousePanning = false;
-            boardPanLastScreen = null;
-            boardUpdateGrabCursor();
         });
 
         canvas.addEventListener('touchstart', (e) => {

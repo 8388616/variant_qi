@@ -7,10 +7,12 @@
             { id: 'traitor-weiqi', name: '内奸围棋', randomLevel: 3, path: 'traitor-weiqi', enabled: true, recommended: false, category: '围棋/占地', intro: '在对手的棋子中藏入己方内奸。' },
             { id: 'non-rectangular-weiqi', name: '非四角围棋', randomLevel: 0, path: 'non-rectangular-weiqi', enabled: true, recommended: true, category: '围棋/占地', intro: '各种非四角棋盘。' },
             { id: 'large-small-circle-weiqi', name: '大小圆围棋', randomLevel: 0, path: 'large-small-circle-weiqi', enabled: true, recommended: false, category: '围棋/占地', intro: '不对称连接的棋盘。' },
-            { id: 'torus-weiqi', name: '环面围棋', randomLevel: 0, path: 'torus-weiqi', enabled: true, recommended: true, category: '围棋/占地', intro: '' },
+            { id: 'torus-weiqi', name: '环面围棋', randomLevel: 0, path: 'torus-weiqi', enabled: true, recommended: true, category: '围棋/占地', intro: '环面棋盘。' },
             { id: 'short-liberty-weiqi', name: '短气围棋', randomLevel: 0, path: 'short-liberty-weiqi', enabled: true, recommended: true, category: '围棋/占地', intro: '每组棋子少若干气。' },
             { id: 'zeroliberty-weiqi', name: '零气围棋', randomLevel: 0, path: 'zeroliberty-weiqi', enabled: true, recommended: false, category: '围棋/占地', intro: '棋子没有气后，还需要花额外的一手棋来提子。' },
+            { id: 'delayed-capture-weiqi', name: '缓提围棋', randomLevel: 0, path: 'delayed-capture-weiqi', enabled: true, recommended: false, category: '围棋/占地', intro: '无气时下一手才能提掉。' },
             { id: 'various-liberty-weiqi', name: '异气围棋', randomLevel: 0, path: 'various-liberty-weiqi', enabled: true, recommended: false, category: '围棋/占地', intro: '每个棋子的气数不同。' },
+            { id: 'che-style-weiqi', name: '车式围棋', randomLevel: 0, path: 'che-style-weiqi', enabled: true, recommended: false, category: '围棋/占地', intro: '隔空紧气。' },
             { id: 'global-liberty-weiqi', name: '全气围棋', randomLevel: 0, path: 'global-liberty-weiqi', enabled: true, recommended: false, category: '围棋/占地', intro: '全盘供气。' },
             { id: 'weight-weiqi', name: '权重围棋', randomLevel: 2, path: 'weight-weiqi', enabled: true, recommended: true, category: '围棋/占地', intro: '棋盘上每个点的价值不同。' },
 			{ id: 'broken-line-weiqi', name: '断线围棋', randomLevel: 2, path: 'broken-line-weiqi', enabled: true, recommended: false, category: '围棋/占地', intro: '棋盘上随机切断一些连线。' },
@@ -23,6 +25,7 @@
 			{ id: 'sharp-edge-evasion-weiqi', name: '避锋围棋', randomLevel: 0, path: 'sharp-edge-evasion-weiqi', enabled: true, recommended: false, category: '围棋/占地', intro: '不能下在前一手旁边。' },
 			{ id: 'travel-expense-weiqi', name: '路费围棋', randomLevel: 0, path: 'travel-expense-weiqi', enabled: false, recommended: false, category: '围棋/占地', intro: '距离前一手越远成本越高。' },
             { id: 'reversi-weiqi', name: '翻转围棋', randomLevel: 0, path: 'reversi-weiqi', enabled: true, recommended: true, category: '围棋/占地', intro: '提子时翻转成己方棋子。' },
+            { id: 'torus-fill-weiqi', name: '环面填满围棋', randomLevel: 0, path: 'torus-fill-weiqi', enabled: true, recommended: false, category: '围棋/占地', intro: '环面棋盘，围住即填满。' },
 			{ id: 'ukrainian-weiqi', name: '乌克兰围棋', randomLevel: 0, path: 'ukrainian-weiqi', enabled: true, recommended: false, category: '围棋/占地', intro: '一次下三颗子。' },
             { id: 'russian-weiqi', name: '俄罗斯围棋', randomLevel: 4, path: 'russian-weiqi', enabled: true, recommended: false, category: '围棋/占地', intro: '棋子是俄罗斯方块的形状。' },
             { id: 'rus-weiqi', name: '罗斯围棋', randomLevel: 0, path: 'rus-weiqi', enabled: true, recommended: false, category: '围棋/占地', intro: '一次下三颗子，其中有一颗是对方的。' },
@@ -107,10 +110,13 @@
 			{ id: 'fog-halma', name: '迷雾跳达棋', randomLevel: 3, path: 'fog-halma', enabled: false, recommended: false, category: '跳达棋/到达', intro: '' },
 			{ id: 'quoridor', name: '路墙棋', randomLevel: 0, path: 'quoridor', enabled: true, recommended: false, category: '跳达棋/到达', intro: '砌墙让对方绕路，但不能把对方堵死。' },
 
-
 			// 结子棋类
 			{ id: 'neutreeko', name: '结子棋', randomLevel: 0, path: 'neutreeko', enabled: true, recommended: false, category: '结子棋/成型', intro: '' },
 			{ id: 'lines-of-action', name: '集结棋', randomLevel: 0, path: 'lines-of-action', enabled: true, recommended: false, category: '结子棋/成型', intro: '把棋子全部连起来。' },
+
+			// 贯棋类
+			{ id: 'connection', name: '贯棋', randomLevel: 0, path: 'connection', roomPlugin: 'connection-rooms.js', enabled: false, recommended: false, category: '贯棋/连接', intro: '' },
+			{ id: 'hexagon-connection', name: '六贯棋', randomLevel: 0, path: 'hexagon-connection', roomPlugin: 'hexagon-connection-room.js', enabled: true, recommended: false, category: '贯棋/连接', intro: '' },
 
 			// 其它类
             { id: 'super-24', name: '超级24点', randomLevel: 0, path: 'super-24', enabled: true, recommended: false, category: '其它', intro: '' },
@@ -122,6 +128,7 @@
             { id: 'dfw', name: 'DFW', randomLevel: 0, path: 'dfw', enabled: true, recommended: false, category: '其它', intro: '测试游戏，无实际功能。' },
 		];
     const subGameNames = {
+        'cylinder-weiqi': '柱面围棋',
         'weak-magnetism-weiqi': '弱磁性围棋', 'medium-magnetism-weiqi': '中磁性围棋', 'strong-magnetism-weiqi': '强磁性围棋',
         'biliberty-weiqi': '二气围棋', 'triliberty-weiqi': '三气围棋', 'quadriliberty-weiqi': '四气围棋',
         'triangle-weiqi': '三角围棋', 'snub-quadrangle-weiqi': '扭棱四角围棋', 'cairo-pentagon-weiqi': '开罗五角围棋',
@@ -133,7 +140,7 @@
         'custom-weiqi-triangle': '自定义围棋（三角）', 'custom-weiqi-snub': '自定义围棋（扭棱四角）',
         'custom-weiqi-cairo': '自定义围棋（开罗五角）', 'custom-weiqi-floret': '自定义围棋（花形五角）', 'custom-weiqi-hexagon': '自定义围棋（六角）'
     };
-    const catalog = { games, categories: ['围棋/占地', '五子棋/成型', '象棋/杀王', '不围棋/封锁', '国际跳棋/全歼', '跳达棋/到达', '结子棋/成型', '其它'],
+    const catalog = { games, categories: ['围棋/占地', '五子棋/成型', '象棋/杀王', '不围棋/封锁', '国际跳棋/全歼', '跳达棋/到达', '结子棋/成型', '贯棋/连接', '其它'],
         getGameName(id) { return subGameNames[id] || games.find(game => game.id === id)?.name || id; }
     };
     if (typeof module === 'object' && module.exports) module.exports = catalog;

@@ -1698,31 +1698,7 @@
          * 与棋盘外框完全同一套 canvas arcTo 路径（三角/六角/菱三角 drawRounded*）。
          */
         function traceRoundedPolygon(ctx2d, vertices, radius) {
-            const n = vertices && vertices.length;
-            if (!n || n < 3) return;
-            const startPoints = [];
-            const endPoints = [];
-            for (let i = 0; i < n; i++) {
-                const curr = vertices[i];
-                const prev = vertices[(i - 1 + n) % n];
-                const next = vertices[(i + 1) % n];
-                const v1 = { x: prev.x - curr.x, y: prev.y - curr.y };
-                const v2 = { x: next.x - curr.x, y: next.y - curr.y };
-                const len1 = Math.hypot(v1.x, v1.y) || 1;
-                const len2 = Math.hypot(v2.x, v2.y) || 1;
-                const dx1 = v1.x / len1;
-                const dy1 = v1.y / len1;
-                const dx2 = v2.x / len2;
-                const dy2 = v2.y / len2;
-                startPoints.push({ x: curr.x + dx1 * radius, y: curr.y + dy1 * radius });
-                endPoints.push({ x: curr.x + dx2 * radius, y: curr.y + dy2 * radius });
-            }
-            ctx2d.beginPath();
-            ctx2d.moveTo(endPoints[n - 1].x, endPoints[n - 1].y);
-            for (let i = 0; i < n; i++) {
-                ctx2d.arcTo(vertices[i].x, vertices[i].y, endPoints[i].x, endPoints[i].y, radius);
-            }
-            ctx2d.closePath();
+            global.QiSquareWeiqiCanvas.traceRoundedPolygon(ctx2d, vertices, radius);
         }
 
         function resolveSeatOverlayShapeGeom() {
@@ -3475,6 +3451,35 @@
         }
     }
 
+    /** Shared convex frame path: arc radius and tangent distance differ at non-right angles. */
+    function traceRoundedPolygon(ctx, vertices, radius) {
+        const n = vertices && vertices.length;
+        ctx.beginPath();
+        if (!n || n < 3) return;
+        const corners = [];
+        for (let i = 0; i < n; i++) {
+            const p = vertices[i], a = vertices[(i + n - 1) % n], b = vertices[(i + 1) % n];
+            const la = Math.hypot(a.x - p.x, a.y - p.y), lb = Math.hypot(b.x - p.x, b.y - p.y);
+            if (!la || !lb) { corners.push({ start: p, end: p, radius: 0 }); continue; }
+            const cosine = Math.max(-1, Math.min(1, ((a.x - p.x) * (b.x - p.x) + (a.y - p.y) * (b.y - p.y)) / (la * lb)));
+            const tanHalf = Math.tan(Math.acos(cosine) * 0.5);
+            // Rhombus tips have a smaller radius than the obtuse top/bottom corners.
+            const wanted = Math.max(0, Number(radius) || 0) * (n === 4 && cosine > 1e-6 ? 0.5 : 1);
+            const distance = tanHalf > 1e-9 ? Math.min(wanted / tanHalf, la * 0.5, lb * 0.5) : 0;
+            corners.push({ start: { x: p.x + (a.x - p.x) / la * distance, y: p.y + (a.y - p.y) / la * distance },
+                end: { x: p.x + (b.x - p.x) / lb * distance, y: p.y + (b.y - p.y) / lb * distance },
+                radius: distance * tanHalf });
+        }
+        ctx.moveTo(corners[n - 1].end.x, corners[n - 1].end.y);
+        for (let i = 0; i < n; i++) {
+            const corner = corners[i], p = vertices[i];
+            ctx.lineTo(corner.start.x, corner.start.y);
+            if (corner.radius > 0) ctx.arcTo(p.x, p.y, corner.end.x, corner.end.y, corner.radius);
+            else ctx.lineTo(p.x, p.y);
+        }
+        ctx.closePath();
+    }
+
     const draw = {
         clear(ctx, canvasSize) {
             const s = canvasSize != null ? canvasSize : DEFAULT_CANVAS_SIZE;
@@ -4428,6 +4433,68 @@
             (w / 2 - vcx * z * w / cs) + 'px ' + (h / 2 - vcy * z * h / cs) + 'px';
     }
 
+    /** 鼠标拖动只平移视角；在捕获阶段拦住松手后产生的 click，避免落子或编辑棋盘。 */
+    function bindBoardMousePan({ canvas, getZoom, screenPointFromClient, panBy, onActiveChanged,
+        canPan = () => getZoom() > 1 }) {
+        const win = canvas.ownerDocument.defaultView;
+        let active = false;
+        let start = null;
+        let last = null;
+        let dragged = false;
+        let suppressClick = false;
+        const moved = e => start && Math.hypot(e.clientX - start.x, e.clientY - start.y) > 3;
+
+        function finish() {
+            if (!active) return;
+            suppressClick = dragged;
+            active = false;
+            start = last = null;
+            onActiveChanged(false);
+        }
+
+        win.addEventListener('mousedown', e => {
+            if (e.button !== 0) return;
+            // 新的一次按下代表主动点击，不沿用上一次拖动的点击屏蔽。
+            suppressClick = false;
+            if (e.target !== canvas || !canPan()) return;
+            active = true;
+            dragged = false;
+            start = { x: e.clientX, y: e.clientY };
+            last = screenPointFromClient(e.clientX, e.clientY);
+            onActiveChanged(true);
+            e.preventDefault();
+        }, true);
+
+        win.addEventListener('mousemove', e => {
+            if (!active) return;
+            // 在窗口外松手可能收不到 mouseup；返回时也不能继续平移。
+            if (!(e.buttons & 1) || !canPan()) { finish(); return; }
+            if (!dragged && !moved(e)) return;
+            dragged = true;
+            const p = screenPointFromClient(e.clientX, e.clientY);
+            const dx = p.x - last.x;
+            const dy = p.y - last.y;
+            last = p;
+            panBy(dx, dy);
+        }, true);
+
+        win.addEventListener('mouseup', e => {
+            if (e.button !== 0 || !active) return;
+            dragged = dragged || moved(e);
+            finish();
+        }, true);
+        win.addEventListener('blur', finish);
+        canvas.ownerDocument.addEventListener('visibilitychange', () => {
+            if (canvas.ownerDocument.hidden) finish();
+        });
+        win.addEventListener('click', e => {
+            if (e.target !== canvas || e.button !== 0 || !suppressClick) return;
+            suppressClick = false;
+            e.preventDefault();
+            e.stopImmediatePropagation();
+        }, true);
+    }
+
     const QiSquareWeiqiCanvas = {
         DEFAULT_CANVAS_SIZE,
         getStarPoints,
@@ -4458,6 +4525,8 @@
         applyBoardWoodTexture,
         syncBoardWoodView,
         getWoodFill,
+        traceRoundedPolygon,
+        bindBoardMousePan,
         WOOD_TEXTURE_PRESET
     };
 
@@ -4818,6 +4887,7 @@
         }
 
         function deepCopyBoard(src) {
+            if (opts.copyBoard) return opts.copyBoard(src);
             return C().deepCopyBoard(src);
         }
 
@@ -5810,6 +5880,7 @@
         }
 
         function getClosestIntersection(x, y) {
+            if (typeof opts.getClosestIntersection === 'function') return opts.getClosestIntersection(x, y);
             return C().getClosestIntersection(x, y, ps.BOARD_SIZE, ps.PADDING, ps.CELL_SIZE);
         }
 
@@ -8644,7 +8715,7 @@ function bensonCoreGraph(opts) {
         // 须在插件 mount（创建 WebSocket）之前挂钩，否则自建 WS 的棋种收不到聊天广播
         if (!window.__qiTsumego) RoomChat.installWebSocketHook();
 
-        await loadScript('/qi/room-plugins/' + room.gameType + '-room.js');
+		await loadScript('/qi/room-plugins/' + room.gameType + '-room.js');
 
         const plugin = window.RoomPlugins && window.RoomPlugins[room.gameType];
         if (!plugin || typeof plugin.mount !== 'function') {

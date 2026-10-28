@@ -12,6 +12,7 @@ const {
     acquireKatagoSession,
     releaseKatagoSession,
     isKatagoBusyError,
+    isFixedTopologyEngine,
     KATAGO_BUSY_MESSAGE
 } = require('./katago-gtp');
 
@@ -155,16 +156,8 @@ function weightsForEngine(weights) {
     return weights;
 }
 
-function buildKatagoSetupOpts(self, board) {
-    const opts = {
-        boardSize: self.boardSize,
-        komi: engineKomi(self),
-        board,
-        gameId: engineGameId(self),
-        // 与 board 同一时刻的着法表长度：自检用它推算引擎着法史应有的手数（见 verifyEngineState）
-        moveCount: Array.isArray(self.moveCoords) ? self.moveCoords.length : 0
-    };
-    // 非方形棋盘（如开罗五角围棋）：定制 kataGo 支持 boardsize X:Y
+function buildKatagoBoardOpts(self) {
+    const opts = { boardSize: self.boardSize };
     if (self.katagoBoardWidth && self.katagoBoardHeight) {
         opts.boardWidth = self.katagoBoardWidth;
         opts.boardHeight = self.katagoBoardHeight;
@@ -172,6 +165,20 @@ function buildKatagoSetupOpts(self, board) {
     if (engineDirId(self) === 'twisted-space-weiqi') {
         opts.boardWidth = 2 * self.boardSize - 1;
         opts.boardHeight = self.boardSize;
+    }
+    return opts;
+}
+
+function buildKatagoSetupOpts(self, board) {
+    const opts = {
+        ...buildKatagoBoardOpts(self),
+        komi: engineKomi(self),
+        board,
+        gameId: engineGameId(self),
+        // 与 board 同一时刻的着法表长度：自检用它推算引擎着法史应有的手数（见 verifyEngineState）
+        moveCount: Array.isArray(self.moveCoords) ? self.moveCoords.length : 0
+    };
+    if (engineDirId(self) === 'twisted-space-weiqi') {
         if (!Array.isArray(self.cellNumbers)) throw new Error('Twist-space cell numbers are missing');
         opts.cellNumbers = self.cellNumbers.map(row => row.slice());
     }
@@ -438,9 +445,7 @@ function prepareKatagoEngine(self, ws) {
     }
 
     const gen = (self._qiKatagoPrepareGen = (self._qiKatagoPrepareGen || 0) + 1);
-    const prepPromise = acquireKatagoSession(engineDirId(self), {
-        boardSize: self.boardSize
-    }).then((session) => {
+    const prepPromise = acquireKatagoSession(engineDirId(self), buildKatagoBoardOpts(self)).then((session) => {
         if (gen !== self._qiKatagoPrepareGen) {
             releaseSessionToPool(session);
             return null;
@@ -923,7 +928,9 @@ async function verifyEngineState(self, session, gen, trigger) {
     const coordOf = (typeof self.katagoCoordOf === 'function') ? self.katagoCoordOf.bind(self) : null;
     const bridgeEngine = engineGameId(self) === 'bridge-weiqi';
     const holeEngine = engineGameId(self) === 'hole-weiqi';
+    const fixedTopologyEngine = isFixedTopologyEngine(engineGameId(self));
     let stoneDiff = 0;
+    let firstStoneDiff = null;
     for (let r = 0; r < (self.board ? self.board.length : 0) && stoneDiff === 0; r++) {
         const row = Array.isArray(self.board[r]) ? self.board[r] : [];
         for (let c = 0; c < row.length; c++) {
@@ -932,6 +939,13 @@ async function verifyEngineState(self, session, gen, trigger) {
             // showboard 打印为 '#'（回读哨兵 -9）。按对应棋种转换后仍逐点核对位置，
             // 避免把结构格当空点而每手误报，也不能跳过它们而漏报真正的拓扑差异。
             if ((bridgeEngine && row[c] === -2) || (holeEngine && row[c] === -1)) mine = -9;
+            // 固定拓扑引擎（开罗五角 / 扭棱四角 / 六角 / 扭转空间）：棋盘上不存在的格点在
+            // 站点盘面里是 -1，而引擎按 boardsize 自行把它们标成 C_WALL，showboard 同样是 '#'
+            // （-9）。不换算成同一口径的话，自检会把「结构墙 vs 空点」当成棋子差异，
+            // 从第 0 手起每一手都误报「棋盘有差异」并触发一次无谓的全量重同步
+            // （2026-10 开罗/扭棱人机对战刷屏的就是这个）。六角盘多走下面的 coordOf 换算，
+            // 不在引擎盘面上的站点格仍由 `if (!e) continue` 跳过，不受影响。
+            if (fixedTopologyEngine && row[c] === -1) mine = -9;
             let er = r; let ec = c;
             if (coordOf) {
                 const e = coordOf(r, c);
@@ -943,14 +957,18 @@ async function verifyEngineState(self, session, gen, trigger) {
             const line = probed.stones[er];
             if (!line || ec >= line.length) continue;
             // -9 = 蜂窝外的墙（六角）：站点实点映到墙上说明坐标映射错了，按不一致处理
-            if (line[ec] !== mine) { stoneDiff += 1; break; }
+            if (line[ec] !== mine) {
+                stoneDiff += 1;
+                firstStoneDiff = `首处 (${er},${ec}) 站点=${mine === -9 ? '#' : mine} 引擎=${line[ec] === -9 ? '#' : line[ec]}`;
+                break;
+            }
         }
     }
     const expectPla = colorOfSlot(seatToMove(self));
     const turnDiff = !!probed.nextPlayer && probed.nextPlayer !== expectPla;
     const moveCount = Array.isArray(self.moveCoords) ? self.moveCoords.length : 0;
     const reasons = [];
-    if (stoneDiff) reasons.push('棋盘有差异');
+    if (stoneDiff) reasons.push(`棋盘有差异（${firstStoneDiff}）`);
     if (turnDiff) reasons.push(`行棋方 ${probed.nextPlayer}≠${expectPla}`);
 
     // 引擎着法史手数（showboard 的 MoveNum = 引擎 BoardHistory::moveHistory.size()，即 set_position 之后
@@ -1165,9 +1183,7 @@ async function ensureKatagoEngine(self, opts) {
         const gen = self._qiKatagoGen;
 
         if (!session) {
-            session = await acquireKatagoSession(engineDirId(self), {
-                boardSize: self.boardSize
-            });
+            session = await acquireKatagoSession(engineDirId(self), buildKatagoBoardOpts(self));
         }
         if (gen !== self._qiKatagoGen) {
             releaseSessionToPool(session);

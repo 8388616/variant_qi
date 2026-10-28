@@ -71,8 +71,8 @@ function loadChatMessages() {
 
 let chatMessages = loadChatMessages();
 
-/** 有 room-plugins/{id}-room.js 则走统一房间页（按文件探测，无需改白名单/重启） */
 function usesRoomShell(gameId) {
+    const game = gameCatalog.games.find(entry => entry.id === gameId);
     return fs.existsSync(path.join(__dirname, 'public', 'room-plugins', `${gameId}-room.js`));
 }
 

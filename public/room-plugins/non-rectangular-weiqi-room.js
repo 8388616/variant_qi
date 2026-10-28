@@ -171,28 +171,7 @@ window.RoomPlugins['non-rectangular-weiqi'] = {
 
         /* ---------------------------- 共用绘图小件 ---------------------------- */
         function drawRoundedPolygon(ctx2, vertices, radius, skipStroke) {
-            const n = vertices.length;
-            if (n < 3) return;
-            const startPoints = [];
-            const endPoints = [];
-            for (let i = 0; i < n; i++) {
-                const curr = vertices[i];
-                const prev = vertices[(i - 1 + n) % n];
-                const next = vertices[(i + 1) % n];
-                const v1 = { x: prev.x - curr.x, y: prev.y - curr.y };
-                const v2 = { x: next.x - curr.x, y: next.y - curr.y };
-                const len1 = Math.hypot(v1.x, v1.y), len2 = Math.hypot(v2.x, v2.y);
-                startPoints.push({ x: curr.x + (v1.x / len1) * radius, y: curr.y + (v1.y / len1) * radius });
-                endPoints.push({ x: curr.x + (v2.x / len2) * radius, y: curr.y + (v2.y / len2) * radius });
-            }
-            ctx2.beginPath();
-            ctx2.moveTo(startPoints[0].x, startPoints[0].y);
-            for (let i = 0; i < n; i++) {
-                ctx2.arcTo(vertices[i].x, vertices[i].y, endPoints[i].x, endPoints[i].y, radius);
-                if (i < n - 1) ctx2.lineTo(startPoints[i + 1].x, startPoints[i + 1].y);
-            }
-            ctx2.lineTo(startPoints[0].x, startPoints[0].y);
-            ctx2.closePath();
+            QiSquareWeiqiCanvas.traceRoundedPolygon(ctx2, vertices, radius);
             ctx2.fill();
             if (!skipStroke) ctx2.stroke();
         }

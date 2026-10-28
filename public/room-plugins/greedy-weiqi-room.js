@@ -144,6 +144,83 @@ const scoreTitle = document.getElementById('scoreTitle');
         const isMouseDevice = window.matchMedia('(hover: hover) and (pointer: fine)').matches;
         const R = () => QiWeiqiSquarePageRuntime;
 
+        // This preference belongs to this page/player only; never broadcast it.
+        // Also create the control when room.html was served from an older cache.
+        let autoSingleLabel = document.getElementById('greedyAutoSingleCaptureLabel');
+        if (!autoSingleLabel) {
+            autoSingleLabel = document.createElement('label');
+            autoSingleLabel.id = 'greedyAutoSingleCaptureLabel';
+            autoSingleLabel.className = 'edit-checkbox';
+            autoSingleLabel.hidden = true;
+            const input = document.createElement('input');
+            input.type = 'checkbox';
+            input.id = 'greedyAutoSingleCaptureCheckbox';
+            autoSingleLabel.append(input, document.createTextNode(' 单选时自动落子'));
+            const editControls = document.getElementById('editControls');
+            if (editControls) editControls.after(autoSingleLabel);
+        }
+        const autoSingleCheckbox = document.getElementById('greedyAutoSingleCaptureCheckbox');
+        let autoSingleTimer = null;
+        let autoSingleLastSent = null;
+        let autoSinglePageReady = false;
+        const autoSinglePreferences = { player1: false, player2: false };
+        let autoSinglePreferenceSlot = null;
+
+        function autoSingleMove() {
+            if (!autoSinglePageReady || !autoSingleCheckbox || !autoSingleCheckbox.checked
+                || autoSingleLabel.hidden || !ps.matchStarted || ps.gameOver || !ps.isMyTurn
+                || ps.replayMode || ps.tryPlayMode || ps.editModeEnabled || browsingLiveHistory()
+                || ps.waitingScoreConfirm || (ps.matchTime && ps.matchTime.negotiation)
+                || ps.mySlot !== (ps.currentPlayer === 1 ? 'player1' : 'player2')
+                || !ps.ws || ps.ws.readyState !== 1 || ps.candidates.length !== 1) return null;
+            const p = ps.candidates[0];
+            if (!Number.isInteger(p.row) || !Number.isInteger(p.col) || !ps.board[p.row]
+                || ps.board[p.row][p.col] !== 0) return null;
+            // Having only one empty intersection is not a capture-caused choice.
+            if (!ps.board.some((row, r) => row.some((v, c) => v === 0 && (r !== p.row || c !== p.col))))
+                return null;
+            const next = basePlaceStone(ps.board, p.row, p.col, ps.currentPlayer);
+            // A lone empty intersection or a mandatory pass is never sufficient.
+            if (!next || countOpponentCaptures(ps.board, next, ps.currentPlayer) <= 0) return null;
+            const history = liveCandidateHistorySet();
+            if (history && history.has(boardToString(next))) return null;
+            return { ...p, key: JSON.stringify([ps.mySlot, ps.numberOfHands, ps.currentPlayer,
+                boardToString(ps.board), p.row, p.col]) };
+        }
+
+        function syncAutoSingleCapture() {
+            // Local two-player mode switches the page's active seat each turn.
+            // Keep its two players' choices independent, just like two pages.
+            if (autoSingleCheckbox && autoSinglePreferenceSlot !== ps.mySlot) {
+                autoSinglePreferenceSlot = ps.mySlot;
+                autoSingleCheckbox.checked = !!autoSinglePreferences[ps.mySlot];
+            }
+            autoSingleLabel.hidden = gameType !== 'greedy-weiqi' || !!window.__qiTsumego
+                || (ps.mySlot !== 'player1' && ps.mySlot !== 'player2');
+            if (autoSingleTimer !== null) clearTimeout(autoSingleTimer);
+            autoSingleTimer = null;
+            const move = autoSingleMove();
+            if (!move || move.key === autoSingleLastSent) return;
+            // Wait until the complete incoming state (including turn and capture
+            // candidates) has been applied. Recheck if the user navigates away.
+            autoSingleTimer = setTimeout(() => {
+                autoSingleTimer = null;
+                const current = autoSingleMove();
+                if (!current || current.key !== move.key || current.key === autoSingleLastSent) return;
+                autoSingleLastSent = current.key;
+                if (commitMove(current.row, current.col)) {
+                    ps.isMyTurn = false;
+                    clearMobileMovePreview();
+                    clearCandidatesAfterLocalMove();
+                }
+            }, 0);
+        }
+        if (autoSingleCheckbox) autoSingleCheckbox.addEventListener('change', () => {
+            if (ps.mySlot === 'player1' || ps.mySlot === 'player2')
+                autoSinglePreferences[ps.mySlot] = autoSingleCheckbox.checked;
+            syncAutoSingleCapture();
+        });
+
         function countOpponentCaptures(boardBefore, boardAfter, playerVal) {
             const enemy = 3 - playerVal;
             let before = 0;
@@ -408,6 +485,7 @@ const scoreTitle = document.getElementById('scoreTitle');
             if (ps.showEstimateActive && ps.cachedLiveBoard && ps.cachedTerritory) {
                 d.estimateOverlay(ctx, ps.board, ps.BOARD_SIZE, ps.PADDING, cellSize, ps.cachedLiveBoard, ps.cachedTerritory);
             }
+            syncAutoSingleCapture();
         }
 
         const domPage = {
@@ -651,7 +729,14 @@ syncState,
                 clearEditModeUi();
             }
         });
-        const handleMessage = _weiqiBindings.handleMessage;
+        autoSinglePageReady = true;
+        function handleMessage(msg) {
+            if (['joined', 'newGameStarted', 'roomReset', 'importSuccess', 'editBoardAccepted'].includes(msg.type)
+                || (msg.type === 'broadcast' && msg.action === 'undoAccept'))
+                autoSingleLastSent = null;
+            _weiqiBindings.handleMessage(msg);
+            syncAutoSingleCapture();
+        }
         const updateRecordButtons = _weiqiBindings.updateRecordButtons;
         const updateRadioStyles = _weiqiBindings.updateRadioStyles;
 

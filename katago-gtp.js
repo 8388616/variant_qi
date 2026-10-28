@@ -62,6 +62,34 @@ const BOARD_CELL = {
     NEUTRAL: 10000
 };
 
+// Fixed topology engines derive their holes from the game and board size.
+// Snub grids are square, so board dimensions alone cannot identify these holes.
+const FIXED_TOPOLOGY_GAMES = new Set([
+    'snub-quadrangle-weiqi', 'hexagon-weiqi', 'cairo-pentagon-weiqi',
+    'twisted-space-weiqi'
+]);
+
+/** 结构格（棋盘上不存在、由引擎按尺寸/拓扑自行推导的点）是否由引擎负责：
+ *  这类棋类的站点盘面用 -1 标记结构格，而引擎 showboard 把 C_WALL 打成 '#'（回读为 -9）。
+ *  上层自检（qi-katago-opponent.verifyEngineState）必须按「站点 -1 = 引擎墙」比对，
+ *  否则每手都会把结构墙当成棋子差异，误报全量重同步。 */
+function isFixedTopologyEngine(gameId) {
+    return FIXED_TOPOLOGY_GAMES.has(gameId);
+}
+
+// Use the engine's rectangular grid, rather than the site's logical side length.
+// Cairo stores its grid width in boardSize; its grid height is two less.
+function resolveBoardDimensions(gameId, opts = {}) {
+    const rawSize = Number(opts.boardSize);
+    const boardSize = Number.isFinite(rawSize) && rawSize >= 2
+        ? Math.trunc(rawSize) : (gameId === 'cairo-pentagon-weiqi' ? 9 : 19);
+    const twist = gameId === 'twisted-space-weiqi';
+    const boardWidth = (opts.boardWidth | 0) || (twist ? 2 * boardSize - 1 : boardSize);
+    const boardHeight = (opts.boardHeight | 0) || (twist ? boardSize
+        : gameId === 'cairo-pentagon-weiqi' ? boardWidth - 2 : boardWidth);
+    return { boardSize, boardWidth, boardHeight };
+}
+
 function safeGameId(gameId) {
     return typeof gameId === 'string' && /^[a-zA-Z0-9_-]+$/.test(gameId) ? gameId : null;
 }
@@ -267,6 +295,8 @@ class KatagoGtpSession {
         this.queue = [];
         this.pending = null;
         this.dead = false;
+        this.stderrTail = '';
+        this.exitError = null;
         this.generation = 0;
         /** @type {number|null} 尚未 GTP boardsize 时为 null（非方形时存宽/列数） */
         this.boardSize = null;
@@ -293,7 +323,7 @@ class KatagoGtpSession {
         this.coordInverse = null;
     }
 
-    start() {
+    start(opts = {}) {
         if (this.proc) return Promise.resolve();
         const dir = resolveKatagoDir(this.gameId);
         const exe = findKatagoExecutable(dir);
@@ -315,7 +345,14 @@ class KatagoGtpSession {
                     MKL_NUM_THREADS: process.env.MKL_NUM_THREADS || '1',
                     NUMEXPR_NUM_THREADS: process.env.NUMEXPR_NUM_THREADS || '1'
                 };
-                this.proc = spawn(exe, ['gtp', '-model', model, '-config', cfg], {
+                const args = ['gtp', '-model', model, '-config', cfg];
+                // Cairo validates the initial board before GTP ready. A square
+                // defaultBoardSize in gtp.cfg would abort before boardsize can run.
+                if (this.gameId === 'cairo-pentagon-weiqi') {
+                    const { boardWidth, boardHeight } = resolveBoardDimensions(this.gameId, opts);
+                    args.push('-override-config', `defaultBoardXSize=${boardWidth},defaultBoardYSize=${boardHeight}`);
+                }
+                this.proc = spawn(exe, args, {
                     cwd: dir,
                     stdio: ['pipe', 'pipe', 'pipe'],
                     windowsHide: true,
@@ -334,6 +371,7 @@ class KatagoGtpSession {
             let sawGtpReady = false;
             this.proc.stderr.on('data', (chunk) => {
                 const t = chunk.toString();
+                this.stderrTail = (this.stderrTail + t).slice(-8192);
                 if (t.trim()) console.error(`[katago:${this.gameId}]`, t.trim());
                 // 等 stderr 出现 GTP ready 再发 name，避免把「加载中」误判成命令无响应后杀进程
                 if (!sawGtpReady && /GTP ready/i.test(t)) {
@@ -347,6 +385,7 @@ class KatagoGtpSession {
             });
             this.proc.on('error', (err) => {
                 this.dead = true;
+                this.exitError = err;
                 unregisterLiveSession(this);
                 if (!settled) {
                     settled = true;
@@ -357,7 +396,9 @@ class KatagoGtpSession {
             this.proc.on('exit', (code, signal) => {
                 this.dead = true;
                 unregisterLiveSession(this);
-                const err = new Error(`KataGo 已退出 (code=${code}, signal=${signal})`);
+                const detail = this.stderrTail.match(/what\(\):\s*([^\r\n]+)/);
+                const err = new Error(`KataGo 已退出 (code=${code}, signal=${signal})${detail ? ': ' + detail[1].trim() : ''}`);
+                this.exitError = err;
                 if (!settled) {
                     settled = true;
                     reject(err);
@@ -729,8 +770,7 @@ class KatagoGtpSession {
         this.coordOf = (opts && typeof opts.coordOf === 'function') ? opts.coordOf : null;
         this.coordInverse = (opts && typeof opts.coordInverse === 'function') ? opts.coordInverse : null;
         const twist = this.gameId === 'twisted-space-weiqi';
-        const boardWidth = (opts.boardWidth | 0) || (twist ? 2 * opts.boardSize - 1 : opts.boardSize | 0);
-        const boardHeight = (opts.boardHeight | 0) || (twist ? opts.boardSize | 0 : boardWidth);
+        const { boardWidth, boardHeight } = resolveBoardDimensions(this.gameId, opts);
         // Freeze and validate topology before mutating the engine. Never fall back to random numbers.
         const cellNumbers = twist ? flattenTwistCellNumbers(opts.cellNumbers, boardHeight, boardWidth) : null;
         const komi = Number(opts.komi);
@@ -917,7 +957,7 @@ class KatagoGtpSession {
         const boardWidth = (this.boardWidth | 0);
         const boardHeight = (this.boardHeight | 0) || boardWidth;
         // 结构洞棋盘（非方形，如开罗五角）：无效格由引擎按尺寸自动识别（C_WALL），不传 -1
-        const structuralHoles = boardWidth !== boardHeight;
+        const structuralHoles = FIXED_TOPOLOGY_GAMES.has(this.gameId) || boardWidth !== boardHeight;
         const pairs = [];
         if (Array.isArray(board)) {
             for (let r = 0; r < boardHeight; r++) {
@@ -1001,7 +1041,8 @@ class KatagoGtpSession {
         try {
             await this.command('kata-raw-nn 0', { timeoutMs: 180000 });
             this._nnPrimedForSize = size;
-        } catch (_) {
+        } catch (err) {
+            if (this.dead || !this.proc) throw err;
             // 无该命令则留给首着 genmove
         }
     }
@@ -1362,21 +1403,18 @@ function scheduleIdleReclaim(entry) {
  * 轻量预热：按对局路数 boardsize + kata-raw-nn（禁止 genmove）。
  * 必须与开局路数一致，否则 setupGame 再改路数会再次冷启动，首着仍然很慢。
  * @param {KatagoGtpSession} session
- * @param {{ boardSize?: number }} [opts]
+ * @param {{ boardSize?: number, boardWidth?: number, boardHeight?: number }} [opts]
  */
 async function warmupSession(session, opts) {
-    const rawSize = opts && opts.boardSize != null ? Number(opts.boardSize) : NaN;
-    const twist = session.gameId === 'twisted-space-weiqi';
-    const boardSize = Number.isFinite(rawSize)
-        ? Math.min(19, Math.max(2, rawSize | 0))
-        : 19;
+    const { boardSize, boardWidth, boardHeight } = resolveBoardDimensions(session.gameId, opts);
     // boardsize 若触发 NN 按路数重建，19 路可能远超 60s
-    const boardsizeTimeoutMs = boardSize >= 15 ? 300000 : 120000;
+    const boardsizeTimeoutMs = Math.max(boardWidth, boardHeight) >= 15 ? 300000 : 120000;
     try {
-        const width = twist ? 2 * boardSize - 1 : boardSize;
-        await session.command(twist ? `boardsize ${width}:${boardSize}` : `boardsize ${boardSize}`, { timeoutMs: boardsizeTimeoutMs });
+        const sizeArg = boardWidth === boardHeight ? `${boardWidth}` : `${boardWidth}:${boardHeight}`;
+        await session.command(`boardsize ${sizeArg}`, { timeoutMs: boardsizeTimeoutMs });
         session.boardSize = boardSize;
-        if (twist) { session.boardWidth = width; session.boardHeight = boardSize; }
+        session.boardWidth = boardWidth;
+        session.boardHeight = boardHeight;
         session._nnPrimedForSize = null;
         await session.command('clear_board', { timeoutMs: 30000 });
         // 已有其它存活 KataGo 时跳过 19 路 raw-nn，避免双进程同时推理把机器打满
@@ -1391,7 +1429,7 @@ async function warmupSession(session, opts) {
         throw err;
     }
     if (!session || session.dead || !session.proc) {
-        throw new Error('KataGo warmup 后进程不可用');
+        throw session && session.exitError || new Error('KataGo warmup 后进程不可用');
     }
 }
 
@@ -1434,7 +1472,7 @@ async function takeIdleSession(id) {
 
 /**
  * @param {string} id
- * @param {{ boardSize?: number }} [opts]
+ * @param {{ boardSize?: number, boardWidth?: number, boardHeight?: number }} [opts]
  */
 async function spawnNewSession(id, opts) {
     // 先丢掉空闲热池（含其它棋类），再加载新模型，降低双模型并行加载导致的 GTP ready 超时
@@ -1448,7 +1486,7 @@ async function spawnNewSession(id, opts) {
     const session = new KatagoGtpSession(id);
     try {
         session.filesStamp = engineFilesStamp(id);   // 记下本进程是按哪份 cfg/二进制起来的
-        await session.start();
+        await session.start(opts);
         await warmupSession(session, opts);
         session._fromPool = false;
         return session;
@@ -1464,7 +1502,7 @@ async function spawnNewSession(id, opts) {
  * 取得可用引擎：优先复用空闲进程，否则在全局上限内启动并预热。
  * 达上限且本棋类无空闲时，先回收其它棋类空闲进程；活跃达上限则抛 KatagoBusyError。
  * @param {string} gameId
- * @param {{ boardSize?: number }} [opts]
+ * @param {{ boardSize?: number, boardWidth?: number, boardHeight?: number }} [opts]
  * @returns {Promise<KatagoGtpSession>}
  */
 /**
@@ -1541,6 +1579,7 @@ function releaseKatagoSession(session) {
 module.exports = {
     flattenTwistCellNumbers,
     BOARD_CELL,
+    isFixedTopologyEngine,
     IDLE_RECLAIM_MS,
     GLOBAL_PROCESS_LIMIT,
     KATAGO_BUSY_MESSAGE,

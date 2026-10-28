@@ -427,7 +427,6 @@ syncState,
         }, { passive: false });
 
         let boardMousePanning = false;
-        let boardPanLastScreen = null;
 
         function boardUpdateGrabCursor() {
             if (boardMousePanning) {
@@ -437,31 +436,20 @@ syncState,
             }
         }
 
-        canvas.addEventListener('mousedown', (e) => {
-            if (e.button !== 0 || ps.viewZoom <= 1) return;
-            boardMousePanning = true;
-            boardPanLastScreen = boardScreenPointFromClient(e.clientX, e.clientY);
-            boardUpdateGrabCursor();
-            e.preventDefault();
-        });
-
-        window.addEventListener('mousemove', (e) => {
-            if (!boardMousePanning || !boardPanLastScreen) return;
-            const p = boardScreenPointFromClient(e.clientX, e.clientY);
-            const dx = p.x - boardPanLastScreen.x;
-            const dy = p.y - boardPanLastScreen.y;
-            ps.viewCenterX -= dx / ps.viewZoom;
-            ps.viewCenterY -= dy / ps.viewZoom;
-            boardPanLastScreen = p;
-            clampBoardView();
-            drawBoardCore();
-        });
-
-        window.addEventListener('mouseup', () => {
-            if (!boardMousePanning) return;
-            boardMousePanning = false;
-            boardPanLastScreen = null;
-            boardUpdateGrabCursor();
+        QiSquareWeiqiCanvas.bindBoardMousePan({
+            canvas,
+            getZoom: () => ps.viewZoom,
+            screenPointFromClient: boardScreenPointFromClient,
+            panBy(dx, dy) {
+                ps.viewCenterX -= dx / ps.viewZoom;
+                ps.viewCenterY -= dy / ps.viewZoom;
+                clampBoardView();
+                drawBoardCore();
+            },
+            onActiveChanged(active) {
+                boardMousePanning = active;
+                boardUpdateGrabCursor();
+            }
         });
 
         let pinchGesture = false;
