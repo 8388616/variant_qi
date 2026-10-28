@@ -80,6 +80,17 @@ function isFixedTopologyEngine(gameId) {
 // Use the engine's rectangular grid, rather than the site's logical side length.
 // Cairo stores its grid width in boardSize; its grid height is two less.
 function resolveBoardDimensions(gameId, opts = {}) {
+    if (gameId === 'hexagon-weiqi') {
+        // The site's boardSize is the lane count, not the engine grid width.
+        const lanes = opts.boardSize == null ? 9 : Number(opts.boardSize);
+        if (!Number.isInteger(lanes) || lanes < 3 || lanes > 11)
+            throw new Error('Hexagon boardSize must be an integer lane count from 3 to 11');
+        const boardWidth = opts.boardWidth == null ? 4 * lanes - 5 : Number(opts.boardWidth);
+        const boardHeight = opts.boardHeight == null ? 4 * lanes - 4 : Number(opts.boardHeight);
+        if (boardWidth !== 4 * lanes - 5 || boardHeight !== 4 * lanes - 4)
+            throw new Error('Hexagon engine grid must be (4 * lanes - 5) by (4 * lanes - 4)');
+        return { boardSize: lanes, boardWidth, boardHeight };
+    }
     const rawSize = Number(opts.boardSize);
     const boardSize = Number.isFinite(rawSize) && rawSize >= 2
         ? Math.trunc(rawSize) : (gameId === 'cairo-pentagon-weiqi' ? 9 : 19);
@@ -346,9 +357,10 @@ class KatagoGtpSession {
                     NUMEXPR_NUM_THREADS: process.env.NUMEXPR_NUM_THREADS || '1'
                 };
                 const args = ['gtp', '-model', model, '-config', cfg];
-                // Cairo validates the initial board before GTP ready. A square
-                // defaultBoardSize in gtp.cfg would abort before boardsize can run.
-                if (this.gameId === 'cairo-pentagon-weiqi') {
+                // These engines validate the initial grid before GTP ready.
+                // Supply physical dimensions before spawn: a square config
+                // default would abort before the first boardsize command.
+                if (this.gameId === 'cairo-pentagon-weiqi' || this.gameId === 'hexagon-weiqi') {
                     const { boardWidth, boardHeight } = resolveBoardDimensions(this.gameId, opts);
                     args.push('-override-config', `defaultBoardXSize=${boardWidth},defaultBoardYSize=${boardHeight}`);
                 }
