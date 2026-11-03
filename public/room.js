@@ -1567,8 +1567,22 @@
                 && !S.waitingScoreConfirm
                 && (seatedCount === 0 || (seatedCount === 1 && mySlot));
         }
+        function canShowComputerOnSeatOverlay() {
+            const slots = (ctx.getSlots && ctx.getSlots()) || S.slots || {};
+            const mySlot = ctx.getMySlot ? ctx.getMySlot() : S.mySlot;
+            return !!vsComputerBtn && !S.soloMode && !mySlot && !slots.player1 && !slots.player2
+                && canStartVsComputer();
+        }
         function updateVsComputerBtn() {
             if (vsComputerBtn) vsComputerBtn.style.display = canStartVsComputer() ? '' : 'none';
+            // 子棋类的引擎状态可能晚于盘面同步，面板和蒙版按钮必须一起刷新。
+            if (ctx.boardSeatOverlay) {
+                const visible = canShowComputerOnSeatOverlay();
+                getSeatOverlayMounts().forEach(container => {
+                    const button = container.querySelector(':scope > .qi-seat-overlay [data-seat-action="computer"]');
+                    if (button) button.hidden = !visible;
+                });
+            }
         }
         if (vsComputerBtn) {
             vsComputerBtn.onclick = () => {
@@ -1964,7 +1978,7 @@
                 return;
             }
             const canStartSolo = !matchStarted && !mySlot && !slots.player1 && !slots.player2 && !S.gameOver;
-            if (btnComputer) btnComputer.hidden = !(canStartSolo && vsComputerBtn && canStartVsComputer());
+            if (btnComputer) btnComputer.hidden = !canShowComputerOnSeatOverlay();
             if (btnLocal) btnLocal.hidden = !canStartSolo;
 
             const gameOver = typeof ctx.getGameOver === 'function' && !!ctx.getGameOver();
