@@ -100,6 +100,69 @@ class WuziqiRoom extends QiTwoPlayerRoomBase {
         return squareWuziqiRules.isBoardFull(this.board, this.BOARD_SIZE);
     }
 
+    // ---- 人机对战（KataGo）对接接口 -------------------------------------------------
+    // qi-katago-opponent.js 是棋盘无关的通用层（围棋/五子棋共用一套），它按下面这几个约定
+    // 来操作本棋种。缺了它们，「与电脑对战」按钮会直接被 canRequestVsComputer 判为不支持。
+
+    /** 引擎侧统一按 boardSize 取路数（本棋种内部叫 BOARD_SIZE） */
+    get boardSize() { return this.BOARD_SIZE; }
+
+    /** 五子棋没有贴目：置 true 后引擎同步不再发 `komi`（五子棋引擎没有这个 GTP 命令） */
+    get katagoNoKomi() { return true; }
+
+    /**
+     * 落子（引擎着法落到盘面上用）：返回**新盘面**，非法则返回 null。
+     * 约定与围棋一致：不修改传入的 board，由调用方接管返回值。
+     */
+    tryPlaceStone(boardBefore, row, col, playerVal) {
+        if (!Array.isArray(boardBefore) || !boardBefore.length) return null;
+        const size = boardBefore.length;
+        if (!Number.isInteger(row) || !Number.isInteger(col)) return null;
+        if (row < 0 || row >= size || col < 0 || col >= size) return null;
+        if (!Array.isArray(boardBefore[row])) return null;
+        if (boardBefore[row][col] !== 0) return null;
+        const next = boardBefore.map((r) => r.slice());
+        next[row][col] = playerVal;
+        return next;
+    }
+
+    /**
+     * 电脑这一手之后的终局判定（qi-katago-opponent.applyComputerMove 的钩子）。
+     * 返回 true = 本局已结束（gameOver/winner/recordResultText 已设好），调用方只做广播。
+     * 人类落子的同类逻辑在 handleMessage 的 'move' 分支，两边必须保持一致。
+     */
+    resolveMoveOutcome(prevBoard, newBoard, row, col, playerVal, moveSlot) {
+        if (!Array.isArray(newBoard) || !newBoard.length) return false;
+        if (!squareWuziqiRules.checkFiveInRow(newBoard, row, col, playerVal, this.BOARD_SIZE)) return false;
+        this.gameOver = true;
+        this.winner = moveSlot;
+        this.recordResultText = moveSlot === 'player1' ? '黑中盘胜' : '白中盘胜';
+        this._stopClockTicker();
+        return true;
+    }
+
+    /**
+     * 电脑虚着（qi-katago-opponent.applyComputerPass 的钩子，存在时由棋种自己走一遍）。
+     * 与 handleMessage 的 'pass' 分支同规则：连虚两手判和。
+     */
+    _resolvePass(slot) {
+        if (this.gameOver) return;
+        this.lastMoveMarkers = [];
+        this.moveHistory.push({ type: 'pass', player: slot });
+        this.historyBoards.push(this.copyBoard(this.board));
+        this.currentPlayer = this.currentPlayer === 1 ? 2 : 1;
+        if (this._trailingPassCount() >= 2) {
+            this.gameOver = true;
+            this.winner = 'draw';
+            this.recordResultText = '和棋';
+            this._stopClockTicker();
+            this.broadcast({ type: 'broadcast', action: 'pass', ...this.getState() });
+            return;
+        }
+        this._syncClockAfterTurnChange();
+        this.broadcast({ type: 'broadcast', action: 'pass', ...this.getState() });
+    }
+
     _trailingPassCount() {
         let n = 0;
         for (let i = this.moveHistory.length - 1; i >= 0; i--) {
@@ -114,6 +177,22 @@ class WuziqiRoom extends QiTwoPlayerRoomBase {
             if (m.type === 'pass') return { type: 'pass', player: m.player };
             return { type: 'move', player: m.player, row: m.row, col: m.col };
         });
+    }
+
+    /** 着法表（qi-katago-opponent 整段重放引擎历史时用）：由 moveHistory 派生，不要单独维护。
+     *  留一个空 setter：common.js 的 applyOpeningBoard 等重置路径会写 `self.moveCoords = []`，
+     *  只读属性在 strict 模式下会抛 TypeError（实际清空由同一处的 moveHistory 重置完成）。 */
+    get moveCoords() { return this.wireMoveCoords(); }
+    set moveCoords(_v) { /* 派生属性，忽略赋值 */ }
+
+    /** 电脑落子写入着法表：本棋种 moveHistory 存对象（围棋族存座位字符串，故需这个钩子） */
+    recordComputerMove(slot, row, col) {
+        this.moveHistory.push({ player: slot, row, col });
+    }
+
+    /** 电脑虚着写入着法表 */
+    recordComputerPass(slot) {
+        this.moveHistory.push({ type: 'pass', player: slot });
     }
 
     getState() {
@@ -168,6 +247,9 @@ class WuziqiRoom extends QiTwoPlayerRoomBase {
 
     resetToEmpty() {
         this.board = Array(this.BOARD_SIZE).fill().map(() => Array(this.BOARD_SIZE).fill(0));
+        // 开局盘面跟着一起重置：换棋盘大小后若还留着旧尺寸的 openingBoard，
+        // 人机对战「着法重放」与棋谱/房间分享的分支会按错误尺寸重建盘面。
+        this.openingBoard = this.copyBoard(this.board);
         this.currentPlayer = 1;
         this.historyBoards = [];
         this.lastMoveMarkers = [];
@@ -447,6 +529,8 @@ class WuziqiRoom extends QiTwoPlayerRoomBase {
 
     resetGame() {
         this.board = Array(this.BOARD_SIZE).fill().map(() => Array(this.BOARD_SIZE).fill(0));
+        // 同 resetToEmpty：开局盘面必须跟着重置（人机对战重放/棋谱分支按它重建）
+        this.openingBoard = this.copyBoard(this.board);
         this.currentPlayer = 1;
         this.historyBoards = [];
         this.lastMoveMarkers = [];

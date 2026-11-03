@@ -61,7 +61,8 @@ function syncTurnAfterComputerAction(self) {
 }
 
 function supportsSquareWeiqiGtp(self) {
-    // 普通方格围棋：tryPlaceStone；复合棋子棋种（rus-weiqi）：tryPlaceShape/tryPlaceStonesAt
+    // 方格棋类（围棋 / 五子棋）通用判定：tryPlaceStone = 普通单子落子；
+    // 复合棋子棋种（rus-weiqi）：tryPlaceShape/tryPlaceStonesAt
     const common = !!(self
         && typeof self.boardSize === 'number'
         && Array.isArray(self.board)
@@ -99,6 +100,10 @@ function readKomi(self) {
  * 别在棋种里写死 ×2 后的数字。站点贴目从 getState().komi 读（选点围棋也是 2.25 点）。
  */
 function engineKomi(self) {
+    // 五子棋等「无贴目」棋类：返回 undefined（不是 null——Number(null) === 0 会真的下发 `komi 0`），
+    // setupGame 里 `Number.isFinite(komi)` 判定会跳过这条命令。五子棋引擎的 GTP 命令表里没有 komi，
+    // 发过去会被当成 unknown command，极个别实现还会因此让整条同步失败。
+    if (self && self.katagoNoKomi) return undefined;
     const k = readKomi(self);
     return Number.isFinite(k) ? Math.round(k * 2 * 1000) / 1000 : k;
 }
@@ -311,6 +316,31 @@ function bumpMoveCount(self) {
     if ('moveCount' in self && Number.isFinite(Number(self.moveCount))) {
         self.moveCount = (Number(self.moveCount) | 0) + 1;
     }
+}
+
+/**
+ * 电脑着法写入棋种的着法表。
+ * 默认（围棋族）约定：`moveHistory` 存**座位字符串**（'player1'/'player2'）、`moveCoords` 存着法对象。
+ * 五子棋这类「moveHistory 存 {player,row,col} 对象」的棋种实现 `recordComputerMove(slot,row,col)` 接管，
+ * 否则通用层会把座位字符串塞进它的对象数组——之后 wireMoveCoords()/悔棋/棋谱导出全乱。
+ */
+function recordComputerMove(self, moveSlot, row, col) {
+    if (typeof self.recordComputerMove === 'function') {
+        self.recordComputerMove(moveSlot, row, col);
+        return;
+    }
+    if (Array.isArray(self.moveHistory)) self.moveHistory.push(moveSlot);
+    if (Array.isArray(self.moveCoords)) self.moveCoords.push({ type: 'move', player: moveSlot, row, col });
+}
+
+/** 电脑虚着写入着法表（同上：棋种可接管） */
+function recordComputerPass(self, moveSlot) {
+    if (typeof self.recordComputerPass === 'function') {
+        self.recordComputerPass(moveSlot);
+        return;
+    }
+    if (Array.isArray(self.moveHistory)) self.moveHistory.push(moveSlot);
+    if (Array.isArray(self.moveCoords)) self.moveCoords.push({ type: 'pass', player: moveSlot });
 }
 
 function enrichState(self, state) {
@@ -593,8 +623,7 @@ function applyComputerMove(self, row, col) {
     if (Array.isArray(self.historyBoards)) self.historyBoards.push(copyBoard(self, newBoard));
     if (self.historyBoardSet) self.historyBoardSet.add(newBoardStr);
     if (Array.isArray(self.historyMarkers)) self.historyMarkers.push(copyMarkers(self, self.lastMoveMarkers));
-    if (Array.isArray(self.moveHistory)) self.moveHistory.push(moveSlot);
-    if (Array.isArray(self.moveCoords)) self.moveCoords.push({ type: 'move', player: moveSlot, row, col });
+    recordComputerMove(self, moveSlot, row, col);
     const prevBoard = self.board;
     self.board = newBoard;
     self.lastMoveMarkers = [{ row, col, color: playerVal }];
@@ -847,8 +876,7 @@ function applyComputerPass(self) {
     }
     if (Array.isArray(self.historyBoards)) self.historyBoards.push(copyBoard(self, self.board));
     if (Array.isArray(self.historyMarkers)) self.historyMarkers.push(copyMarkers(self, self.lastMoveMarkers));
-    if (Array.isArray(self.moveHistory)) self.moveHistory.push(moveSlot);
-    if (Array.isArray(self.moveCoords)) self.moveCoords.push({ type: 'pass', player: moveSlot });
+    recordComputerPass(self, moveSlot);
     if ('moveHighlightMarkers' in self) self.moveHighlightMarkers = [];
     if ('movePlayerColor' in self) self.movePlayerColor = self.currentPlayer;
     bumpMoveCount(self);
@@ -1571,6 +1599,12 @@ function install(self, gameId) {
 
             if (msg.type === 'requestEnd') {
                 if (!slot || this.gameOver || !this.matchStarted || this.pendingScore) return;
+                // 「申请终局→数点/结算」只对有地盘可数的棋类（围棋族）成立。
+                // 五子棋没有数点也没有 scoreLead：不接管，交回棋种自己的 handleMessage（通常是忽略）。
+                if (typeof this.computeLead !== 'function') {
+                    if (origHM) origHM(ws, msg);
+                    return;
+                }
                 if (this.friendlyMatch || require('./common').qiForcedFriendlyMatch(this)) startScoreVsComputer(this);
                 else requestRatedEnd(this, ws);
                 return;
